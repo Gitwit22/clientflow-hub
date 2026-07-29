@@ -11,6 +11,11 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { AppSidebarNav } from "@/components/AppSidebar";
+import { Toaster } from "@/components/ui/sonner";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Menu } from "lucide-react";
 
 function NotFoundComponent() {
   return (
@@ -77,16 +82,29 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "ClientFlow — Client Intake & Program Workflow Portal" },
+      {
+        name: "description",
+        content:
+          "ClientFlow centralizes client intake, program routing, forms, terms, monitoring, contracts and final reports in one admin portal.",
+      },
+      { name: "author", content: "EA Management" },
+      { property: "og:title", content: "ClientFlow — Client Intake & Program Workflow Portal" },
+      {
+        property: "og:description",
+        content: "One master client profile from intake through contract, monitoring and archive.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap",
+      },
       {
         rel: "stylesheet",
         href: appCss,
@@ -119,8 +137,33 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <div className="flex min-h-screen w-full bg-background font-sans">
+        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 lg:block">
+          <AppSidebarNav />
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-3 lg:hidden">
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="Open navigation">
+                  <Menu className="size-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-64 p-0">
+                <AppSidebarNav />
+              </SheetContent>
+            </Sheet>
+            <span className="font-display text-sm font-semibold">ClientFlow</span>
+          </header>
+
+          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+            <Outlet />
+          </main>
+        </div>
+      </div>
+      <Toaster position="top-right" richColors />
     </QueryClientProvider>
   );
 }
