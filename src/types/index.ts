@@ -288,15 +288,6 @@ export interface ActivityLog {
 
 export type FinalReportDraft = Omit<FinalReport, "id" | "clientId">;
 
-interface _UnusedActivityLog {
-  id: string;
-  clientId: string;
-  action: string;
-  description: string;
-  user: string;
-  timestamp: string;
-}
-
 export const ARCHIVE_DECISIONS = [
   "Contract Complete",
   "Program Complete",
