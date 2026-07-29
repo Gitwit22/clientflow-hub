@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const items = [
+const items: { title: string; url: string; icon: typeof Users; exact?: boolean }[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "New Intake", url: "/intake", icon: UserPlus },
@@ -26,7 +26,7 @@ const items = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Archive", url: "/archive", icon: Archive },
   { title: "Settings", url: "/settings", icon: Settings },
-] as const;
+];
 
 export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
