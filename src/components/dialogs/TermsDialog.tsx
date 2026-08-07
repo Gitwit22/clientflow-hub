@@ -13,7 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createTerms } from "@/lib/api";
 import type { Client, MonitoringFrequency, SupportType } from "@/types";
 
@@ -102,10 +108,14 @@ export function TermsDialog({
           <div className="space-y-1.5">
             <Label>Support type</Label>
             <Select value={supportType} onValueChange={(v) => setSupportType(v as SupportType)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {SUPPORT_TYPES.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -113,10 +123,14 @@ export function TermsDialog({
           <div className="space-y-1.5">
             <Label>Monitoring frequency</Label>
             <Select value={frequency} onValueChange={(v) => setFrequency(v as MonitoringFrequency)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {FREQUENCIES.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -149,11 +163,19 @@ export function TermsDialog({
 
           <div className="space-y-1.5">
             <Label>Start date</Label>
-            <Input type="date" value={text.startDate} onChange={(e) => setText({ ...text, startDate: e.target.value })} />
+            <Input
+              type="date"
+              value={text.startDate}
+              onChange={(e) => setText({ ...text, startDate: e.target.value })}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>End date</Label>
-            <Input type="date" value={text.endDate} onChange={(e) => setText({ ...text, endDate: e.target.value })} />
+            <Input
+              type="date"
+              value={text.endDate}
+              onChange={(e) => setText({ ...text, endDate: e.target.value })}
+            />
           </div>
 
           {(
@@ -178,7 +200,9 @@ export function TermsDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={handleSave}>Save terms</Button>
         </DialogFooter>
       </DialogContent>

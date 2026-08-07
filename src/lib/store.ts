@@ -60,5 +60,4 @@ export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getState, getState);
 }
 
-export const uid = (prefix: string) =>
-  `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+export const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;

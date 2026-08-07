@@ -38,7 +38,9 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           <Workflow className="size-5" />
         </span>
         <div className="leading-tight">
-          <p className="font-display text-base font-semibold text-sidebar-accent-foreground">ClientFlow</p>
+          <p className="font-display text-base font-semibold text-sidebar-accent-foreground">
+            ClientFlow
+          </p>
           <p className="text-[11px] text-sidebar-foreground/60">EA Management Portal</p>
         </div>
       </div>
@@ -71,7 +73,9 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             AM
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-sidebar-accent-foreground">Alicia Monroe</p>
+            <p className="truncate text-sm font-medium text-sidebar-accent-foreground">
+              Alicia Monroe
+            </p>
             <p className="text-[11px] text-sidebar-foreground/60">Admin</p>
           </div>
           <FileText className="ml-auto size-4 text-sidebar-foreground/40" />

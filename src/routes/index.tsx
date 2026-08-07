@@ -39,11 +39,29 @@ function Dashboard() {
   const stats = [
     { label: "New Intakes", value: clients.filter((c) => c.status === "New Intake").length },
     { label: "Needs Review", value: clients.filter((c) => c.status === "Needs Review").length },
-    { label: "Forms Sent", value: formAssignments.filter((f) => ["Sent", "Opened", "In Progress"].includes(f.status)).length },
-    { label: "Active Clients", value: clients.filter((c) => ["Active", "Monitoring"].includes(c.status)).length },
-    { label: "Monitoring Due", value: monitoring.filter((m) => m.status === "Due" || m.status === "Overdue").length },
-    { label: "Contracts Pending", value: contracts.filter((c) => ["Draft", "Internal Review", "Sent"].includes(c.status)).length },
-    { label: "Completed This Month", value: clients.filter((c) => c.status === "Completed").length },
+    {
+      label: "Forms Sent",
+      value: formAssignments.filter((f) =>
+        ["sent", "delivered", "opened", "in_progress"].includes(f.status),
+      ).length,
+    },
+    {
+      label: "Active Clients",
+      value: clients.filter((c) => ["Active", "Monitoring"].includes(c.status)).length,
+    },
+    {
+      label: "Monitoring Due",
+      value: monitoring.filter((m) => m.status === "Due" || m.status === "Overdue").length,
+    },
+    {
+      label: "Contracts Pending",
+      value: contracts.filter((c) => ["Draft", "Internal Review", "Sent"].includes(c.status))
+        .length,
+    },
+    {
+      label: "Completed This Month",
+      value: clients.filter((c) => c.status === "Completed").length,
+    },
     { label: "Archived Clients", value: clients.filter((c) => c.isArchived).length },
   ];
 
@@ -55,11 +73,17 @@ function Dashboard() {
   const attention = clients.filter(
     (c) =>
       !c.isArchived &&
-      (["Needs Review", "More Information Needed", "Final Report Needed", "Contract Pending"].includes(c.status) ||
+      ([
+        "Needs Review",
+        "More Information Needed",
+        "Final Report Needed",
+        "Contract Pending",
+      ].includes(c.status) ||
         (c.nextFollowUpDate && new Date(c.nextFollowUpDate) < today)),
   );
 
-  const programName = (id: string | null) => programs.find((p) => p.id === id)?.name ?? "Unassigned";
+  const programName = (id: string | null) =>
+    programs.find((p) => p.id === id)?.name ?? "Unassigned";
 
   return (
     <div className="space-y-6">
@@ -68,11 +92,36 @@ function Dashboard() {
         description="Everything moving through intake, programs, monitoring and contracts today."
         actions={
           <>
-            <Button asChild><Link to="/intake"><UserPlus className="size-4" />Add client</Link></Button>
-            <Button variant="outline" asChild><Link to="/intake"><FilePlus2 className="size-4" />Create intake</Link></Button>
-            <Button variant="outline" asChild><Link to="/clients"><Send className="size-4" />Send form</Link></Button>
-            <Button variant="outline" asChild><Link to="/contracts"><FileSignature className="size-4" />Create contract</Link></Button>
-            <Button variant="outline" asChild><Link to="/reports"><ArrowUpRight className="size-4" />Generate report</Link></Button>
+            <Button asChild>
+              <Link to="/intake">
+                <UserPlus className="size-4" />
+                Add client
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/intake">
+                <FilePlus2 className="size-4" />
+                Create intake
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/clients">
+                <Send className="size-4" />
+                Send form
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/contracts">
+                <FileSignature className="size-4" />
+                Create contract
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/reports">
+                <ArrowUpRight className="size-4" />
+                Generate report
+              </Link>
+            </Button>
           </>
         }
       />
@@ -90,10 +139,15 @@ function Dashboard() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="shadow-card lg:col-span-2">
-          <CardHeader><CardTitle className="font-display text-base">Recent activity</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="font-display text-base">Recent activity</CardTitle>
+          </CardHeader>
           <CardContent className="space-y-4">
             {activity.slice(0, 6).map((a) => (
-              <div key={a.id} className="flex gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+              <div
+                key={a.id}
+                className="flex gap-3 border-b border-border pb-3 last:border-0 last:pb-0"
+              >
                 <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{a.action}</p>
@@ -108,7 +162,9 @@ function Dashboard() {
         </Card>
 
         <Card className="shadow-card">
-          <CardHeader><CardTitle className="font-display text-base">Upcoming follow-ups</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="font-display text-base">Upcoming follow-ups</CardTitle>
+          </CardHeader>
           <CardContent className="space-y-3">
             {followUps.map((c) => (
               <Link
@@ -121,7 +177,8 @@ function Dashboard() {
                 <div>
                   <p className="text-sm font-medium">{c.businessName}</p>
                   <p className="text-xs text-muted-foreground">
-                    {programName(c.programId)} · {new Date(c.nextFollowUpDate!).toLocaleDateString()}
+                    {programName(c.programId)} ·{" "}
+                    {new Date(c.nextFollowUpDate!).toLocaleDateString()}
                   </p>
                 </div>
               </Link>
@@ -131,7 +188,9 @@ function Dashboard() {
       </div>
 
       <Card className="shadow-card">
-        <CardHeader><CardTitle className="font-display text-base">Clients needing attention</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="font-display text-base">Clients needing attention</CardTitle>
+        </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {attention.map((c) => (
             <Link

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: clientflow-hub
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm run preview
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_API_URL
+        scope: build
+      - key: VITE_API_URL
+        scope: runtime
+      - key: VITE_CLOUDFLARE_ACCOUNT_ID
+        scope: build
+      - key: VITE_CLOUDFLARE_API_TOKEN
+        scope: build
+      - key: VITE_SENDGRID_API_KEY
+        scope: build
+      - key: VITE_SENDGRID_FROM_EMAIL
+        scope: build
+    rootDir: .
+    healthCheckPath: /
+    preDeployCommand: ""

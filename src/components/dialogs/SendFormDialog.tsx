@@ -12,8 +12,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { assignFormToClient, renderEmailBody, sendFormEmail } from "@/lib/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  assignFormToClient,
+  createFormAssignment,
+  renderEmailBody,
+  sendFormEmail,
+} from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import type { Client } from "@/types";
 
@@ -63,8 +74,19 @@ export function SendFormDialog({
 
   async function handleSend() {
     if (!client || !template) return;
-    const assignment = await assignFormToClient(client.id, template.id, new Date(dueDate).toISOString());
-    await sendFormEmail(assignment.id);
+    await createFormAssignment({
+      clientId: client.id,
+      formTemplateId: template.id,
+      completionMethod: "secure_link",
+      deliveryMethod: "email",
+      recipientEmail: client.email,
+      assignedUserId: null,
+      dueDate: new Date(dueDate).toISOString(),
+      status: "sent",
+      organizationId: "org_ea_management",
+      isDemo: client.isDemo ?? false,
+      createdByUserId: "user_alicia",
+    });
     toast.success(`${template.name} sent to ${client.email}`);
     onOpenChange(false);
     setPreview(false);

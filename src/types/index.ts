@@ -80,12 +80,7 @@ export type SupportType =
   | "Mixed Support"
   | "Other";
 
-export type MonitoringFrequency =
-  | "Weekly"
-  | "Biweekly"
-  | "Monthly"
-  | "Quarterly"
-  | "Custom";
+export type MonitoringFrequency = "Weekly" | "Biweekly" | "Monthly" | "Quarterly" | "Custom";
 
 export type MonitoringType =
   | "Payment check"
@@ -103,6 +98,7 @@ export type UserRole = "Admin" | "Manager" | "Staff" | "Viewer";
 
 export interface Client {
   id: string;
+  organizationId?: string;
   businessName: string;
   contactName: string;
   email: string;
@@ -111,11 +107,18 @@ export interface Client {
   socialLinks?: string[];
   programId: string | null;
   status: ClientStatus;
+  profileType?: ProfileType;
+  relationshipType?: RelationshipType;
+  lifecycleStatus?: LifecycleStatus;
   assignedStaff: string;
+  assignedUserId?: string | null;
   intakeSource: string;
+  source?: ProfileSource;
   createdAt: string;
   updatedAt: string;
   nextFollowUpDate?: string;
+  convertedAt?: string | null;
+  isDemo?: boolean;
   isArchived: boolean;
   archiveReason?: string;
   finalStatus?: string;
@@ -159,7 +162,8 @@ export interface Program {
 export interface FormField {
   id: string;
   label: string;
-  type: "text" | "email" | "phone" | "textarea" | "number" | "date" | "select" | "file" | "checkbox";
+  type:
+    "text" | "email" | "phone" | "textarea" | "number" | "date" | "select" | "file" | "checkbox";
   required: boolean;
   options?: string[];
   prefillKey?: keyof Client | "businessDescription" | "programOfInterest";
@@ -177,17 +181,66 @@ export interface FormTemplate {
   isActive: boolean;
 }
 
+export type ProfileType = "individual" | "business" | "organization";
+
+export type RelationshipType = "prospect" | "applicant" | "client" | "sponsor";
+
+export type LifecycleStatus =
+  | "new"
+  | "contacted"
+  | "intake_pending"
+  | "under_review"
+  | "qualified"
+  | "active"
+  | "not_a_fit"
+  | "declined"
+  | "inactive"
+  | "archived";
+
+export type ProfileSource =
+  "admin_created" | "public_form" | "secure_invitation" | "referral" | "imported";
+
+export type CompletionMethod = "admin_assisted" | "secure_link" | "public_submission";
+
+export type DeliveryMethod = "none" | "email" | "sms" | "email_and_sms";
+
+export type FormAssignmentStatus =
+  | "draft"
+  | "sent"
+  | "delivered"
+  | "opened"
+  | "in_progress"
+  | "submitted"
+  | "under_review"
+  | "approved"
+  | "cancelled"
+  | "expired";
+
 export interface FormAssignment {
   id: string;
+  organizationId?: string;
   clientId: string;
+  profileId?: string;
   formTemplateId: string;
-  status: FormStatus;
+  assignedUserId?: string | null;
+  completionMethod?: CompletionMethod;
+  deliveryMethod?: DeliveryMethod;
+  recipientEmail?: string | null;
+  recipientPhone?: string | null;
+  status: FormAssignmentStatus;
+  dueAt?: string | null;
   sentAt?: string;
   openedAt?: string;
+  startedAt?: string | null;
   submittedAt?: string;
+  cancelledAt?: string | null;
   dueDate?: string;
-  secureLink: string;
+  secureLink?: string;
   responses?: Record<string, string>;
+  createdByUserId?: string;
+  isDemo?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Terms {
@@ -300,9 +353,4 @@ export const ARCHIVE_DECISIONS = [
   "Archived",
 ];
 
-export const STAFF = [
-  "Alicia Monroe",
-  "Derrick Hale",
-  "Priya Raman",
-  "Marcus Webb",
-];
+export const STAFF = ["Alicia Monroe", "Derrick Hale", "Priya Raman", "Marcus Webb"];

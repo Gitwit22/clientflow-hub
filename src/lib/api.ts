@@ -12,17 +12,20 @@ import type {
   Client,
   ClientDocument,
   Communication,
+  CompletionMethod,
   Contract,
+  DeliveryMethod,
   FinalReport,
   FormAssignment,
+  FormAssignmentStatus,
   FinalReportDraft,
   MonitoringItem,
   Program,
+  RelationshipType,
   Terms,
 } from "@/types";
 
-const delay = <T>(value: T) =>
-  new Promise<T>((resolve) => setTimeout(() => resolve(value), 120));
+const delay = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 120));
 
 const nowISO = () => new Date().toISOString();
 
@@ -45,7 +48,9 @@ export const getClients = async () => delay(getState().clients);
 export const getClientById = async (id: string) =>
   delay(getState().clients.find((c) => c.id === id) ?? null);
 
-export async function createClient(data: Omit<Client, "id" | "createdAt" | "updatedAt" | "isArchived">) {
+export async function createClient(
+  data: Omit<Client, "id" | "createdAt" | "updatedAt" | "isArchived">,
+) {
   const client: Client = {
     ...data,
     id: uid("cl"),
@@ -66,7 +71,11 @@ export async function updateClient(id: string, data: Partial<Client>) {
   return delay(getState().clients.find((c) => c.id === id) ?? null);
 }
 
-export async function archiveClient(id: string, reason = "Archived by staff", finalStatus = "Archived") {
+export async function archiveClient(
+  id: string,
+  reason = "Archived by staff",
+  finalStatus = "Archived",
+) {
   await updateClient(id, {
     isArchived: true,
     status: "Archived",
@@ -106,24 +115,93 @@ export async function updateProgram(id: string, data: Partial<Program>) {
 
 export const getFormTemplates = async () => delay(getState().formTemplates);
 
-export async function assignFormToClient(clientId: string, formTemplateId: string, dueDate?: string) {
+export async function assignFormToClient(
+  clientId: string,
+  formTemplateId: string,
+  dueDate?: string,
+) {
   const assignment: FormAssignment = {
     id: uid("fa"),
     clientId,
     formTemplateId,
-    status: "Ready to Send",
+    status: "draft",
+    completionMethod: "secure_link",
+    deliveryMethod: "email",
     dueDate,
     secureLink: `https://forms.clientflow.app/s/${Math.random().toString(16).slice(2, 8)}`,
+    createdAt: nowISO(),
+    updatedAt: nowISO(),
   };
   setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
   return delay(assignment);
+}
+
+export async function createFormAssignment(data: {
+  clientId: string;
+  formTemplateId: string;
+  completionMethod: CompletionMethod;
+  deliveryMethod: DeliveryMethod;
+  recipientEmail?: string | null;
+  recipientPhone?: string | null;
+  assignedUserId?: string | null;
+  dueDate?: string;
+  status?: FormAssignmentStatus;
+  organizationId?: string;
+  isDemo?: boolean;
+  createdByUserId?: string;
+  personalMessage?: string;
+}) {
+  const isSendLink = data.completionMethod === "secure_link";
+  const assignment: FormAssignment = {
+    id: uid("fa"),
+    organizationId: data.organizationId,
+    clientId: data.clientId,
+    profileId: data.clientId,
+    formTemplateId: data.formTemplateId,
+    assignedUserId: data.assignedUserId ?? null,
+    completionMethod: data.completionMethod,
+    deliveryMethod: data.deliveryMethod,
+    recipientEmail: data.recipientEmail ?? null,
+    recipientPhone: data.recipientPhone ?? null,
+    status: data.status ?? (isSendLink ? "sent" : "draft"),
+    dueDate: data.dueDate,
+    dueAt: data.dueDate ?? null,
+    sentAt: isSendLink ? nowISO() : undefined,
+    secureLink: isSendLink
+      ? `https://forms.clientflow.app/s/${Math.random().toString(16).slice(2, 8)}`
+      : undefined,
+    createdByUserId: data.createdByUserId ?? "user_alicia",
+    isDemo: data.isDemo ?? false,
+    createdAt: nowISO(),
+    updatedAt: nowISO(),
+  };
+  setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
+  log(
+    data.clientId,
+    "Form assigned",
+    isSendLink
+      ? `Secure link sent for ${data.formTemplateId}.`
+      : `Admin-assisted form opened for ${data.formTemplateId}.`,
+  );
+  return delay(assignment);
+}
+
+export async function convertProfile(id: string, newRelationshipType: RelationshipType = "client") {
+  await updateClient(id, {
+    relationshipType: newRelationshipType,
+    lifecycleStatus: newRelationshipType === "client" ? "active" : undefined,
+    convertedAt: nowISO(),
+    status: newRelationshipType === "client" ? "Active" : undefined,
+  });
+  log(id, "Profile converted", `Relationship type changed to ${newRelationshipType}.`);
+  return delay(true);
 }
 
 export async function sendFormEmail(formAssignmentId: string) {
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
-      a.id === formAssignmentId ? { ...a, status: "Sent", sentAt: nowISO() } : a,
+      a.id === formAssignmentId ? { ...a, status: "sent" as const, sentAt: nowISO() } : a,
     ),
   }));
   const assignment = getState().formAssignments.find((a) => a.id === formAssignmentId);
@@ -131,12 +209,15 @@ export async function sendFormEmail(formAssignmentId: string) {
   return delay(true);
 }
 
-export async function submitFormResponse(formAssignmentId: string, responses: Record<string, string>) {
+export async function submitFormResponse(
+  formAssignmentId: string,
+  responses: Record<string, string>,
+) {
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
       a.id === formAssignmentId
-        ? { ...a, status: "Submitted", submittedAt: nowISO(), responses }
+        ? { ...a, status: "submitted" as const, submittedAt: nowISO(), responses }
         : a,
     ),
   }));
@@ -146,7 +227,9 @@ export async function submitFormResponse(formAssignmentId: string, responses: Re
 export async function cancelFormAssignment(id: string) {
   setState((s) => ({
     ...s,
-    formAssignments: s.formAssignments.map((a) => (a.id === id ? { ...a, status: "Cancelled" } : a)),
+    formAssignments: s.formAssignments.map((a) =>
+      a.id === id ? { ...a, status: "cancelled" as const } : a,
+    ),
   }));
   return delay(true);
 }
@@ -298,7 +381,10 @@ export async function uploadDocument(clientId: string, file: { name: string; typ
   return delay(doc);
 }
 
-export async function addCommunication(clientId: string, data: Omit<Communication, "id" | "clientId">) {
+export async function addCommunication(
+  clientId: string,
+  data: Omit<Communication, "id" | "clientId">,
+) {
   const comm: Communication = { ...data, id: uid("cm"), clientId };
   setState((s) => ({ ...s, communications: [comm, ...s.communications] }));
   log(clientId, "Note added", data.subject);

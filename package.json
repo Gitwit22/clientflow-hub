@@ -9,7 +9,10 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "deploy:render": "npm run build",
+    "deploy:cloudflare": "npm run build && wrangler deploy",
+    "start": "node dist/server/index.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

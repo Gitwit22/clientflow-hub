@@ -20,6 +20,20 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Bun (deprecated, using npm)
+bun.lock
+bunfig.toml
+
+# Render deployment
+render.yaml.local
+.render/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

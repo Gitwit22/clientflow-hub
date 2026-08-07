@@ -1,0 +1,31 @@
+name = "clientflow-hub"
+type = "javascript"
+main = "dist/server/index.js"
+compatibility_date = "2024-12-31"
+
+[env.production]
+name = "clientflow-hub-prod"
+routes = [
+  { pattern = "clientflow-hub.pages.dev/*", zone_name = "pages.dev" }
+]
+
+[env.staging]
+name = "clientflow-hub-staging"
+routes = [
+  { pattern = "clientflow-hub-staging.pages.dev/*", zone_name = "pages.dev" }
+]
+
+[build]
+command = "npm install && npm run build"
+cwd = "."
+watch_paths = ["src/**/*.ts", "src/**/*.tsx"]
+
+[build.upload]
+format = "service-worker"
+main = "./dist/server/index.js"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
