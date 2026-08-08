@@ -94,7 +94,7 @@ function IntakePage() {
   const [searched, setSearched] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Client | null>(null);
   const [newProfile, setNewProfile] = useState({
-    contactName: "",
+    primaryContactName: "",
     businessName: "",
     email: "",
     phone: "",
@@ -140,14 +140,14 @@ function IntakePage() {
   }
 
   async function handleCreateProfile() {
-    if (!newProfile.contactName || !newProfile.email) {
+    if (!newProfile.primaryContactName || !newProfile.email) {
       toast.error("Contact name and email are required");
       return;
     }
     const created = await createClient({
       organizationId: "org_ea_management",
-      businessName: newProfile.businessName || newProfile.contactName,
-      contactName: newProfile.contactName,
+      businessName: newProfile.businessName || newProfile.primaryContactName,
+      primaryContactName: newProfile.primaryContactName,
       email: newProfile.email,
       phone: newProfile.phone,
       website: newProfile.website,
@@ -185,7 +185,7 @@ function IntakePage() {
     if (!selectedProfile || !selectedFormId) return;
     await createFormAssignment({
       clientId: selectedProfile.id,
-      formTemplateId: selectedFormId,
+      formId: selectedFormId,
       completionMethod: "admin_assisted",
       deliveryMethod: "none",
       recipientEmail: selectedProfile.email,
@@ -209,7 +209,7 @@ function IntakePage() {
     }
     await createFormAssignment({
       clientId: selectedProfile.id,
-      formTemplateId: selectedFormId,
+      formId: selectedFormId,
       completionMethod: "secure_link",
       deliveryMethod: "email",
       recipientEmail,
@@ -298,7 +298,7 @@ function IntakePage() {
                         <div>
                           <p className="font-medium">{c.businessName}</p>
                           <p className="text-sm text-muted-foreground">
-                            {c.contactName} · {c.email} · {c.phone}
+                            {c.primaryContactName} · {c.email} · {c.phone}
                           </p>
                           <div className="mt-1.5 flex flex-wrap gap-2">
                             {c.relationshipType && <StatusBadge status={c.relationshipType} />}
@@ -342,8 +342,10 @@ function IntakePage() {
               <div className="space-y-1.5">
                 <Label>Contact name *</Label>
                 <Input
-                  value={newProfile.contactName}
-                  onChange={(e) => setNewProfile({ ...newProfile, contactName: e.target.value })}
+                  value={newProfile.primaryContactName}
+                  onChange={(e) =>
+                    setNewProfile({ ...newProfile, primaryContactName: e.target.value })
+                  }
                 />
               </div>
               <div className="space-y-1.5">
@@ -466,7 +468,7 @@ function IntakePage() {
                 Choose a form for {selectedProfile.businessName}
               </h3>
               <p className="text-sm text-muted-foreground">
-                {selectedProfile.contactName} · {selectedProfile.email}
+                {selectedProfile.primaryContactName} · {selectedProfile.email}
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

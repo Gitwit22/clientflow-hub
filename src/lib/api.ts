@@ -115,15 +115,11 @@ export async function updateProgram(id: string, data: Partial<Program>) {
 
 export const getFormTemplates = async () => delay(getState().formTemplates);
 
-export async function assignFormToClient(
-  clientId: string,
-  formTemplateId: string,
-  dueDate?: string,
-) {
+export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {
   const assignment: FormAssignment = {
     id: uid("fa"),
     clientId,
-    formTemplateId,
+    formId,
     status: "draft",
     completionMethod: "secure_link",
     deliveryMethod: "email",
@@ -138,7 +134,7 @@ export async function assignFormToClient(
 
 export async function createFormAssignment(data: {
   clientId: string;
-  formTemplateId: string;
+  formId: string;
   completionMethod: CompletionMethod;
   deliveryMethod: DeliveryMethod;
   recipientEmail?: string | null;
@@ -157,7 +153,7 @@ export async function createFormAssignment(data: {
     organizationId: data.organizationId,
     clientId: data.clientId,
     profileId: data.clientId,
-    formTemplateId: data.formTemplateId,
+    formId: data.formId,
     assignedUserId: data.assignedUserId ?? null,
     completionMethod: data.completionMethod,
     deliveryMethod: data.deliveryMethod,
@@ -180,8 +176,8 @@ export async function createFormAssignment(data: {
     data.clientId,
     "Form assigned",
     isSendLink
-      ? `Secure link sent for ${data.formTemplateId}.`
-      : `Admin-assisted form opened for ${data.formTemplateId}.`,
+      ? `Secure link sent for ${data.formId}.`
+      : `Admin-assisted form opened for ${data.formId}.`,
   );
   return delay(assignment);
 }

@@ -89,7 +89,7 @@ function ClientProfile() {
     <div className="space-y-6">
       <PageHeader
         title={client.businessName}
-        description={`${client.contactName} · ${client.email} · ${client.phone}`}
+        description={`${client.primaryContactName} · ${client.email} · ${client.phone}`}
         actions={
           <>
             <Button onClick={() => setSendOpen(true)}>Send program form</Button>
@@ -251,7 +251,7 @@ function ClientProfile() {
           <Card className="shadow-card">
             <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
               <dl>
-                <Row label="Client name" value={client.contactName} />
+                <Row label="Client name" value={client.primaryContactName} />
                 <Row label="Business name" value={client.businessName} />
                 <Row label="Email" value={client.email} />
                 <Row label="Phone" value={client.phone} />
@@ -282,7 +282,7 @@ function ClientProfile() {
             </p>
           )}
           {assignments.map((a) => {
-            const prog = s.formTemplates.find((t) => t.id === a.formTemplateId);
+            const prog = s.formTemplates.find((t) => t.id === a.formId);
             const progName = prog
               ? (s.programs.find((p) => p.id === prog.programId)?.name ?? "—")
               : "—";
@@ -291,7 +291,7 @@ function ClientProfile() {
                 <CardContent className="space-y-3 p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-medium">{templateName(a.formTemplateId)}</p>
+                      <p className="font-medium">{templateName(a.formId)}</p>
                       <p className="text-xs text-muted-foreground">{progName}</p>
                     </div>
                     <StatusBadge status={a.status} />

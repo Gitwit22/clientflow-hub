@@ -81,7 +81,7 @@ function ClientsPage() {
     return (
       !t ||
       c.businessName.toLowerCase().includes(t) ||
-      c.contactName.toLowerCase().includes(t) ||
+      c.primaryContactName.toLowerCase().includes(t) ||
       c.email.toLowerCase().includes(t)
     );
   });
@@ -208,7 +208,7 @@ function ClientsPage() {
                     <div className="text-xs text-muted-foreground">{programName(c.programId)}</div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">{c.contactName}</div>
+                    <div className="text-sm">{c.primaryContactName}</div>
                     <div className="text-xs text-muted-foreground">{c.email}</div>
                   </TableCell>
                   <TableCell>

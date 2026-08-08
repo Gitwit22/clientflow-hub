@@ -100,7 +100,7 @@ export interface Client {
   id: string;
   organizationId?: string;
   businessName: string;
-  contactName: string;
+  primaryContactName: string;
   email: string;
   phone: string;
   website?: string;
@@ -221,7 +221,7 @@ export interface FormAssignment {
   organizationId?: string;
   clientId: string;
   profileId?: string;
-  formTemplateId: string;
+  formId: string;
   assignedUserId?: string | null;
   completionMethod?: CompletionMethod;
   deliveryMethod?: DeliveryMethod;

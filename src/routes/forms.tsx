@@ -52,8 +52,8 @@ function FormsPage() {
 
   const filteredSubmissions = formAssignments.filter((a) => {
     if (submissionFilter === "all") return true;
-    if (submissionFilter === "interest") return a.formTemplateId === "form-interest";
-    if (submissionFilter === "sponsorship") return a.formTemplateId === "form-sponsorship";
+    if (submissionFilter === "interest") return a.formId === "form-interest";
+    if (submissionFilter === "sponsorship") return a.formId === "form-sponsorship";
     return a.status === submissionFilter;
   });
 
@@ -200,7 +200,7 @@ function FormsPage() {
                 <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-sm">{templateName(a.formTemplateId)}</p>
+                      <p className="font-medium text-sm">{templateName(a.formId)}</p>
                       <StatusBadge status={a.status} />
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
@@ -213,7 +213,7 @@ function FormsPage() {
                         {clientName(a.clientId)}
                       </Link>
                       {" · "}
-                      {programOfTemplate(a.formTemplateId)}
+                      {programOfTemplate(a.formId)}
                       {a.completionMethod && (
                         <>
                           {" "}

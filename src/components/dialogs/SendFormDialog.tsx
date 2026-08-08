@@ -52,7 +52,7 @@ export function SendFormDialog({
   const body = useMemo(
     () =>
       renderEmailBody({
-        contactName: client?.contactName ?? "{{contactName}}",
+        contactName: client?.primaryContactName ?? "{{contactName}}",
         programName: program?.name ?? "{{programName}}",
         dueDate,
         secureFormLink: secureLink,
@@ -63,7 +63,7 @@ export function SendFormDialog({
 
   const prefilled = client
     ? [
-        ["Contact name", client.contactName],
+        ["Contact name", client.primaryContactName],
         ["Business name", client.businessName],
         ["Email", client.email],
         ["Phone", client.phone],
@@ -76,7 +76,7 @@ export function SendFormDialog({
     if (!client || !template) return;
     await createFormAssignment({
       clientId: client.id,
-      formTemplateId: template.id,
+      formId: template.id,
       completionMethod: "secure_link",
       deliveryMethod: "email",
       recipientEmail: client.email,
