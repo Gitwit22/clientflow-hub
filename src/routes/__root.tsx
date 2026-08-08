@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -16,6 +17,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
+import { useAppState } from "@/lib/store";
 
 function NotFoundComponent() {
   return (
@@ -134,9 +136,34 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const { accessToken } = useAppState();
 
   return (
     <QueryClientProvider client={queryClient}>
+      {pathname === "/login" ? <Outlet /> : accessToken ? <AuthenticatedShell /> : <AuthRedirect />}
+      <Toaster position="top-right" richColors />
+    </QueryClientProvider>
+  );
+}
+
+function AuthRedirect() {
+  const router = useRouter();
+
+  useEffect(() => {
+    void router.navigate({ to: "/login", replace: true });
+  }, [router]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <p className="text-sm text-muted-foreground">Checking access...</p>
+    </div>
+  );
+}
+
+function AuthenticatedShell() {
+  return (
+    <>
       <div className="flex min-h-screen w-full bg-background font-sans">
         <aside className="sticky top-0 hidden h-screen w-64 shrink-0 lg:block">
           <AppSidebarNav />
@@ -163,7 +190,6 @@ function RootComponent() {
           </main>
         </div>
       </div>
-      <Toaster position="top-right" richColors />
-    </QueryClientProvider>
+    </>
   );
 }

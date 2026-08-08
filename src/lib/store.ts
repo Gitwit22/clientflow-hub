@@ -15,6 +15,8 @@ import type {
 } from "@/types";
 
 export interface AppState {
+  accessToken: string | null;
+  authenticatedAdmin: AuthenticatedAdmin | null;
   clients: Client[];
   programs: Program[];
   formTemplates: FormTemplate[];
@@ -28,7 +30,18 @@ export interface AppState {
   activity: ActivityLog[];
 }
 
+export interface AuthenticatedAdmin {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role?: string;
+  organizationId?: string;
+}
+
 let state: AppState = {
+  accessToken: null,
+  authenticatedAdmin: null,
   clients: mock.clients,
   programs: mock.programs,
   formTemplates: mock.formTemplates,
@@ -58,6 +71,14 @@ function subscribe(listener: () => void) {
 
 export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getState, getState);
+}
+
+export function setAuthSession(accessToken: string, authenticatedAdmin: AuthenticatedAdmin) {
+  setState((current) => ({ ...current, accessToken, authenticatedAdmin }));
+}
+
+export function clearAccessToken() {
+  setState((current) => ({ ...current, accessToken: null, authenticatedAdmin: null }));
 }
 
 export const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;

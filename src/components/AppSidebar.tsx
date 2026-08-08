@@ -5,8 +5,8 @@ import {
   Briefcase,
   ClipboardList,
   FileSignature,
-  FileText,
   LayoutDashboard,
+  LogOut,
   Settings,
   Timer,
   UserPlus,
@@ -14,6 +14,8 @@ import {
   Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { logout } from "@/lib/apiClient";
+import { useAppState } from "@/lib/store";
 
 const items: { title: string; url: string; icon: typeof Users; exact?: boolean }[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
@@ -30,6 +32,25 @@ const items: { title: string; url: string; icon: typeof Users; exact?: boolean }
 
 export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { authenticatedAdmin } = useAppState();
+  const displayName =
+    [authenticatedAdmin?.firstName, authenticatedAdmin?.lastName].filter(Boolean).join(" ") ||
+    authenticatedAdmin?.email ||
+    "Signed in";
+  const initials = displayName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      window.location.assign("/login");
+    }
+  }
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -70,15 +91,25 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-t border-sidebar-border px-5 py-4">
         <div className="flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">
-            AM
+            {initials}
           </span>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-sidebar-accent-foreground">
-              Alicia Monroe
+              {displayName}
             </p>
-            <p className="text-[11px] text-sidebar-foreground/60">Admin</p>
+            <p className="text-[11px] capitalize text-sidebar-foreground/60">
+              {authenticatedAdmin?.role?.replace("_", " ") ?? "Admin"}
+            </p>
           </div>
-          <FileText className="ml-auto size-4 text-sidebar-foreground/40" />
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="ml-auto flex size-8 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            aria-label="Log out"
+            title="Log out"
+          >
+            <LogOut className="size-4" />
+          </button>
         </div>
       </div>
     </div>

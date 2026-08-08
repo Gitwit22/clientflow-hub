@@ -15,6 +15,7 @@ import { Route as ClientsRouteImport } from './routes/clients'
 import { Route as ContractsRouteImport } from './routes/contracts'
 import { Route as FormsRouteImport } from './routes/forms'
 import { Route as IntakeRouteImport } from './routes/intake'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as MonitoringRouteImport } from './routes/monitoring'
 import { Route as ProgramsRouteImport } from './routes/programs'
 import { Route as ReportsRouteImport } from './routes/reports'
@@ -50,6 +51,11 @@ const FormsRoute = FormsRouteImport.update({
 const IntakeRoute = IntakeRouteImport.update({
   id: '/intake',
   path: '/intake',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MonitoringRoute = MonitoringRouteImport.update({
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/contracts': typeof ContractsRoute
   '/forms': typeof FormsRoute
   '/intake': typeof IntakeRoute
+  '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
   '/programs': typeof ProgramsRoute
   '/reports': typeof ReportsRoute
@@ -103,6 +110,7 @@ export interface FileRoutesByTo {
   '/contracts': typeof ContractsRoute
   '/forms': typeof FormsRoute
   '/intake': typeof IntakeRoute
+  '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
   '/programs': typeof ProgramsRoute
   '/reports': typeof ReportsRoute
@@ -118,6 +126,7 @@ export interface FileRoutesById {
   '/contracts': typeof ContractsRoute
   '/forms': typeof FormsRoute
   '/intake': typeof IntakeRoute
+  '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
   '/programs': typeof ProgramsRoute
   '/reports': typeof ReportsRoute
@@ -134,6 +143,7 @@ export interface FileRouteTypes {
     | '/contracts'
     | '/forms'
     | '/intake'
+    | '/login'
     | '/monitoring'
     | '/programs'
     | '/reports'
@@ -147,6 +157,7 @@ export interface FileRouteTypes {
     | '/contracts'
     | '/forms'
     | '/intake'
+    | '/login'
     | '/monitoring'
     | '/programs'
     | '/reports'
@@ -161,6 +172,7 @@ export interface FileRouteTypes {
     | '/contracts'
     | '/forms'
     | '/intake'
+    | '/login'
     | '/monitoring'
     | '/programs'
     | '/reports'
@@ -176,6 +188,7 @@ export interface RootRouteChildren {
   ContractsRoute: typeof ContractsRoute
   FormsRoute: typeof FormsRoute
   IntakeRoute: typeof IntakeRoute
+  LoginRoute: typeof LoginRoute
   MonitoringRoute: typeof MonitoringRoute
   ProgramsRoute: typeof ProgramsRoute
   ReportsRoute: typeof ReportsRoute
@@ -224,6 +237,13 @@ declare module '@tanstack/react-router' {
       path: '/intake'
       fullPath: '/intake'
       preLoaderRoute: typeof IntakeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/monitoring': {
@@ -291,6 +311,7 @@ const rootRouteChildren: RootRouteChildren = {
   ContractsRoute: ContractsRoute,
   FormsRoute: FormsRoute,
   IntakeRoute: IntakeRoute,
+  LoginRoute: LoginRoute,
   MonitoringRoute: MonitoringRoute,
   ProgramsRoute: ProgramsRoute,
   ReportsRoute: ReportsRoute,
