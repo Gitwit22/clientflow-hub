@@ -1,14 +1,28 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
@@ -17,11 +31,27 @@ import {
   addCommunication,
   archiveClient,
   cancelFormAssignment,
+  completeMonitoringItem,
   createFinalReport,
+  createMonitoringItem,
   generateContract,
+  rescheduleMonitoringItem,
   updateClient,
+  updateContract,
+  uploadDocument,
 } from "@/lib/api";
-import { ARCHIVE_DECISIONS, type FormAssignment } from "@/types";
+import { ARCHIVE_DECISIONS, STAFF, type FormAssignment, type MonitoringType } from "@/types";
+
+const MONITORING_TYPES: MonitoringType[] = [
+  "Payment check",
+  "Milestone check",
+  "Progress report",
+  "Document request",
+  "Follow-up meeting",
+  "Grant compliance",
+  "Sponsorship benefit fulfillment",
+  "Contract review",
+];
 
 export const Route = createFileRoute("/clients/$clientId")({
   head: () => ({
@@ -62,11 +92,34 @@ function ClientProfile() {
   const [formReadOnly, setFormReadOnly] = useState(false);
   const [note, setNote] = useState("");
   const [report, setReport] = useState({
+    originalNeed: "",
     resultsAchieved: "",
+    issuesEncountered: "",
+    recommendedNextSteps: "",
     staffComments: "",
     clientOutcome: "Program Complete",
     archiveDecision: ARCHIVE_DECISIONS[0],
   });
+
+  // Monitoring dialog state
+  const [monitoringOpen, setMonitoringOpen] = useState(false);
+  const [monitoringForm, setMonitoringForm] = useState({
+    type: "Follow-up meeting" as MonitoringType,
+    dueDate: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
+    notes: "",
+    assignedStaff: STAFF[0],
+  });
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+
+  // Documents
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // Communications
+  const [commType, setCommType] = useState<"Note" | "Email" | "Call" | "Meeting" | "Snapchat">("Note");
+  const [commSubject, setCommSubject] = useState("");
+  const [commDirection, setCommDirection] = useState<"Inbound" | "Outbound" | "Internal">("Internal");
 
   if (!client)
     return (
@@ -528,22 +581,89 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="monitoring" className="mt-4 space-y-3">
+          {monitoring.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No monitoring items yet. Add one below to start tracking progress.
+            </p>
+          )}
           {monitoring.map((m) => (
             <Card key={m.id} className="shadow-card">
-              <CardContent className="flex items-center justify-between gap-4 p-5">
-                <div>
-                  <p className="font-medium">{m.type}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Due {new Date(m.dueDate).toLocaleDateString()} · {m.assignedStaff} · {m.notes}
-                  </p>
+              <CardContent className="space-y-3 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{m.type}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Due {new Date(m.dueDate).toLocaleDateString()} · {m.assignedStaff} · {m.notes}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={m.status} />
+                    {m.status !== "Completed" && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            await completeMonitoringItem(m.id);
+                            toast.success("Marked complete");
+                          }}
+                        >
+                          Complete
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setRescheduleId(m.id);
+                            setRescheduleDate(m.dueDate.slice(0, 10));
+                          }}
+                        >
+                          Reschedule
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <StatusBadge status={m.status} />
+                {rescheduleId === m.id && (
+                  <div className="flex items-end gap-3 border-t pt-3">
+                    <div className="space-y-1">
+                      <Label>New due date</Label>
+                      <Input
+                        type="date"
+                        value={rescheduleDate}
+                        onChange={(e) => setRescheduleDate(e.target.value)}
+                        className="w-44"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        if (!rescheduleDate) return;
+                        await rescheduleMonitoringItem(
+                          m.id,
+                          new Date(rescheduleDate + "T00:00:00").toISOString(),
+                        );
+                        setRescheduleId(null);
+                        toast.success("Rescheduled");
+                      }}
+                    >
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setRescheduleId(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
+          <Button onClick={() => setMonitoringOpen(true)}>Add monitoring item</Button>
         </TabsContent>
 
         <TabsContent value="documents" className="mt-4 space-y-3">
+          {docs.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">No documents uploaded yet.</p>
+          )}
           {docs.map((d) => (
             <Card key={d.id} className="shadow-card">
               <CardContent className="flex items-center justify-between p-5">
@@ -553,40 +673,117 @@ function ClientProfile() {
                     {d.type} · {d.uploadedBy} · {new Date(d.uploadedAt).toLocaleDateString()}
                   </p>
                 </div>
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!d.url || d.url === "#"}
+                  onClick={() => window.open(d.url, "_blank", "noopener,noreferrer")}
+                >
                   Download
                 </Button>
               </CardContent>
             </Card>
           ))}
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setUploading(true);
+              await uploadDocument(client.id, {
+                name: file.name,
+                type: file.type || "application/octet-stream",
+              });
+              setUploading(false);
+              toast.success(`${file.name} uploaded`);
+              e.target.value = "";
+            }}
+          />
+          <Button disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+            {uploading ? "Uploading…" : "Upload document"}
+          </Button>
         </TabsContent>
 
         <TabsContent value="communications" className="mt-4 space-y-3">
           <Card className="shadow-card">
             <CardContent className="space-y-3 p-5">
-              <Label>Add a note</Label>
+              <div className="flex flex-wrap gap-3">
+                <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <Select
+                    value={commType}
+                    onValueChange={(v) => setCommType(v as typeof commType)}
+                  >
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["Note", "Email", "Call", "Meeting", "Snapchat"] as const).map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {commType !== "Note" && (
+                  <div className="flex-1 min-w-48 space-y-1.5">
+                    <Label>Subject</Label>
+                    <Input
+                      value={commSubject}
+                      onChange={(e) => setCommSubject(e.target.value)}
+                      placeholder="Subject or topic…"
+                    />
+                  </div>
+                )}
+                {(commType === "Email" || commType === "Call" || commType === "Meeting") && (
+                  <div className="space-y-1.5">
+                    <Label>Direction</Label>
+                    <Select
+                      value={commDirection}
+                      onValueChange={(v) => setCommDirection(v as typeof commDirection)}
+                    >
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(["Inbound", "Outbound", "Internal"] as const).map((d) => (
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
               <Textarea
                 rows={3}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Log a call, email or meeting…"
+                placeholder={
+                  commType === "Note"
+                    ? "Log a staff note…"
+                    : "Notes or details about this communication…"
+                }
               />
               <Button
                 onClick={async () => {
                   if (!note.trim()) return;
+                  const subject =
+                    commType === "Note" ? "Staff note" : commSubject.trim() || commType;
                   await addCommunication(client.id, {
-                    type: "Note",
-                    direction: "Internal",
-                    subject: "Staff note",
+                    type: commType,
+                    direction: commType === "Note" ? "Internal" : commDirection,
+                    subject,
                     notes: note,
                     date: new Date().toISOString(),
                     staffMember: client.assignedStaff,
                   });
                   setNote("");
-                  toast.success("Note added");
+                  setCommSubject("");
+                  toast.success(`${commType} logged`);
                 }}
               >
-                Add note
+                Log {commType.toLowerCase()}
               </Button>
             </CardContent>
           </Card>
@@ -607,16 +804,76 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="contracts" className="mt-4 space-y-3">
+          {contracts.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No contract generated yet. Use "Generate contract" above to create one.
+            </p>
+          )}
           {contracts.map((c) => (
             <Card key={c.id} className="shadow-card">
-              <CardContent className="p-5">
+              <CardContent className="space-y-3 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="font-medium">{c.contractType}</p>
                   <StatusBadge status={c.status} />
                 </div>
-                <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-muted p-4 font-sans text-xs whitespace-pre-wrap text-muted-foreground">
+                <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-4 font-sans text-xs whitespace-pre-wrap text-muted-foreground">
                   {c.content}
                 </pre>
+                <div className="flex flex-wrap gap-2">
+                  {(c.status === "Draft" || c.status === "Internal Review") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        await updateContract(c.id, {
+                          status: "Sent",
+                          sentAt: new Date().toISOString(),
+                        });
+                        toast.success("Contract marked as sent");
+                      }}
+                    >
+                      Mark as Sent
+                    </Button>
+                  )}
+                  {c.status === "Sent" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        await updateContract(c.id, {
+                          status: "Signed",
+                          signedAt: new Date().toISOString(),
+                        });
+                        toast.success("Contract marked as signed");
+                      }}
+                    >
+                      Mark as Signed
+                    </Button>
+                  )}
+                  {c.status === "Signed" && (
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        await updateContract(c.id, { status: "Completed" });
+                        toast.success("Contract completed");
+                      }}
+                    >
+                      Mark Completed
+                    </Button>
+                  )}
+                  {(c.status === "Sent" || c.status === "Signed") && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={async () => {
+                        await updateContract(c.id, { status: "Declined" });
+                        toast.info("Contract marked declined");
+                      }}
+                    >
+                      Mark Declined
+                    </Button>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -650,11 +907,28 @@ function ClientProfile() {
             <CardContent className="space-y-3 p-5">
               <CardTitle className="font-display text-base">Complete final report</CardTitle>
               <div className="space-y-1.5">
+                <Label>Original need / assistance requested</Label>
+                <Textarea
+                  rows={2}
+                  value={report.originalNeed}
+                  placeholder={client.intake.assistanceRequested}
+                  onChange={(e) => setReport({ ...report, originalNeed: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label>Results achieved</Label>
                 <Textarea
                   rows={2}
                   value={report.resultsAchieved}
                   onChange={(e) => setReport({ ...report, resultsAchieved: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Issues encountered</Label>
+                <Textarea
+                  rows={2}
+                  value={report.issuesEncountered}
+                  onChange={(e) => setReport({ ...report, issuesEncountered: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
@@ -672,21 +946,29 @@ function ClientProfile() {
                   onChange={(e) => setReport({ ...report, clientOutcome: e.target.value })}
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label>Recommended next steps</Label>
+                <Textarea
+                  rows={2}
+                  value={report.recommendedNextSteps}
+                  onChange={(e) => setReport({ ...report, recommendedNextSteps: e.target.value })}
+                />
+              </div>
               <Button
                 onClick={async () => {
                   await createFinalReport(client.id, {
                     programId: client.programId ?? "",
                     startDate: client.createdAt,
                     endDate: new Date().toISOString(),
-                    originalNeed: client.intake.assistanceRequested,
+                    originalNeed: report.originalNeed || client.intake.assistanceRequested,
                     supportProvided: program?.name ?? "",
                     fundingProvided: terms[0] ? `$${terms[0].fundingAmount.toLocaleString()}` : "—",
                     milestonesCompleted: terms[0]?.milestones ?? "—",
                     resultsAchieved: report.resultsAchieved,
-                    issuesEncountered: "None recorded",
+                    issuesEncountered: report.issuesEncountered || "None recorded",
                     staffComments: report.staffComments,
                     clientOutcome: report.clientOutcome,
-                    recommendedNextSteps: "Review for future programs",
+                    recommendedNextSteps: report.recommendedNextSteps || "Review for future programs",
                     archiveDecision: report.archiveDecision,
                   });
                   toast.success("Final report saved");
@@ -721,6 +1003,107 @@ function ClientProfile() {
       />
       <SendFormDialog client={client} open={sendOpen} onOpenChange={setSendOpen} />
       <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
+
+      {/* Monitoring item dialog */}
+      <Dialog open={monitoringOpen} onOpenChange={setMonitoringOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add monitoring item</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <Select
+                value={monitoringForm.type}
+                onValueChange={(v) =>
+                  setMonitoringForm({ ...monitoringForm, type: v as MonitoringType })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONITORING_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Due date</Label>
+              <Input
+                type="date"
+                value={monitoringForm.dueDate}
+                onChange={(e) =>
+                  setMonitoringForm({ ...monitoringForm, dueDate: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Assigned staff</Label>
+              <Select
+                value={monitoringForm.assignedStaff}
+                onValueChange={(v) =>
+                  setMonitoringForm({ ...monitoringForm, assignedStaff: v })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STAFF.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Textarea
+                rows={2}
+                value={monitoringForm.notes}
+                onChange={(e) =>
+                  setMonitoringForm({ ...monitoringForm, notes: e.target.value })
+                }
+                placeholder="Describe what needs to be checked or completed…"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setMonitoringOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!monitoringForm.dueDate) return;
+                await createMonitoringItem({
+                  clientId: client.id,
+                  programId: client.programId ?? "",
+                  type: monitoringForm.type,
+                  dueDate: new Date(monitoringForm.dueDate + "T00:00:00").toISOString(),
+                  status: "Scheduled",
+                  assignedStaff: monitoringForm.assignedStaff,
+                  notes: monitoringForm.notes,
+                });
+                setMonitoringOpen(false);
+                setMonitoringForm({
+                  type: "Follow-up meeting",
+                  dueDate: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
+                  notes: "",
+                  assignedStaff: STAFF[0],
+                });
+                toast.success("Monitoring item added");
+              }}
+            >
+              Add item
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
