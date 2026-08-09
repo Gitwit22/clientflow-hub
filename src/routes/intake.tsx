@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/lib/store";
-import { createClient, createFormAssignment } from "@/lib/api";
+import { createClient, createFormAssignment, sendFormEmail } from "@/lib/api";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import {
   STAFF,
@@ -206,7 +206,7 @@ function IntakePage() {
       toast.error("Recipient email is required");
       return;
     }
-    await createFormAssignment({
+    const assignment = await createFormAssignment({
       clientId: selectedProfile.id,
       formId: selectedFormId,
       completionMethod: "secure_link",
@@ -220,6 +220,7 @@ function IntakePage() {
       createdByUserId: "user_alicia",
       personalMessage,
     });
+    await sendFormEmail(assignment.id, personalMessage || undefined);
     toast.success(`Secure link sent to ${recipientEmail}`);
     setStep("done");
   }

@@ -7,6 +7,7 @@
  */
 import { getState, setState, uid } from "./store";
 import { emailTemplateBody } from "@/data/mock";
+import { sendFormEmail as apiSendFormEmail } from "./apiClient";
 import type {
   ActivityLog,
   Client,
@@ -193,15 +194,39 @@ export async function convertProfile(id: string, newRelationshipType: Relationsh
   return delay(true);
 }
 
-export async function sendFormEmail(formAssignmentId: string) {
+export async function sendFormEmail(formAssignmentId: string, personalMessage?: string) {
+  const s = getState();
+  const assignment = s.formAssignments.find((a) => a.id === formAssignmentId);
+  if (assignment?.secureLink) {
+    const client = s.clients.find((c) => c.id === assignment.clientId);
+    const template = s.formTemplates.find((t) => t.id === assignment.formId);
+    const program = s.programs.find((p) => p.id === template?.programId);
+    if (client && template) {
+      // Fire-and-forget — store update proceeds regardless of email delivery
+      apiSendFormEmail({
+        to: assignment.recipientEmail ?? client.email,
+        contactName: client.primaryContactName,
+        formName: template.name,
+        programName: program?.name ?? "EA Management Program",
+        dueDate: assignment.dueDate
+          ? new Date(assignment.dueDate).toLocaleDateString()
+          : "As soon as possible",
+        secureLink: assignment.secureLink,
+        ...(personalMessage ? { personalMessage } : {}),
+      }).catch(() => undefined);
+      log(
+        assignment.clientId,
+        "Form sent",
+        `Secure form link emailed to ${assignment.recipientEmail ?? client.email}.`,
+      );
+    }
+  }
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
       a.id === formAssignmentId ? { ...a, status: "sent" as const, sentAt: nowISO() } : a,
     ),
   }));
-  const assignment = getState().formAssignments.find((a) => a.id === formAssignmentId);
-  if (assignment) log(assignment.clientId, "Form sent", `Secure form link emailed to the client.`);
   return delay(true);
 }
 

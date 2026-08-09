@@ -220,3 +220,23 @@ export async function enableMember(organizationId: string, memberId: string) {
     method: "POST",
   });
 }
+
+// ─── Form assignment email ────────────────────────────────────────────────────
+
+export interface SendFormEmailPayload {
+  to: string;
+  contactName: string;
+  formName: string;
+  programName: string;
+  dueDate: string;
+  secureLink: string;
+  personalMessage?: string;
+}
+
+/** POST /admin/form-assignments/send-email — delivers the secure form link via Resend. */
+export async function sendFormEmail(payload: SendFormEmailPayload): Promise<void> {
+  return apiRequest("/api/v1/admin/form-assignments/send-email", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

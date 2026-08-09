@@ -74,7 +74,7 @@ export function SendFormDialog({
 
   async function handleSend() {
     if (!client || !template) return;
-    await createFormAssignment({
+    const assignment = await createFormAssignment({
       clientId: client.id,
       formId: template.id,
       completionMethod: "secure_link",
@@ -87,6 +87,7 @@ export function SendFormDialog({
       isDemo: client.isDemo ?? false,
       createdByUserId: "user_alicia",
     });
+    await sendFormEmail(assignment.id);
     toast.success(`${template.name} sent to ${client.email}`);
     onOpenChange(false);
     setPreview(false);
