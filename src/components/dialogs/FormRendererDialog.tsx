@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { changeAssignmentStatus, saveFormDraft, submitFormResponse } from "@/lib/api";
+import { changeAssignmentStatus, saveFormDraft, saveFormEdits, submitFormResponse } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import type { Client, FormAssignment, FormAssignmentStatus, FormField } from "@/types";
 
@@ -160,6 +160,9 @@ export function FormRendererDialog({
   const [submitting, setSubmitting] = useState(false);
   const [nextStatus, setNextStatus] = useState<FormAssignmentStatus | "">("");
   const [changingStatus, setChangingStatus] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [savingEdits, setSavingEdits] = useState(false);
+  const [originalResponses] = useState<Record<string, string>>(() => assignment?.responses ?? {});
 
   if (!assignment || !template) return null;
 
@@ -215,6 +218,18 @@ export function FormRendererDialog({
     }
   }
 
+  async function handleSaveEdits() {
+    setSavingEdits(true);
+    try {
+      await saveFormEdits(assignment!.id, responses);
+      toast.success("Changes saved");
+      setEditing(false);
+      onOpenChange(false);
+    } finally {
+      setSavingEdits(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
@@ -244,15 +259,15 @@ export function FormRendererDialog({
             const value = responses[field.id] ?? "";
             return (
               <div key={field.id} className="space-y-1.5">
-                <Label htmlFor={readOnly ? undefined : `field-${field.id}`}>
+                <Label htmlFor={(readOnly && !editing) ? undefined : `field-${field.id}`}>
                   {field.label}
-                  {!readOnly && field.required && (
+                  {!(readOnly && !editing) && field.required && (
                     <span className="ml-1 text-destructive" aria-hidden>
                       *
                     </span>
                   )}
                 </Label>
-                {readOnly ? (
+                {(readOnly && !editing) ? (
                   <p className={`text-sm ${value ? "" : "italic text-muted-foreground"}`}>
                     {value || "(not answered)"}
                   </p>
@@ -263,6 +278,29 @@ export function FormRendererDialog({
             );
           })}
         </div>
+
+        {readOnly && !editing && (assignment.editHistory?.length ?? 0) > 0 && (
+          <div className="space-y-3 border-t border-border pt-4">
+            <p className="text-sm font-medium text-muted-foreground">Edit history</p>
+            {[...(assignment.editHistory ?? [])].reverse().map((edit) => (
+              <div key={edit.id} className="rounded-lg border border-border p-3 text-xs space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{edit.editedBy}</span>
+                  <span className="text-muted-foreground">
+                    {new Date(edit.editedAt).toLocaleString()}
+                  </span>
+                </div>
+                {edit.changes.map((c) => (
+                  <div key={c.fieldId} className="space-y-0.5 border-l-2 border-border pl-2">
+                    <p className="font-medium text-muted-foreground">{c.fieldLabel}</p>
+                    <p className="line-through text-muted-foreground">{c.oldValue}</p>
+                    <p>{c.newValue}</p>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
 
         {readOnly && availableStatuses.length > 0 && (
           <div className="space-y-2 border-t border-border pt-4">
@@ -295,18 +333,39 @@ export function FormRendererDialog({
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-          {!readOnly && (
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleSaveDraft} disabled={saving || submitting}>
-                {saving ? "Saving…" : "Save Draft"}
+          {readOnly && editing ? (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => { setResponses(originalResponses); setEditing(false); }}
+                disabled={savingEdits}
+              >
+                Cancel Edit
               </Button>
-              <Button onClick={handleSubmit} disabled={saving || submitting}>
-                {submitting ? "Submitting…" : "Submit Form"}
+              <Button onClick={handleSaveEdits} disabled={savingEdits}>
+                {savingEdits ? "Saving…" : "Save Changes"}
               </Button>
-            </div>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+              {readOnly ? (
+                <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                  Edit Responses
+                </Button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleSaveDraft} disabled={saving || submitting}>
+                    {saving ? "Saving…" : "Save Draft"}
+                  </Button>
+                  <Button onClick={handleSubmit} disabled={saving || submitting}>
+                    {submitting ? "Submitting…" : "Submit Form"}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </DialogContent>

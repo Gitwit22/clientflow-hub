@@ -260,10 +260,23 @@ export interface FormAssignment {
   dueDate?: string;
   secureLink?: string;
   responses?: Record<string, string>;
+  editHistory?: FormEdit[];
   createdByUserId?: string;
   isDemo?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface FormEdit {
+  id: string;
+  editedAt: string;
+  editedBy: string;
+  changes: Array<{
+    fieldId: string;
+    fieldLabel: string;
+    oldValue: string;
+    newValue: string;
+  }>;
 }
 
 export interface Terms {

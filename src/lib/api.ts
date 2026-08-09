@@ -20,6 +20,7 @@ import type {
   FormAssignment,
   FormAssignmentStatus,
   FinalReportDraft,
+  FormEdit,
   MonitoringItem,
   Program,
   RelationshipType,
@@ -280,6 +281,57 @@ export async function changeAssignmentStatus(id: string, status: FormAssignmentS
       "Form status changed",
       `Assignment status updated to ${status.replace(/_/g, " ")}.`,
     );
+  return delay(true);
+}
+
+export async function saveFormEdits(id: string, newResponses: Record<string, string>) {
+  const s = getState();
+  const assignment = s.formAssignments.find((a) => a.id === id);
+  if (!assignment) return delay(false);
+
+  const template = s.formTemplates.find((t) => t.id === assignment.formId);
+  const oldResponses = assignment.responses ?? {};
+  const allFieldIds = template
+    ? template.fields.map((f) => f.id)
+    : [...new Set([...Object.keys(oldResponses), ...Object.keys(newResponses)])];
+
+  const changes = allFieldIds
+    .filter((fid) => (oldResponses[fid] ?? "") !== (newResponses[fid] ?? ""))
+    .map((fid) => {
+      const field = template?.fields.find((f) => f.id === fid);
+      return {
+        fieldId: fid,
+        fieldLabel: field?.label ?? fid,
+        oldValue: oldResponses[fid] ?? "(empty)",
+        newValue: newResponses[fid] ?? "(empty)",
+      };
+    });
+
+  if (changes.length === 0) return delay(true);
+
+  const admin = getState().authenticatedAdmin;
+  const editedBy = admin
+    ? [admin.firstName, admin.lastName].filter(Boolean).join(" ") || admin.email
+    : "Admin";
+
+  const edit: FormEdit = { id: uid("fe"), editedAt: nowISO(), editedBy, changes };
+
+  setState((s) => ({
+    ...s,
+    formAssignments: s.formAssignments.map((a) =>
+      a.id === id
+        ? { ...a, responses: newResponses, editHistory: [...(a.editHistory ?? []), edit] }
+        : a,
+    ),
+  }));
+
+  log(
+    assignment.clientId,
+    "Form edited",
+    `${editedBy} edited ${changes.length} field${changes.length !== 1 ? "s" : ""} on "${template?.name ?? id}".`,
+    editedBy,
+  );
+
   return delay(true);
 }
 
