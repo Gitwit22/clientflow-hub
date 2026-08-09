@@ -230,6 +230,34 @@ export async function cancelFormAssignment(id: string) {
   return delay(true);
 }
 
+export async function saveFormDraft(id: string, responses: Record<string, string>) {
+  setState((s) => ({
+    ...s,
+    formAssignments: s.formAssignments.map((a) =>
+      a.id === id ? { ...a, status: "in_progress" as const, responses } : a,
+    ),
+  }));
+  const assignment = getState().formAssignments.find((a) => a.id === id);
+  if (assignment)
+    log(assignment.clientId, "Form draft saved", "Admin saved form responses as a draft.");
+  return delay(true);
+}
+
+export async function changeAssignmentStatus(id: string, status: FormAssignmentStatus) {
+  setState((s) => ({
+    ...s,
+    formAssignments: s.formAssignments.map((a) => (a.id === id ? { ...a, status } : a)),
+  }));
+  const assignment = getState().formAssignments.find((a) => a.id === id);
+  if (assignment)
+    log(
+      assignment.clientId,
+      "Form status changed",
+      `Assignment status updated to ${status.replace(/_/g, " ")}.`,
+    );
+  return delay(true);
+}
+
 export const renderEmailBody = (vars: {
   contactName: string;
   programName: string;

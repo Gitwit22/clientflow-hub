@@ -18,10 +18,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/lib/store";
 import { createClient, createFormAssignment } from "@/lib/api";
+import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import {
   STAFF,
   type Client,
-  type CompletionMethod,
+  type FormAssignment,
   type ProfileSource,
   type ProfileType,
   type RelationshipType,
@@ -105,13 +106,13 @@ function IntakePage() {
     assignedStaff: STAFF[0],
   });
   const [selectedFormId, setSelectedFormId] = useState("");
-  const [completionMethod, setCompletionMethod] = useState<CompletionMethod>("secure_link");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [dueDate, setDueDate] = useState(
     new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
   );
   const [assignedStaff, setAssignedStaff] = useState(STAFF[0]);
   const [personalMessage, setPersonalMessage] = useState("");
+  const [fillingAssignment, setFillingAssignment] = useState<FormAssignment | null>(null);
 
   function handleSearch() {
     const em = searchEmail.toLowerCase().trim();
@@ -183,7 +184,7 @@ function IntakePage() {
 
   async function handleFillOutNow() {
     if (!selectedProfile || !selectedFormId) return;
-    await createFormAssignment({
+    const assignment = await createFormAssignment({
       clientId: selectedProfile.id,
       formId: selectedFormId,
       completionMethod: "admin_assisted",
@@ -196,9 +197,7 @@ function IntakePage() {
       isDemo: selectedProfile.isDemo ?? false,
       createdByUserId: "user_alicia",
     });
-    setCompletionMethod("admin_assisted");
-    toast.success("Form opened — complete it now with the client");
-    navigate({ to: "/clients/$clientId", params: { clientId: selectedProfile.id } });
+    setFillingAssignment(assignment);
   }
 
   async function handleSendSecureLink() {
@@ -226,7 +225,6 @@ function IntakePage() {
   }
 
   const templateName = (id: string) => formTemplates.find((t) => t.id === id)?.name ?? id;
-  void completionMethod; // used in createFormAssignment calls above
 
   return (
     <div className="space-y-6">
@@ -677,6 +675,21 @@ function IntakePage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {selectedProfile && (
+        <FormRendererDialog
+          key={fillingAssignment?.id ?? "none"}
+          assignment={fillingAssignment}
+          client={selectedProfile}
+          open={!!fillingAssignment}
+          onOpenChange={(v) => {
+            if (!v) {
+              setFillingAssignment(null);
+              navigate({ to: "/clients/$clientId", params: { clientId: selectedProfile.id } });
+            }
+          }}
+        />
       )}
     </div>
   );

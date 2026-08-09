@@ -9,17 +9,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
 import { useAppState } from "@/lib/store";
 import {
   addCommunication,
   archiveClient,
+  cancelFormAssignment,
   createFinalReport,
   generateContract,
   updateClient,
 } from "@/lib/api";
-import { ARCHIVE_DECISIONS } from "@/types";
+import { ARCHIVE_DECISIONS, type FormAssignment } from "@/types";
 
 export const Route = createFileRoute("/clients/$clientId")({
   head: () => ({
@@ -56,6 +58,8 @@ function ClientProfile() {
   const client = s.clients.find((c) => c.id === clientId);
   const [sendOpen, setSendOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
+  const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
+  const [formReadOnly, setFormReadOnly] = useState(false);
   const [note, setNote] = useState("");
   const [report, setReport] = useState({
     resultsAchieved: "",
@@ -326,18 +330,30 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => toast("Form opened for editing")}
+                          onClick={() => {
+                            setFormReadOnly(false);
+                            setActiveAssignment(a);
+                          }}
                         >
                           Continue
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => toast("Form sent to client")}
+                          onClick={() =>
+                            toast.info("Use \"Assign a Form\" to send a secure link to this client")
+                          }
                         >
                           Send to Client
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Form cancelled")}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            await cancelFormAssignment(a.id);
+                            toast.success("Form cancelled");
+                          }}
+                        >
                           Cancel
                         </Button>
                       </>
@@ -349,21 +365,40 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => toast.success("Form resent")}
+                          onClick={() =>
+                            toast.info("Resend not yet configured — use \"Assign a Form\" instead")
+                          }
                         >
                           Resend
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Preview opened")}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setFormReadOnly(true);
+                            setActiveAssignment(a);
+                          }}
+                        >
                           Preview
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => toast("Opening form with client")}
+                          onClick={() => {
+                            setFormReadOnly(false);
+                            setActiveAssignment(a);
+                          }}
                         >
                           Fill Out With Client
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Link cancelled")}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            await cancelFormAssignment(a.id);
+                            toast.success("Link cancelled");
+                          }}
+                        >
                           Cancel Link
                         </Button>
                       </>
@@ -373,22 +408,28 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => toast("Reviewing answers")}
+                          onClick={() => {
+                            setFormReadOnly(true);
+                            setActiveAssignment(a);
+                          }}
                         >
                           Review Answers
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => toast("Attachments opened")}
+                          onClick={() => toast.info("File attachments not yet available")}
                         >
                           View Attachments
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Note added")}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            toast.info("Use the Communications tab to add notes")
+                          }
+                        >
                           Add Note
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Status updated")}>
-                          Change Status
                         </Button>
                       </>
                     )}
@@ -397,12 +438,12 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => toast("Reviewing answers")}
+                          onClick={() => {
+                            setFormReadOnly(true);
+                            setActiveAssignment(a);
+                          }}
                         >
                           Review Answers
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Status updated")}>
-                          Change Status
                         </Button>
                       </>
                     )}
@@ -411,21 +452,32 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => toast("Viewing submission")}
+                          onClick={() => {
+                            setFormReadOnly(true);
+                            setActiveAssignment(a);
+                          }}
                         >
                           View Submission
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => toast("Attachments opened")}
+                          onClick={() => toast.info("File attachments not yet available")}
                         >
                           View Attachments
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Downloading")}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => toast.info("PDF download not yet available")}
+                        >
                           Download
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => toast("Archived")}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => toast.info("Archive not yet configured")}
+                        >
                           Archive
                         </Button>
                       </>
@@ -659,6 +711,14 @@ function ClientProfile() {
         </TabsContent>
       </Tabs>
 
+      <FormRendererDialog
+        key={activeAssignment?.id}
+        assignment={activeAssignment}
+        client={client}
+        open={!!activeAssignment}
+        onOpenChange={(v) => !v && setActiveAssignment(null)}
+        readOnly={formReadOnly}
+      />
       <SendFormDialog client={client} open={sendOpen} onOpenChange={setSendOpen} />
       <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
     </div>
