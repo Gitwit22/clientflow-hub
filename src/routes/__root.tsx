@@ -141,7 +141,13 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {pathname === "/login" ? <Outlet /> : accessToken ? <AuthenticatedShell /> : <AuthRedirect />}
+      {pathname === "/login" || pathname.startsWith("/accept-invite") ? (
+        <Outlet />
+      ) : accessToken ? (
+        <AuthenticatedShell />
+      ) : (
+        <AuthRedirect />
+      )}
       <Toaster position="top-right" richColors />
     </QueryClientProvider>
   );

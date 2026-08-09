@@ -1,4 +1,5 @@
 import { clearAccessToken, getState, setAuthSession } from "./store";
+import type { OrgMember, OrgSettings } from "@/types";
 
 const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? "https://nxt-lvl-api2.onrender.com";
@@ -172,15 +173,25 @@ export async function forgotPassword(email: string): Promise<{ message: string }
 
 // ─── Organization endpoints ───────────────────────────────────────────────────
 
-export async function getOrganizationSettings(organizationId: string) {
+export async function getOrganizationSettings(organizationId: string): Promise<OrgSettings> {
   return apiRequest(`/api/v1/organizations/${organizationId}/settings`);
 }
 
-export async function listMembers(organizationId: string) {
+export async function updateOrganizationSettings(
+  organizationId: string,
+  payload: { name?: string; replyToEmail?: string; defaultMonitoringFrequency?: string },
+): Promise<OrgSettings> {
+  return apiRequest(`/api/v1/organizations/${organizationId}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listMembers(organizationId: string): Promise<OrgMember[]> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members`);
 }
 
-export async function getMember(organizationId: string, memberId: string) {
+export async function getMember(organizationId: string, memberId: string): Promise<OrgMember> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}`);
 }
 
@@ -191,7 +202,7 @@ export interface InviteMemberPayload {
   role?: "org_admin" | "reviewer";
 }
 
-export async function inviteMember(organizationId: string, payload: InviteMemberPayload) {
+export async function inviteMember(organizationId: string, payload: InviteMemberPayload): Promise<{ message: string }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/invitations`, {
     method: "POST",
     body: JSON.stringify(payload),
@@ -202,23 +213,43 @@ export async function updateMemberRole(
   organizationId: string,
   memberId: string,
   role: "org_admin" | "reviewer",
-) {
+): Promise<{ id: string; email: string; role: string }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/role`, {
     method: "PATCH",
     body: JSON.stringify({ role }),
   });
 }
 
-export async function disableMember(organizationId: string, memberId: string) {
+export async function disableMember(organizationId: string, memberId: string): Promise<{ message: string }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/disable`, {
     method: "POST",
   });
 }
 
-export async function enableMember(organizationId: string, memberId: string) {
+export async function enableMember(organizationId: string, memberId: string): Promise<{ message: string }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/enable`, {
     method: "POST",
   });
+}
+
+// ─── Invite acceptance ────────────────────────────────────────────────────────
+
+export async function validateInvite(
+  token: string,
+): Promise<{ valid: boolean; email?: string; firstName?: string; reason?: string }> {
+  return apiRequest(`/api/v1/auth/validate-invite?token=${encodeURIComponent(token)}`);
+}
+
+export async function acceptInvite(
+  token: string,
+  newPassword: string,
+): Promise<{ accessToken: string; admin: AdminInfo }> {
+  const result = await apiRequest<{ accessToken: string; admin: AdminInfo }>("/api/v1/auth/accept-invite", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword }),
+  });
+  setAuthSession(result.accessToken, result.admin);
+  return result;
 }
 
 // ─── Form assignment email ────────────────────────────────────────────────────

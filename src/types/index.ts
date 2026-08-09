@@ -96,6 +96,29 @@ export type MonitoringStatus = "Scheduled" | "Due" | "Overdue" | "Completed";
 
 export type UserRole = "Admin" | "Manager" | "Staff" | "Viewer";
 
+export type BackendRole = "org_admin" | "reviewer" | "super_admin";
+
+export interface OrgMember {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  role: BackendRole;
+  isActive: boolean;
+  createdAt: string;
+  invitePending?: boolean;
+}
+
+export interface OrgSettings {
+  id: string;
+  name: string;
+  settings: {
+    replyToEmail?: string;
+    defaultMonitoringFrequency?: string;
+    [key: string]: unknown;
+  };
+}
+
 export interface Client {
   id: string;
   organizationId?: string;

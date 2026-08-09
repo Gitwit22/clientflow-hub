@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as ArchiveRouteImport } from './routes/archive'
 import { Route as ClientsRouteImport } from './routes/clients'
 import { Route as ContractsRouteImport } from './routes/contracts'
@@ -26,6 +27,11 @@ import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AcceptInviteRoute = AcceptInviteRouteImport.update({
+  id: '/accept-invite',
+  path: '/accept-invite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ArchiveRoute = ArchiveRouteImport.update({
@@ -91,6 +97,7 @@ const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/archive': typeof ArchiveRoute
   '/clients': typeof ClientsRouteWithChildren
   '/contracts': typeof ContractsRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/archive': typeof ArchiveRoute
   '/contracts': typeof ContractsRoute
   '/forms': typeof FormsRoute
@@ -121,6 +129,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/archive': typeof ArchiveRoute
   '/clients': typeof ClientsRouteWithChildren
   '/contracts': typeof ContractsRoute
@@ -138,6 +147,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/accept-invite'
     | '/archive'
     | '/clients'
     | '/contracts'
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/accept-invite'
     | '/archive'
     | '/contracts'
     | '/forms'
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/accept-invite'
     | '/archive'
     | '/clients'
     | '/contracts'
@@ -183,6 +195,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AcceptInviteRoute: typeof AcceptInviteRoute
   ArchiveRoute: typeof ArchiveRoute
   ClientsRoute: typeof ClientsRouteWithChildren
   ContractsRoute: typeof ContractsRoute
@@ -202,6 +215,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accept-invite': {
+      id: '/accept-invite'
+      path: '/accept-invite'
+      fullPath: '/accept-invite'
+      preLoaderRoute: typeof AcceptInviteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/archive': {
@@ -306,6 +326,7 @@ const ClientsRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AcceptInviteRoute: AcceptInviteRoute,
   ArchiveRoute: ArchiveRoute,
   ClientsRoute: ClientsRouteWithChildren,
   ContractsRoute: ContractsRoute,
