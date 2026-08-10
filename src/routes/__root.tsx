@@ -18,6 +18,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { useAppState } from "@/lib/store";
+import { useBootstrap } from "@/hooks/use-bootstrap";
 
 function NotFoundComponent() {
   return (
@@ -168,6 +169,7 @@ function AuthRedirect() {
 }
 
 function AuthenticatedShell() {
+  useBootstrap();
   return (
     <>
       <div className="flex min-h-screen w-full bg-background font-sans">

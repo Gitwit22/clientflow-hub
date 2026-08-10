@@ -1510,3 +1510,19 @@ Secure Form Link:
 
 Thank you,
 EA Management Team`;
+
+// ─── Mock ID Sets (for filtering demo data) ─────────────────────────────────
+
+export const MOCK_IDS = {
+  clients: new Set(clients.map((c) => c.id)),
+  programs: new Set(programs.map((p) => p.id)),
+  formTemplates: new Set(formTemplates.map((t) => t.id)),
+  formAssignments: new Set(formAssignments.map((a) => a.id)),
+  terms: new Set(termsList.map((t) => t.id)),
+  monitoring: new Set(monitoringItems.map((m) => m.id)),
+  contracts: new Set(contracts.map((c) => c.id)),
+  documents: new Set(documents.map((d) => d.id)),
+  communications: new Set(communications.map((c) => c.id)),
+  finalReports: new Set(finalReports.map((f) => f.id)),
+  activity: new Set(activityLogs.map((a) => a.id)),
+};

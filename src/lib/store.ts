@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import * as mock from "@/data/mock";
+import { MOCK_IDS } from "@/data/mock";
 import type {
   ActivityLog,
   Client,
@@ -28,6 +29,8 @@ export interface AppState {
   communications: Communication[];
   finalReports: FinalReport[];
   activity: ActivityLog[];
+  /** Whether mock data is hidden for this session */
+  mockHidden: boolean;
 }
 
 export interface AuthenticatedAdmin {
@@ -39,9 +42,35 @@ export interface AuthenticatedAdmin {
   organizationId?: string;
 }
 
+// ─── localStorage helpers ────────────────────────────────────────────────────
+const TOKEN_KEY = 'cf:token';
+const ADMIN_KEY = 'cf:admin';
+
+function loadFromStorage(): Pick<AppState, 'accessToken' | 'authenticatedAdmin'> {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const admin = localStorage.getItem(ADMIN_KEY);
+    return {
+      accessToken: token ?? null,
+      authenticatedAdmin: admin ? (JSON.parse(admin) as AuthenticatedAdmin) : null,
+    };
+  } catch {
+    return { accessToken: null, authenticatedAdmin: null };
+  }
+}
+
+function isMockHiddenForOrg(orgId: string): boolean {
+  try {
+    return localStorage.getItem(`cf:mockRemoved:${orgId}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+const persisted = loadFromStorage();
+
 let state: AppState = {
-  accessToken: null,
-  authenticatedAdmin: null,
+  ...persisted,
   clients: mock.clients,
   programs: mock.programs,
   formTemplates: mock.formTemplates,
@@ -53,6 +82,9 @@ let state: AppState = {
   communications: mock.communications,
   finalReports: mock.finalReports,
   activity: mock.activityLogs,
+  mockHidden: persisted.authenticatedAdmin?.organizationId
+    ? isMockHiddenForOrg(persisted.authenticatedAdmin.organizationId)
+    : false,
 };
 
 const listeners = new Set<() => void>();
@@ -74,11 +106,47 @@ export function useAppState(): AppState {
 }
 
 export function setAuthSession(accessToken: string, authenticatedAdmin: AuthenticatedAdmin) {
-  setState((current) => ({ ...current, accessToken, authenticatedAdmin }));
+  try {
+    localStorage.setItem(TOKEN_KEY, accessToken);
+    localStorage.setItem(ADMIN_KEY, JSON.stringify(authenticatedAdmin));
+  } catch { /* storage unavailable */ }
+  const orgId = authenticatedAdmin.organizationId;
+  const mockHidden = orgId ? isMockHiddenForOrg(orgId) : false;
+  setState((current) => ({ ...current, accessToken, authenticatedAdmin, mockHidden }));
 }
 
 export function clearAccessToken() {
-  setState((current) => ({ ...current, accessToken: null, authenticatedAdmin: null }));
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(ADMIN_KEY);
+  } catch { /* storage unavailable */ }
+  setState((current) => ({ ...current, accessToken: null, authenticatedAdmin: null, mockHidden: false }));
+}
+
+/**
+ * Hide mock data for this session (permanent=false) or permanently per org (permanent=true).
+ * When hidden, filters all mock IDs out of the in-memory state.
+ */
+export function hideMockData(permanent: boolean) {
+  const orgId = state.authenticatedAdmin?.organizationId;
+  if (permanent && orgId) {
+    try { localStorage.setItem(`cf:mockRemoved:${orgId}`, '1'); } catch { /* noop */ }
+  }
+  setState((current) => ({
+    ...current,
+    mockHidden: true,
+    clients: current.clients.filter((c) => !MOCK_IDS.clients.has(c.id)),
+    programs: current.programs.filter((p) => !MOCK_IDS.programs.has(p.id)),
+    formTemplates: current.formTemplates.filter((t) => !MOCK_IDS.formTemplates.has(t.id)),
+    formAssignments: current.formAssignments.filter((a) => !MOCK_IDS.formAssignments.has(a.id)),
+    terms: current.terms.filter((t) => !MOCK_IDS.terms.has(t.id)),
+    monitoring: current.monitoring.filter((m) => !MOCK_IDS.monitoring.has(m.id)),
+    contracts: current.contracts.filter((c) => !MOCK_IDS.contracts.has(c.id)),
+    documents: current.documents.filter((d) => !MOCK_IDS.documents.has(d.id)),
+    communications: current.communications.filter((c) => !MOCK_IDS.communications.has(c.id)),
+    finalReports: current.finalReports.filter((f) => !MOCK_IDS.finalReports.has(f.id)),
+    activity: current.activity.filter((a) => !MOCK_IDS.activity.has(a.id)),
+  }));
 }
 
 export const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;

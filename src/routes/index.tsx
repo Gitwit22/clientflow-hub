@@ -4,7 +4,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useAppState } from "@/lib/store";
+import { useAppState, hideMockData } from "@/lib/store";
+import { MOCK_IDS } from "@/data/mock";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -51,7 +52,8 @@ function clientStatusColor(status: string): string {
 }
 
 function Dashboard() {
-  const { clients, formAssignments, monitoring, contracts, activity, programs } = useAppState();
+  const { clients, formAssignments, monitoring, contracts, activity, programs, mockHidden } = useAppState();
+  const hasMockClients = !mockHidden && clients.some((c) => MOCK_IDS.clients.has(c.id));
   const today = new Date();
   const todayLabel = today.toLocaleDateString("en-US", {
     weekday: "short",
@@ -167,6 +169,16 @@ function Dashboard() {
           </>
         }
       />
+
+      {/* Demo data banner */}
+      {hasMockClients && (
+        <div className="flex items-center justify-between rounded-lg border border-[#B8863A]/30 bg-[#B8863A]/10 px-4 py-2.5">
+          <span className="font-mono text-[11px] uppercase tracking-widest text-[#B8863A]">Demo data is active — this is sample data to help you explore the app</span>
+          <Button size="sm" variant="outline" className="ml-4 shrink-0 font-mono text-[11px] uppercase tracking-widest" onClick={() => hideMockData(false)}>
+            Hide for session
+          </Button>
+        </div>
+      )}
 
       {/* Stat ledger */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

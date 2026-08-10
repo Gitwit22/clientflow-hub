@@ -27,7 +27,8 @@ import {
   updateMemberRole,
   updateOrganizationSettings,
 } from "@/lib/apiClient";
-import { useAppState } from "@/lib/store";
+import { useAppState, hideMockData } from "@/lib/store";
+import { MOCK_IDS } from "@/data/mock";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
@@ -93,7 +94,8 @@ function MemberStatusBadge({ member }: { member: OrgMember }) {
 // ─── Settings page ────────────────────────────────────────────────────────────
 
 function SettingsPage() {
-  const { programs, formTemplates, authenticatedAdmin } = useAppState();
+  const { programs, formTemplates, authenticatedAdmin, mockHidden, clients } = useAppState();
+  const hasMockData = !mockHidden && clients.some((c) => MOCK_IDS.clients.has(c.id));
   const orgId = authenticatedAdmin?.organizationId ?? null;
   const selfId = authenticatedAdmin?.id ?? null;
 
@@ -434,6 +436,27 @@ function SettingsPage() {
                 />
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        {/* ── Demo data ─────────────────────────────────────────────────────── */}
+        <Card className="shadow-card lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="font-display text-base">Demo data</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-muted-foreground">Sample clients, programs, forms and activity are loaded by default so you can explore the app. You can remove them permanently for your organization — they will no longer appear after any login.</p>
+            {hasMockData ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => hideMockData(true)}
+              >
+                Remove demo data permanently
+              </Button>
+            ) : (
+              <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Demo data removed for this org</p>
+            )}
           </CardContent>
         </Card>
       </div>
