@@ -173,7 +173,7 @@ function Dashboard() {
       {/* Demo data banner */}
       {hasMockClients && (
         <div className="flex items-center justify-between rounded-lg border border-[#B8863A]/30 bg-[#B8863A]/10 px-4 py-2.5">
-          <span className="font-mono text-[11px] uppercase tracking-widest text-[#B8863A]">Demo data is active — this is sample data to help you explore the app</span>
+          <span className="font-mono text-[11px] uppercase tracking-widest text-[#B8863A]">Demo data is active — sample clients &amp; activity shown to help you explore</span>
           <Button size="sm" variant="outline" className="ml-4 shrink-0 font-mono text-[11px] uppercase tracking-widest" onClick={() => hideMockData(false)}>
             Hide for session
           </Button>

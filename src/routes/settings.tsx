@@ -445,7 +445,7 @@ function SettingsPage() {
             <CardTitle className="font-display text-base">Demo data</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <p className="text-muted-foreground">Sample clients, programs, forms and activity are loaded by default so you can explore the app. You can remove them permanently for your organization — they will no longer appear after any login.</p>
+            <p className="text-muted-foreground">Sample clients, form assignments, monitoring items, contracts, documents, communications and activity logs are loaded by default so you can explore the app. Programs and form templates are kept. You can remove the sample clients permanently — they will no longer appear after any login.</p>
             {hasMockData ? (
               <Button
                 variant="destructive"

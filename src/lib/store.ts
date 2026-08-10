@@ -136,8 +136,7 @@ export function hideMockData(permanent: boolean) {
     ...current,
     mockHidden: true,
     clients: current.clients.filter((c) => !MOCK_IDS.clients.has(c.id)),
-    programs: current.programs.filter((p) => !MOCK_IDS.programs.has(p.id)),
-    formTemplates: current.formTemplates.filter((t) => !MOCK_IDS.formTemplates.has(t.id)),
+    // programs and formTemplates are intentionally kept
     formAssignments: current.formAssignments.filter((a) => !MOCK_IDS.formAssignments.has(a.id)),
     terms: current.terms.filter((t) => !MOCK_IDS.terms.has(t.id)),
     monitoring: current.monitoring.filter((m) => !MOCK_IDS.monitoring.has(m.id)),
