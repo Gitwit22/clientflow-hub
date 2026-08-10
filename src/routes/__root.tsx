@@ -105,7 +105,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap",
       },
       {
         rel: "stylesheet",
@@ -176,10 +176,10 @@ function AuthenticatedShell() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-3 lg:hidden">
+          <header className="flex items-center gap-3 border-b border-border bg-sidebar px-4 py-3 lg:hidden">
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="Open navigation">
+                <Button variant="outline" size="icon" aria-label="Open navigation" className="border-sidebar-border text-sidebar-foreground hover:bg-sidebar-accent">
                   <Menu className="size-4" />
                 </Button>
               </SheetTrigger>
@@ -187,7 +187,7 @@ function AuthenticatedShell() {
                 <AppSidebarNav />
               </SheetContent>
             </Sheet>
-            <span className="font-display text-sm font-semibold">ClientFlow</span>
+            <span className="font-display text-sm font-semibold text-white">ClientFlow</span>
           </header>
 
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

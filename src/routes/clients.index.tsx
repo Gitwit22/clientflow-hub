@@ -114,10 +114,10 @@ function ClientsPage() {
             <button
               key={tab.value}
               onClick={() => setRelationshipView(tab.value)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`rounded-md px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${
                 relationshipView === tab.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  ? "bg-ink text-ink-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {tab.label}
@@ -205,11 +205,11 @@ function ClientsPage() {
                     >
                       {c.businessName}
                     </Link>
-                    <div className="text-xs text-muted-foreground">{programName(c.programId)}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{programName(c.programId)}</div>
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">{c.primaryContactName}</div>
-                    <div className="text-xs text-muted-foreground">{c.email}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{c.email}</div>
                   </TableCell>
                   <TableCell>
                     {c.relationshipType ? (
@@ -222,10 +222,10 @@ function ClientsPage() {
                     <StatusBadge status={c.status} />
                   </TableCell>
                   <TableCell className="text-sm">{c.assignedStaff}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="font-mono text-xs text-muted-foreground">
                     {new Date(c.updatedAt).toLocaleDateString()}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="font-mono text-xs text-muted-foreground">
                     {c.nextFollowUpDate ? new Date(c.nextFollowUpDate).toLocaleDateString() : "—"}
                   </TableCell>
                   <TableCell className="space-x-1 text-right whitespace-nowrap">

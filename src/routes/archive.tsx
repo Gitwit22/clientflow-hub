@@ -64,10 +64,10 @@ function ArchivePage() {
                     {programs.find((p) => p.id === c.programId)?.name ?? "—"}
                   </TableCell>
                   <TableCell className="text-sm">{c.finalStatus ?? "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="font-mono text-xs text-muted-foreground">
                     {c.archiveReason ?? "—"}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="font-mono text-xs text-muted-foreground">
                     {c.archivedAt ? new Date(c.archivedAt).toLocaleDateString() : "—"}
                   </TableCell>
                   <TableCell className="text-sm">{hasReport ? "Available" : "Not filed"}</TableCell>

@@ -92,7 +92,7 @@ function MonitoringPage() {
                       >
                         {client?.businessName}
                       </Link>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="font-mono text-xs text-muted-foreground">
                         {programs.find((p) => p.id === m.programId)?.name} · {m.type} · Due{" "}
                         {new Date(m.dueDate).toLocaleDateString()} · {m.assignedStaff}
                       </p>

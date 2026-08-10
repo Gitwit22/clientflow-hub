@@ -69,11 +69,11 @@ function StepIndicator({ step }: { step: IntakeStep }) {
       {STEP_LABELS.map((label, i) => (
         <div key={label} className="flex items-center gap-1">
           <span
-            className={`flex size-6 items-center justify-center rounded-full text-xs font-semibold transition-colors ${i < current ? "bg-primary text-primary-foreground" : i === current ? "ring-primary bg-primary text-primary-foreground ring-2 ring-offset-2" : "bg-muted text-muted-foreground"}`}
+            className={`flex size-6 items-center justify-center rounded-full font-mono text-[10px] font-semibold transition-colors ${i < current ? "bg-primary text-primary-foreground" : i === current ? "ring-primary bg-primary text-primary-foreground ring-2 ring-offset-2" : "bg-muted text-muted-foreground"}`}
           >
             {i < current ? <CheckCircle className="size-3.5" /> : i + 1}
           </span>
-          <span className={`text-sm ${i === current ? "font-semibold" : "text-muted-foreground"}`}>
+          <span className={`font-mono text-[10.5px] uppercase tracking-wide ${i === current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
             {label}
           </span>
           {i < STEP_LABELS.length - 1 && <span className="mx-1 text-muted-foreground">›</span>}

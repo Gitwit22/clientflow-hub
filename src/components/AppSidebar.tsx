@@ -11,13 +11,14 @@ import {
   Timer,
   UserPlus,
   Users,
-  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/lib/apiClient";
 import { useAppState } from "@/lib/store";
 
-const items: { title: string; url: string; icon: typeof Users; exact?: boolean }[] = [
+type NavItem = { title: string; url: string; icon: typeof Users; exact?: boolean };
+
+const mainItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "New Intake", url: "/intake", icon: UserPlus },
@@ -25,6 +26,9 @@ const items: { title: string; url: string; icon: typeof Users; exact?: boolean }
   { title: "Forms", url: "/forms", icon: ClipboardList },
   { title: "Monitoring", url: "/monitoring", icon: Timer },
   { title: "Contracts", url: "/contracts", icon: FileSignature },
+];
+
+const insightItems: NavItem[] = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Archive", url: "/archive", icon: Archive },
   { title: "Settings", url: "/settings", icon: Settings },
@@ -54,20 +58,27 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-2.5 px-5 py-5">
-        <span className="flex size-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-          <Workflow className="size-5" />
-        </span>
+      {/* Brand */}
+      <div className="flex items-center gap-3 border-b border-sidebar-border px-5.5 py-6.5">
+        <div
+          className="flex size-8.5 shrink-0 items-center justify-center rounded-lg font-display text-base font-semibold text-white"
+          style={{ background: "linear-gradient(155deg, #3D8271, #2F6F62)" }}
+        >
+          C
+        </div>
         <div className="leading-tight">
-          <p className="font-display text-base font-semibold text-sidebar-accent-foreground">
+          <p className="font-display text-[16.5px] font-semibold tracking-[0.2px] text-white">
             ClientFlow
           </p>
-          <p className="text-[11px] text-sidebar-foreground/60">EA Management Portal</p>
+          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-sidebar-foreground/60">
+            EA Management
+          </p>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-        {items.map((item) => {
+      {/* Nav */}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+        {mainItems.map((item) => {
           const active = item.exact ? pathname === item.url : pathname.startsWith(item.url);
           return (
             <Link
@@ -75,40 +86,81 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               to={item.url}
               onClick={onNavigate}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "relative flex items-center gap-3 rounded-[7px] px-3 py-2.5 text-[13.5px] font-medium transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
               )}
             >
-              <item.icon className={cn("size-4.5", active && "text-sidebar-primary")} />
+              {active && (
+                <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />
+              )}
+              <item.icon
+                className={cn(
+                  "size-4",
+                  active ? "text-sidebar-primary" : "text-sidebar-foreground/50",
+                )}
+              />
+              {item.title}
+            </Link>
+          );
+        })}
+
+        <p className="px-3 pb-1.5 pt-3.5 font-mono text-[10px] uppercase tracking-widest text-sidebar-foreground/40">
+          Insights
+        </p>
+
+        {insightItems.map((item) => {
+          const active = pathname.startsWith(item.url);
+          return (
+            <Link
+              key={item.url}
+              to={item.url}
+              onClick={onNavigate}
+              className={cn(
+                "relative flex items-center gap-3 rounded-[7px] px-3 py-2.5 text-[13.5px] font-medium transition-colors",
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
+              )}
+            >
+              {active && (
+                <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />
+              )}
+              <item.icon
+                className={cn(
+                  "size-4",
+                  active ? "text-sidebar-primary" : "text-sidebar-foreground/50",
+                )}
+              />
               {item.title}
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t border-sidebar-border px-5 py-4">
-        <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">
+      {/* Footer */}
+      <div className="border-t border-sidebar-border px-4.5 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-7.5 shrink-0 items-center justify-center rounded-[7px] bg-sidebar-accent font-mono text-xs font-medium text-sidebar-foreground">
             {initials}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-sidebar-accent-foreground">
+            <p className="truncate text-xs font-medium leading-tight text-sidebar-foreground">
               {displayName}
             </p>
-            <p className="text-[11px] capitalize text-sidebar-foreground/60">
+            <p className="font-mono text-[10.5px] capitalize text-sidebar-foreground/60">
               {authenticatedAdmin?.role?.replace("_", " ") ?? "Admin"}
             </p>
           </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="ml-auto flex size-8 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="ml-auto flex size-7 items-center justify-center rounded-md text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             aria-label="Log out"
             title="Log out"
           >
-            <LogOut className="size-4" />
+            <LogOut className="size-3.5" />
           </button>
         </div>
       </div>

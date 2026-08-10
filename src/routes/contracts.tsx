@@ -116,13 +116,13 @@ function ContractsPage() {
                 <TableCell>
                   <StatusBadge status={c.status} />
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
+                <TableCell className="font-mono text-xs text-muted-foreground">
                   {new Date(c.createdAt).toLocaleDateString()}
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
+                <TableCell className="font-mono text-xs text-muted-foreground">
                   {c.sentAt ? new Date(c.sentAt).toLocaleDateString() : "—"}
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
+                <TableCell className="font-mono text-xs text-muted-foreground">
                   {c.signedAt ? new Date(c.signedAt).toLocaleDateString() : "—"}
                 </TableCell>
                 <TableCell className="text-right">

@@ -25,12 +25,12 @@ function Bar({ label, value, max }: { label: string; value: number; max: number 
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-sm">
-        <span>{label}</span>
-        <span className="font-medium">{value}</span>
+        <span className="font-sans text-sm">{label}</span>
+        <span className="font-mono text-sm font-medium">{value}</span>
       </div>
-      <div className="h-2 rounded-full bg-muted">
+      <div className="h-1.5 rounded-full bg-muted">
         <div
-          className="h-2 rounded-full bg-primary"
+          className="h-1.5 rounded-full bg-primary"
           style={{ width: `${max ? (value / max) * 100 : 0}%` }}
         />
       </div>
@@ -115,7 +115,7 @@ function ReportsPage() {
               ["Funding committed", `$${funding.toLocaleString()}`],
             ].map(([l, v]) => (
               <div key={String(l)} className="rounded-xl border border-border p-4">
-                <p className="text-sm text-muted-foreground">{l}</p>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{l}</p>
                 <p className="mt-1 font-display text-2xl font-semibold">{v}</p>
               </div>
             ))}

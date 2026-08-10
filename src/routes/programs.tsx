@@ -49,29 +49,29 @@ function ProgramsPage() {
               </div>
               <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
                 <div>
-                  <dt className="text-xs text-muted-foreground uppercase">Default form</dt>
+                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Default form</dt>
                   <dd>
                     {formTemplates.find((f) => f.id === p.defaultFormTemplateId)?.name ?? "—"}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground uppercase">Contract template</dt>
+                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Contract template</dt>
                   <dd>{p.defaultContractTemplateId}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground uppercase">Monitoring</dt>
+                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Monitoring</dt>
                   <dd>{p.defaultMonitoringFrequency}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground uppercase">Required documents</dt>
+                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Required documents</dt>
                   <dd>{p.requiredDocuments.join(", ") || "None"}</dd>
                 </div>
                 <div className="sm:col-span-2">
-                  <dt className="text-xs text-muted-foreground uppercase">Default workflow</dt>
+                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Default workflow</dt>
                   <dd>{p.defaultWorkflow.join(" → ")}</dd>
                 </div>
                 <div className="sm:col-span-2">
-                  <dt className="text-xs text-muted-foreground uppercase">Status pipeline</dt>
+                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Status pipeline</dt>
                   <dd>{p.statusPipeline.join(" → ")}</dd>
                 </div>
               </dl>

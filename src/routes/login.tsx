@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck, Workflow } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,14 +56,19 @@ function LoginPage() {
       <section className="relative hidden overflow-hidden bg-sidebar px-12 py-14 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
         <div className="absolute inset-y-0 right-0 w-px bg-sidebar-border" />
         <div className="flex items-center gap-3">
-          <span className="flex size-11 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-            <Workflow className="size-6" />
-          </span>
+          <div
+            className="flex size-8.5 shrink-0 items-center justify-center rounded-lg font-display text-base font-semibold text-white"
+            style={{ background: "linear-gradient(155deg, #3D8271, #2F6F62)" }}
+          >
+            C
+          </div>
           <div>
-            <p className="font-display text-lg font-semibold text-sidebar-accent-foreground">
+            <p className="font-display text-[16.5px] font-semibold tracking-[0.2px] text-white">
               ClientFlow
             </p>
-            <p className="text-xs text-sidebar-foreground/60">EA Management Portal</p>
+            <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-sidebar-foreground/60">
+              EA Management
+            </p>
           </div>
         </div>
 
@@ -85,12 +90,15 @@ function LoginPage() {
       <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
         <div className="w-full max-w-sm">
           <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <span className="flex size-10 items-center justify-center rounded-md bg-sidebar text-sidebar-primary">
-              <Workflow className="size-5" />
-            </span>
+            <div
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg font-display text-sm font-semibold text-white"
+              style={{ background: "linear-gradient(155deg, #3D8271, #2F6F62)" }}
+            >
+              C
+            </div>
             <div>
               <p className="font-display font-semibold">ClientFlow</p>
-              <p className="text-xs text-muted-foreground">EA Management Portal</p>
+              <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">EA Management</p>
             </div>
           </div>
 

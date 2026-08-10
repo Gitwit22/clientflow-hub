@@ -1,16 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  ArrowUpRight,
-  CalendarClock,
-  FilePlus2,
-  FileSignature,
-  Send,
-  UserPlus,
-} from "lucide-react";
+import { FilePlus2, FileSignature, Send, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { useAppState } from "@/lib/store";
 
 export const Route = createFileRoute("/")({
@@ -32,37 +25,94 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
+function activityColor(action: string): string {
+  const a = action.toLowerCase();
+  if (a.includes("monitor") || a.includes("schedule")) return "#B8863A";
+  if (a.includes("intake") || a.includes("received")) return "#2F6F62";
+  if (
+    a.includes("contract") ||
+    a.includes("terms") ||
+    a.includes("form") ||
+    a.includes("sent")
+  )
+    return "#6C5A8C";
+  if (a.includes("status") || a.includes("review") || a.includes("changed")) return "#BE5138";
+  if (a.includes("note") || a.includes("complete") || a.includes("confirmed")) return "#3F7A4C";
+  return "#2F6F62";
+}
+
+function clientStatusColor(status: string): string {
+  if (status === "New Intake") return "#2F6F62";
+  if (["Needs Review", "More Information Needed"].includes(status)) return "#BE5138";
+  if (["Contract Pending", "Terms Proposed"].includes(status)) return "#6C5A8C";
+  if (["Final Report Needed", "Monitoring"].includes(status)) return "#B8863A";
+  if (["Active", "Completed"].includes(status)) return "#3F7A4C";
+  return "#7A7A72";
+}
+
 function Dashboard() {
   const { clients, formAssignments, monitoring, contracts, activity, programs } = useAppState();
   const today = new Date();
+  const todayLabel = today.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 
   const stats = [
-    { label: "New Intakes", value: clients.filter((c) => c.status === "New Intake").length },
-    { label: "Needs Review", value: clients.filter((c) => c.status === "Needs Review").length },
+    {
+      label: "New Intakes",
+      tag: "Intake",
+      color: "#2F6F62",
+      value: clients.filter((c) => c.status === "New Intake").length,
+    },
+    {
+      label: "Needs Review",
+      tag: "Review",
+      color: "#BE5138",
+      value: clients.filter((c) => c.status === "Needs Review").length,
+    },
     {
       label: "Forms Sent",
+      tag: "Forms",
+      color: "#6C5A8C",
       value: formAssignments.filter((f) =>
         ["sent", "delivered", "opened", "in_progress"].includes(f.status),
       ).length,
     },
     {
       label: "Active Clients",
+      tag: "Clients",
+      color: "#3F7A4C",
       value: clients.filter((c) => ["Active", "Monitoring"].includes(c.status)).length,
     },
     {
       label: "Monitoring Due",
+      tag: "Ops",
+      color: "#B8863A",
       value: monitoring.filter((m) => m.status === "Due" || m.status === "Overdue").length,
     },
     {
       label: "Contracts Pending",
-      value: contracts.filter((c) => ["Draft", "Internal Review", "Sent"].includes(c.status))
-        .length,
+      tag: "Legal",
+      color: "#6C5A8C",
+      value: contracts.filter((c) =>
+        ["Draft", "Internal Review", "Sent"].includes(c.status),
+      ).length,
     },
     {
       label: "Completed This Month",
+      tag: "Done",
+      color: "#3F7A4C",
       value: clients.filter((c) => c.status === "Completed").length,
     },
-    { label: "Archived Clients", value: clients.filter((c) => c.isArchived).length },
+    {
+      label: "Archived Clients",
+      tag: "Archive",
+      color: "#7A7A72",
+      value: clients.filter((c) => c.isArchived).length,
+    },
   ];
 
   const followUps = clients
@@ -73,12 +123,9 @@ function Dashboard() {
   const attention = clients.filter(
     (c) =>
       !c.isArchived &&
-      ([
-        "Needs Review",
-        "More Information Needed",
-        "Final Report Needed",
-        "Contract Pending",
-      ].includes(c.status) ||
+      (["Needs Review", "More Information Needed", "Final Report Needed", "Contract Pending"].includes(
+        c.status,
+      ) ||
         (c.nextFollowUpDate && new Date(c.nextFollowUpDate) < today)),
   );
 
@@ -86,8 +133,9 @@ function Dashboard() {
     programs.find((p) => p.id === id)?.name ?? "Unassigned";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <PageHeader
+        eyebrow={`Today · ${todayLabel}`}
         title="Dashboard"
         description="Everything moving through intake, programs, monitoring and contracts today."
         actions={
@@ -116,100 +164,144 @@ function Dashboard() {
                 Create contract
               </Link>
             </Button>
-            <Button variant="outline" asChild>
-              <Link to="/reports">
-                <ArrowUpRight className="size-4" />
-                Generate report
-              </Link>
-            </Button>
           </>
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Stat ledger */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
-          <Card key={s.label} className="shadow-card">
-            <CardContent className="p-5">
-              <p className="text-sm text-muted-foreground">{s.label}</p>
-              <p className="mt-2 font-display text-3xl font-semibold tracking-tight">{s.value}</p>
-            </CardContent>
-          </Card>
+          <div
+            key={s.label}
+            className="rounded-lg border border-border bg-card p-4"
+            style={{ borderLeftWidth: "3px", borderLeftColor: s.color }}
+          >
+            <div className="mb-2.5 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{s.label}</span>
+              <span
+                className="font-mono text-[9.5px] uppercase tracking-wide"
+                style={{ color: s.color }}
+              >
+                {s.tag}
+              </span>
+            </div>
+            <p className="font-display text-[30px] font-semibold leading-none text-foreground">
+              {s.value}
+            </p>
+          </div>
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="shadow-card lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Recent activity</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {/* Panels row */}
+      <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+        {/* Activity ledger */}
+        <Card className="overflow-hidden">
+          <div className="flex items-baseline justify-between border-b border-border px-5 py-4">
+            <h2 className="font-display text-[17px] font-semibold text-foreground">
+              Recent activity
+            </h2>
+            <span className="font-mono text-[11px] text-muted-foreground">Last 5 days</span>
+          </div>
+          <div>
             {activity.slice(0, 6).map((a) => (
               <div
                 key={a.id}
-                className="flex gap-3 border-b border-border pb-3 last:border-0 last:pb-0"
+                className="relative grid grid-cols-[72px_1fr] gap-4 border-b border-border px-5 py-3.5 last:border-0"
               >
-                <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{a.action}</p>
-                  <p className="text-sm text-muted-foreground">{a.description}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {a.user} · {new Date(a.timestamp).toLocaleDateString()}
+                <span
+                  className="absolute rounded-full"
+                  style={{
+                    left: 0,
+                    top: "14px",
+                    bottom: "14px",
+                    width: "2px",
+                    background: activityColor(a.action),
+                  }}
+                />
+                <p className="pt-0.5 font-mono text-[11px] text-muted-foreground">
+                  {new Date(a.timestamp).toLocaleDateString("en-US", {
+                    month: "numeric",
+                    day: "numeric",
+                  })}
+                </p>
+                <div>
+                  <p className="text-[13.5px] font-semibold text-foreground">{a.action}</p>
+                  <p className="leading-relaxed text-[12.5px] text-muted-foreground">
+                    {a.description}
                   </p>
+                  <p className="mt-1 font-mono text-[10.5px] text-muted-foreground/70">{a.user}</p>
                 </div>
               </div>
             ))}
-          </CardContent>
+          </div>
         </Card>
 
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Upcoming follow-ups</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {/* Follow-ups */}
+        <Card className="overflow-hidden">
+          <div className="flex items-baseline justify-between border-b border-border px-5 py-4">
+            <h2 className="font-display text-[17px] font-semibold text-foreground">
+              Upcoming follow-ups
+            </h2>
+            <span className="font-mono text-[11px] text-muted-foreground">{followUps.length}</span>
+          </div>
+          <div>
             {followUps.map((c) => (
               <Link
                 key={c.id}
                 to="/clients/$clientId"
                 params={{ clientId: c.id }}
-                className="flex items-start gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
+                className="group flex items-start justify-between gap-3 border-b border-border px-5 py-3 last:border-0"
               >
-                <CalendarClock className="mt-0.5 size-4 text-primary" />
                 <div>
-                  <p className="text-sm font-medium">{c.businessName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {programName(c.programId)} ·{" "}
-                    {new Date(c.nextFollowUpDate!).toLocaleDateString()}
+                  <p className="text-[13.5px] font-semibold text-foreground transition-colors group-hover:text-primary">
+                    {c.businessName}
                   </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{programName(c.programId)}</p>
                 </div>
+                <p className="whitespace-nowrap pt-0.5 font-mono text-[11px] text-primary">
+                  {new Date(c.nextFollowUpDate!).toLocaleDateString("en-US", {
+                    month: "numeric",
+                    day: "numeric",
+                  })}
+                </p>
               </Link>
             ))}
-          </CardContent>
+          </div>
         </Card>
       </div>
 
-      <Card className="shadow-card">
-        <CardHeader>
-          <CardTitle className="font-display text-base">Clients needing attention</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Clients needing attention */}
+      <div>
+        <div className="mb-3.5 flex items-baseline justify-between">
+          <h2 className="font-display text-[19px] font-semibold text-foreground">
+            Clients needing attention
+          </h2>
+          <span className="font-mono text-[11.5px] text-muted-foreground">
+            {attention.length} flagged
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {attention.map((c) => (
             <Link
               key={c.id}
               to="/clients/$clientId"
               params={{ clientId: c.id }}
-              className="rounded-xl border border-border p-4 transition-shadow hover:shadow-elevated"
+              className="block rounded-[7px] border border-border bg-card p-4 transition-shadow hover:shadow-elevated"
+              style={{ borderTopWidth: "3px", borderTopColor: clientStatusColor(c.status) }}
             >
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold">{c.businessName}</p>
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <p className="text-sm font-semibold text-foreground">{c.businessName}</p>
                 <StatusBadge status={c.status} />
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {programName(c.programId)} · {c.assignedStaff}
+              <p className="font-mono text-[10.5px] text-muted-foreground/70">
+                {programName(c.programId)}
+                {c.assignedStaff ? ` · ${c.assignedStaff}` : ""}
               </p>
             </Link>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
+

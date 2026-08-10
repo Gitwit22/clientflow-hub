@@ -76,7 +76,7 @@ export const Route = createFileRoute("/clients/$clientId")({
 function Row({ label, value }: { label: string; value?: string }) {
   return (
     <div className="border-b border-border py-2 last:border-0">
-      <dt className="text-xs tracking-wide text-muted-foreground uppercase">{label}</dt>
+      <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm">{value || "—"}</dd>
     </div>
   );
@@ -189,11 +189,11 @@ function ClientProfile() {
       <div className="flex flex-wrap items-center gap-3">
         <StatusBadge status={client.status} />
         {client.relationshipType && <StatusBadge status={client.relationshipType} />}
-        <span className="text-sm text-muted-foreground">
+        <span className="font-mono text-xs text-muted-foreground">
           {program?.name ?? "Unassigned program"}
         </span>
-        <span className="text-sm text-muted-foreground">Staff: {client.assignedStaff}</span>
-        <span className="text-sm text-muted-foreground">
+        <span className="font-mono text-xs text-muted-foreground">Staff: {client.assignedStaff}</span>
+        <span className="font-mono text-xs text-muted-foreground">
           Next follow-up:{" "}
           {client.nextFollowUpDate ? new Date(client.nextFollowUpDate).toLocaleDateString() : "—"}
         </span>
@@ -257,7 +257,7 @@ function ClientProfile() {
                       <span className="font-medium">{m.type}</span>
                       <StatusBadge status={m.status} />
                     </div>
-                    <p className="mt-1 text-muted-foreground">
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">
                       Due {new Date(m.dueDate).toLocaleDateString()} · {m.notes}
                     </p>
                   </div>
@@ -669,7 +669,7 @@ function ClientProfile() {
               <CardContent className="flex items-center justify-between p-5">
                 <div>
                   <p className="font-medium">{d.name}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="font-mono text-xs text-muted-foreground">
                     {d.type} · {d.uploadedBy} · {new Date(d.uploadedAt).toLocaleDateString()}
                   </p>
                 </div>
@@ -795,7 +795,7 @@ function ClientProfile() {
                   <StatusBadge status={c.type} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{c.notes}</p>
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-2 font-mono text-xs text-muted-foreground">
                   {c.direction} · {c.staffMember} · {new Date(c.date).toLocaleDateString()}
                 </p>
               </CardContent>
@@ -980,14 +980,22 @@ function ClientProfile() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="activity" className="mt-4 space-y-3">
+        <TabsContent value="activity" className="mt-4 space-y-2">
           {logs.map((a) => (
-            <div key={a.id} className="rounded-lg border border-border p-4">
-              <p className="text-sm font-medium">{a.action}</p>
-              <p className="text-sm text-muted-foreground">{a.description}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {a.user} · {new Date(a.timestamp).toLocaleString()}
-              </p>
+            <div key={a.id} className="relative grid grid-cols-[80px_1fr] gap-4 rounded-lg border border-border px-5 py-3.5">
+              <div className="pt-0.5">
+                <p className="font-mono text-[10px] leading-tight text-muted-foreground">
+                  {new Date(a.timestamp).toLocaleDateString()}
+                </p>
+                <p className="mt-0.5 font-mono text-[9px] text-muted-foreground/70">
+                  {new Date(a.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium">{a.action}</p>
+                <p className="text-sm text-muted-foreground">{a.description}</p>
+                <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{a.user}</p>
+              </div>
             </div>
           ))}
         </TabsContent>

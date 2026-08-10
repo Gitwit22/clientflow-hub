@@ -71,20 +71,20 @@ function memberName(m: OrgMember): string {
 function MemberStatusBadge({ member }: { member: OrgMember }) {
   if (member.invitePending) {
     return (
-      <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50 shrink-0">
+      <Badge variant="outline" className="shrink-0 border-[--color-ochre-tint] bg-ochre-tint font-mono text-[10px] uppercase tracking-wide text-warning">
         Invited
       </Badge>
     );
   }
   if (!member.isActive) {
     return (
-      <Badge variant="outline" className="text-muted-foreground shrink-0">
+      <Badge variant="outline" className="shrink-0 bg-gray-tint font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
         Disabled
       </Badge>
     );
   }
   return (
-    <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50 shrink-0">
+    <Badge variant="outline" className="shrink-0 border-[--color-green-tint] bg-green-tint font-mono text-[10px] uppercase tracking-wide text-success">
       Active
     </Badge>
   );
@@ -266,7 +266,7 @@ function SettingsPage() {
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium leading-tight">{memberName(member)}</p>
-                      <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                      <p className="truncate font-mono text-xs text-muted-foreground">{member.email}</p>
                     </div>
                     <MemberStatusBadge member={member} />
                     <Select

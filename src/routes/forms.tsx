@@ -72,13 +72,13 @@ function FormsPage() {
       <div className="inline-flex rounded-lg border border-border bg-muted p-1 gap-1">
         <button
           onClick={() => setView("templates")}
-          className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${view === "templates" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          className={`rounded-md px-4 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${view === "templates" ? "bg-ink text-ink-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
         >
           Templates
         </button>
         <button
           onClick={() => setView("submissions")}
-          className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${view === "submissions" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          className={`rounded-md px-4 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${view === "submissions" ? "bg-ink text-ink-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
         >
           Submissions
         </button>
@@ -114,7 +114,7 @@ function FormsPage() {
                     <StatusBadge status={t.isActive ? "Active" : "Draft"} />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                       Questions
                     </p>
                     <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
@@ -124,7 +124,7 @@ function FormsPage() {
                           className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
                         >
                           <span>{f.label}</span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="font-mono text-[10px] text-muted-foreground">
                             {f.type}
                             {f.required ? " · required" : " · optional"}
                           </span>
@@ -134,20 +134,20 @@ function FormsPage() {
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase">
+                      <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                         Due date setting
                       </p>
                       <p className="text-sm">{t.dueInDays} days after send</p>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase">
+                      <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                         Internal notes
                       </p>
                       <p className="text-sm">{t.internalNotes ?? "—"}</p>
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                       Email message template
                     </p>
                     <pre className="mt-2 rounded-xl bg-muted p-4 font-sans text-sm whitespace-pre-wrap text-muted-foreground">
@@ -183,7 +183,7 @@ function FormsPage() {
               <button
                 key={f.value}
                 onClick={() => setSubmissionFilter(f.value)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${submissionFilter === f.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                className={`rounded-lg px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${submissionFilter === f.value ? "bg-ink text-ink-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
                 {f.label}
               </button>
@@ -203,7 +203,7 @@ function FormsPage() {
                       <p className="font-medium text-sm">{templateName(a.formId)}</p>
                       <StatusBadge status={a.status} />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
+                    <p className="font-mono text-xs text-muted-foreground mt-0.5">
                       Profile:{" "}
                       <Link
                         to="/clients/$clientId"
@@ -224,7 +224,7 @@ function FormsPage() {
                         </>
                       )}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-mono text-xs text-muted-foreground">
                       {a.sentAt && <>Sent {new Date(a.sentAt).toLocaleDateString()} · </>}
                       {a.submittedAt && (
                         <>Submitted {new Date(a.submittedAt).toLocaleDateString()} · </>

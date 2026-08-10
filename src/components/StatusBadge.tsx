@@ -1,14 +1,15 @@
 import { cn } from "@/lib/utils";
 
-type Tone = "neutral" | "info" | "success" | "warning" | "danger" | "primary";
+type Tone = "neutral" | "info" | "success" | "warning" | "danger" | "primary" | "plum";
 
 const toneClass: Record<Tone, string> = {
-  neutral: "bg-neutral-badge text-neutral-badge-foreground",
-  info: "bg-info/12 text-info",
-  success: "bg-success/14 text-success",
-  warning: "bg-warning/20 text-warning-foreground",
-  danger: "bg-destructive/12 text-destructive",
-  primary: "bg-primary/12 text-primary",
+  neutral: "bg-gray-tint text-neutral-badge-foreground",
+  info: "bg-teal-tint text-primary",
+  success: "bg-green-tint text-success",
+  warning: "bg-ochre-tint text-warning",
+  danger: "bg-coral-tint text-destructive",
+  primary: "bg-teal-tint text-primary",
+  plum: "bg-plum-tint text-plum",
 };
 
 const map: Record<string, Tone> = {
@@ -20,10 +21,10 @@ const map: Record<string, Tone> = {
   Declined: "danger",
   Waitlisted: "neutral",
   Approved: "success",
-  "Terms Proposed": "primary",
-  "Contract Pending": "warning",
+  "Terms Proposed": "plum",
+  "Contract Pending": "plum",
   Active: "success",
-  Monitoring: "primary",
+  Monitoring: "warning",
   Completed: "success",
   "Final Report Needed": "warning",
   "Pre-Archive": "neutral",
@@ -59,7 +60,7 @@ const map: Record<string, Tone> = {
   // legacy form statuses (kept for backward compat)
   Draft: "neutral",
   "Ready to Send": "info",
-  Sent: "info",
+  Sent: "plum",
   Opened: "primary",
   "In Progress": "primary",
   Submitted: "success",
@@ -81,12 +82,11 @@ export function StatusBadge({ status, className }: { status: string; className?:
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap",
+        "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-wide",
         toneClass[tone],
         className,
       )}
     >
-      <span className="size-1.5 rounded-full bg-current opacity-70" />
       {status}
     </span>
   );
