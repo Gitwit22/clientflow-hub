@@ -24,6 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
+import { MergeResponsesDialog } from "@/components/dialogs/MergeResponsesDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
 import { useAppState } from "@/lib/store";
@@ -89,6 +90,7 @@ function ClientProfile() {
   const [sendOpen, setSendOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
   const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
+  const [mergeAssignment, setMergeAssignment] = useState<FormAssignment | null>(null);
   const [formReadOnly, setFormReadOnly] = useState(false);
   const [note, setNote] = useState("");
   const [report, setReport] = useState({
@@ -467,6 +469,13 @@ function ClientProfile() {
                           }}
                         >
                           Review Answers
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setMergeAssignment(a)}
+                        >
+                          Apply to Profile
                         </Button>
                         <Button
                           size="sm"
@@ -1009,6 +1018,20 @@ function ClientProfile() {
         onOpenChange={(v) => !v && setActiveAssignment(null)}
         readOnly={formReadOnly}
       />
+      {mergeAssignment && (() => {
+        const tpl = s.formTemplates.find((t) => t.id === mergeAssignment.formId);
+        if (!tpl) return null;
+        return (
+          <MergeResponsesDialog
+            key={mergeAssignment.id}
+            assignment={mergeAssignment}
+            template={tpl}
+            client={client}
+            open={!!mergeAssignment}
+            onOpenChange={(v) => !v && setMergeAssignment(null)}
+          />
+        );
+      })()}
       <SendFormDialog client={client} open={sendOpen} onOpenChange={setSendOpen} />
       <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
 

@@ -272,6 +272,56 @@ export async function sendFormEmail(payload: SendFormEmailPayload): Promise<void
   });
 }
 
+// ─── Public Form (unauthenticated) ───────────────────────────────────────────
+
+export interface PublicFormField {
+  id: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: string[];
+}
+
+export interface PublicFormData {
+  assignment: { id: string; status: string; dueDate: string | null };
+  form: { id: string; name: string; description: string; fields: PublicFormField[] };
+  program: { name: string };
+  contact: { name: string };
+  prefill: Record<string, string>;
+}
+
+/** GET /public/form/:token — load form for a client (no auth). */
+export async function getPublicForm(token: string): Promise<PublicFormData> {
+  return publicRequest<PublicFormData>(`/api/v1/public/form/${encodeURIComponent(token)}`);
+}
+
+/** POST /public/form/:token/submit — submit responses (no auth). */
+export async function submitPublicForm(
+  token: string,
+  payload: { responses: Record<string, string>; startedAt?: string },
+): Promise<{ success: boolean }> {
+  return publicRequest<{ success: boolean }>(
+    `/api/v1/public/form/${encodeURIComponent(token)}/submit`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+async function publicRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      "X-App-Partition": APP_PARTITION,
+      ...init.headers,
+    },
+  });
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
+  if (response.status === 204) return undefined as unknown as T;
+  return response.json() as Promise<T>;
+}
+
 // ─── ClientFlow CRUD ──────────────────────────────────────────────────────────
 
 const CF = "/api/v1/admin/cf";

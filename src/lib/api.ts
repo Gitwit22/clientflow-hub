@@ -133,6 +133,7 @@ export async function updateFormTemplate(id: string, data: Partial<FormTemplate>
 }
 
 export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {
+  const assignToken = Math.random().toString(16).slice(2, 8);
   const assignment: FormAssignment = {
     id: uid("fa"),
     clientId,
@@ -141,7 +142,7 @@ export async function assignFormToClient(clientId: string, formId: string, dueDa
     completionMethod: "secure_link",
     deliveryMethod: "email",
     dueDate,
-    secureLink: `https://forms.clientflow.app/s/${Math.random().toString(16).slice(2, 8)}`,
+    secureLink: `${typeof window !== "undefined" ? window.location.origin : ""}/s/${assignToken}`,
     createdAt: nowISO(),
     updatedAt: nowISO(),
   };
@@ -181,7 +182,7 @@ export async function createFormAssignment(data: {
     dueAt: data.dueDate ?? null,
     sentAt: isSendLink ? nowISO() : undefined,
     secureLink: isSendLink
-      ? `https://forms.clientflow.app/s/${Math.random().toString(16).slice(2, 8)}`
+      ? `${typeof window !== "undefined" ? window.location.origin : ""}/s/${Math.random().toString(16).slice(2, 8)}`
       : undefined,
     createdByUserId: data.createdByUserId ?? "user_alicia",
     isDemo: data.isDemo ?? false,
@@ -250,14 +251,35 @@ export async function submitFormResponse(
   formAssignmentId: string,
   responses: Record<string, string>,
 ) {
-  setState((s) => ({
-    ...s,
-    formAssignments: s.formAssignments.map((a) =>
+  const s = getState();
+  const assignment = s.formAssignments.find((a) => a.id === formAssignmentId);
+  setState((prev) => ({
+    ...prev,
+    formAssignments: prev.formAssignments.map((a) =>
       a.id === formAssignmentId
         ? { ...a, status: "submitted" as const, submittedAt: nowISO(), responses }
         : a,
     ),
   }));
+  // Auto-enroll client into the program associated with this form template
+  if (assignment) {
+    const template = s.formTemplates.find((t) => t.id === assignment.formId);
+    const program = template ? s.programs.find((p) => p.id === template.programId) : undefined;
+    if (program) {
+      const client = s.clients.find((c) => c.id === assignment.clientId);
+      if (client && (client.programId !== program.id || client.status !== "Qualified")) {
+        setState((prev) => ({
+          ...prev,
+          clients: prev.clients.map((c) =>
+            c.id === assignment.clientId
+              ? { ...c, programId: program.id, status: "Qualified" as const, updatedAt: nowISO() }
+              : c,
+          ),
+        }));
+        log(assignment.clientId, "Program enrolled", `Enrolled in ${program.name} via form submission.`);
+      }
+    }
+  }
   return delay(true);
 }
 

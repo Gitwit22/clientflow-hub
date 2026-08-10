@@ -142,7 +142,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {pathname === "/login" || pathname.startsWith("/accept-invite") ? (
+      {pathname === "/login" || pathname.startsWith("/accept-invite") || pathname.startsWith("/s/") ? (
         <Outlet />
       ) : accessToken ? (
         <AuthenticatedShell />
