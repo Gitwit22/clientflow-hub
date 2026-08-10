@@ -21,6 +21,7 @@ import type {
   FormAssignmentStatus,
   FinalReportDraft,
   FormEdit,
+  FormTemplate,
   MonitoringItem,
   Program,
   RelationshipType,
@@ -116,6 +117,20 @@ export async function updateProgram(id: string, data: Partial<Program>) {
 /* ----------------------------------- Forms ---------------------------------- */
 
 export const getFormTemplates = async () => delay(getState().formTemplates);
+
+export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
+  const template: FormTemplate = { ...data, id: uid("form") };
+  setState((s) => ({ ...s, formTemplates: [...s.formTemplates, template] }));
+  return delay(template);
+}
+
+export async function updateFormTemplate(id: string, data: Partial<FormTemplate>) {
+  setState((s) => ({
+    ...s,
+    formTemplates: s.formTemplates.map((t) => (t.id === id ? { ...t, ...data } : t)),
+  }));
+  return delay(getState().formTemplates.find((t) => t.id === id) ?? null);
+}
 
 export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {
   const assignment: FormAssignment = {

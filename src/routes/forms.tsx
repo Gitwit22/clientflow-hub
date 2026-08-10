@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { emailTemplateBody } from "@/data/mock";
 import { useAppState } from "@/lib/store";
+import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
+import type { FormTemplate } from "@/types";
 
 export const Route = createFileRoute("/forms")({
   head: () => ({
@@ -42,6 +45,18 @@ function FormsPage() {
   const [openId, setOpenId] = useState<string | null>(formTemplates[0]?.id ?? null);
   const [view, setView] = useState<"templates" | "submissions">("templates");
   const [submissionFilter, setSubmissionFilter] = useState("all");
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<FormTemplate | undefined>(undefined);
+
+  function openTemplateAdd() {
+    setEditingTemplate(undefined);
+    setTemplateDialogOpen(true);
+  }
+
+  function openTemplateEdit(t: FormTemplate) {
+    setEditingTemplate(t);
+    setTemplateDialogOpen(true);
+  }
 
   const clientName = (id: string) => clients.find((c) => c.id === id)?.businessName ?? id;
   const templateName = (id: string) => formTemplates.find((t) => t.id === id)?.name ?? id;
@@ -65,6 +80,14 @@ function FormsPage() {
           view === "templates"
             ? "Structured templates sent by secure link and prefilled from the client profile."
             : "Cross-profile view of all form assignments and submissions."
+        }
+        actions={
+          view === "templates" ? (
+            <Button size="sm" onClick={openTemplateAdd}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              New template
+            </Button>
+          ) : undefined
         }
       />
 
@@ -164,7 +187,7 @@ function FormsPage() {
                     <Button size="sm" asChild>
                       <Link to="/intake">Send Form</Link>
                     </Button>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" onClick={() => openTemplateEdit(t)}>
                       Edit template
                     </Button>
                   </div>
@@ -243,6 +266,11 @@ function FormsPage() {
           </div>
         </div>
       )}
+      <AddEditFormTemplateDialog
+        template={editingTemplate}
+        open={templateDialogOpen}
+        onOpenChange={setTemplateDialogOpen}
+      />
     </div>
   );
 }
