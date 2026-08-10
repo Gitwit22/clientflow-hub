@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Pencil, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,7 +31,7 @@ export const Route = createFileRoute("/programs")({
 });
 
 function ProgramsPage() {
-  const { programs, formTemplates } = useAppState();
+  const { programs, formTemplates, clients } = useAppState();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProgram, setEditingProgram] = useState<Program | undefined>(undefined);
 
@@ -110,6 +110,32 @@ function ProgramsPage() {
                   <dd>{p.statusPipeline.join(" → ")}</dd>
                 </div>
               </dl>
+              {(() => {
+                const active = clients.filter((c) => c.programId === p.id && !c.isArchived);
+                return active.length > 0 ? (
+                  <div className="border-t border-border pt-3">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+                      Active clients ({active.length})
+                    </p>
+                    <ul className="space-y-1">
+                      {active.map((c) => (
+                        <li key={c.id} className="flex items-center justify-between text-sm">
+                          <Link
+                            to="/clients/$clientId"
+                            params={{ clientId: c.id }}
+                            className="font-medium hover:text-primary"
+                          >
+                            {c.businessName}
+                          </Link>
+                          <span className="text-xs text-muted-foreground">{c.status}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground border-t border-border pt-3">No active clients</p>
+                );
+              })()}
             </CardContent>
           </Card>
         ))}

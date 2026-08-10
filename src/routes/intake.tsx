@@ -104,6 +104,7 @@ function IntakePage() {
     relationshipType: "prospect" as RelationshipType,
     source: "admin_created" as ProfileSource,
     assignedStaff: STAFF[0],
+    programId: "",
   });
   const [selectedFormId, setSelectedFormId] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -153,7 +154,7 @@ function IntakePage() {
       phone: newProfile.phone,
       website: newProfile.website,
       socialLinks: [],
-      programId: null,
+      programId: newProfile.programId || null,
       status: "New Intake",
       profileType: newProfile.profileType,
       relationshipType: newProfile.relationshipType,
@@ -167,7 +168,7 @@ function IntakePage() {
       intake: {
         businessDescription: "",
         assistanceRequested: "",
-        programOfInterest: "",
+        programOfInterest: programs.find((p) => p.id === newProfile.programId)?.name ?? "",
         budgetNeed: "",
         preferredContact: "Email",
         heardAboutUs: "",
@@ -441,6 +442,26 @@ function IntakePage() {
                         {s}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Program</Label>
+                <Select
+                  value={newProfile.programId}
+                  onValueChange={(v) => setNewProfile({ ...newProfile, programId: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a program (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {programs
+                      .filter((p) => p.isActive)
+                      .map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
