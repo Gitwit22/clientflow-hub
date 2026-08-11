@@ -47,6 +47,21 @@ export function useBootstrap() {
           api.cfListActivity(),
         ]);
 
+        // Seed any mock programs/templates that don't yet exist in the backend.
+        // Preserves the original mock IDs so existing form assignments stay valid.
+        {
+          const remoteProgramIdSet = new Set((remotePrograms as Program[]).map((p) => p.id));
+          const remoteTemplateIdSet = new Set((remoteFormTemplates as FormTemplate[]).map((t) => t.id));
+          const missingPrograms = mockHidden ? [] : mock.programs.filter((p) => !remoteProgramIdSet.has(p.id));
+          const missingTemplates = mockHidden ? [] : mock.formTemplates.filter((t) => !remoteTemplateIdSet.has(t.id));
+          if (missingPrograms.length || missingTemplates.length) {
+            await Promise.allSettled([
+              ...missingPrograms.map((p) => api.cfCreateProgram(p as unknown as Record<string, unknown>)),
+              ...missingTemplates.map((t) => api.cfCreateFormTemplate(t as unknown as Record<string, unknown>)),
+            ]);
+          }
+        }
+
         setState((prev) => {
           const mockClients = mockHidden ? [] : mock.clients.filter((c) => !MOCK_IDS.clients.has(c.id) || true);
           const mockPrograms = mockHidden ? [] : mock.programs;
