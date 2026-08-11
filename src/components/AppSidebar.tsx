@@ -60,12 +60,11 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Brand */}
       <div className="flex items-center gap-3 border-b border-sidebar-border px-5.5 py-6.5">
-        <div
-          className="flex size-8.5 shrink-0 items-center justify-center rounded-lg font-display text-base font-semibold text-white"
-          style={{ background: "linear-gradient(155deg, #3D8271, #2F6F62)" }}
-        >
-          C
-        </div>
+        <img
+          src="/logo.svg"
+          alt="ClientFlow"
+          className="size-8.5 shrink-0 rounded-lg"
+        />
         <div className="leading-tight">
           <p className="font-display text-[16.5px] font-semibold tracking-[0.2px] text-white">
             ClientFlow

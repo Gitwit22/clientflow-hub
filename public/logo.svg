@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <!-- Background gradient - dark navy -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a1628"/>
+      <stop offset="100%" stop-color="#111d35"/>
+    </linearGradient>
+    <!-- Blue border glow gradient -->
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3a8fff"/>
+      <stop offset="50%" stop-color="#1a6fff"/>
+      <stop offset="100%" stop-color="#0050e0"/>
+    </linearGradient>
+    <!-- Silver/chrome C gradient -->
+    <linearGradient id="cGrad" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#d0d8e8"/>
+      <stop offset="30%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#a8b8cc"/>
+      <stop offset="100%" stop-color="#6880a0"/>
+    </linearGradient>
+    <!-- Blue F gradient -->
+    <linearGradient id="fGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a8ff"/>
+      <stop offset="50%" stop-color="#1a7fff"/>
+      <stop offset="100%" stop-color="#0044cc"/>
+    </linearGradient>
+    <!-- Swoosh gradient -->
+    <linearGradient id="swooshGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1a6fff" stop-opacity="0.2"/>
+      <stop offset="50%" stop-color="#1a6fff"/>
+      <stop offset="100%" stop-color="#60c0ff" stop-opacity="0.6"/>
+    </linearGradient>
+    <!-- Outer glow filter -->
+    <filter id="glowFilter" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="borderGlow" x="-5%" y="-5%" width="110%" height="110%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer glow border -->
+  <rect x="3" y="3" width="194" height="194" rx="36" fill="none" stroke="#1a6fff" stroke-width="5" opacity="0.4" filter="url(#borderGlow)"/>
+
+  <!-- Background rounded square -->
+  <rect x="6" y="6" width="188" height="188" rx="32" fill="url(#bgGrad)"/>
+
+  <!-- Inner border highlight -->
+  <rect x="6" y="6" width="188" height="188" rx="32" fill="none" stroke="url(#borderGrad)" stroke-width="2.5"/>
+
+  <!-- C letter - large, silver/chrome, overlapping -->
+  <text
+    x="22"
+    y="138"
+    font-family="'Arial Black', 'Impact', 'Haettenschweiler', sans-serif"
+    font-size="115"
+    font-weight="900"
+    fill="url(#cGrad)"
+    letter-spacing="-4"
+  >C</text>
+
+  <!-- F letter - blue, slightly offset right -->
+  <text
+    x="100"
+    y="138"
+    font-family="'Arial Black', 'Impact', 'Haettenschweiler', sans-serif"
+    font-size="115"
+    font-weight="900"
+    fill="url(#fGrad)"
+    letter-spacing="-4"
+  >F</text>
+
+  <!-- Arrow head on the F -->
+  <polygon points="168,88 178,96 168,104" fill="#60c0ff"/>
+  <line x1="148" y1="96" x2="176" y2="96" stroke="#60c0ff" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Swoosh / wave line -->
+  <path
+    d="M 24 152 Q 60 140 100 148 Q 140 156 178 142"
+    fill="none"
+    stroke="url(#swooshGrad)"
+    stroke-width="4"
+    stroke-linecap="round"
+  />
+  <!-- Second swoosh line -->
+  <path
+    d="M 18 162 Q 65 150 106 158 Q 148 166 184 150"
+    fill="none"
+    stroke="#1a6fff"
+    stroke-width="2"
+    stroke-linecap="round"
+    opacity="0.5"
+  />
+</svg>
