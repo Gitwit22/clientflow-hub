@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { emailTemplateBody } from "@/data/mock";
 import { useAppState } from "@/lib/store";
 import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
+import { SendFormFlowDialog } from "@/components/dialogs/SendFormFlowDialog";
 import type { FormTemplate } from "@/types";
 
 export const Route = createFileRoute("/forms")({
@@ -47,6 +48,8 @@ function FormsPage() {
   const [submissionFilter, setSubmissionFilter] = useState("all");
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<FormTemplate | undefined>(undefined);
+  const [sendFormOpen, setSendFormOpen] = useState(false);
+  const [sendFormTemplateId, setSendFormTemplateId] = useState<string | undefined>(undefined);
 
   function openTemplateAdd() {
     setEditingTemplate(undefined);
@@ -184,8 +187,14 @@ function FormsPage() {
                     <Button variant="outline" size="sm">
                       Fill Out Form
                     </Button>
-                    <Button size="sm" asChild>
-                      <Link to="/intake">Send Form</Link>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setSendFormTemplateId(t.id);
+                        setSendFormOpen(true);
+                      }}
+                    >
+                      Send Form
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => openTemplateEdit(t)}>
                       Edit template
@@ -270,6 +279,11 @@ function FormsPage() {
         template={editingTemplate}
         open={templateDialogOpen}
         onOpenChange={setTemplateDialogOpen}
+      />
+      <SendFormFlowDialog
+        open={sendFormOpen}
+        onOpenChange={setSendFormOpen}
+        preselectedTemplateId={sendFormTemplateId}
       />
     </div>
   );
