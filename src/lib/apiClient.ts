@@ -336,6 +336,8 @@ export async function cfCreateProgram(data: Record<string, unknown>) { return ap
 export async function cfUpdateProgram(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/programs/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
 
 export async function cfListFormTemplates() { return apiRequest<unknown[]>(`${CF}/form-templates`); }
+export async function cfCreateFormTemplate(data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/form-templates`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfUpdateFormTemplate(id: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/form-templates/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
 
 export async function cfListFormAssignments(clientId?: string) {
   const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";

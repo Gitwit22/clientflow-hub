@@ -7,7 +7,7 @@
  */
 import { getState, setState, uid } from "./store";
 import { emailTemplateBody } from "@/data/mock";
-import { cfCreateFormAssignment, sendFormEmail as apiSendFormEmail } from "./apiClient";
+import { cfCreateFormAssignment, cfCreateFormTemplate, cfUpdateFormTemplate, cfCreateClient, sendFormEmail as apiSendFormEmail } from "./apiClient";
 import type {
   ActivityLog,
   Client,
@@ -54,9 +54,11 @@ export const getClientById = async (id: string) =>
 export async function createClient(
   data: Omit<Client, "id" | "createdAt" | "updatedAt" | "isArchived">,
 ) {
+  // Persist to backend so the client ID is a real DB record (needed by the public form endpoint).
+  const backendClient = await cfCreateClient(data as Record<string, unknown>).catch(() => null) as { id: string } | null;
   const client: Client = {
     ...data,
-    id: uid("cl"),
+    id: backendClient?.id ?? uid("cl"),
     createdAt: nowISO(),
     updatedAt: nowISO(),
     isArchived: false,
@@ -119,12 +121,15 @@ export async function updateProgram(id: string, data: Partial<Program>) {
 export const getFormTemplates = async () => delay(getState().formTemplates);
 
 export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
-  const template: FormTemplate = { ...data, id: uid("form") };
+  // Persist to backend so the template is findable by the public form endpoint.
+  const backendTemplate = await cfCreateFormTemplate(data as Record<string, unknown>).catch(() => null);
+  const template: FormTemplate = { ...data, id: backendTemplate?.id ?? uid("form") };
   setState((s) => ({ ...s, formTemplates: [...s.formTemplates, template] }));
   return delay(template);
 }
 
 export async function updateFormTemplate(id: string, data: Partial<FormTemplate>) {
+  cfUpdateFormTemplate(id, data as Record<string, unknown>).catch(() => undefined);
   setState((s) => ({
     ...s,
     formTemplates: s.formTemplates.map((t) => (t.id === id ? { ...t, ...data } : t)),
