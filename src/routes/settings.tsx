@@ -29,6 +29,7 @@ import {
 } from "@/lib/apiClient";
 import { useAppState, hideMockData } from "@/lib/store";
 import { MOCK_IDS } from "@/data/mock";
+import { cfRemoveDemo } from "@/lib/apiClient";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
@@ -450,7 +451,22 @@ function SettingsPage() {
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => hideMockData(true)}
+                onClick={async () => {
+                  await cfRemoveDemo({
+                    clientIds: [...MOCK_IDS.clients],
+                    programIds: [...MOCK_IDS.programs],
+                    formTemplateIds: [...MOCK_IDS.formTemplates],
+                    formAssignmentIds: [...MOCK_IDS.formAssignments],
+                    termsIds: [...MOCK_IDS.terms],
+                    monitoringIds: [...MOCK_IDS.monitoring],
+                    contractIds: [...MOCK_IDS.contracts],
+                    documentIds: [...MOCK_IDS.documents],
+                    communicationIds: [...MOCK_IDS.communications],
+                    finalReportIds: [...MOCK_IDS.finalReports],
+                    activityIds: [...MOCK_IDS.activity],
+                  }).catch(() => undefined);
+                  hideMockData(true);
+                }}
               >
                 Remove demo data permanently
               </Button>

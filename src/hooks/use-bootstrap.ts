@@ -18,8 +18,9 @@ import type {
 } from "@/types";
 
 /**
- * On mount (after auth), fetches all CF data from the backend and merges with
- * mock data (unless mock is hidden for this org). Re-runs when token changes.
+ * On mount (after auth), seeds ALL mock data to the backend (if not hidden),
+ * then fetches every entity type and merges with mock data.
+ * Re-runs when token changes (i.e. once per page-load/login session).
  */
 export function useBootstrap() {
   const { accessToken, authenticatedAdmin, mockHidden } = useAppState();
@@ -27,76 +28,115 @@ export function useBootstrap() {
 
   useEffect(() => {
     if (!accessToken || !authenticatedAdmin) return;
-    // Only fetch once per token
     if (ranRef.current === accessToken) return;
     ranRef.current = accessToken;
 
     void (async () => {
       try {
+        // ── Step 1: Seed ALL mock data to the backend (upsert — safe to repeat) ──
+        if (!mockHidden) {
+          await api.cfSeedDemo({
+            programs: mock.programs as unknown as Record<string, unknown>[],
+            formTemplates: mock.formTemplates as unknown as Record<string, unknown>[],
+            clients: mock.clients as unknown as Record<string, unknown>[],
+            formAssignments: mock.formAssignments as unknown as Record<string, unknown>[],
+            terms: mock.termsList as unknown as Record<string, unknown>[],
+            monitoring: mock.monitoringItems as unknown as Record<string, unknown>[],
+            contracts: mock.contracts as unknown as Record<string, unknown>[],
+            documents: mock.documents as unknown as Record<string, unknown>[],
+            communications: mock.communications as unknown as Record<string, unknown>[],
+            finalReports: mock.finalReports as unknown as Record<string, unknown>[],
+            activity: mock.activityLogs as unknown as Record<string, unknown>[],
+          }).catch(() => undefined); // Never block the UI if seeding fails
+        }
+
+        // ── Step 2: Fetch all entity types from backend ────────────────────────
         const [
           remoteClients,
           remotePrograms,
           remoteFormTemplates,
           remoteFormAssignments,
+          remoteTerms,
+          remoteMonitoring,
+          remoteContracts,
+          remoteDocuments,
+          remoteCommunications,
+          remoteFinalReports,
           remoteActivity,
         ] = await Promise.all([
           api.cfListClients(),
           api.cfListPrograms(),
           api.cfListFormTemplates(),
           api.cfListFormAssignments(),
+          api.cfListAllTerms(),
+          api.cfListAllMonitoring(),
+          api.cfListAllContracts(),
+          api.cfListAllDocuments(),
+          api.cfListAllCommunications(),
+          api.cfListAllFinalReports(),
           api.cfListActivity(),
         ]);
 
-        // Seed any mock programs/templates that don't yet exist in the backend.
-        // Preserves the original mock IDs so existing form assignments stay valid.
-        {
-          const remoteProgramIdSet = new Set((remotePrograms as Program[]).map((p) => p.id));
-          const remoteTemplateIdSet = new Set((remoteFormTemplates as FormTemplate[]).map((t) => t.id));
-          const missingPrograms = mockHidden ? [] : mock.programs.filter((p) => !remoteProgramIdSet.has(p.id));
-          const missingTemplates = mockHidden ? [] : mock.formTemplates.filter((t) => !remoteTemplateIdSet.has(t.id));
-          if (missingPrograms.length || missingTemplates.length) {
-            await Promise.allSettled([
-              ...missingPrograms.map((p) => api.cfCreateProgram(p as unknown as Record<string, unknown>)),
-              ...missingTemplates.map((t) => api.cfCreateFormTemplate(t as unknown as Record<string, unknown>)),
-            ]);
-          }
-        }
-
+        // ── Step 3: Merge — remote wins on ID collision ────────────────────────
         setState((prev) => {
-          const mockClients = mockHidden ? [] : mock.clients.filter((c) => !MOCK_IDS.clients.has(c.id) || true);
-          const mockPrograms = mockHidden ? [] : mock.programs;
-          const mockTemplates = mockHidden ? [] : mock.formTemplates;
-          const mockAssignments = mockHidden ? [] : mock.formAssignments;
-          const mockActivity = mockHidden ? [] : mock.activityLogs;
-
-          // Build merged sets (remote wins on ID collision)
+          const keepMock = !mockHidden;
           const remoteClientIds = new Set((remoteClients as Client[]).map((c) => c.id));
           const remoteProgramIds = new Set((remotePrograms as Program[]).map((p) => p.id));
           const remoteTemplateIds = new Set((remoteFormTemplates as FormTemplate[]).map((t) => t.id));
           const remoteAssignmentIds = new Set((remoteFormAssignments as FormAssignment[]).map((a) => a.id));
+          const remoteTermIds = new Set((remoteTerms as Terms[]).map((t) => t.id));
+          const remoteMonitoringIds = new Set((remoteMonitoring as MonitoringItem[]).map((m) => m.id));
+          const remoteContractIds = new Set((remoteContracts as Contract[]).map((c) => c.id));
+          const remoteDocumentIds = new Set((remoteDocuments as ClientDocument[]).map((d) => d.id));
+          const remoteCommIds = new Set((remoteCommunications as Communication[]).map((c) => c.id));
+          const remoteFinalReportIds = new Set((remoteFinalReports as FinalReport[]).map((f) => f.id));
           const remoteActivityIds = new Set((remoteActivity as ActivityLog[]).map((a) => a.id));
 
           return {
             ...prev,
             clients: [
               ...(remoteClients as Client[]),
-              ...mockClients.filter((c) => !remoteClientIds.has(c.id)),
+              ...(keepMock ? mock.clients.filter((c) => !remoteClientIds.has(c.id)) : []),
             ],
             programs: [
               ...(remotePrograms as Program[]),
-              ...mockPrograms.filter((p) => !remoteProgramIds.has(p.id)),
+              ...(keepMock ? mock.programs.filter((p) => !remoteProgramIds.has(p.id)) : []),
             ],
             formTemplates: [
               ...(remoteFormTemplates as FormTemplate[]),
-              ...mockTemplates.filter((t) => !remoteTemplateIds.has(t.id)),
+              ...(keepMock ? mock.formTemplates.filter((t) => !remoteTemplateIds.has(t.id)) : []),
             ],
             formAssignments: [
               ...(remoteFormAssignments as FormAssignment[]),
-              ...mockAssignments.filter((a) => !remoteAssignmentIds.has(a.id)),
+              ...(keepMock ? mock.formAssignments.filter((a) => !remoteAssignmentIds.has(a.id)) : []),
+            ],
+            terms: [
+              ...(remoteTerms as Terms[]),
+              ...(keepMock ? mock.termsList.filter((t) => !remoteTermIds.has(t.id)) : []),
+            ],
+            monitoring: [
+              ...(remoteMonitoring as MonitoringItem[]),
+              ...(keepMock ? mock.monitoringItems.filter((m) => !remoteMonitoringIds.has(m.id)) : []),
+            ],
+            contracts: [
+              ...(remoteContracts as Contract[]),
+              ...(keepMock ? mock.contracts.filter((c) => !remoteContractIds.has(c.id)) : []),
+            ],
+            documents: [
+              ...(remoteDocuments as ClientDocument[]),
+              ...(keepMock ? mock.documents.filter((d) => !remoteDocumentIds.has(d.id)) : []),
+            ],
+            communications: [
+              ...(remoteCommunications as Communication[]),
+              ...(keepMock ? mock.communications.filter((c) => !remoteCommIds.has(c.id)) : []),
+            ],
+            finalReports: [
+              ...(remoteFinalReports as FinalReport[]),
+              ...(keepMock ? mock.finalReports.filter((f) => !remoteFinalReportIds.has(f.id)) : []),
             ],
             activity: [
               ...(remoteActivity as ActivityLog[]),
-              ...mockActivity.filter((a) => !remoteActivityIds.has(a.id)),
+              ...(keepMock ? mock.activityLogs.filter((a) => !remoteActivityIds.has(a.id)) : []),
             ],
           };
         });

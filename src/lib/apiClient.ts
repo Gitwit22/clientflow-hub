@@ -347,25 +347,31 @@ export async function cfCreateFormAssignment(data: Record<string, unknown>) { re
 export async function cfUpdateFormAssignment(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/form-assignments/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
 
 export async function cfListTerms(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/terms`); }
-export async function cfCreateTerms(clientId: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/clients/${clientId}/terms`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfCreateTerms(clientId: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/terms`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateTerms(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/terms/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
+export async function cfListAllTerms() { return apiRequest<unknown[]>(`${CF}/terms`); }
 
 export async function cfListMonitoring(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/monitoring`); }
-export async function cfCreateMonitoringItem(clientId: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/clients/${clientId}/monitoring`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfCreateMonitoringItem(clientId: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/monitoring`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateMonitoringItem(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/monitoring/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
+export async function cfListAllMonitoring() { return apiRequest<unknown[]>(`${CF}/monitoring`); }
 
 export async function cfListContracts(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/contracts`); }
-export async function cfCreateContract(clientId: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/clients/${clientId}/contracts`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfCreateContract(clientId: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/contracts`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateContract(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/contracts/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
+export async function cfListAllContracts() { return apiRequest<unknown[]>(`${CF}/contracts`); }
 
 export async function cfListDocuments(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/documents`); }
-export async function cfCreateDocument(clientId: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/clients/${clientId}/documents`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfCreateDocument(clientId: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/documents`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfListAllDocuments() { return apiRequest<unknown[]>(`${CF}/documents`); }
 
 export async function cfListCommunications(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/communications`); }
-export async function cfCreateCommunication(clientId: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/clients/${clientId}/communications`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfCreateCommunication(clientId: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/communications`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfListAllCommunications() { return apiRequest<unknown[]>(`${CF}/communications`); }
 
 export async function cfListFinalReports(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/final-reports`); }
-export async function cfCreateFinalReport(clientId: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/clients/${clientId}/final-reports`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfCreateFinalReport(clientId: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/final-reports`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfListAllFinalReports() { return apiRequest<unknown[]>(`${CF}/final-reports`); }
 
 export async function cfListActivity(clientId?: string) {
   const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
