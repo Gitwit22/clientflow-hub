@@ -194,9 +194,10 @@ export async function createFormAssignment(data: {
     updatedAt: nowISO(),
   };
   setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
-  // Persist to backend so /public/form/:token can find the assignment
+  // Await backend persistence — email must NOT go out until the token is confirmed in the DB.
+  // If this throws, the error propagates to the caller so the user sees it before a broken link is sent.
   if (isSendLink && secureLinkToken) {
-    cfCreateFormAssignment({
+    await cfCreateFormAssignment({
       clientId: data.clientId,
       formId: data.formId,
       completionMethod: data.completionMethod,
@@ -211,7 +212,7 @@ export async function createFormAssignment(data: {
       secureLink,
       secureLinkToken,
       sentAt,
-    }).catch(() => undefined);
+    });
   }
   log(
     data.clientId,

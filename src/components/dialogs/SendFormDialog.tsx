@@ -74,25 +74,29 @@ export function SendFormDialog({
 
   async function handleSend() {
     if (!client || !template) return;
-    const assignment = await createFormAssignment({
-      clientId: client.id,
-      formId: template.id,
-      completionMethod: "secure_link",
-      deliveryMethod: "email",
-      recipientEmail: client.email,
-      assignedUserId: null,
-      dueDate: new Date(dueDate).toISOString(),
-      status: "sent",
-      organizationId: "org_ea_management",
-      isDemo: client.isDemo ?? false,
-      createdByUserId: "user_alicia",
-    });
-    await sendFormEmail(assignment.id);
-    toast.success(`${template.name} sent to ${client.email}`);
-    onOpenChange(false);
-    setPreview(false);
-    setTemplateId("");
-    setBodyOverride(null);
+    try {
+      const assignment = await createFormAssignment({
+        clientId: client.id,
+        formId: template.id,
+        completionMethod: "secure_link",
+        deliveryMethod: "email",
+        recipientEmail: client.email,
+        assignedUserId: null,
+        dueDate: new Date(dueDate).toISOString(),
+        status: "sent",
+        organizationId: "org_ea_management",
+        isDemo: client.isDemo ?? false,
+        createdByUserId: "user_alicia",
+      });
+      await sendFormEmail(assignment.id);
+      toast.success(`${template.name} sent to ${client.email}`);
+      onOpenChange(false);
+      setPreview(false);
+      setTemplateId("");
+      setBodyOverride(null);
+    } catch {
+      toast.error("Failed to send form. Please try again.");
+    }
   }
 
   return (
