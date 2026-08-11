@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Plus, Send } from "lucide-react";
+import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { emailTemplateBody } from "@/data/mock";
 import { useAppState } from "@/lib/store";
 import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
-import { SendFormFlowDialog } from "@/components/dialogs/SendFormFlowDialog";
 import type { FormTemplate } from "@/types";
 
 export const Route = createFileRoute("/forms")({
@@ -48,8 +47,6 @@ function FormsPage() {
   const [submissionFilter, setSubmissionFilter] = useState("all");
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<FormTemplate | undefined>(undefined);
-  const [sendFlowOpen, setSendFlowOpen] = useState(false);
-  const [sendFlowTemplateId, setSendFlowTemplateId] = useState<string | undefined>(undefined);
 
   function openTemplateAdd() {
     setEditingTemplate(undefined);
@@ -187,15 +184,8 @@ function FormsPage() {
                     <Button variant="outline" size="sm">
                       Fill Out Form
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setSendFlowTemplateId(t.id);
-                        setSendFlowOpen(true);
-                      }}
-                    >
-                      <Send className="mr-1.5 size-3.5" />
-                      Send Form
+                    <Button size="sm" asChild>
+                      <Link to="/intake">Send Form</Link>
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => openTemplateEdit(t)}>
                       Edit template
@@ -280,11 +270,6 @@ function FormsPage() {
         template={editingTemplate}
         open={templateDialogOpen}
         onOpenChange={setTemplateDialogOpen}
-      />
-      <SendFormFlowDialog
-        open={sendFlowOpen}
-        onOpenChange={setSendFlowOpen}
-        preselectedTemplateId={sendFlowTemplateId}
       />
     </div>
   );
