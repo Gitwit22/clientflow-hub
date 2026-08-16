@@ -42,6 +42,8 @@ const CONTRACT_TYPES: ContractType[] = [
   "Sponsorship Agreement",
   "Event Planning Agreement",
   "Workshop Agreement",
+  "Membership Agreement",
+  "Partnership Agreement",
 ];
 
 function TagListEditor({
@@ -319,7 +321,7 @@ export function AddEditProgramDialog({
               {CLIENT_STATUSES.map((s) => (
                 <label
                   key={s}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted has-checked:border-primary has-checked:bg-primary/5"
                 >
                   <input
                     type="checkbox"

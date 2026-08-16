@@ -68,7 +68,9 @@ export type ContractType =
   | "Investment Terms"
   | "Sponsorship Agreement"
   | "Event Planning Agreement"
-  | "Workshop Agreement";
+  | "Workshop Agreement"
+  | "Membership Agreement"
+  | "Partnership Agreement";
 
 export type SupportType =
   | "Service"
