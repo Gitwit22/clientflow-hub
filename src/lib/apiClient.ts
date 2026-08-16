@@ -28,8 +28,18 @@ export class ApiError extends Error {
 async function parseApiError(response: Response): Promise<ApiError> {
   try {
     const body = (await response.json()) as Record<string, unknown>;
-    const message = (body["message"] as string | undefined) ?? response.statusText;
-    const code = (body["error"] as string | undefined) ?? "UNKNOWN";
+    const nestedError =
+      body["error"] && typeof body["error"] === "object"
+        ? (body["error"] as Record<string, unknown>)
+        : undefined;
+    const message =
+      (nestedError?.["message"] as string | undefined) ??
+      (body["message"] as string | undefined) ??
+      response.statusText;
+    const code =
+      (nestedError?.["code"] as string | undefined) ??
+      (typeof body["error"] === "string" ? body["error"] : undefined) ??
+      "UNKNOWN";
     return new ApiError(response.status, code, message);
   } catch {
     return new ApiError(response.status, "PARSE_ERROR", response.statusText);

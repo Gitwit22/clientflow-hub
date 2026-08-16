@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   getPublicForm,
   submitPublicForm,
+  ApiError,
   type PublicFormData,
   type PublicFormField,
 } from "@/lib/apiClient";
@@ -90,9 +91,11 @@ function PublicFormPage() {
     try {
       await submitPublicForm(token, { responses, startedAt });
       setStatus("success");
-    } catch {
+    } catch (error) {
       setStatus("ready");
-      toast.error("Submission failed. Please try again.");
+      toast.error(
+        error instanceof ApiError ? error.message : "Submission failed. Please try again.",
+      );
     }
   }
 
