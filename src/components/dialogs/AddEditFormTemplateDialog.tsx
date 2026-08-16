@@ -28,6 +28,7 @@ const FIELD_TYPES: FormField["type"][] = [
   "text",
   "email",
   "phone",
+  "url",
   "textarea",
   "number",
   "date",

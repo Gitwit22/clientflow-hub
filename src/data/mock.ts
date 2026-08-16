@@ -301,7 +301,16 @@ const f = (
   label: string,
   type: FormTemplate["fields"][number]["type"] = "text",
   required = false,
-): FormTemplate["fields"][number] => ({ id, label, type, required });
+  options?: string[],
+): FormTemplate["fields"][number] => ({ id, label, type, required, options });
+
+const socialMediaFields = () => [
+  f("facebookUrl", "Facebook URL", "url"),
+  f("instagramUrl", "Instagram URL", "url"),
+  f("linkedinUrl", "LinkedIn URL", "url"),
+  f("tiktokUrl", "TikTok URL", "url"),
+  f("youtubeUrl", "YouTube URL", "url"),
+];
 
 export const formTemplates: FormTemplate[] = [
   {
@@ -319,13 +328,13 @@ export const formTemplates: FormTemplate[] = [
       f("email", "Email", "email", true),
       f("phone", "Phone", "phone", true),
       f("website", "Website"),
-      f("social", "Social media links"),
+      ...socialMediaFields(),
       f("program", "Program or service of interest", "select", true),
       f("description", "Brief business description", "textarea", true),
       f("assistance", "Type of assistance needed", "textarea", true),
       f("budget", "Estimated budget", "number"),
       f("start", "Desired start date", "date"),
-      f("contact", "Preferred contact method", "select"),
+      f("contact", "Preferred contact method", "select", false, ["Cell number", "Work number"]),
       f("heard", "How did you hear about us?", "select"),
       f("comments", "Additional comments", "textarea"),
     ],
@@ -640,7 +649,7 @@ export const formTemplates: FormTemplate[] = [
       f("phone", "Phone", "phone", true),
       f("address", "Business address", "text", true),
       f("website", "Website"),
-      f("social", "Social media links"),
+      ...socialMediaFields(),
       f(
         "stage",
         "What stage is your business in? (Aspiring Entrepreneur / Early-Stage / Established Business)",
@@ -729,7 +738,7 @@ export const formTemplates: FormTemplate[] = [
       f("email", "Email", "email", true),
       f("phone", "Phone", "phone", true),
       f("website", "Website"),
-      f("social", "Social media links"),
+      ...socialMediaFields(),
       f("description", "Brief business description", "textarea", true),
       f("offerings", "What products or services are you currently focused on selling?", "textarea", true),
       f("customer", "Who is your primary customer?", "textarea", true),

@@ -316,6 +316,8 @@ function PublicFieldInput({
           ? "tel"
           : field.type === "email"
             ? "email"
+            : field.type === "url"
+              ? "url"
             : field.type === "number"
               ? "number"
               : field.type === "date"

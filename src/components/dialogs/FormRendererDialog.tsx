@@ -24,7 +24,21 @@ import { changeAssignmentStatus, saveFormDraft, saveFormEdits, submitFormRespons
 import { useAppState } from "@/lib/store";
 import type { Client, FormAssignment, FormAssignmentStatus, FormField } from "@/types";
 
+const SOCIAL_HOSTS: Record<string, string[]> = {
+  facebookUrl: ["facebook.com", "fb.com"],
+  instagramUrl: ["instagram.com"],
+  linkedinUrl: ["linkedin.com"],
+  tiktokUrl: ["tiktok.com"],
+  youtubeUrl: ["youtube.com", "youtu.be"],
+};
+
 function prefillFromClient(field: FormField, client: Client): string {
+  const socialHosts = SOCIAL_HOSTS[field.id];
+  if (socialHosts) {
+    return client.socialLinks?.find((link) =>
+      socialHosts.some((host) => link.toLowerCase().includes(host)),
+    ) ?? "";
+  }
   if (field.prefillKey) {
     const k = field.prefillKey;
     if (k === "businessDescription") return client.intake.businessDescription;
@@ -116,6 +130,8 @@ function FieldInput({
           ? "tel"
           : field.type === "email"
             ? "email"
+            : field.type === "url"
+              ? "url"
             : field.type === "number"
               ? "number"
               : field.type === "date"
@@ -145,7 +161,7 @@ export function FormRendererDialog({
   onOpenChange,
   readOnly = false,
 }: FormRendererDialogProps) {
-  const { formTemplates } = useAppState();
+  const { formTemplates, programs } = useAppState();
   const template = assignment ? formTemplates.find((t) => t.id === assignment.formId) : null;
 
   const [responses, setResponses] = useState<Record<string, string>>(() => {
@@ -257,6 +273,13 @@ export function FormRendererDialog({
         <div className="space-y-5">
           {template.fields.map((field) => {
             const value = responses[field.id] ?? "";
+            const renderedField =
+              field.id === "program" || field.prefillKey === "programOfInterest"
+                ? {
+                    ...field,
+                    options: programs.filter((program) => program.isActive).map((program) => program.name),
+                  }
+                : field;
             return (
               <div key={field.id} className="space-y-1.5">
                 <Label htmlFor={(readOnly && !editing) ? undefined : `field-${field.id}`}>
@@ -272,7 +295,7 @@ export function FormRendererDialog({
                     {value || "(not answered)"}
                   </p>
                 ) : (
-                  <FieldInput field={field} value={value} onChange={(v) => set(field.id, v)} />
+                  <FieldInput field={renderedField} value={value} onChange={(v) => set(field.id, v)} />
                 )}
               </div>
             );

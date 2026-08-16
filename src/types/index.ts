@@ -188,7 +188,7 @@ export interface FormField {
   id: string;
   label: string;
   type:
-    "text" | "email" | "phone" | "textarea" | "number" | "date" | "select" | "file" | "checkbox";
+    "text" | "email" | "phone" | "url" | "textarea" | "number" | "date" | "select" | "file" | "checkbox";
   required: boolean;
   options?: string[];
   prefillKey?: keyof Client | "businessDescription" | "programOfInterest";
