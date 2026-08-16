@@ -319,7 +319,10 @@ async function publicRequest<T = unknown>(path: string, init: RequestInit = {}):
     throw await parseApiError(response);
   }
   if (response.status === 204) return undefined as unknown as T;
-  return response.json() as Promise<T>;
+  const body = (await response.json()) as T | { success: true; data: T };
+  return body && typeof body === "object" && "success" in body && "data" in body
+    ? body.data
+    : body;
 }
 
 // ─── ClientFlow CRUD ──────────────────────────────────────────────────────────
