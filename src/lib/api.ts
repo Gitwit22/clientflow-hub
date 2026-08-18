@@ -75,14 +75,30 @@ export const getClientById = async (id: string) =>
 export async function createClient(
   data: Omit<Client, "id" | "createdAt" | "updatedAt" | "isArchived">,
 ) {
-  // Persist to backend so the client ID is a real DB record (needed by the public form endpoint).
-  const backendClient = await cfCreateClient(data as Record<string, unknown>).catch(() => null) as { id: string } | null;
+  const backendClient = await cfCreateClient({
+    businessName: data.businessName,
+    primaryContactName: data.primaryContactName,
+    email: data.email,
+    phone: data.phone,
+    website: data.website,
+    programId: data.programId,
+    status: data.status,
+    profileType: data.profileType,
+    relationshipType: data.relationshipType,
+    lifecycleStatus: data.lifecycleStatus,
+    assignedStaff: data.assignedStaff,
+    assignedUserId: data.assignedUserId,
+    intakeSource: data.intakeSource,
+    source: data.source,
+    nextFollowUpDate: data.nextFollowUpDate,
+    convertedAt: data.convertedAt,
+    isDemo: data.isDemo,
+    intake: data.intake,
+    snapchat: data.snapchat,
+  }) as Client;
   const client: Client = {
     ...data,
-    id: backendClient?.id ?? uid("cl"),
-    createdAt: nowISO(),
-    updatedAt: nowISO(),
-    isArchived: false,
+    ...backendClient,
   };
   setState((s) => ({ ...s, clients: [client, ...s.clients] }));
   log(client.id, "Intake received", `New intake created for ${client.businessName}.`);
