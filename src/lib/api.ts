@@ -26,7 +26,7 @@ import {
   cfCreateFinalReport,
   cfUpdateFormAssignment,
   cfCreateActivity,
-  sendFormEmail as apiSendFormEmail,
+  cfSendFormAssignment,
 } from "./apiClient";
 import type {
   ActivityLog,
@@ -195,13 +195,7 @@ export async function createFormAssignment(data: {
   personalMessage?: string;
 }) {
   const isSendLink = data.completionMethod === "secure_link";
-  const secureLinkToken = isSendLink
-    ? (crypto.randomUUID().replace(/-/g, "").slice(0, 16))
-    : undefined;
-  const appOrigin = typeof window !== "undefined" ? window.location.origin : "https://clientflow-2g9.pages.dev";
-  const secureLink = isSendLink && secureLinkToken ? `${appOrigin}/s/${secureLinkToken}` : undefined;
-  const sentAt = isSendLink ? nowISO() : undefined;
-  const assignment: FormAssignment = {
+  let assignment: FormAssignment = {
     id: uid("fa"),
     organizationId: data.organizationId,
     clientId: data.clientId,
@@ -212,21 +206,16 @@ export async function createFormAssignment(data: {
     deliveryMethod: data.deliveryMethod,
     recipientEmail: data.recipientEmail ?? null,
     recipientPhone: data.recipientPhone ?? null,
-    status: data.status ?? (isSendLink ? "sent" : "draft"),
+    status: data.status ?? "draft",
     dueDate: data.dueDate,
     dueAt: data.dueDate ?? null,
-    sentAt,
-    secureLink,
     createdByUserId: data.createdByUserId ?? "user_alicia",
     isDemo: data.isDemo ?? false,
     createdAt: nowISO(),
     updatedAt: nowISO(),
   };
-  setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
-  // Await backend persistence — email must NOT go out until the token is confirmed in the DB.
-  // If this throws, the error propagates to the caller so the user sees it before a broken link is sent.
-  if (isSendLink && secureLinkToken) {
-    await cfCreateFormAssignment({
+  if (isSendLink) {
+    assignment = await cfCreateFormAssignment({
       clientId: data.clientId,
       formId: data.formId,
       completionMethod: data.completionMethod,
@@ -235,19 +224,17 @@ export async function createFormAssignment(data: {
       recipientPhone: data.recipientPhone ?? null,
       assignedUserId: data.assignedUserId ?? null,
       dueDate: data.dueDate,
-      status: data.status ?? "sent",
+      status: "draft",
       isDemo: data.isDemo ?? false,
       createdByUserId: data.createdByUserId ?? "user_alicia",
-      secureLink,
-      secureLinkToken,
-      sentAt,
     });
   }
+  setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
   log(
     data.clientId,
     "Form assigned",
     isSendLink
-      ? `Secure link sent for ${data.formId}.`
+      ? `Secure link created for ${data.formId}.`
       : `Admin-assisted form opened for ${data.formId}.`,
   );
   return delay(assignment);
@@ -265,41 +252,21 @@ export async function convertProfile(id: string, newRelationshipType: Relationsh
 }
 
 export async function sendFormEmail(formAssignmentId: string, personalMessage?: string) {
-  const s = getState();
-  const assignment = s.formAssignments.find((a) => a.id === formAssignmentId);
-  if (assignment?.secureLink) {
-    const client = s.clients.find((c) => c.id === assignment.clientId);
-    const template = s.formTemplates.find((t) => t.id === assignment.formId);
-    const program = s.programs.find((p) => p.id === template?.programId);
-    if (client && template) {
-      // Fire-and-forget — store update proceeds regardless of email delivery
-      apiSendFormEmail({
-        to: assignment.recipientEmail ?? client.email,
-        contactName: client.primaryContactName,
-        formName: template.name,
-        programName: program?.name ?? "EA Management Program",
-        dueDate: assignment.dueDate
-          ? new Date(assignment.dueDate).toLocaleDateString()
-          : "As soon as possible",
-        secureLink: assignment.secureLink,
-        ...(personalMessage ? { personalMessage } : {}),
-      }).catch(() => undefined);
-      log(
-        assignment.clientId,
-        "Form sent",
-        `Secure form link emailed to ${assignment.recipientEmail ?? client.email}.`,
-      );
-    }
-  }
-  const sentAt = nowISO();
-  cfUpdateFormAssignment(formAssignmentId, { status: "sent", sentAt }).catch(() => undefined);
+  const assignment = await cfSendFormAssignment(formAssignmentId, {
+    ...(personalMessage ? { personalMessage } : {}),
+  });
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
-      a.id === formAssignmentId ? { ...a, status: "sent" as const, sentAt } : a,
+      a.id === formAssignmentId ? assignment : a,
     ),
   }));
-  return delay(true);
+  log(
+    assignment.clientId,
+    "Form sent",
+    `Secure form link emailed to ${assignment.recipientEmail ?? "the recipient"}.`,
+  );
+  return delay(assignment);
 }
 
 export async function submitFormResponse(

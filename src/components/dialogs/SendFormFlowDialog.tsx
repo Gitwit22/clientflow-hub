@@ -189,7 +189,7 @@ export function SendFormFlowDialog({
         recipientEmail,
         assignedUserId: null,
         dueDate: new Date(dueDate).toISOString(),
-        status: "sent",
+        status: "draft",
         organizationId: "org_ea_management",
         isDemo: selectedClient.isDemo ?? false,
         createdByUserId: "user_alicia",

@@ -83,7 +83,7 @@ export function SendFormDialog({
         recipientEmail: client.email,
         assignedUserId: null,
         dueDate: new Date(dueDate).toISOString(),
-        status: "sent",
+        status: "draft",
         organizationId: "org_ea_management",
         isDemo: client.isDemo ?? false,
         createdByUserId: "user_alicia",

@@ -1,5 +1,5 @@
 import { clearAccessToken, getState, setAuthSession } from "./store";
-import type { OrgMember, OrgSettings } from "@/types";
+import type { FormAssignment, OrgMember, OrgSettings } from "@/types";
 
 const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? "https://nxt-lvl-api2.onrender.com";
@@ -262,26 +262,6 @@ export async function acceptInvite(
   return result;
 }
 
-// ─── Form assignment email ────────────────────────────────────────────────────
-
-export interface SendFormEmailPayload {
-  to: string;
-  contactName: string;
-  formName: string;
-  programName: string;
-  dueDate: string;
-  secureLink: string;
-  personalMessage?: string;
-}
-
-/** POST /admin/form-assignments/send-email — delivers the secure form link via Resend. */
-export async function sendFormEmail(payload: SendFormEmailPayload): Promise<void> {
-  return apiRequest("/api/v1/admin/form-assignments/send-email", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
 // ─── Public Form (unauthenticated) ───────────────────────────────────────────
 
 export interface PublicFormField {
@@ -356,7 +336,8 @@ export async function cfListFormAssignments(clientId?: string) {
   const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
   return apiRequest<unknown[]>(`${CF}/form-assignments${qs}`);
 }
-export async function cfCreateFormAssignment(data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/form-assignments`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfCreateFormAssignment(data: Record<string, unknown>) { return apiRequest<FormAssignment>(`${CF}/form-assignments`, { method: "POST", body: JSON.stringify(data) }); }
+export async function cfSendFormAssignment(id: string, data: { personalMessage?: string }) { return apiRequest<FormAssignment>(`${CF}/form-assignments/${id}/send`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateFormAssignment(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/form-assignments/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
 
 export async function cfListTerms(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/terms`); }

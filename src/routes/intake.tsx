@@ -215,7 +215,7 @@ function IntakePage() {
       recipientEmail,
       assignedUserId: null,
       dueDate,
-      status: "sent",
+      status: "draft",
       organizationId: "org_ea_management",
       isDemo: selectedProfile.isDemo ?? false,
       createdByUserId: "user_alicia",
