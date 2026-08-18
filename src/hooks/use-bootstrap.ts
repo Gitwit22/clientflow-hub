@@ -33,8 +33,13 @@ export function useBootstrap() {
 
     void (async () => {
       try {
+        const organization = authenticatedAdmin.organizationId
+          ? await api.getOrganizationSettings(authenticatedAdmin.organizationId)
+          : null;
+        const liveMode = organization?.liveMode ?? false;
+
         // ── Step 1: Seed ALL mock data to the backend (upsert — safe to repeat) ──
-        if (!mockHidden) {
+        if (!liveMode && !mockHidden) {
           await api.cfSeedDemo({
             programs: mock.programs as unknown as Record<string, unknown>[],
             formTemplates: mock.formTemplates as unknown as Record<string, unknown>[],
@@ -79,7 +84,7 @@ export function useBootstrap() {
 
         // ── Step 3: Merge — remote wins on ID collision ────────────────────────
         setState((prev) => {
-          const keepMock = !mockHidden;
+          const keepMock = !liveMode && !mockHidden;
           const remoteClientIds = new Set((remoteClients as Client[]).map((c) => c.id));
           const remoteProgramIds = new Set((remotePrograms as Program[]).map((p) => p.id));
           const remoteTemplateIds = new Set((remoteFormTemplates as FormTemplate[]).map((t) => t.id));
@@ -94,6 +99,8 @@ export function useBootstrap() {
 
           return {
             ...prev,
+            liveMode,
+            mockHidden: liveMode || prev.mockHidden,
             clients: [
               ...(remoteClients as Client[]),
               ...(keepMock ? mock.clients.filter((c) => !remoteClientIds.has(c.id)) : []),

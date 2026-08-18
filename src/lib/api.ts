@@ -12,6 +12,8 @@ import {
   cfCreateFormTemplate,
   cfUpdateFormTemplate,
   cfCreateClient,
+  cfGetClient,
+  cfListFormAssignments,
   cfUpdateClient,
   cfCreateProgram,
   cfUpdateProgram,
@@ -72,6 +74,24 @@ export const getClients = async () => delay(getState().clients);
 export const getClientById = async (id: string) =>
   delay(getState().clients.find((c) => c.id === id) ?? null);
 
+export async function refreshClientProfile(clientId: string) {
+  const [client, assignments] = await Promise.all([
+    cfGetClient(clientId) as Promise<Client>,
+    cfListFormAssignments(clientId) as Promise<FormAssignment[]>,
+  ]);
+  setState((state) => ({
+    ...state,
+    clients: state.clients.some((existing) => existing.id === clientId)
+      ? state.clients.map((existing) => (existing.id === clientId ? client : existing))
+      : [client, ...state.clients],
+    formAssignments: [
+      ...assignments,
+      ...state.formAssignments.filter((assignment) => assignment.clientId !== clientId),
+    ],
+  }));
+  return client;
+}
+
 export async function createClient(
   data: Omit<Client, "id" | "createdAt" | "updatedAt" | "isArchived">,
 ) {
@@ -106,12 +126,12 @@ export async function createClient(
 }
 
 export async function updateClient(id: string, data: Partial<Client>) {
-  cfUpdateClient(id, data as Record<string, unknown>).catch(() => undefined);
+  const updatedClient = await cfUpdateClient(id, data as Record<string, unknown>) as Client;
   setState((s) => ({
     ...s,
-    clients: s.clients.map((c) => (c.id === id ? { ...c, ...data, updatedAt: nowISO() } : c)),
+    clients: s.clients.map((client) => (client.id === id ? updatedClient : client)),
   }));
-  return delay(getState().clients.find((c) => c.id === id) ?? null);
+  return delay(updatedClient);
 }
 
 export async function archiveClient(

@@ -376,6 +376,20 @@ export async function cfCreateActivity(data: Record<string, unknown>) { return a
 export async function cfSeedDemo(payload: Record<string, unknown[]>) {
   return apiRequest<{ seeded: Record<string, number> }>(`${CF}/seed-demo`, { method: "POST", body: JSON.stringify(payload) });
 }
-export async function cfRemoveDemo(ids: Record<string, string[]>) {
-  return apiRequest<{ removed: boolean }>(`${CF}/remove-demo`, { method: "POST", body: JSON.stringify(ids) });
+
+export interface LiveModeTransitionResult {
+  liveMode: true;
+  demoRemovedAt: string | null;
+  principalAdminId: string | null;
+  disabledPersonnel: number;
+  revokedInvitations: number;
+  revokedSessions: number;
+  removed: Record<string, number>;
+}
+
+export async function cfRemoveDemo(payload: { currentPassword: string; confirmation: string }) {
+  return apiRequest<LiveModeTransitionResult>(`${CF}/remove-demo`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

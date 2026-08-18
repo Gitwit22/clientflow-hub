@@ -6,6 +6,14 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
@@ -17,11 +25,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { UserPlus } from "lucide-react";
+import { Crown, UserPlus } from "lucide-react";
 import {
   ApiError,
   disableMember,
   enableMember,
+  cfRemoveDemo,
   getOrganizationSettings,
   listMembers,
   updateMemberRole,
@@ -29,7 +38,6 @@ import {
 } from "@/lib/apiClient";
 import { useAppState, hideMockData } from "@/lib/store";
 import { MOCK_IDS } from "@/data/mock";
-import { cfRemoveDemo } from "@/lib/apiClient";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
@@ -113,6 +121,12 @@ function SettingsPage() {
   const [replyTo, setReplyTo] = useState("");
   const [monitoringFreq, setMonitoringFreq] = useState("");
   const [orgSaving, setOrgSaving] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
+  const [demoRemovedAt, setDemoRemovedAt] = useState<string | null>(null);
+  const [removeDemoOpen, setRemoveDemoOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [liveConfirmation, setLiveConfirmation] = useState("");
+  const [removingDemo, setRemovingDemo] = useState(false);
 
   // Templates card (local toggles)
   const [templateToggles, setTemplateToggles] = useState({
@@ -147,6 +161,8 @@ function SettingsPage() {
       setCompanyName(data.name ?? "");
       setReplyTo((data.settings.replyToEmail as string) ?? "");
       setMonitoringFreq((data.settings.defaultMonitoringFrequency as string) ?? "");
+      setLiveMode(data.liveMode);
+      setDemoRemovedAt(data.demoRemovedAt ?? null);
     } catch {
       // Non-fatal — org settings may not be seeded yet
     } finally {
@@ -226,6 +242,30 @@ function SettingsPage() {
     }
   }
 
+  async function handleEnableLiveMode() {
+    setRemovingDemo(true);
+    try {
+      const result = await cfRemoveDemo({
+        currentPassword,
+        confirmation: liveConfirmation,
+      });
+      setLiveMode(result.liveMode);
+      setDemoRemovedAt(result.demoRemovedAt);
+      hideMockData(true);
+      setRemoveDemoOpen(false);
+      setCurrentPassword("");
+      setLiveConfirmation("");
+      await Promise.all([fetchMembers(), fetchOrgSettings()]);
+      toast.success(
+        `Live mode enabled. ${result.disabledPersonnel} personnel account${result.disabledPersonnel === 1 ? "" : "s"} disabled.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Failed to enable live mode.");
+    } finally {
+      setRemovingDemo(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -261,6 +301,7 @@ function SettingsPage() {
             ) : (
               members.map((member) => {
                 const isSelf = member.id === selfId;
+                const controlsLocked = isSelf || member.isPrincipal;
                 const currentDisplay = toDisplayRole(member.role);
                 return (
                   <div
@@ -268,14 +309,21 @@ function SettingsPage() {
                     className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium leading-tight">{memberName(member)}</p>
+                      <p className="flex items-center gap-1.5 truncate font-medium leading-tight">
+                        {memberName(member)}
+                        {member.isPrincipal && (
+                          <Badge variant="outline" className="gap-1 text-[10px] uppercase">
+                            <Crown className="size-3" /> Principal
+                          </Badge>
+                        )}
+                      </p>
                       <p className="truncate font-mono text-xs text-muted-foreground">{member.email}</p>
                     </div>
                     <MemberStatusBadge member={member} />
                     <Select
                       value={currentDisplay}
                       onValueChange={(v) => handleRoleChange(member, v as DisplayRole)}
-                      disabled={isSelf || roleUpdating === member.id}
+                      disabled={controlsLocked || roleUpdating === member.id}
                     >
                       <SelectTrigger className="h-7 w-28 text-xs shrink-0">
                         <SelectValue />
@@ -291,7 +339,7 @@ function SettingsPage() {
                     <Switch
                       checked={member.isActive}
                       onCheckedChange={() => handleToggleActive(member)}
-                      disabled={isSelf || activeUpdating === member.id}
+                      disabled={controlsLocked || activeUpdating === member.id}
                       aria-label={member.isActive ? "Disable member" : "Enable member"}
                     />
                   </div>
@@ -447,31 +495,20 @@ function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p className="text-muted-foreground">Sample clients, form assignments, monitoring items, contracts, documents, communications and activity logs are loaded by default so you can explore the app. Programs and form templates are kept. You can remove the sample clients permanently — they will no longer appear after any login.</p>
-            {hasMockData ? (
+            {!liveMode && hasMockData ? (
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={async () => {
-                  await cfRemoveDemo({
-                    clientIds: [...MOCK_IDS.clients],
-                    programIds: [...MOCK_IDS.programs],
-                    formTemplateIds: [...MOCK_IDS.formTemplates],
-                    formAssignmentIds: [...MOCK_IDS.formAssignments],
-                    termsIds: [...MOCK_IDS.terms],
-                    monitoringIds: [...MOCK_IDS.monitoring],
-                    contractIds: [...MOCK_IDS.contracts],
-                    documentIds: [...MOCK_IDS.documents],
-                    communicationIds: [...MOCK_IDS.communications],
-                    finalReportIds: [...MOCK_IDS.finalReports],
-                    activityIds: [...MOCK_IDS.activity],
-                  }).catch(() => undefined);
-                  hideMockData(true);
-                }}
+                onClick={() => setRemoveDemoOpen(true)}
               >
                 Remove demo data permanently
               </Button>
             ) : (
-              <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Demo data removed for this org</p>
+              <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+                {liveMode
+                  ? `Live mode enabled${demoRemovedAt ? ` ${new Date(demoRemovedAt).toLocaleDateString()}` : ""}`
+                  : "No demo records are currently visible"}
+              </p>
             )}
           </CardContent>
         </Card>
@@ -485,6 +522,49 @@ function SettingsPage() {
           onSuccess={fetchMembers}
         />
       )}
+
+      <Dialog open={removeDemoOpen} onOpenChange={setRemoveDemoOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enable live mode permanently?</DialogTitle>
+            <DialogDescription>
+              Sample operational records will be removed. Programs, form templates, and real records will remain. Your signed-in account will become the principal, and every other personnel account will be disabled.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="live-password">Current password</Label>
+              <Input
+                id="live-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="live-confirmation">Type ENABLE LIVE MODE</Label>
+              <Input
+                id="live-confirmation"
+                value={liveConfirmation}
+                onChange={(event) => setLiveConfirmation(event.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemoveDemoOpen(false)} disabled={removingDemo}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleEnableLiveMode}
+              disabled={removingDemo || !currentPassword || liveConfirmation !== "ENABLE LIVE MODE"}
+            >
+              {removingDemo ? "Enabling…" : "Enable live mode"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

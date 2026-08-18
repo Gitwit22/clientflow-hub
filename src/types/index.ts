@@ -109,11 +109,15 @@ export interface OrgMember {
   isActive: boolean;
   createdAt: string;
   invitePending?: boolean;
+  isPrincipal?: boolean;
 }
 
 export interface OrgSettings {
   id: string;
   name: string;
+  liveMode: boolean;
+  demoRemovedAt?: string | null;
+  principal?: Pick<OrgMember, "id" | "email" | "firstName" | "lastName"> | null;
   settings: {
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;

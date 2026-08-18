@@ -29,6 +29,7 @@ export interface AppState {
   communications: Communication[];
   finalReports: FinalReport[];
   activity: ActivityLog[];
+  liveMode: boolean;
   /** Whether mock data is hidden for this session */
   mockHidden: boolean;
 }
@@ -82,6 +83,7 @@ let state: AppState = {
   communications: mock.communications,
   finalReports: mock.finalReports,
   activity: mock.activityLogs,
+  liveMode: false,
   mockHidden: persisted.authenticatedAdmin?.organizationId
     ? isMockHiddenForOrg(persisted.authenticatedAdmin.organizationId)
     : false,
@@ -120,7 +122,7 @@ export function clearAccessToken() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ADMIN_KEY);
   } catch { /* storage unavailable */ }
-  setState((current) => ({ ...current, accessToken: null, authenticatedAdmin: null, mockHidden: false }));
+  setState((current) => ({ ...current, accessToken: null, authenticatedAdmin: null, liveMode: false, mockHidden: false }));
 }
 
 /**
@@ -134,6 +136,7 @@ export function hideMockData(permanent: boolean) {
   }
   setState((current) => ({
     ...current,
+    liveMode: permanent ? true : current.liveMode,
     mockHidden: true,
     clients: current.clients.filter((c) => !MOCK_IDS.clients.has(c.id)),
     // programs and formTemplates are intentionally kept

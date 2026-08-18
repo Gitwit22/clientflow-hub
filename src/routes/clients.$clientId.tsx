@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
@@ -36,6 +36,7 @@ import {
   createFinalReport,
   createMonitoringItem,
   generateContract,
+  refreshClientProfile,
   rescheduleMonitoringItem,
   updateClient,
   updateContract,
@@ -122,6 +123,15 @@ function ClientProfile() {
   const [commType, setCommType] = useState<"Note" | "Email" | "Call" | "Meeting" | "Snapchat">("Note");
   const [commSubject, setCommSubject] = useState("");
   const [commDirection, setCommDirection] = useState<"Inbound" | "Outbound" | "Internal">("Internal");
+
+  useEffect(() => {
+    const refresh = () => {
+      void refreshClientProfile(clientId).catch(() => undefined);
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [clientId]);
 
   if (!client)
     return (
