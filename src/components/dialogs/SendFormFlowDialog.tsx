@@ -198,8 +198,8 @@ export function SendFormFlowDialog({
       await sendFormEmail(assignment.id, personalMessage || undefined);
       toast.success(`Form sent to ${recipientEmail}`);
       setStep("done");
-    } catch {
-      toast.error("Failed to send form. Please try again.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
     } finally {
       setIsSending(false);
     }

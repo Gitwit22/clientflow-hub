@@ -94,8 +94,8 @@ export function SendFormDialog({
       setPreview(false);
       setTemplateId("");
       setBodyOverride(null);
-    } catch {
-      toast.error("Failed to send form. Please try again.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
     }
   }
 

@@ -207,23 +207,27 @@ function IntakePage() {
       toast.error("Recipient email is required");
       return;
     }
-    const assignment = await createFormAssignment({
-      clientId: selectedProfile.id,
-      formId: selectedFormId,
-      completionMethod: "secure_link",
-      deliveryMethod: "email",
-      recipientEmail,
-      assignedUserId: null,
-      dueDate,
-      status: "draft",
-      organizationId: "org_ea_management",
-      isDemo: selectedProfile.isDemo ?? false,
-      createdByUserId: "user_alicia",
-      personalMessage,
-    });
-    await sendFormEmail(assignment.id, personalMessage || undefined);
-    toast.success(`Secure link sent to ${recipientEmail}`);
-    setStep("done");
+    try {
+      const assignment = await createFormAssignment({
+        clientId: selectedProfile.id,
+        formId: selectedFormId,
+        completionMethod: "secure_link",
+        deliveryMethod: "email",
+        recipientEmail,
+        assignedUserId: null,
+        dueDate,
+        status: "draft",
+        organizationId: "org_ea_management",
+        isDemo: selectedProfile.isDemo ?? false,
+        createdByUserId: "user_alicia",
+        personalMessage,
+      });
+      await sendFormEmail(assignment.id, personalMessage || undefined);
+      toast.success(`Secure link sent to ${recipientEmail}`);
+      setStep("done");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
+    }
   }
 
   const templateName = (id: string) => formTemplates.find((t) => t.id === id)?.name ?? id;
