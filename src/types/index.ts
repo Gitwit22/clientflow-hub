@@ -287,6 +287,7 @@ export interface FormEdit {
 
 export interface Terms {
   id: string;
+  isDemo?: boolean;
   clientId: string;
   programId: string;
   supportType: SupportType;
@@ -310,6 +311,7 @@ export interface Terms {
 
 export interface MonitoringItem {
   id: string;
+  isDemo?: boolean;
   clientId: string;
   programId: string;
   type: MonitoringType;
@@ -322,6 +324,7 @@ export interface MonitoringItem {
 
 export interface Contract {
   id: string;
+  isDemo?: boolean;
   clientId: string;
   programId: string;
   termsId?: string;
@@ -335,6 +338,7 @@ export interface Contract {
 
 export interface ClientDocument {
   id: string;
+  isDemo?: boolean;
   clientId: string;
   name: string;
   type: string;
@@ -345,6 +349,7 @@ export interface ClientDocument {
 
 export interface Communication {
   id: string;
+  isDemo?: boolean;
   clientId: string;
   type: "Email" | "Call" | "Meeting" | "Snapchat" | "Note";
   direction: "Inbound" | "Outbound" | "Internal";
@@ -356,6 +361,7 @@ export interface Communication {
 
 export interface FinalReport {
   id: string;
+  isDemo?: boolean;
   clientId: string;
   programId: string;
   startDate: string;
@@ -374,6 +380,7 @@ export interface FinalReport {
 
 export interface ActivityLog {
   id: string;
+  isDemo?: boolean;
   clientId: string;
   action: string;
   description: string;

@@ -46,6 +46,7 @@ export interface AuthenticatedAdmin {
 // ─── localStorage helpers ────────────────────────────────────────────────────
 const TOKEN_KEY = 'cf:token';
 const ADMIN_KEY = 'cf:admin';
+const SESSION_DEMO_HIDDEN_KEY = 'cf:demoHiddenForLogin';
 
 function loadFromStorage(): Pick<AppState, 'accessToken' | 'authenticatedAdmin'> {
   try {
@@ -62,7 +63,7 @@ function loadFromStorage(): Pick<AppState, 'accessToken' | 'authenticatedAdmin'>
 
 function isMockHiddenForOrg(orgId: string): boolean {
   try {
-    return localStorage.getItem(`cf:mockRemoved:${orgId}`) === '1';
+    return localStorage.getItem(SESSION_DEMO_HIDDEN_KEY) === orgId;
   } catch {
     return false;
   }
@@ -109,6 +110,9 @@ export function useAppState(): AppState {
 
 export function setAuthSession(accessToken: string, authenticatedAdmin: AuthenticatedAdmin) {
   try {
+    if (localStorage.getItem(TOKEN_KEY) !== accessToken) {
+      localStorage.removeItem(SESSION_DEMO_HIDDEN_KEY);
+    }
     localStorage.setItem(TOKEN_KEY, accessToken);
     localStorage.setItem(ADMIN_KEY, JSON.stringify(authenticatedAdmin));
   } catch { /* storage unavailable */ }
@@ -121,33 +125,33 @@ export function clearAccessToken() {
   try {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ADMIN_KEY);
+    localStorage.removeItem(SESSION_DEMO_HIDDEN_KEY);
   } catch { /* storage unavailable */ }
   setState((current) => ({ ...current, accessToken: null, authenticatedAdmin: null, liveMode: false, mockHidden: false }));
 }
 
-/**
- * Hide mock data for this session (permanent=false) or permanently per org (permanent=true).
- * When hidden, filters all mock IDs out of the in-memory state.
- */
+const isDemoRecord = (record: { id: string; isDemo?: boolean }, ids: Set<string>) =>
+  record.isDemo === true || ids.has(record.id);
+
 export function hideMockData(permanent: boolean) {
   const orgId = state.authenticatedAdmin?.organizationId;
-  if (permanent && orgId) {
-    try { localStorage.setItem(`cf:mockRemoved:${orgId}`, '1'); } catch { /* noop */ }
+  if (!permanent && orgId) {
+    try { localStorage.setItem(SESSION_DEMO_HIDDEN_KEY, orgId); } catch { /* noop */ }
   }
   setState((current) => ({
     ...current,
     liveMode: permanent ? true : current.liveMode,
     mockHidden: true,
-    clients: current.clients.filter((c) => !MOCK_IDS.clients.has(c.id)),
+    clients: current.clients.filter((c) => !isDemoRecord(c, MOCK_IDS.clients)),
     // programs and formTemplates are intentionally kept
-    formAssignments: current.formAssignments.filter((a) => !MOCK_IDS.formAssignments.has(a.id)),
-    terms: current.terms.filter((t) => !MOCK_IDS.terms.has(t.id)),
-    monitoring: current.monitoring.filter((m) => !MOCK_IDS.monitoring.has(m.id)),
-    contracts: current.contracts.filter((c) => !MOCK_IDS.contracts.has(c.id)),
-    documents: current.documents.filter((d) => !MOCK_IDS.documents.has(d.id)),
-    communications: current.communications.filter((c) => !MOCK_IDS.communications.has(c.id)),
-    finalReports: current.finalReports.filter((f) => !MOCK_IDS.finalReports.has(f.id)),
-    activity: current.activity.filter((a) => !MOCK_IDS.activity.has(a.id)),
+    formAssignments: current.formAssignments.filter((a) => !isDemoRecord(a, MOCK_IDS.formAssignments)),
+    terms: current.terms.filter((t) => !isDemoRecord(t, MOCK_IDS.terms)),
+    monitoring: current.monitoring.filter((m) => !isDemoRecord(m, MOCK_IDS.monitoring)),
+    contracts: current.contracts.filter((c) => !isDemoRecord(c, MOCK_IDS.contracts)),
+    documents: current.documents.filter((d) => !isDemoRecord(d, MOCK_IDS.documents)),
+    communications: current.communications.filter((c) => !isDemoRecord(c, MOCK_IDS.communications)),
+    finalReports: current.finalReports.filter((f) => !isDemoRecord(f, MOCK_IDS.finalReports)),
+    activity: current.activity.filter((a) => !isDemoRecord(a, MOCK_IDS.activity)),
   }));
 }
 

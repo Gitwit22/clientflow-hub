@@ -33,10 +33,8 @@ export function useBootstrap() {
 
     void (async () => {
       try {
-        const organization = authenticatedAdmin.organizationId
-          ? await api.getOrganizationSettings(authenticatedAdmin.organizationId)
-          : null;
-        const liveMode = organization?.liveMode ?? false;
+        const demoStatus = await api.cfGetDemoStatus();
+        const liveMode = demoStatus.liveMode;
 
         // ── Step 1: Seed ALL mock data to the backend (upsert — safe to repeat) ──
         if (!liveMode && !mockHidden) {
@@ -85,6 +83,9 @@ export function useBootstrap() {
         // ── Step 3: Merge — remote wins on ID collision ────────────────────────
         setState((prev) => {
           const keepMock = !liveMode && !mockHidden;
+          const hideDemo = liveMode || mockHidden;
+          const visible = <T extends { isDemo?: boolean }>(records: T[]) =>
+            hideDemo ? records.filter((record) => !record.isDemo) : records;
           const remoteClientIds = new Set((remoteClients as Client[]).map((c) => c.id));
           const remoteProgramIds = new Set((remotePrograms as Program[]).map((p) => p.id));
           const remoteTemplateIds = new Set((remoteFormTemplates as FormTemplate[]).map((t) => t.id));
@@ -102,7 +103,7 @@ export function useBootstrap() {
             liveMode,
             mockHidden: liveMode || prev.mockHidden,
             clients: [
-              ...(remoteClients as Client[]),
+              ...visible(remoteClients as Client[]),
               ...(keepMock ? mock.clients.filter((c) => !remoteClientIds.has(c.id)) : []),
             ],
             programs: [
@@ -114,35 +115,35 @@ export function useBootstrap() {
               ...(keepMock ? mock.formTemplates.filter((t) => !remoteTemplateIds.has(t.id)) : []),
             ],
             formAssignments: [
-              ...(remoteFormAssignments as FormAssignment[]),
+              ...visible(remoteFormAssignments as FormAssignment[]),
               ...(keepMock ? mock.formAssignments.filter((a) => !remoteAssignmentIds.has(a.id)) : []),
             ],
             terms: [
-              ...(remoteTerms as Terms[]),
+              ...visible(remoteTerms as Terms[]),
               ...(keepMock ? mock.termsList.filter((t) => !remoteTermIds.has(t.id)) : []),
             ],
             monitoring: [
-              ...(remoteMonitoring as MonitoringItem[]),
+              ...visible(remoteMonitoring as MonitoringItem[]),
               ...(keepMock ? mock.monitoringItems.filter((m) => !remoteMonitoringIds.has(m.id)) : []),
             ],
             contracts: [
-              ...(remoteContracts as Contract[]),
+              ...visible(remoteContracts as Contract[]),
               ...(keepMock ? mock.contracts.filter((c) => !remoteContractIds.has(c.id)) : []),
             ],
             documents: [
-              ...(remoteDocuments as ClientDocument[]),
+              ...visible(remoteDocuments as ClientDocument[]),
               ...(keepMock ? mock.documents.filter((d) => !remoteDocumentIds.has(d.id)) : []),
             ],
             communications: [
-              ...(remoteCommunications as Communication[]),
+              ...visible(remoteCommunications as Communication[]),
               ...(keepMock ? mock.communications.filter((c) => !remoteCommIds.has(c.id)) : []),
             ],
             finalReports: [
-              ...(remoteFinalReports as FinalReport[]),
+              ...visible(remoteFinalReports as FinalReport[]),
               ...(keepMock ? mock.finalReports.filter((f) => !remoteFinalReportIds.has(f.id)) : []),
             ],
             activity: [
-              ...(remoteActivity as ActivityLog[]),
+              ...visible(remoteActivity as ActivityLog[]),
               ...(keepMock ? mock.activityLogs.filter((a) => !remoteActivityIds.has(a.id)) : []),
             ],
           };

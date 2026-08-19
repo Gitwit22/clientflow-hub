@@ -377,13 +377,20 @@ export async function cfSeedDemo(payload: Record<string, unknown[]>) {
   return apiRequest<{ seeded: Record<string, number> }>(`${CF}/seed-demo`, { method: "POST", body: JSON.stringify(payload) });
 }
 
+export interface DemoStatus {
+  liveMode: boolean;
+  demoRemovedAt: string | null;
+  principalAdminId: string | null;
+}
+
+export async function cfGetDemoStatus() {
+  return apiRequest<DemoStatus>(`${CF}/demo-status`);
+}
+
 export interface LiveModeTransitionResult {
   liveMode: true;
   demoRemovedAt: string | null;
   principalAdminId: string | null;
-  disabledPersonnel: number;
-  revokedInvitations: number;
-  revokedSessions: number;
   removed: Record<string, number>;
 }
 
