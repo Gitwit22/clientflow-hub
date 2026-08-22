@@ -203,7 +203,10 @@ export async function createEnrollment(
   return enrollment;
 }
 
-export async function updateEnrollment(id: string, data: Partial<ProgramEnrollment>) {
+export async function updateEnrollment(
+  id: string,
+  data: Partial<ProgramEnrollment> & { statusReason?: string },
+) {
   const enrollment = await cfUpdateEnrollment(id, data as Record<string, unknown>);
   setState((state) => ({
     ...state,
@@ -212,6 +215,17 @@ export async function updateEnrollment(id: string, data: Partial<ProgramEnrollme
     ),
   }));
   return enrollment;
+}
+
+export async function withdrawEnrollment(id: string, reason: string) {
+  return updateEnrollment(id, { status: "withdrawn", statusReason: reason });
+}
+
+export async function reactivateEnrollment(id: string) {
+  return updateEnrollment(id, {
+    status: "active",
+    statusReason: "Program membership reactivated.",
+  });
 }
 
 /* ----------------------------------- Forms ---------------------------------- */

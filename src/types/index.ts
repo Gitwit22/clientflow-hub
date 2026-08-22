@@ -362,6 +362,7 @@ export interface Terms {
   id: string;
   isDemo?: boolean;
   clientId: string;
+  enrollmentId?: string | null;
   programId: string;
   supportType: SupportType;
   fundingAmount: number;
@@ -386,6 +387,7 @@ export interface MonitoringItem {
   id: string;
   isDemo?: boolean;
   clientId: string;
+  enrollmentId?: string | null;
   programId: string;
   type: MonitoringType;
   dueDate: string;
@@ -399,6 +401,7 @@ export interface Contract {
   id: string;
   isDemo?: boolean;
   clientId: string;
+  enrollmentId?: string | null;
   programId: string;
   termsId?: string;
   contractType: ContractType;
@@ -413,6 +416,7 @@ export interface ClientDocument {
   id: string;
   isDemo?: boolean;
   clientId: string;
+  enrollmentId?: string | null;
   name: string;
   type: string;
   url: string;
@@ -424,6 +428,7 @@ export interface Communication {
   id: string;
   isDemo?: boolean;
   clientId: string;
+  enrollmentId?: string | null;
   type: "Email" | "Call" | "Meeting" | "Snapchat" | "Note";
   direction: "Inbound" | "Outbound" | "Internal";
   subject: string;
@@ -436,6 +441,7 @@ export interface FinalReport {
   id: string;
   isDemo?: boolean;
   clientId: string;
+  enrollmentId?: string | null;
   programId: string;
   startDate: string;
   endDate: string;
@@ -455,6 +461,7 @@ export interface ActivityLog {
   id: string;
   isDemo?: boolean;
   clientId: string;
+  enrollmentId?: string | null;
   action: string;
   description: string;
   user: string;

@@ -31,7 +31,7 @@ export const Route = createFileRoute("/programs")({
 });
 
 function ProgramsPage() {
-  const { programs, formTemplates, clients } = useAppState();
+  const { programs, formTemplates, clients, enrollments } = useAppState();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProgram, setEditingProgram] = useState<Program | undefined>(undefined);
 
@@ -63,7 +63,15 @@ function ProgramsPage() {
             <CardContent className="space-y-3 p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <h2 className="font-display text-lg font-semibold">{p.name}</h2>
+                  <h2 className="font-display text-lg font-semibold">
+                    <Link
+                      to="/programs/$programId"
+                      params={{ programId: p.id }}
+                      className="hover:text-primary"
+                    >
+                      {p.name}
+                    </Link>
+                  </h2>
                   <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -111,31 +119,55 @@ function ProgramsPage() {
                 </div>
               </dl>
               {(() => {
-                const active = clients.filter((c) => c.programId === p.id && !c.isArchived);
+                const active = enrollments
+                  .filter(
+                    (enrollment) =>
+                      enrollment.programId === p.id &&
+                      !enrollment.isArchived &&
+                      !["completed", "declined", "withdrawn"].includes(enrollment.status),
+                  )
+                  .map((enrollment) => ({
+                    enrollment,
+                    client: clients.find((client) => client.id === enrollment.clientId),
+                  }))
+                  .filter((item) => item.client && !item.client.isArchived);
                 return active.length > 0 ? (
                   <div className="border-t border-border pt-3">
                     <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
                       Active clients ({active.length})
                     </p>
                     <ul className="space-y-1">
-                      {active.map((c) => (
-                        <li key={c.id} className="flex items-center justify-between text-sm">
+                      {active.slice(0, 4).map(({ client, enrollment }) => (
+                        <li key={enrollment.id} className="flex items-center justify-between text-sm">
                           <Link
                             to="/clients/$clientId"
-                            params={{ clientId: c.id }}
+                            params={{ clientId: client!.id }}
+                            search={{ programId: p.id, tab: "program" }}
                             className="font-medium hover:text-primary"
                           >
-                            {c.businessName}
+                            {client!.businessName}
                           </Link>
-                          <span className="text-xs text-muted-foreground">{c.status}</span>
+                          <span className="text-xs capitalize text-muted-foreground">
+                            {enrollment.status.replace(/_/g, " ")}
+                          </span>
                         </li>
                       ))}
+                      {active.length > 4 && (
+                        <li className="pt-1 text-xs text-muted-foreground">
+                          +{active.length - 4} more members
+                        </li>
+                      )}
                     </ul>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground border-t border-border pt-3">No active clients</p>
                 );
               })()}
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/programs/$programId" params={{ programId: p.id }}>
+                  View program
+                </Link>
+              </Button>
             </CardContent>
           </Card>
         ))}

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -56,6 +56,10 @@ const MONITORING_TYPES: MonitoringType[] = [
 ];
 
 export const Route = createFileRoute("/clients/$clientId")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    programId: typeof search.programId === "string" ? search.programId : undefined,
+    tab: search.tab === "program" ? ("program" as const) : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Client profile — ClientFlow" },
@@ -86,6 +90,7 @@ function Row({ label, value }: { label: string; value?: string }) {
 
 function ClientProfile() {
   const { clientId } = Route.useParams();
+  const { programId: selectedProgramId, tab } = Route.useSearch();
   const s = useAppState();
   const client = s.clients.find((c) => c.id === clientId);
   const [sendOpen, setSendOpen] = useState(false);
@@ -156,6 +161,26 @@ function ClientProfile() {
   const finals = s.finalReports.filter((f) => f.clientId === client.id);
   const logs = s.activity.filter((a) => a.clientId === client.id);
   const templateName = (id: string) => s.formTemplates.find((t) => t.id === id)?.name ?? id;
+  const selectedEnrollment = selectedProgramId
+    ? enrollments.find((enrollment) => enrollment.programId === selectedProgramId)
+    : undefined;
+  const selectedProgram = selectedEnrollment
+    ? s.programs.find((candidate) => candidate.id === selectedEnrollment.programId)
+    : undefined;
+  const selectedProgramAssignments = selectedEnrollment
+    ? assignments.filter((assignment) => {
+        if (assignment.enrollmentId) return assignment.enrollmentId === selectedEnrollment.id;
+        return s.formTemplates.find((template) => template.id === assignment.formId)?.programId ===
+          selectedEnrollment.programId;
+      })
+    : [];
+  const selectedProgramMonitoring = selectedEnrollment
+    ? monitoring.filter((item) =>
+        item.enrollmentId
+          ? item.enrollmentId === selectedEnrollment.id
+          : item.programId === selectedEnrollment.programId,
+      )
+    : [];
 
   return (
     <div className="space-y-6">
@@ -221,9 +246,23 @@ function ClientProfile() {
         )}
       </div>
 
-      <Tabs defaultValue="overview">
+      {selectedProgram && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-border py-3">
+          <p className="text-sm">
+            Viewing this profile in <span className="font-medium">{selectedProgram.name}</span>
+          </p>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/programs/$programId" params={{ programId: selectedProgram.id }}>
+              Back to program
+            </Link>
+          </Button>
+        </div>
+      )}
+
+      <Tabs defaultValue={selectedProgram && tab === "program" ? "program" : "overview"}>
         <TabsList className="flex h-auto flex-wrap justify-start">
           {[
+            ...(selectedProgram ? ["program"] : []),
             "overview",
             "intake",
             "forms",
@@ -240,6 +279,134 @@ function ClientProfile() {
             </TabsTrigger>
           ))}
         </TabsList>
+
+        {selectedProgram && selectedEnrollment && (
+          <TabsContent value="program" className="mt-4 space-y-4">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Card className="shadow-card lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="font-display text-base">{selectedProgram.name}</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-x-8 sm:grid-cols-2">
+                  <dl>
+                    <Row label="Enrollment status" value={selectedEnrollment.status.replace(/_/g, " ")} />
+                    <Row label="Assigned staff" value={selectedEnrollment.assignedStaff ?? undefined} />
+                    <Row
+                      label="Start date"
+                      value={
+                        selectedEnrollment.startDate
+                          ? new Date(selectedEnrollment.startDate).toLocaleDateString()
+                          : undefined
+                      }
+                    />
+                  </dl>
+                  <dl>
+                    <Row label="Next action" value={selectedEnrollment.nextAction ?? undefined} />
+                    <Row
+                      label="Next action date"
+                      value={
+                        selectedEnrollment.nextActionDate
+                          ? new Date(selectedEnrollment.nextActionDate).toLocaleDateString()
+                          : undefined
+                      }
+                    />
+                    <Row
+                      label="Open monitoring items"
+                      value={String(
+                        selectedProgramMonitoring.filter((item) => item.status !== "Completed").length,
+                      )}
+                    />
+                  </dl>
+                </CardContent>
+              </Card>
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle className="font-display text-base">Progress</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="font-display text-4xl font-semibold">
+                    {selectedEnrollment.progressPercentage}%
+                  </p>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full bg-primary"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, selectedEnrollment.progressPercentage))}%`,
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="font-display text-base">Master intake answers</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-x-8 sm:grid-cols-2">
+                <dl>
+                  <Row label="Business description" value={client.intake.businessDescription} />
+                  <Row label="Assistance requested" value={client.intake.assistanceRequested} />
+                  <Row label="Program of interest" value={client.intake.programOfInterest} />
+                  <Row label="Budget or funding need" value={client.intake.budgetNeed} />
+                </dl>
+                <dl>
+                  <Row label="Preferred contact" value={client.intake.preferredContact} />
+                  <Row label="How they heard about us" value={client.intake.heardAboutUs} />
+                  <Row label="Additional comments" value={client.intake.additionalComments} />
+                  <Row label="Uploaded files" value={client.intake.uploadedFiles.join(", ")} />
+                </dl>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="font-display text-base">Program questions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {selectedProgramAssignments.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No program forms have been assigned to this client yet.
+                  </p>
+                ) : (
+                  selectedProgramAssignments.map((assignment) => {
+                    const template = s.formTemplates.find(
+                      (candidate) => candidate.id === assignment.formId,
+                    );
+                    return (
+                      <section key={assignment.id} className="border-b border-border pb-5 last:border-0 last:pb-0">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-medium">{template?.name ?? assignment.formId}</h3>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {assignment.submittedAt
+                                ? `Submitted ${new Date(assignment.submittedAt).toLocaleDateString()}`
+                                : "Not submitted"}
+                            </p>
+                          </div>
+                          <StatusBadge status={assignment.status} />
+                        </div>
+                        {!assignment.responses || Object.keys(assignment.responses).length === 0 ? (
+                          <p className="mt-4 text-sm text-muted-foreground">No answers recorded.</p>
+                        ) : (
+                          <dl className="mt-3 grid gap-x-8 sm:grid-cols-2">
+                            {Object.entries(assignment.responses).map(([fieldId, answer]) => (
+                              <Row
+                                key={fieldId}
+                                label={template?.fields.find((field) => field.id === fieldId)?.label ?? fieldId}
+                                value={answer || undefined}
+                              />
+                            ))}
+                          </dl>
+                        )}
+                      </section>
+                    );
+                  })
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
           <Card className="shadow-card">
