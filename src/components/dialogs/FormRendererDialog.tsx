@@ -1,5 +1,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+  findSocialLink,
+  isSocialMediaField,
+  SocialMediaInput,
+} from "@/components/SocialMediaInput";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -24,21 +29,8 @@ import { changeAssignmentStatus, saveFormDraft, saveFormEdits, submitFormRespons
 import { useAppState } from "@/lib/store";
 import type { Client, FormAssignment, FormAssignmentStatus, FormField } from "@/types";
 
-const SOCIAL_HOSTS: Record<string, string[]> = {
-  facebookUrl: ["facebook.com", "fb.com"],
-  instagramUrl: ["instagram.com"],
-  linkedinUrl: ["linkedin.com"],
-  tiktokUrl: ["tiktok.com"],
-  youtubeUrl: ["youtube.com", "youtu.be"],
-};
-
 function prefillFromClient(field: FormField, client: Client): string {
-  const socialHosts = SOCIAL_HOSTS[field.id];
-  if (socialHosts) {
-    return client.socialLinks?.find((link) =>
-      socialHosts.some((host) => link.toLowerCase().includes(host)),
-    ) ?? "";
-  }
+  if (isSocialMediaField(field.id)) return findSocialLink(field.id, client.socialLinks);
   if (field.prefillKey) {
     const k = field.prefillKey;
     if (k === "businessDescription") return client.intake.businessDescription;
@@ -74,6 +66,16 @@ function FieldInput({
   value: string;
   onChange: (v: string) => void;
 }) {
+  if (isSocialMediaField(field.id)) {
+    return (
+      <SocialMediaInput
+        fieldId={field.id}
+        inputId={`field-${field.id}`}
+        value={value}
+        onChange={onChange}
+      />
+    );
+  }
   if (field.type === "textarea") {
     return (
       <Textarea

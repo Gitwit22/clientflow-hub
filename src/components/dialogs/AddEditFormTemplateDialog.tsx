@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -134,6 +134,16 @@ export function AddEditFormTemplateDialog({
     );
   }
 
+  function moveField(index: number, direction: -1 | 1) {
+    setFields((current) => {
+      const destination = index + direction;
+      if (destination < 0 || destination >= current.length) return current;
+      const reordered = [...current];
+      [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
+      return reordered;
+    });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
@@ -143,7 +153,10 @@ export function AddEditFormTemplateDialog({
     setSaving(true);
     try {
       const data: Omit<FormTemplate, "id"> = {
-        programId,
+        programId: template?.scope === "master_core" ? null : programId || null,
+        scope: template?.scope ?? "program_section",
+        version: template?.version ?? 1,
+        sortOrder: template?.sortOrder ?? 0,
         name: name.trim(),
         description: description.trim(),
         dueInDays,
@@ -274,6 +287,37 @@ export function AddEditFormTemplateDialog({
             <div className="space-y-3">
               {fields.map((row, idx) => (
                 <div key={idx} className="rounded-xl border border-border p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Question {idx + 1}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={idx === 0}
+                        onClick={() => moveField(idx, -1)}
+                        className="h-8 w-8 text-muted-foreground"
+                        aria-label={`Move ${row.label || `question ${idx + 1}`} up`}
+                        title="Move question up"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={idx === fields.length - 1}
+                        onClick={() => moveField(idx, 1)}
+                        className="h-8 w-8 text-muted-foreground"
+                        aria-label={`Move ${row.label || `question ${idx + 1}`} down`}
+                        title="Move question down"
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto_auto] items-end">
                     <div className="space-y-1">
                       <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">

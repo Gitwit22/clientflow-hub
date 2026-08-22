@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { isSocialMediaField, SocialMediaInput } from "@/components/SocialMediaInput";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -337,6 +338,17 @@ function PublicFieldInput({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
+  if (isSocialMediaField(field.id)) {
+    return (
+      <SocialMediaInput
+        fieldId={field.id}
+        inputId={`field-${field.id}`}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+      />
+    );
+  }
   if (field.type === "textarea") {
     return (
       <Textarea
