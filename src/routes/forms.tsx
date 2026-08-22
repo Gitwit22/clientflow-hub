@@ -29,23 +29,10 @@ export const Route = createFileRoute("/forms")({
   component: FormsPage,
 });
 
-const SUBMISSION_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "interest", label: "Interest" },
-  { value: "sponsorship", label: "Sponsorship" },
-  { value: "draft", label: "Draft" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "submitted", label: "Submitted" },
-  { value: "under_review", label: "Under Review" },
-  { value: "approved", label: "Approved" },
-  { value: "cancelled", label: "Archived" },
-] as const;
-
 function FormsPage() {
-  const { formTemplates, programs, formAssignments, clients } = useAppState();
+  const { formTemplates, programs, intakeSubmissions, clients } = useAppState();
   const [openId, setOpenId] = useState<string | null>(formTemplates[0]?.id ?? null);
-  const [view, setView] = useState<"templates" | "submissions">("templates");
-  const [submissionFilter, setSubmissionFilter] = useState("all");
+  const [view, setView] = useState<"master" | "sections" | "submissions">("master");
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<FormTemplate | undefined>(undefined);
   const [sendFormOpen, setSendFormOpen] = useState(false);
@@ -62,30 +49,25 @@ function FormsPage() {
   }
 
   const clientName = (id: string) => clients.find((c) => c.id === id)?.businessName ?? id;
-  const templateName = (id: string) => formTemplates.find((t) => t.id === id)?.name ?? id;
-  const programOfTemplate = (fId: string) => {
-    const t = formTemplates.find((x) => x.id === fId);
-    return programs.find((p) => p.id === t?.programId)?.name ?? "—";
-  };
-
-  const filteredSubmissions = formAssignments.filter((a) => {
-    if (submissionFilter === "all") return true;
-    if (submissionFilter === "interest") return a.formId === "form-interest";
-    if (submissionFilter === "sponsorship") return a.formId === "form-sponsorship";
-    return a.status === submissionFilter;
-  });
+  const masterTemplates = formTemplates.filter((template) => template.scope === "master_core");
+  const sectionTemplates = formTemplates
+    .filter((template) => template.scope === "program_section")
+    .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
+  const displayedTemplates = view === "master" ? masterTemplates : sectionTemplates;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Forms"
         description={
-          view === "templates"
-            ? "Structured templates sent by secure link and prefilled from the client profile."
-            : "Cross-profile view of all form assignments and submissions."
+          view === "master"
+            ? "Configure the shared questions that begin every intake."
+            : view === "sections"
+              ? "Configure the questions revealed when each program is selected."
+              : "Immutable history of submitted Master Intakes."
         }
         actions={
-          view === "templates" ? (
+          view === "sections" ? (
             <Button size="sm" onClick={openTemplateAdd}>
               <Plus className="mr-1.5 h-4 w-4" />
               New template
@@ -94,27 +76,39 @@ function FormsPage() {
         }
       />
 
-      {/* Templates / Submissions toggle */}
+      {/* Intake configuration / history */}
       <div className="inline-flex rounded-lg border border-border bg-muted p-1 gap-1">
         <button
-          onClick={() => setView("templates")}
-          className={`rounded-md px-4 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${view === "templates" ? "bg-ink text-ink-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          onClick={() => {
+            setView("master");
+            setOpenId(masterTemplates[0]?.id ?? null);
+          }}
+          className={`rounded-md px-4 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${view === "master" ? "bg-ink text-ink-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
         >
-          Templates
+          Master Intake
+        </button>
+        <button
+          onClick={() => {
+            setView("sections");
+            setOpenId(sectionTemplates[0]?.id ?? null);
+          }}
+          className={`rounded-md px-4 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${view === "sections" ? "bg-ink text-ink-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Program Sections
         </button>
         <button
           onClick={() => setView("submissions")}
           className={`rounded-md px-4 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${view === "submissions" ? "bg-ink text-ink-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
         >
-          Submissions
+          Submission History
         </button>
       </div>
 
-      {/* TEMPLATES VIEW */}
-      {view === "templates" && (
+      {/* CONFIGURATION VIEW */}
+      {view !== "submissions" && (
         <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
           <div className="space-y-2">
-            {formTemplates.map((t) => (
+            {displayedTemplates.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setOpenId(t.id)}
@@ -127,7 +121,7 @@ function FormsPage() {
               </button>
             ))}
           </div>
-          {formTemplates
+          {displayedTemplates
             .filter((t) => t.id === openId)
             .map((t) => (
               <Card key={t.id} className="shadow-card">
@@ -187,15 +181,17 @@ function FormsPage() {
                     <Button variant="outline" size="sm">
                       Fill Out Form
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setSendFormTemplateId(t.id);
-                        setSendFormOpen(true);
-                      }}
-                    >
-                      Send Form
-                    </Button>
+                    {t.scope === "master_core" && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setSendFormTemplateId(t.id);
+                          setSendFormOpen(true);
+                        }}
+                      >
+                        Send Master Intake
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm" onClick={() => openTemplateEdit(t)}>
                       Edit template
                     </Button>
@@ -209,63 +205,38 @@ function FormsPage() {
       {/* SUBMISSIONS VIEW */}
       {view === "submissions" && (
         <div className="space-y-4">
-          {/* Submission filters */}
-          <div className="flex flex-wrap gap-1">
-            {SUBMISSION_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                onClick={() => setSubmissionFilter(f.value)}
-                className={`rounded-lg px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${submissionFilter === f.value ? "bg-ink text-ink-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
           <div className="space-y-2">
-            {filteredSubmissions.length === 0 && (
+            {intakeSubmissions.length === 0 && (
               <p className="py-10 text-center text-sm text-muted-foreground">
-                No submissions match this filter.
+                No Master Intake submissions yet.
               </p>
             )}
-            {filteredSubmissions.map((a) => (
-              <Card key={a.id} className="shadow-card">
+            {intakeSubmissions.map((submission) => (
+              <Card key={submission.id} className="shadow-card">
                 <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-sm">{templateName(a.formId)}</p>
-                      <StatusBadge status={a.status} />
+                      <p className="font-medium text-sm">Master Intake</p>
+                      <StatusBadge status="submitted" />
                     </div>
                     <p className="font-mono text-xs text-muted-foreground mt-0.5">
                       Profile:{" "}
                       <Link
                         to="/clients/$clientId"
-                        params={{ clientId: a.clientId }}
+                        params={{ clientId: submission.clientId }}
                         className="hover:text-primary font-medium"
                       >
-                        {clientName(a.clientId)}
+                        {submission.client?.businessName ?? clientName(submission.clientId)}
                       </Link>
-                      {" · "}
-                      {programOfTemplate(a.formId)}
-                      {a.completionMethod && (
-                        <>
-                          {" "}
-                          ·{" "}
-                          <span className="capitalize">
-                            {a.completionMethod.replace(/_/g, " ")}
-                          </span>
-                        </>
-                      )}
+                      {` · ${submission.programs.length} program${submission.programs.length === 1 ? "" : "s"}`}
+                      {` · ${submission.source.replace(/_/g, " ")}`}
                     </p>
                     <p className="font-mono text-xs text-muted-foreground">
-                      {a.sentAt && <>Sent {new Date(a.sentAt).toLocaleDateString()} · </>}
-                      {a.submittedAt && (
-                        <>Submitted {new Date(a.submittedAt).toLocaleDateString()} · </>
-                      )}
-                      {a.dueDate && <>Due {new Date(a.dueDate).toLocaleDateString()}</>}
+                      Submitted {new Date(submission.submittedAt).toLocaleString()}
                     </p>
                   </div>
                   <Button size="sm" variant="outline" asChild>
-                    <Link to="/clients/$clientId" params={{ clientId: a.clientId }}>
+                    <Link to="/clients/$clientId" params={{ clientId: submission.clientId }}>
                       View profile
                     </Link>
                   </Button>

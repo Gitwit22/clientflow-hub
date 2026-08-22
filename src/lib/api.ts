@@ -17,6 +17,9 @@ import {
   cfUpdateClient,
   cfCreateProgram,
   cfUpdateProgram,
+  cfCreateEnrollment,
+  cfListEnrollments,
+  cfUpdateEnrollment,
   cfCreateTerms,
   cfUpdateTerms,
   cfCreateContract,
@@ -46,6 +49,7 @@ import type {
   FormTemplate,
   MonitoringItem,
   Program,
+  ProgramEnrollment,
   RelationshipType,
   Terms,
 } from "@/types";
@@ -82,9 +86,10 @@ export const getClientById = async (id: string) =>
   delay(getState().clients.find((c) => c.id === id) ?? null);
 
 export async function refreshClientProfile(clientId: string) {
-  const [client, assignments] = await Promise.all([
+  const [client, assignments, enrollments] = await Promise.all([
     cfGetClient(clientId) as Promise<Client>,
     cfListFormAssignments(clientId) as Promise<FormAssignment[]>,
+    cfListEnrollments({ clientId }),
   ]);
   setState((state) => ({
     ...state,
@@ -94,6 +99,10 @@ export async function refreshClientProfile(clientId: string) {
     formAssignments: [
       ...assignments,
       ...state.formAssignments.filter((assignment) => assignment.clientId !== clientId),
+    ],
+    enrollments: [
+      ...enrollments,
+      ...state.enrollments.filter((enrollment) => enrollment.clientId !== clientId),
     ],
   }));
   return client;
@@ -183,6 +192,28 @@ export async function updateProgram(id: string, data: Partial<Program>) {
   return delay(getState().programs.find((p) => p.id === id) ?? null);
 }
 
+/* ---------------------------- Program Enrollments --------------------------- */
+
+export async function createEnrollment(
+  data: Pick<ProgramEnrollment, "clientId" | "programId"> &
+    Partial<Pick<ProgramEnrollment, "status" | "assignedUserId" | "startDate">>,
+) {
+  const enrollment = await cfCreateEnrollment(data as Record<string, unknown>);
+  setState((state) => ({ ...state, enrollments: [enrollment, ...state.enrollments] }));
+  return enrollment;
+}
+
+export async function updateEnrollment(id: string, data: Partial<ProgramEnrollment>) {
+  const enrollment = await cfUpdateEnrollment(id, data as Record<string, unknown>);
+  setState((state) => ({
+    ...state,
+    enrollments: state.enrollments.map((existing) =>
+      existing.id === id ? enrollment : existing,
+    ),
+  }));
+  return enrollment;
+}
+
 /* ----------------------------------- Forms ---------------------------------- */
 
 export const getFormTemplates = async () => delay(getState().formTemplates);
@@ -236,40 +267,19 @@ export async function createFormAssignment(data: {
   personalMessage?: string;
 }) {
   const isSendLink = data.completionMethod === "secure_link";
-  let assignment: FormAssignment = {
-    id: uid("fa"),
-    organizationId: data.organizationId,
+  const assignment = await cfCreateFormAssignment({
     clientId: data.clientId,
-    profileId: data.clientId,
     formId: data.formId,
-    assignedUserId: data.assignedUserId ?? null,
     completionMethod: data.completionMethod,
     deliveryMethod: data.deliveryMethod,
     recipientEmail: data.recipientEmail ?? null,
     recipientPhone: data.recipientPhone ?? null,
-    status: data.status ?? "draft",
+    assignedUserId: data.assignedUserId ?? null,
     dueDate: data.dueDate,
-    dueAt: data.dueDate ?? null,
-    createdByUserId: data.createdByUserId ?? "user_alicia",
+    status: "draft",
     isDemo: data.isDemo ?? false,
-    createdAt: nowISO(),
-    updatedAt: nowISO(),
-  };
-  if (isSendLink) {
-    assignment = await cfCreateFormAssignment({
-      clientId: data.clientId,
-      formId: data.formId,
-      completionMethod: data.completionMethod,
-      deliveryMethod: data.deliveryMethod,
-      recipientEmail: data.recipientEmail ?? null,
-      recipientPhone: data.recipientPhone ?? null,
-      assignedUserId: data.assignedUserId ?? null,
-      dueDate: data.dueDate,
-      status: "draft",
-      isDemo: data.isDemo ?? false,
-      createdByUserId: data.createdByUserId ?? "user_alicia",
-    });
-  }
+    createdByUserId: data.createdByUserId ?? "user_alicia",
+  });
   setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
   await log(
     data.clientId,

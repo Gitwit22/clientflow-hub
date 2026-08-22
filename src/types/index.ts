@@ -188,6 +188,75 @@ export interface Program {
   statusPipeline: ClientStatus[];
 }
 
+export type EnrollmentStatus =
+  | "interested"
+  | "pending_review"
+  | "approved"
+  | "onboarding"
+  | "active"
+  | "on_hold"
+  | "completed"
+  | "declined"
+  | "withdrawn";
+
+export interface ProgramEnrollment {
+  id: string;
+  organizationId: string;
+  clientId: string;
+  programId: string;
+  status: EnrollmentStatus;
+  assignedUserId?: string | null;
+  assignedStaff?: string | null;
+  startDate?: string | null;
+  nextAction?: string | null;
+  nextActionDate?: string | null;
+  progressPercentage: number;
+  completedAt?: string | null;
+  withdrawnAt?: string | null;
+  onHoldReason?: string | null;
+  isDemo: boolean;
+  isArchived: boolean;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EnrollmentStatusHistory {
+  id: string;
+  organizationId: string;
+  enrollmentId: string;
+  previousStatus?: EnrollmentStatus | null;
+  newStatus: EnrollmentStatus;
+  changedByUserId?: string | null;
+  reason?: string | null;
+  createdAt: string;
+}
+
+export interface IntakeSubmissionProgram {
+  id: string;
+  intakeSubmissionId: string;
+  programId: string;
+  enrollmentId: string;
+  createdAt: string;
+}
+
+export interface IntakeSubmission {
+  id: string;
+  organizationId: string;
+  clientId: string;
+  formAssignmentId: string;
+  responsePayload: Record<string, unknown>;
+  resultPayload: Record<string, unknown>;
+  source: string;
+  submitterEmail?: string | null;
+  submitterName?: string | null;
+  submittedAt: string;
+  isDemo: boolean;
+  createdAt: string;
+  client?: Pick<Client, "id" | "businessName" | "primaryContactName" | "email"> | null;
+  programs: IntakeSubmissionProgram[];
+}
+
 export interface FormField {
   id: string;
   label: string;
@@ -200,7 +269,10 @@ export interface FormField {
 
 export interface FormTemplate {
   id: string;
-  programId: string;
+  programId: string | null;
+  scope?: "master_core" | "program_section" | "legacy";
+  version?: number;
+  sortOrder?: number;
   name: string;
   description: string;
   fields: FormField[];
@@ -249,6 +321,7 @@ export interface FormAssignment {
   id: string;
   organizationId?: string;
   clientId: string;
+  enrollmentId?: string | null;
   profileId?: string;
   formId: string;
   assignedUserId?: string | null;

@@ -40,6 +40,12 @@ const map: Record<string, Tone> = {
   submitted: "success",
   under_review: "warning",
   approved: "success",
+  interested: "info",
+  pending_review: "warning",
+  onboarding: "primary",
+  on_hold: "warning",
+  completed: "success",
+  withdrawn: "neutral",
   cancelled: "neutral",
   expired: "danger",
   // relationship types

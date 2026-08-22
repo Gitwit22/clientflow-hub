@@ -143,7 +143,10 @@ function ClientProfile() {
       </p>
     );
 
-  const program = s.programs.find((p) => p.id === client.programId);
+  const enrollments = s.enrollments.filter((enrollment) => enrollment.clientId === client.id);
+  const program = s.programs.find(
+    (candidate) => candidate.id === enrollments[0]?.programId || candidate.id === client.programId,
+  );
   const assignments = s.formAssignments.filter((a) => a.clientId === client.id);
   const terms = s.terms.filter((t) => t.clientId === client.id);
   const monitoring = s.monitoring.filter((m) => m.clientId === client.id);
@@ -202,7 +205,9 @@ function ClientProfile() {
         <StatusBadge status={client.status} />
         {client.relationshipType && <StatusBadge status={client.relationshipType} />}
         <span className="font-mono text-xs text-muted-foreground">
-          {program?.name ?? "Unassigned program"}
+          {enrollments.length > 0
+            ? `${enrollments.length} program enrollment${enrollments.length === 1 ? "" : "s"}`
+            : program?.name ?? "No program enrollments"}
         </span>
         <span className="font-mono text-xs text-muted-foreground">Staff: {client.assignedStaff}</span>
         <span className="font-mono text-xs text-muted-foreground">
@@ -245,7 +250,19 @@ function ClientProfile() {
               <dl>
                 <Row label="Business description" value={client.intake.businessDescription} />
                 <Row label="What they need" value={client.intake.assistanceRequested} />
-                <Row label="Current program" value={program?.name} />
+                <Row
+                  label="Program enrollments"
+                  value={
+                    enrollments.length > 0
+                      ? enrollments
+                          .map((enrollment) =>
+                            s.programs.find((item) => item.id === enrollment.programId)?.name,
+                          )
+                          .filter(Boolean)
+                          .join(", ")
+                      : program?.name
+                  }
+                />
                 <Row label="Current status" value={client.status} />
                 <Row
                   label="Internal decision"
@@ -280,6 +297,53 @@ function ClientProfile() {
                   <p className="text-muted-foreground">{c.notes}</p>
                 </div>
               ))}
+            </CardContent>
+          </Card>
+          <Card className="shadow-card lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="font-display text-base">Program enrollments</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {enrollments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No enrollment records yet. Legacy program information remains visible above.
+                </p>
+              ) : (
+                enrollments.map((enrollment) => {
+                  const enrollmentProgram = s.programs.find(
+                    (item) => item.id === enrollment.programId,
+                  );
+                  return (
+                    <div
+                      key={enrollment.id}
+                      className="grid gap-3 border-b border-border py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_auto]"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">{enrollmentProgram?.name ?? "Unknown program"}</p>
+                          <StatusBadge status={enrollment.status} />
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Assigned to {enrollment.assignedStaff || "Unassigned"}
+                          {enrollment.nextAction ? ` · Next: ${enrollment.nextAction}` : ""}
+                        </p>
+                      </div>
+                      <div className="w-full sm:w-40">
+                        <div className="flex justify-between font-mono text-[10px] uppercase text-muted-foreground">
+                          <span>Progress</span>
+                          <span>{enrollment.progressPercentage}%</span>
+                        </div>
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(0, enrollment.progressPercentage))}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </CardContent>
           </Card>
           <Card className="shadow-card lg:col-span-2">

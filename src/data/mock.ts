@@ -315,8 +315,11 @@ const socialMediaFields = () => [
 export const formTemplates: FormTemplate[] = [
   {
     id: "form-interest",
-    programId: "prog-interest",
-    name: "Interest Intake Form",
+    programId: null,
+    scope: "master_core",
+    version: 1,
+    sortOrder: 0,
+    name: "Master Intake Form",
     description: "General interest form used to route new inquiries into the right program.",
     dueInDays: 7,
     isActive: true,
@@ -342,6 +345,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-sponsorship",
     programId: "prog-sponsorship",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 70,
     name: "Sponsorship Intake Form",
     description: "Captures sponsor level, budget, benefits and invoicing requirements.",
     dueInDays: 10,
@@ -369,6 +375,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-brand",
     programId: "prog-brand",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 10,
     name: "Brand Awareness Package Interest Form",
     description:
       "Package selection, business type, and social media details for brand awareness onboarding.",
@@ -391,6 +400,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-workshop",
     programId: "prog-workshop",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 20,
     name: "30 Days Premier Workshop Package Registration",
     description:
       "Package selection, business type, and social media registration for the 30-day workshop.",
@@ -414,6 +426,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-event",
     programId: "prog-event",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 30,
     name: "Event Planning Services",
     description:
       "Contact details, event type, and social media information for business event planning.",
@@ -437,6 +452,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-property",
     programId: "prog-property",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 40,
     name: "EAM Commercial Property Assistance",
     description:
       "Business details and social media information for commercial property search assistance.",
@@ -456,6 +474,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-grant",
     programId: "prog-grant",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 50,
     name: "Grant Application Form",
     description: "Full grant application including eligibility, impact and required documents.",
     dueInDays: 14,
@@ -481,6 +502,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-creator",
     programId: "prog-creator",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 80,
     name: "Creator & Brand Digital Growth Intake",
     description:
       "Brand positioning and platform presence intake for creators, influencers, and personal brands.",
@@ -500,6 +524,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-event-discovery",
     programId: "prog-event-discovery",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 90,
     name: "Event Discovery Questionnaire",
     description:
       "Pre-call questionnaire to understand your event vision before the EA Management discovery call.",
@@ -519,6 +546,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-inspired-detroit",
     programId: "prog-inspired-detroit",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 100,
     name: "Inspired Detroit Initiative Application",
     description:
       "Application for Detroit entrepreneurs seeking access to capital, education, revenue growth, and brand exposure through the Inspired Detroit Initiative.",
@@ -576,6 +606,9 @@ export const formTemplates: FormTemplate[] = [
   {
     id: "form-growth-partnership",
     programId: "prog-growth-partnership",
+    scope: "program_section",
+    version: 1,
+    sortOrder: 110,
     name: "EAM Growth Partnership Application",
     description:
       "Apply for the EAM Growth Partnership Framework. Choose your tier and let us help your business build awareness, create opportunities, and grow with intention.",

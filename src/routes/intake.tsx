@@ -1,6 +1,6 @@
 ﻿import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CheckCircle, FileText, Plus, Search, Send, User } from "lucide-react";
+import { CheckCircle, Plus, Search, Send, User } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -18,11 +18,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/lib/store";
 import { createClient, createFormAssignment, sendFormEmail } from "@/lib/api";
-import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import {
   STAFF,
   type Client,
-  type FormAssignment,
   type ProfileSource,
   type ProfileType,
   type RelationshipType,
@@ -49,17 +47,16 @@ export const Route = createFileRoute("/intake")({
 });
 
 type IntakeStep =
-  "search" | "select" | "create" | "choose-form" | "choose-method" | "configure-link" | "done";
+  "search" | "select" | "create" | "choose-method" | "configure-link" | "done";
 
-const STEP_LABELS = ["Search", "Profile", "Form", "Deliver", "Confirm"] as const;
+const STEP_LABELS = ["Profile", "Deliver", "Confirm"] as const;
 const stepProgress: Record<IntakeStep, number> = {
   search: 0,
   select: 0,
   create: 0,
-  "choose-form": 1,
-  "choose-method": 2,
-  "configure-link": 3,
-  done: 4,
+  "choose-method": 1,
+  "configure-link": 1,
+  done: 2,
 };
 
 function StepIndicator({ step }: { step: IntakeStep }) {
@@ -86,6 +83,9 @@ function StepIndicator({ step }: { step: IntakeStep }) {
 function IntakePage() {
   const { clients, formTemplates, programs } = useAppState();
   const navigate = useNavigate();
+  const masterTemplate = formTemplates.find(
+    (template) => template.scope === "master_core" && template.isActive,
+  ) ?? formTemplates.find((template) => template.id === "form-interest" && template.isActive);
 
   const [step, setStep] = useState<IntakeStep>("search");
   const [searchEmail, setSearchEmail] = useState("");
@@ -104,16 +104,13 @@ function IntakePage() {
     relationshipType: "prospect" as RelationshipType,
     source: "admin_created" as ProfileSource,
     assignedStaff: STAFF[0],
-    programId: "",
   });
-  const [selectedFormId, setSelectedFormId] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [dueDate, setDueDate] = useState(
     new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
   );
   const [assignedStaff, setAssignedStaff] = useState(STAFF[0]);
   const [personalMessage, setPersonalMessage] = useState("");
-  const [fillingAssignment, setFillingAssignment] = useState<FormAssignment | null>(null);
 
   function handleSearch() {
     const em = searchEmail.toLowerCase().trim();
@@ -135,10 +132,14 @@ function IntakePage() {
   }
 
   function handleSelectProfile(client: Client) {
+    if (!masterTemplate) {
+      toast.error("No active Master Intake is configured");
+      return;
+    }
     setSelectedProfile(client);
     setRecipientEmail(client.email);
     setAssignedStaff(client.assignedStaff);
-    setStep("choose-form");
+    setStep("choose-method");
   }
 
   async function handleCreateProfile() {
@@ -154,7 +155,7 @@ function IntakePage() {
       phone: newProfile.phone,
       website: newProfile.website,
       socialLinks: [],
-      programId: newProfile.programId || null,
+      programId: null,
       status: "New Intake",
       profileType: newProfile.profileType,
       relationshipType: newProfile.relationshipType,
@@ -168,7 +169,7 @@ function IntakePage() {
       intake: {
         businessDescription: "",
         assistanceRequested: "",
-        programOfInterest: programs.find((p) => p.id === newProfile.programId)?.name ?? "",
+        programOfInterest: "",
         budgetNeed: "",
         preferredContact: "Email",
         heardAboutUs: "",
@@ -180,14 +181,14 @@ function IntakePage() {
     setRecipientEmail(created.email);
     setAssignedStaff(created.assignedStaff);
     toast.success("Profile created");
-    setStep("choose-form");
+    setStep("choose-method");
   }
 
   async function handleFillOutNow() {
-    if (!selectedProfile || !selectedFormId) return;
+    if (!selectedProfile || !masterTemplate) return;
     const assignment = await createFormAssignment({
       clientId: selectedProfile.id,
-      formId: selectedFormId,
+      formId: masterTemplate.id,
       completionMethod: "admin_assisted",
       deliveryMethod: "none",
       recipientEmail: selectedProfile.email,
@@ -198,11 +199,15 @@ function IntakePage() {
       isDemo: selectedProfile.isDemo ?? false,
       createdByUserId: "user_alicia",
     });
-    setFillingAssignment(assignment);
+    if (!assignment.secureLink) {
+      toast.error("Could not create a secure Master Intake link");
+      return;
+    }
+    window.location.assign(assignment.secureLink);
   }
 
   async function handleSendSecureLink() {
-    if (!selectedProfile || !selectedFormId) return;
+    if (!selectedProfile || !masterTemplate) return;
     if (!recipientEmail) {
       toast.error("Recipient email is required");
       return;
@@ -210,7 +215,7 @@ function IntakePage() {
     try {
       const assignment = await createFormAssignment({
         clientId: selectedProfile.id,
-        formId: selectedFormId,
+        formId: masterTemplate.id,
         completionMethod: "secure_link",
         deliveryMethod: "email",
         recipientEmail,
@@ -230,13 +235,11 @@ function IntakePage() {
     }
   }
 
-  const templateName = (id: string) => formTemplates.find((t) => t.id === id)?.name ?? id;
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="New Intake"
-        description="Every person and business gets one persistent profile — reused for every form, contract, and record."
+        description="Choose or create one profile, then complete or send the Master Intake. Program questions appear from the client's selections."
       />
       <StepIndicator step={step} />
 
@@ -449,26 +452,6 @@ function IntakePage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Program</Label>
-                <Select
-                  value={newProfile.programId}
-                  onValueChange={(v) => setNewProfile({ ...newProfile, programId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a program (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {programs
-                      .filter((p) => p.isActive)
-                      .map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
             <div className="flex gap-3">
               <Button onClick={handleCreateProfile}>
@@ -483,66 +466,16 @@ function IntakePage() {
         </Card>
       )}
 
-      {/* CHOOSE FORM */}
-      {step === "choose-form" && selectedProfile && (
-        <Card className="shadow-card">
-          <CardContent className="space-y-5 p-6">
-            <div>
-              <h3 className="font-display text-base font-semibold">
-                Choose a form for {selectedProfile.businessName}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {selectedProfile.primaryContactName} · {selectedProfile.email}
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {formTemplates.map((t) => {
-                const prog = programs.find((p) => p.id === t.programId);
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setSelectedFormId(t.id)}
-                    className={`rounded-xl border p-4 text-left transition-colors ${selectedFormId === t.id ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-muted"}`}
-                  >
-                    <p className="text-sm font-semibold">{t.name}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{prog?.name ?? "—"}</p>
-                    <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                      {t.description}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex gap-3">
-              <Button disabled={!selectedFormId} onClick={() => setStep("choose-method")}>
-                <FileText className="size-4" />
-                Continue
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setStep("select");
-                  setSearched(false);
-                }}
-              >
-                Change profile
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* CHOOSE METHOD */}
       {step === "choose-method" && selectedProfile && (
         <Card className="shadow-card">
           <CardContent className="space-y-5 p-6">
             <div>
               <h3 className="font-display text-base font-semibold">
-                How would you like to complete this form?
+                How would you like to complete the Master Intake?
               </h3>
               <p className="text-sm text-muted-foreground">
-                Form: <span className="font-medium">{templateName(selectedFormId)}</span> · Profile:{" "}
-                {selectedProfile.businessName}
+                Core questions are followed by the sections for every program the client selects.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -551,10 +484,9 @@ function IntakePage() {
                 className="rounded-xl border-2 border-border p-6 text-left transition-colors hover:border-primary hover:bg-primary/5"
               >
                 <User className="size-6 text-primary" />
-                <p className="mt-3 font-semibold">Fill Out Now</p>
+                <p className="mt-3 font-semibold">Complete Master Intake Now</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Complete the form with the client during this session. Saves as a draft and
-                  records the staff member.
+                  Open the same secure, dynamic intake used by clients and complete it together.
                 </p>
               </button>
               <button
@@ -569,8 +501,8 @@ function IntakePage() {
                 </p>
               </button>
             </div>
-            <Button variant="outline" onClick={() => setStep("choose-form")}>
-              Back
+            <Button variant="outline" onClick={() => setStep("select")}>
+              Change profile
             </Button>
           </CardContent>
         </Card>
@@ -585,8 +517,7 @@ function IntakePage() {
                 Configure secure link delivery
               </h3>
               <p className="text-sm text-muted-foreground">
-                Form: <span className="font-medium">{templateName(selectedFormId)}</span> · Profile:{" "}
-                {selectedProfile.businessName}
+                Master Intake · Profile: {selectedProfile.businessName}
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -692,7 +623,6 @@ function IntakePage() {
                   setSearchBusiness("");
                   setSearchResults([]);
                   setSelectedProfile(null);
-                  setSelectedFormId("");
                   setPersonalMessage("");
                 }}
               >
@@ -703,20 +633,6 @@ function IntakePage() {
         </Card>
       )}
 
-      {selectedProfile && (
-        <FormRendererDialog
-          key={fillingAssignment?.id ?? "none"}
-          assignment={fillingAssignment}
-          client={selectedProfile}
-          open={!!fillingAssignment}
-          onOpenChange={(v) => {
-            if (!v) {
-              setFillingAssignment(null);
-              navigate({ to: "/clients/$clientId", params: { clientId: selectedProfile.id } });
-            }
-          }}
-        />
-      )}
     </div>
   );
 }

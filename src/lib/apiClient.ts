@@ -1,5 +1,12 @@
 import { clearAccessToken, getState, setAuthSession } from "./store";
-import type { FormAssignment, OrgMember, OrgSettings } from "@/types";
+import type {
+  EnrollmentStatusHistory,
+  FormAssignment,
+  IntakeSubmission,
+  OrgMember,
+  OrgSettings,
+  ProgramEnrollment,
+} from "@/types";
 
 const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? "https://nxt-lvl-api2.onrender.com";
@@ -352,6 +359,32 @@ export async function cfListPrograms() { return apiRequest<unknown[]>(`${CF}/pro
 export async function cfCreateProgram(data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/programs`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateProgram(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/programs/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
 
+export async function cfListEnrollments(filters: { clientId?: string; programId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.clientId) params.set("clientId", filters.clientId);
+  if (filters.programId) params.set("programId", filters.programId);
+  const query = params.size ? `?${params.toString()}` : "";
+  return apiRequest<ProgramEnrollment[]>(`${CF}/enrollments${query}`);
+}
+export async function cfGetEnrollment(id: string) {
+  return apiRequest<ProgramEnrollment>(`${CF}/enrollments/${id}`);
+}
+export async function cfGetEnrollmentHistory(id: string) {
+  return apiRequest<EnrollmentStatusHistory[]>(`${CF}/enrollments/${id}/history`);
+}
+export async function cfCreateEnrollment(data: Record<string, unknown>) {
+  return apiRequest<ProgramEnrollment>(`${CF}/enrollments`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+export async function cfUpdateEnrollment(id: string, data: Record<string, unknown>) {
+  return apiRequest<ProgramEnrollment>(`${CF}/enrollments/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function cfListFormTemplates() { return apiRequest<unknown[]>(`${CF}/form-templates`); }
 export async function cfCreateFormTemplate(data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/form-templates`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateFormTemplate(id: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/form-templates/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
@@ -363,6 +396,20 @@ export async function cfListFormAssignments(clientId?: string) {
 export async function cfCreateFormAssignment(data: Record<string, unknown>) { return apiRequest<FormAssignment>(`${CF}/form-assignments`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfSendFormAssignment(id: string, data: { personalMessage?: string }) { return apiRequest<FormAssignment>(`${CF}/form-assignments/${id}/send`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateFormAssignment(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/form-assignments/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
+
+export async function cfListIntakeSubmissions(filters: { clientId?: string; programId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.clientId) params.set("clientId", filters.clientId);
+  if (filters.programId) params.set("programId", filters.programId);
+  const query = params.size ? `?${params.toString()}` : "";
+  return apiRequest<IntakeSubmission[]>(`${CF}/intake-submissions${query}`);
+}
+export async function cfGetIntakeSubmission(id: string) {
+  return apiRequest<IntakeSubmission & {
+    snapshot: { renderedSections: PublicFormSection[]; selectedProgramIds: string[] } | null;
+    assignment: FormAssignment | null;
+  }>(`${CF}/intake-submissions/${id}`);
+}
 
 export async function cfListTerms(clientId: string) { return apiRequest<unknown[]>(`${CF}/clients/${clientId}/terms`); }
 export async function cfCreateTerms(clientId: string, data: Record<string, unknown>) { return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/terms`, { method: "POST", body: JSON.stringify(data) }); }

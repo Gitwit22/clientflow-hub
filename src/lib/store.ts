@@ -10,8 +10,10 @@ import type {
   FinalReport,
   FormAssignment,
   FormTemplate,
+  IntakeSubmission,
   MonitoringItem,
   Program,
+  ProgramEnrollment,
   Terms,
 } from "@/types";
 
@@ -20,8 +22,10 @@ export interface AppState {
   authenticatedAdmin: AuthenticatedAdmin | null;
   clients: Client[];
   programs: Program[];
+  enrollments: ProgramEnrollment[];
   formTemplates: FormTemplate[];
   formAssignments: FormAssignment[];
+  intakeSubmissions: IntakeSubmission[];
   terms: Terms[];
   monitoring: MonitoringItem[];
   contracts: Contract[];
@@ -75,8 +79,10 @@ let state: AppState = {
   ...persisted,
   clients: mock.clients,
   programs: mock.programs,
+  enrollments: [],
   formTemplates: mock.formTemplates,
   formAssignments: mock.formAssignments,
+  intakeSubmissions: [],
   terms: mock.termsList,
   monitoring: mock.monitoringItems,
   contracts: mock.contracts,
@@ -131,8 +137,10 @@ export function setAuthSession(accessToken: string, authenticatedAdmin: Authenti
     mockHidden,
     clients: accountChanged ? [] : current.clients,
     programs: accountChanged ? [] : current.programs,
+    enrollments: accountChanged ? [] : current.enrollments,
     formTemplates: accountChanged ? [] : current.formTemplates,
     formAssignments: accountChanged ? [] : current.formAssignments,
+    intakeSubmissions: accountChanged ? [] : current.intakeSubmissions,
     terms: accountChanged ? [] : current.terms,
     monitoring: accountChanged ? [] : current.monitoring,
     contracts: accountChanged ? [] : current.contracts,
@@ -159,8 +167,10 @@ export function clearAccessToken() {
     mockHidden: false,
     clients: [],
     programs: [],
+    enrollments: [],
     formTemplates: [],
     formAssignments: [],
+    intakeSubmissions: [],
     terms: [],
     monitoring: [],
     contracts: [],
@@ -188,10 +198,12 @@ export function hideMockData(permanent: boolean) {
     liveMode: permanent ? true : current.liveMode,
     mockHidden: true,
     clients: current.clients.filter((c) => !isDemoRecord(c, MOCK_IDS.clients)),
+    enrollments: current.enrollments.filter((enrollment) => !enrollment.isDemo),
     // programs and formTemplates are intentionally kept
     formAssignments: current.formAssignments.filter(
       (a) => !isDemoRecord(a, MOCK_IDS.formAssignments),
     ),
+    intakeSubmissions: current.intakeSubmissions.filter((submission) => !submission.isDemo),
     terms: current.terms.filter((t) => !isDemoRecord(t, MOCK_IDS.terms)),
     monitoring: current.monitoring.filter((m) => !isDemoRecord(m, MOCK_IDS.monitoring)),
     contracts: current.contracts.filter((c) => !isDemoRecord(c, MOCK_IDS.contracts)),

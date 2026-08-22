@@ -6,8 +6,10 @@ import { MOCK_IDS } from "@/data/mock";
 import type {
   Client,
   Program,
+  ProgramEnrollment,
   FormTemplate,
   FormAssignment,
+  IntakeSubmission,
   Terms,
   MonitoringItem,
   Contract,
@@ -46,8 +48,10 @@ export function useBootstrap() {
         const [
           remoteClients,
           remotePrograms,
+          remoteEnrollments,
           remoteFormTemplates,
           remoteFormAssignments,
+          remoteIntakeSubmissions,
           remoteTerms,
           remoteMonitoring,
           remoteContracts,
@@ -58,8 +62,10 @@ export function useBootstrap() {
         ] = await Promise.all([
           api.cfListClients(),
           api.cfListPrograms(),
+          api.cfListEnrollments(),
           api.cfListFormTemplates(),
           api.cfListFormAssignments(),
+          api.cfListIntakeSubmissions(),
           api.cfListAllTerms(),
           api.cfListAllMonitoring(),
           api.cfListAllContracts(),
@@ -99,6 +105,7 @@ export function useBootstrap() {
               ...(remotePrograms as Program[]),
               ...(keepMock ? mock.programs.filter((p) => !remoteProgramIds.has(p.id)) : []),
             ],
+            enrollments: visible(remoteEnrollments as ProgramEnrollment[]),
             formTemplates: [
               ...(remoteFormTemplates as FormTemplate[]),
               ...(keepMock ? mock.formTemplates.filter((t) => !remoteTemplateIds.has(t.id)) : []),
@@ -107,6 +114,7 @@ export function useBootstrap() {
               ...visible(remoteFormAssignments as FormAssignment[]),
               ...(keepMock ? mock.formAssignments.filter((a) => !remoteAssignmentIds.has(a.id)) : []),
             ],
+            intakeSubmissions: visible(remoteIntakeSubmissions as IntakeSubmission[]),
             terms: [
               ...visible(remoteTerms as Terms[]),
               ...(keepMock ? mock.termsList.filter((t) => !remoteTermIds.has(t.id)) : []),
