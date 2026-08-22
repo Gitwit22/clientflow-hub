@@ -314,7 +314,8 @@ export async function getPublicForm(token: string): Promise<PublicFormData> {
 export async function submitPublicForm(
   token: string,
   payload: {
-    responses: Record<string, PublicFormResponseValue>;
+    coreResponses: Record<string, PublicFormResponseValue>;
+    programResponses: Record<string, Record<string, PublicFormResponseValue>>;
     selectedProgramIds: string[];
     configurationToken: string;
     idempotencyKey: string;

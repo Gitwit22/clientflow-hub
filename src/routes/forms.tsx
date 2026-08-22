@@ -5,11 +5,24 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { emailTemplateBody } from "@/data/mock";
 import { useAppState } from "@/lib/store";
 import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
 import { SendFormFlowDialog } from "@/components/dialogs/SendFormFlowDialog";
-import type { FormTemplate } from "@/types";
+import type { FormTemplate, IntakeSubmission } from "@/types";
+
+function displayAnswer(value: unknown): string {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return String(value);
+  return typeof value === "string" ? value : "";
+}
 
 export const Route = createFileRoute("/forms")({
   head: () => ({
@@ -37,6 +50,7 @@ function FormsPage() {
   const [editingTemplate, setEditingTemplate] = useState<FormTemplate | undefined>(undefined);
   const [sendFormOpen, setSendFormOpen] = useState(false);
   const [sendFormTemplateId, setSendFormTemplateId] = useState<string | undefined>(undefined);
+  const [reviewingSubmission, setReviewingSubmission] = useState<IntakeSubmission | null>(null);
 
   function openTemplateAdd() {
     setEditingTemplate(undefined);
@@ -235,11 +249,16 @@ function FormsPage() {
                       Submitted {new Date(submission.submittedAt).toLocaleString()}
                     </p>
                   </div>
-                  <Button size="sm" variant="outline" asChild>
-                    <Link to="/clients/$clientId" params={{ clientId: submission.clientId }}>
-                      View profile
-                    </Link>
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setReviewingSubmission(submission)}>
+                      Review answers
+                    </Button>
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to="/clients/$clientId" params={{ clientId: submission.clientId }}>
+                        View profile
+                      </Link>
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -256,6 +275,57 @@ function FormsPage() {
         onOpenChange={setSendFormOpen}
         preselectedTemplateId={sendFormTemplateId}
       />
+      <Dialog
+        open={Boolean(reviewingSubmission)}
+        onOpenChange={(open) => !open && setReviewingSubmission(null)}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-display">Master Intake answers</DialogTitle>
+          </DialogHeader>
+          {reviewingSubmission && (
+            <div className="space-y-6">
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold">Shared information</h3>
+                <dl className="divide-y divide-border rounded-md border border-border px-4">
+                  {(reviewingSubmission.snapshot?.renderedSections.find(
+                    (section) => section.kind === "core",
+                  )?.fields ?? []).map((field) => (
+                    <div key={field.id} className="grid gap-1 py-2 sm:grid-cols-[180px_1fr]">
+                      <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                      <dd className="text-sm">{displayAnswer(reviewingSubmission.responsePayload[field.id]) || "—"}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+              {reviewingSubmission.programs.map((link) => {
+                const section = reviewingSubmission.snapshot?.renderedSections.find(
+                  (candidate) => candidate.kind === "program" && candidate.programId === link.programId,
+                );
+                if (!section) return null;
+                const responses = link.responsePayload ?? {};
+                return (
+                  <section key={link.id} className="space-y-2">
+                    <h3 className="text-sm font-semibold">
+                      {programs.find((program) => program.id === link.programId)?.name ?? section.title}
+                    </h3>
+                    <dl className="divide-y divide-border rounded-md border border-border px-4">
+                      {section.fields.map((field) => (
+                        <div key={field.id} className="grid gap-1 py-2 sm:grid-cols-[180px_1fr]">
+                          <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                          <dd className="text-sm">
+                            {displayAnswer(responses[field.id] ?? reviewingSubmission.responsePayload[field.id]) || "—"}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

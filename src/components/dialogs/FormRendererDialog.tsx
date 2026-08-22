@@ -33,8 +33,8 @@ function prefillFromClient(field: FormField, client: Client): string {
   if (isSocialMediaField(field.id)) return findSocialLink(field.id, client.socialLinks);
   if (field.prefillKey) {
     const k = field.prefillKey;
-    if (k === "businessDescription") return client.intake.businessDescription;
-    if (k === "programOfInterest") return client.intake.programOfInterest;
+    const intakeValue = client.intake[k as keyof typeof client.intake];
+    if (typeof intakeValue === "string") return intakeValue;
     const v = client[k as keyof Client];
     if (typeof v === "string") return v;
   }
@@ -48,6 +48,9 @@ function prefillFromClient(field: FormField, client: Client): string {
     fullName: client.primaryContactName,
     name: client.primaryContactName,
     website: client.website ?? "",
+    businessType: client.intake.businessType ?? "",
+    bizType: client.intake.businessType ?? "",
+    industry: client.intake.businessType ?? "",
   };
   return idMap[field.id] ?? "";
 }

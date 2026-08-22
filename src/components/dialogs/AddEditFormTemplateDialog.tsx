@@ -39,11 +39,36 @@ const FIELD_TYPES: FormField["type"][] = [
 
 interface FieldRow {
   id: string;
+  originalId?: string;
   label: string;
   type: FormField["type"];
   required: boolean;
   options: string; // comma-separated; only used when type === "select"
+  prefillKey?: FormField["prefillKey"];
 }
+
+const CANONICAL_FIELDS: Array<{ key: NonNullable<FormField["prefillKey"]>; label: string }> = [
+  { key: "primaryContactName", label: "Client name" },
+  { key: "businessName", label: "Business name" },
+  { key: "email", label: "Email" },
+  { key: "phone", label: "Phone" },
+  { key: "website", label: "Website" },
+  { key: "businessDescription", label: "Business description" },
+  { key: "businessType", label: "Business type" },
+  { key: "assistanceRequested", label: "Assistance requested" },
+  { key: "programOfInterest", label: "Program of interest" },
+  { key: "budgetNeed", label: "Budget need" },
+  { key: "preferredContact", label: "Preferred contact" },
+  { key: "heardAboutUs", label: "How they heard about us" },
+  { key: "additionalComments", label: "Additional comments" },
+];
+
+const SHARED_FIELD_IDS = new Set([
+  "name", "fullName", "applicant", "business", "bizName", "brandName", "sponsor",
+  "contact", "email", "phone", "website", "description", "assistance", "businessType",
+  "bizType", "industry", "program", "budget", "contact_pref", "heard", "comments",
+  "facebookUrl", "instagramUrl", "linkedinUrl", "tiktokUrl", "youtubeUrl",
+]);
 
 function toSlug(str: string): string {
   return (
@@ -60,6 +85,7 @@ function rowToField(row: FieldRow): FormField {
     label: row.label,
     type: row.type,
     required: row.required,
+    ...(row.prefillKey ? { prefillKey: row.prefillKey } : {}),
   };
   if (row.type === "select" && row.options.trim()) {
     field.options = row.options
@@ -73,10 +99,12 @@ function rowToField(row: FieldRow): FormField {
 function fieldToRow(field: FormField): FieldRow {
   return {
     id: field.id,
+    originalId: field.id,
     label: field.label,
     type: field.type,
     required: field.required,
     options: field.options?.join(", ") ?? "",
+    prefillKey: field.prefillKey,
   };
 }
 
@@ -126,7 +154,7 @@ export function AddEditFormTemplateDialog({
         if (i !== idx) return row;
         const updated = { ...row, ...patch };
         // Auto-generate id from label when it hasn't been manually set
-        if (!updated.id || updated.id === toSlug(row.label)) {
+        if (!updated.originalId && (!updated.id || updated.id === toSlug(row.label))) {
           updated.id = toSlug(updated.label);
         }
         return updated;
@@ -150,11 +178,37 @@ export function AddEditFormTemplateDialog({
       toast.error("Template name is required.");
       return;
     }
+    const activeFields = fields.filter((row) => row.label.trim());
+    const duplicateId = activeFields.find((row, index) =>
+      activeFields.findIndex((candidate) => candidate.id === row.id) !== index,
+    );
+    if (duplicateId) {
+      toast.error(`Duplicate field ID: ${duplicateId.id}.`);
+      return;
+    }
+    const scope = template?.scope ?? "program_section";
+    if (scope === "program_section") {
+      const repeated = activeFields.find((row) =>
+        row.prefillKey || SHARED_FIELD_IDS.has(row.id),
+      );
+      if (repeated) {
+        toast.error(`${repeated.label} belongs in the Master Intake form.`);
+        return;
+      }
+    }
+    if (scope === "master_core") {
+      const canonicalKeys = activeFields.map((row) => row.prefillKey).filter(Boolean);
+      const duplicateKey = canonicalKeys.find((key, index) => canonicalKeys.indexOf(key) !== index);
+      if (duplicateKey) {
+        toast.error(`The Master Intake already contains a ${duplicateKey} field.`);
+        return;
+      }
+    }
     setSaving(true);
     try {
       const data: Omit<FormTemplate, "id"> = {
         programId: template?.scope === "master_core" ? null : programId || null,
-        scope: template?.scope ?? "program_section",
+        scope,
         version: template?.version ?? 1,
         sortOrder: template?.sortOrder ?? 0,
         name: name.trim(),
@@ -368,6 +422,41 @@ export function AddEditFormTemplateDialog({
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
+
+                  {(template?.scope ?? "program_section") === "master_core" && (
+                    <div className="space-y-1">
+                      <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                        Shared profile source
+                      </p>
+                      <Select
+                        value={row.prefillKey ?? "custom"}
+                        onValueChange={(value) => {
+                          if (value === "custom") {
+                            updateField(idx, { prefillKey: undefined });
+                            return;
+                          }
+                          const selected = CANONICAL_FIELDS.find((field) => field.key === value)!;
+                          updateField(idx, {
+                            id: row.originalId ?? selected.key,
+                            label: row.label || selected.label,
+                            prefillKey: selected.key,
+                          });
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="custom">Custom question</SelectItem>
+                          {CANONICAL_FIELDS.map((field) => (
+                            <SelectItem key={field.key} value={field.key}>
+                              {field.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   {row.type === "select" && (
                     <div className="space-y-1">

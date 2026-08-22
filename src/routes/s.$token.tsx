@@ -45,7 +45,10 @@ function PublicFormPage() {
   const { token } = Route.useParams();
   const [status, setStatus] = useState<PageStatus>("loading");
   const [formData, setFormData] = useState<PublicFormData | null>(null);
-  const [responses, setResponses] = useState<Record<string, PublicFormResponseValue>>({});
+  const [coreResponses, setCoreResponses] = useState<Record<string, PublicFormResponseValue>>({});
+  const [programResponses, setProgramResponses] = useState<
+    Record<string, Record<string, PublicFormResponseValue>>
+  >({});
   const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [startedAt] = useState(() => new Date().toISOString());
@@ -55,13 +58,18 @@ function PublicFormPage() {
     getPublicForm(token)
       .then((data) => {
         setFormData(data);
-        const initial: Record<string, PublicFormResponseValue> = {};
+        const initialCore: Record<string, PublicFormResponseValue> = {};
+        const initialPrograms: Record<string, Record<string, PublicFormResponseValue>> = {};
         for (const section of data.intakeConfiguration.sections) {
+          const target = section.kind === "core"
+            ? initialCore
+            : (initialPrograms[section.programId!] ??= {});
           for (const field of section.fields) {
-            initial[field.id] = data.prefill[field.id] ?? "";
+            target[field.id] = section.kind === "core" ? (data.prefill[field.id] ?? "") : "";
           }
         }
-        setResponses(initial);
+        setCoreResponses(initialCore);
+        setProgramResponses(initialPrograms);
         if (["submitted", "approved"].includes(data.assignment.status)) {
           setStatus("already_submitted");
         } else {
@@ -78,8 +86,19 @@ function PublicFormPage() {
       });
   }, [token]);
 
-  const set = (id: string, value: PublicFormResponseValue) =>
-    setResponses((prev) => ({ ...prev, [id]: value }));
+  const set = (section: PublicFormSection, id: string, value: PublicFormResponseValue) => {
+    if (section.kind === "core") {
+      setCoreResponses((current) => ({ ...current, [id]: value }));
+      return;
+    }
+    setProgramResponses((current) => ({
+      ...current,
+      [section.programId!]: { ...current[section.programId!], [id]: value },
+    }));
+  };
+
+  const responsesFor = (section: PublicFormSection) =>
+    section.kind === "core" ? coreResponses : (programResponses[section.programId!] ?? {});
 
   const toggleProgram = (programId: string, checked: boolean) => {
     setSelectedProgramIds((current) => checked
@@ -95,9 +114,9 @@ function PublicFormPage() {
     }
     const visibleSections = getVisibleSections(formData, selectedProgramIds);
     const missing = visibleSections
-      .flatMap((section) => section.fields)
-      .filter((field) => field.required && isBlank(responses[field.id]))
-      .map((f) => f.label);
+      .flatMap((section) => section.fields
+        .filter((field) => field.required && isBlank(responsesFor(section)[field.id]))
+        .map((field) => field.label));
 
     if (missing.length > 0) {
       toast.error(
@@ -109,7 +128,10 @@ function PublicFormPage() {
     setStatus("submitting");
     try {
       await submitPublicForm(token, {
-        responses,
+        coreResponses,
+        programResponses: Object.fromEntries(
+          selectedProgramIds.map((programId) => [programId, programResponses[programId] ?? {}]),
+        ),
         selectedProgramIds,
         configurationToken: formData.intakeConfiguration.configurationToken,
         idempotencyKey,
@@ -210,7 +232,12 @@ function PublicFormPage() {
   const requiredFields = visibleSections
     .flatMap((section) => section.fields)
     .filter((field) => field.required);
-  const completed = requiredFields.filter((field) => !isBlank(responses[field.id])).length;
+  const completed = visibleSections.reduce(
+    (count, section) => count + section.fields.filter(
+      (field) => field.required && !isBlank(responsesFor(section)[field.id]),
+    ).length,
+    0,
+  );
   const progressPct =
     requiredFields.length > 0 ? Math.round((completed / requiredFields.length) * 100) : 100;
 
@@ -282,14 +309,17 @@ function PublicFormPage() {
               </div>
               {section.fields.map((field) => (
                 <div key={`${section.id}:${field.id}`} className="space-y-1.5">
-                  <Label htmlFor={`field-${field.id}`}>
+                  <Label htmlFor={`field-${section.id}-${field.id}`}>
                     {field.label}
                     {field.required && <span className="ml-1 text-destructive">*</span>}
                   </Label>
                   <PublicFieldInput
                     field={field}
-                    value={typeof responses[field.id] === "string" ? responses[field.id] : ""}
-                    onChange={(value) => set(field.id, value)}
+                    inputId={`field-${section.id}-${field.id}`}
+                    value={typeof responsesFor(section)[field.id] === "string"
+                      ? String(responsesFor(section)[field.id])
+                      : ""}
+                    onChange={(value) => set(section, field.id, value)}
                     disabled={status === "submitting"}
                   />
                 </div>
@@ -329,11 +359,13 @@ function isBlank(value: PublicFormResponseValue | undefined): boolean {
 
 function PublicFieldInput({
   field,
+  inputId,
   value,
   onChange,
   disabled,
 }: {
   field: PublicFormField;
+  inputId: string;
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
@@ -342,7 +374,7 @@ function PublicFieldInput({
     return (
       <SocialMediaInput
         fieldId={field.id}
-        inputId={`field-${field.id}`}
+        inputId={inputId}
         value={value}
         onChange={onChange}
         disabled={disabled}
@@ -352,7 +384,7 @@ function PublicFieldInput({
   if (field.type === "textarea") {
     return (
       <Textarea
-        id={`field-${field.id}`}
+        id={inputId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={3}
@@ -364,7 +396,7 @@ function PublicFieldInput({
   if (field.type === "select" && field.options?.length) {
     return (
       <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger id={`field-${field.id}`}>
+        <SelectTrigger id={inputId}>
           <SelectValue placeholder="Select…" />
         </SelectTrigger>
         <SelectContent>
@@ -381,12 +413,12 @@ function PublicFieldInput({
     return (
       <div className="flex items-center gap-2">
         <Checkbox
-          id={`field-${field.id}`}
+          id={inputId}
           checked={value === "true"}
           onCheckedChange={(checked) => onChange(String(Boolean(checked)))}
           disabled={disabled}
         />
-        <label htmlFor={`field-${field.id}`} className="cursor-pointer text-sm">
+        <label htmlFor={inputId} className="cursor-pointer text-sm">
           I agree
         </label>
       </div>
@@ -401,7 +433,7 @@ function PublicFieldInput({
   }
   return (
     <Input
-      id={`field-${field.id}`}
+      id={inputId}
       type={
         field.type === "phone"
           ? "tel"

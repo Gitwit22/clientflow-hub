@@ -159,6 +159,7 @@ export interface Client {
 export interface IntakeDetails {
   businessDescription: string;
   assistanceRequested: string;
+  businessType?: string;
   programOfInterest: string;
   budgetNeed: string;
   preferredContact: string;
@@ -237,6 +238,7 @@ export interface IntakeSubmissionProgram {
   intakeSubmissionId: string;
   programId: string;
   enrollmentId: string;
+  responsePayload?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -255,6 +257,19 @@ export interface IntakeSubmission {
   createdAt: string;
   client?: Pick<Client, "id" | "businessName" | "primaryContactName" | "email"> | null;
   programs: IntakeSubmissionProgram[];
+  snapshot?: {
+    selectedProgramIds: string[];
+    renderedSections: Array<{
+      id: string;
+      kind: "core" | "program";
+      templateId: string;
+      templateVersion: number;
+      programId: string | null;
+      title: string;
+      description: string;
+      fields: FormField[];
+    }>;
+  } | null;
 }
 
 export interface FormField {
@@ -264,7 +279,7 @@ export interface FormField {
     "text" | "email" | "phone" | "url" | "textarea" | "number" | "date" | "select" | "file" | "checkbox";
   required: boolean;
   options?: string[];
-  prefillKey?: keyof Client | "businessDescription" | "programOfInterest";
+  prefillKey?: keyof Client | keyof IntakeDetails;
 }
 
 export interface FormTemplate {

@@ -88,6 +88,13 @@ function Row({ label, value }: { label: string; value?: string }) {
   );
 }
 
+function displayAnswer(value: unknown): string {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return String(value);
+  return typeof value === "string" ? value : "";
+}
+
 function ClientProfile() {
   const { clientId } = Route.useParams();
   const { programId: selectedProgramId, tab } = Route.useSearch();
@@ -160,6 +167,9 @@ function ClientProfile() {
   const contracts = s.contracts.filter((c) => c.clientId === client.id);
   const finals = s.finalReports.filter((f) => f.clientId === client.id);
   const logs = s.activity.filter((a) => a.clientId === client.id);
+  const intakeSubmissions = s.intakeSubmissions.filter(
+    (submission) => submission.clientId === client.id,
+  );
   const templateName = (id: string) => s.formTemplates.find((t) => t.id === id)?.name ?? id;
   const selectedEnrollment = selectedProgramId
     ? enrollments.find((enrollment) => enrollment.programId === selectedProgramId)
@@ -181,6 +191,33 @@ function ClientProfile() {
           : item.programId === selectedEnrollment.programId,
       )
     : [];
+  const programAnswerGroups = enrollments.flatMap((enrollment) => {
+    for (const submission of intakeSubmissions) {
+      const link = submission.programs.find(
+        (candidate) => candidate.enrollmentId === enrollment.id
+          || candidate.programId === enrollment.programId,
+      );
+      const section = submission.snapshot?.renderedSections.find(
+        (candidate) => candidate.kind === "program"
+          && candidate.programId === enrollment.programId,
+      );
+      if (!link || !section) continue;
+      const storedResponses = link.responsePayload ?? {};
+      const responses = Object.keys(storedResponses).length > 0
+        ? storedResponses
+        : Object.fromEntries(
+            section.fields.map((field) => [field.id, submission.responsePayload[field.id]]),
+          );
+      return [{
+        enrollment,
+        program: s.programs.find((candidate) => candidate.id === enrollment.programId),
+        section,
+        responses,
+        submittedAt: submission.submittedAt,
+      }];
+    }
+    return [];
+  });
 
   return (
     <div className="space-y-6">
@@ -558,6 +595,7 @@ function ClientProfile() {
                 <Row label="Website" value={client.website} />
                 <Row label="Social media links" value={client.socialLinks?.join(", ")} />
                 <Row label="Business description" value={client.intake.businessDescription} />
+                <Row label="Business type" value={client.intake.businessType} />
               </dl>
               <dl>
                 <Row
@@ -573,6 +611,29 @@ function ClientProfile() {
               </dl>
             </CardContent>
           </Card>
+          {programAnswerGroups.map(({ enrollment, program, section, responses, submittedAt }) => (
+            <Card key={enrollment.id} className="shadow-card">
+              <CardHeader>
+                <CardTitle className="font-display text-base">
+                  {program?.name ?? section.title} answers
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Submitted {new Date(submittedAt).toLocaleString()}
+                </p>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid gap-x-8 sm:grid-cols-2">
+                  {section.fields.map((field) => (
+                    <Row
+                      key={`${section.id}:${field.id}`}
+                      label={field.label}
+                      value={displayAnswer(responses[field.id])}
+                    />
+                  ))}
+                </dl>
+              </CardContent>
+            </Card>
+          ))}
         </TabsContent>
 
         <TabsContent value="forms" className="mt-4 space-y-3">

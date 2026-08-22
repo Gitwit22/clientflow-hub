@@ -312,7 +312,7 @@ const socialMediaFields = () => [
   f("youtubeUrl", "YouTube URL", "url"),
 ];
 
-export const formTemplates: FormTemplate[] = [
+const configuredFormTemplates: FormTemplate[] = [
   {
     id: "form-interest",
     programId: null,
@@ -838,6 +838,57 @@ export const formTemplates: FormTemplate[] = [
     ],
   },
 ];
+
+const SHARED_INTAKE_FIELD_IDS = new Set([
+  "name",
+  "fullName",
+  "firstName",
+  "lastName",
+  "applicant",
+  "business",
+  "bizName",
+  "brandName",
+  "sponsor",
+  "contact",
+  "email",
+  "phone",
+  "website",
+  "facebookUrl",
+  "instagramUrl",
+  "linkedinUrl",
+  "tiktokUrl",
+  "youtubeUrl",
+  "description",
+  "assistance",
+  "bizType",
+  "industry",
+  "program",
+  "budget",
+  "heard",
+  "comments",
+]);
+
+export const formTemplates: FormTemplate[] = configuredFormTemplates.map((template) => {
+  if (template.scope === "master_core") {
+    const hasBusinessType = template.fields.some((field) => field.id === "businessType");
+    if (hasBusinessType) return template;
+    const fields = [...template.fields];
+    const descriptionIndex = fields.findIndex((field) => field.id === "description");
+    fields.splice(descriptionIndex >= 0 ? descriptionIndex + 1 : fields.length, 0, {
+      id: "businessType",
+      label: "Business type",
+      type: "text",
+      required: true,
+      prefillKey: "businessType",
+    });
+    return { ...template, fields };
+  }
+  if (!template.programId) return template;
+  return {
+    ...template,
+    fields: template.fields.filter((field) => !SHARED_INTAKE_FIELD_IDS.has(field.id)),
+  };
+});
 
 export const clients: Client[] = [
   {
