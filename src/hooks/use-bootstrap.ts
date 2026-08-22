@@ -18,8 +18,8 @@ import type {
 } from "@/types";
 
 /**
- * On mount (after auth), seeds ALL mock data to the backend (if not hidden),
- * then fetches every entity type and merges with mock data.
+ * On mount (after auth), seeds program/form configuration to the backend,
+ * then fetches every entity type and merges operational mock data locally.
  * Re-runs when token changes (i.e. once per page-load/login session).
  */
 export function useBootstrap() {
@@ -36,22 +36,11 @@ export function useBootstrap() {
         const demoStatus = await api.cfGetDemoStatus();
         const liveMode = demoStatus.liveMode;
 
-        // ── Step 1: Seed ALL mock data to the backend (upsert — safe to repeat) ──
-        if (!liveMode && !mockHidden) {
-          await api.cfSeedDemo({
-            programs: mock.programs as unknown as Record<string, unknown>[],
-            formTemplates: mock.formTemplates as unknown as Record<string, unknown>[],
-            clients: mock.clients as unknown as Record<string, unknown>[],
-            formAssignments: mock.formAssignments as unknown as Record<string, unknown>[],
-            terms: mock.termsList as unknown as Record<string, unknown>[],
-            monitoring: mock.monitoringItems as unknown as Record<string, unknown>[],
-            contracts: mock.contracts as unknown as Record<string, unknown>[],
-            documents: mock.documents as unknown as Record<string, unknown>[],
-            communications: mock.communications as unknown as Record<string, unknown>[],
-            finalReports: mock.finalReports as unknown as Record<string, unknown>[],
-            activity: mock.activityLogs as unknown as Record<string, unknown>[],
-          }).catch(() => undefined); // Never block the UI if seeding fails
-        }
+        // ── Step 1: Persist reusable configuration only (upsert — safe to repeat) ──
+        await api.cfSeedDemo({
+          programs: mock.programs as unknown as Record<string, unknown>[],
+          formTemplates: mock.formTemplates as unknown as Record<string, unknown>[],
+        }).catch(() => undefined); // Never block the UI if seeding fails
 
         // ── Step 2: Fetch all entity types from backend ────────────────────────
         const [
