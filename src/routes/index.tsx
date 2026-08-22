@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { FilePlus2, FileSignature, Send, UserPlus } from "lucide-react";
+import { DemoDataRemovalDialog } from "@/components/dialogs/DemoDataRemovalDialog";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useAppState, hideMockData } from "@/lib/store";
+import { useAppState } from "@/lib/store";
 import { MOCK_IDS } from "@/data/mock";
 
 export const Route = createFileRoute("/")({
@@ -30,12 +32,7 @@ function activityColor(action: string): string {
   const a = action.toLowerCase();
   if (a.includes("monitor") || a.includes("schedule")) return "#B8863A";
   if (a.includes("intake") || a.includes("received")) return "#2F6F62";
-  if (
-    a.includes("contract") ||
-    a.includes("terms") ||
-    a.includes("form") ||
-    a.includes("sent")
-  )
+  if (a.includes("contract") || a.includes("terms") || a.includes("form") || a.includes("sent"))
     return "#6C5A8C";
   if (a.includes("status") || a.includes("review") || a.includes("changed")) return "#BE5138";
   if (a.includes("note") || a.includes("complete") || a.includes("confirmed")) return "#3F7A4C";
@@ -52,8 +49,10 @@ function clientStatusColor(status: string): string {
 }
 
 function Dashboard() {
-  const { clients, formAssignments, monitoring, contracts, activity, programs, mockHidden } = useAppState();
-  const hasMockClients = !mockHidden && clients.some((c) => MOCK_IDS.clients.has(c.id));
+  const { clients, formAssignments, monitoring, contracts, activity, programs, mockHidden } =
+    useAppState();
+  const [removeDemoOpen, setRemoveDemoOpen] = useState(false);
+  const hasMockClients = !mockHidden && clients.some((c) => c.isDemo || MOCK_IDS.clients.has(c.id));
   const today = new Date();
   const todayLabel = today.toLocaleDateString("en-US", {
     weekday: "short",
@@ -99,9 +98,8 @@ function Dashboard() {
       label: "Contracts Pending",
       tag: "Legal",
       color: "#6C5A8C",
-      value: contracts.filter((c) =>
-        ["Draft", "Internal Review", "Sent"].includes(c.status),
-      ).length,
+      value: contracts.filter((c) => ["Draft", "Internal Review", "Sent"].includes(c.status))
+        .length,
     },
     {
       label: "Completed This Month",
@@ -125,9 +123,12 @@ function Dashboard() {
   const attention = clients.filter(
     (c) =>
       !c.isArchived &&
-      (["Needs Review", "More Information Needed", "Final Report Needed", "Contract Pending"].includes(
-        c.status,
-      ) ||
+      ([
+        "Needs Review",
+        "More Information Needed",
+        "Final Report Needed",
+        "Contract Pending",
+      ].includes(c.status) ||
         (c.nextFollowUpDate && new Date(c.nextFollowUpDate) < today)),
   );
 
@@ -173,12 +174,25 @@ function Dashboard() {
       {/* Demo data banner */}
       {hasMockClients && (
         <div className="flex items-center justify-between rounded-lg border border-[#B8863A]/30 bg-[#B8863A]/10 px-4 py-2.5">
-          <span className="font-mono text-[11px] uppercase tracking-widest text-[#B8863A]">Demo data is active — sample clients &amp; activity shown to help you explore</span>
-          <Button size="sm" variant="outline" className="ml-4 shrink-0 font-mono text-[11px] uppercase tracking-widest" onClick={() => hideMockData(false)}>
+          <span className="font-mono text-[11px] uppercase tracking-widest text-[#B8863A]">
+            Demo data is active — sample clients &amp; activity shown to help you explore
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-4 shrink-0 font-mono text-[11px] uppercase tracking-widest"
+            onClick={() => setRemoveDemoOpen(true)}
+          >
             Hide for session
           </Button>
         </div>
       )}
+
+      <DemoDataRemovalDialog
+        mode="session"
+        open={removeDemoOpen}
+        onOpenChange={setRemoveDemoOpen}
+      />
 
       {/* Stat ledger */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -316,4 +330,3 @@ function Dashboard() {
     </div>
   );
 }
-

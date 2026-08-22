@@ -20,6 +20,8 @@ import {
   ApiError,
   type PublicFormData,
   type PublicFormField,
+  type PublicFormResponseValue,
+  type PublicFormSection,
 } from "@/lib/apiClient";
 
 export const Route = createFileRoute("/s/$token")({
@@ -42,17 +44,21 @@ function PublicFormPage() {
   const { token } = Route.useParams();
   const [status, setStatus] = useState<PageStatus>("loading");
   const [formData, setFormData] = useState<PublicFormData | null>(null);
-  const [responses, setResponses] = useState<Record<string, string>>({});
+  const [responses, setResponses] = useState<Record<string, PublicFormResponseValue>>({});
+  const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [startedAt] = useState(() => new Date().toISOString());
+  const [idempotencyKey] = useState(() => globalThis.crypto.randomUUID());
 
   useEffect(() => {
     getPublicForm(token)
       .then((data) => {
         setFormData(data);
-        const initial: Record<string, string> = {};
-        for (const field of data.form.fields) {
-          initial[field.id] = data.prefill[field.id] ?? "";
+        const initial: Record<string, PublicFormResponseValue> = {};
+        for (const section of data.intakeConfiguration.sections) {
+          for (const field of section.fields) {
+            initial[field.id] = data.prefill[field.id] ?? "";
+          }
         }
         setResponses(initial);
         if (["submitted", "approved"].includes(data.assignment.status)) {
@@ -71,13 +77,25 @@ function PublicFormPage() {
       });
   }, [token]);
 
-  const set = (id: string, value: string) =>
+  const set = (id: string, value: PublicFormResponseValue) =>
     setResponses((prev) => ({ ...prev, [id]: value }));
+
+  const toggleProgram = (programId: string, checked: boolean) => {
+    setSelectedProgramIds((current) => checked
+      ? [...current, programId]
+      : current.filter((id) => id !== programId));
+  };
 
   async function handleSubmit() {
     if (!formData) return;
-    const missing = formData.form.fields
-      .filter((f) => f.required && !responses[f.id]?.trim())
+    if (selectedProgramIds.length === 0) {
+      toast.error("Select at least one program.");
+      return;
+    }
+    const visibleSections = getVisibleSections(formData, selectedProgramIds);
+    const missing = visibleSections
+      .flatMap((section) => section.fields)
+      .filter((field) => field.required && isBlank(responses[field.id]))
       .map((f) => f.label);
 
     if (missing.length > 0) {
@@ -89,7 +107,13 @@ function PublicFormPage() {
 
     setStatus("submitting");
     try {
-      await submitPublicForm(token, { responses, startedAt });
+      await submitPublicForm(token, {
+        responses,
+        selectedProgramIds,
+        configurationToken: formData.intakeConfiguration.configurationToken,
+        idempotencyKey,
+        startedAt,
+      });
       setStatus("success");
     } catch (error) {
       setStatus("ready");
@@ -181,8 +205,11 @@ function PublicFormPage() {
   // ── Form ─────────────────────────────────────────────────────────────────
   if (!formData) return null;
 
-  const requiredFields = formData.form.fields.filter((f) => f.required);
-  const completed = requiredFields.filter((f) => responses[f.id]?.trim()).length;
+  const visibleSections = getVisibleSections(formData, selectedProgramIds);
+  const requiredFields = visibleSections
+    .flatMap((section) => section.fields)
+    .filter((field) => field.required);
+  const completed = requiredFields.filter((field) => !isBlank(responses[field.id])).length;
   const progressPct =
     requiredFields.length > 0 ? Math.round((completed / requiredFields.length) * 100) : 100;
 
@@ -218,21 +245,55 @@ function PublicFormPage() {
           </div>
         )}
 
-        {/* Fields */}
-        <div className="space-y-5">
-          {formData.form.fields.map((field) => (
-            <div key={field.id} className="space-y-1.5">
-              <Label htmlFor={`field-${field.id}`}>
-                {field.label}
-                {field.required && <span className="ml-1 text-destructive">*</span>}
-              </Label>
-              <PublicFieldInput
-                field={field}
-                value={responses[field.id] ?? ""}
-                onChange={(v) => set(field.id, v)}
-                disabled={status === "submitting"}
-              />
-            </div>
+        <fieldset className="space-y-3 border-y border-border py-5">
+          <legend className="px-1 text-sm font-semibold">Select programs</legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {formData.intakeConfiguration.programs.map((program) => {
+              const checked = selectedProgramIds.includes(program.id);
+              return (
+                <label
+                  key={program.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-md border border-border p-3 text-sm"
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(value) => toggleProgram(program.id, value === true)}
+                    disabled={status === "submitting"}
+                  />
+                  <span>{program.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        {/* Core and selected-program fields */}
+        <div className="space-y-8">
+          {visibleSections.map((section) => (
+            <section key={section.id} className="space-y-5" aria-labelledby={`section-${section.id}`}>
+              <div className="space-y-1 border-b border-border pb-3">
+                <h2 id={`section-${section.id}`} className="font-display text-lg font-semibold">
+                  {section.title}
+                </h2>
+                {section.description && (
+                  <p className="text-sm text-muted-foreground">{section.description}</p>
+                )}
+              </div>
+              {section.fields.map((field) => (
+                <div key={`${section.id}:${field.id}`} className="space-y-1.5">
+                  <Label htmlFor={`field-${field.id}`}>
+                    {field.label}
+                    {field.required && <span className="ml-1 text-destructive">*</span>}
+                  </Label>
+                  <PublicFieldInput
+                    field={field}
+                    value={typeof responses[field.id] === "string" ? responses[field.id] : ""}
+                    onChange={(value) => set(field.id, value)}
+                    disabled={status === "submitting"}
+                  />
+                </div>
+              ))}
+            </section>
           ))}
         </div>
 
@@ -245,6 +306,24 @@ function PublicFormPage() {
       </div>
     </div>
   );
+}
+
+function getVisibleSections(
+  formData: PublicFormData,
+  selectedProgramIds: string[],
+): PublicFormSection[] {
+  const selected = new Set(selectedProgramIds);
+  return formData.intakeConfiguration.sections.filter(
+    (section) => section.kind === "core"
+      || (section.programId !== null && selected.has(section.programId)),
+  );
+}
+
+function isBlank(value: PublicFormResponseValue | undefined): boolean {
+  return value === undefined
+    || value === null
+    || (typeof value === "string" && value.trim().length === 0)
+    || (Array.isArray(value) && value.length === 0);
 }
 
 function PublicFieldInput({

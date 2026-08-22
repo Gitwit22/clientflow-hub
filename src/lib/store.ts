@@ -44,11 +44,11 @@ export interface AuthenticatedAdmin {
 }
 
 // ─── localStorage helpers ────────────────────────────────────────────────────
-const TOKEN_KEY = 'cf:token';
-const ADMIN_KEY = 'cf:admin';
-const SESSION_DEMO_HIDDEN_KEY = 'cf:demoHiddenForLogin';
+const TOKEN_KEY = "cf:token";
+const ADMIN_KEY = "cf:admin";
+const SESSION_DEMO_HIDDEN_KEY = "cf:demoHiddenForLogin";
 
-function loadFromStorage(): Pick<AppState, 'accessToken' | 'authenticatedAdmin'> {
+function loadFromStorage(): Pick<AppState, "accessToken" | "authenticatedAdmin"> {
   try {
     const token = localStorage.getItem(TOKEN_KEY);
     const admin = localStorage.getItem(ADMIN_KEY);
@@ -109,16 +109,38 @@ export function useAppState(): AppState {
 }
 
 export function setAuthSession(accessToken: string, authenticatedAdmin: AuthenticatedAdmin) {
+  const accountChanged =
+    state.accessToken !== accessToken ||
+    state.authenticatedAdmin?.organizationId !== authenticatedAdmin.organizationId;
   try {
     if (localStorage.getItem(TOKEN_KEY) !== accessToken) {
       localStorage.removeItem(SESSION_DEMO_HIDDEN_KEY);
     }
     localStorage.setItem(TOKEN_KEY, accessToken);
     localStorage.setItem(ADMIN_KEY, JSON.stringify(authenticatedAdmin));
-  } catch { /* storage unavailable */ }
+  } catch {
+    /* storage unavailable */
+  }
   const orgId = authenticatedAdmin.organizationId;
   const mockHidden = orgId ? isMockHiddenForOrg(orgId) : false;
-  setState((current) => ({ ...current, accessToken, authenticatedAdmin, mockHidden }));
+  setState((current) => ({
+    ...current,
+    accessToken,
+    authenticatedAdmin,
+    liveMode: accountChanged ? false : current.liveMode,
+    mockHidden,
+    clients: accountChanged ? [] : current.clients,
+    programs: accountChanged ? [] : current.programs,
+    formTemplates: accountChanged ? [] : current.formTemplates,
+    formAssignments: accountChanged ? [] : current.formAssignments,
+    terms: accountChanged ? [] : current.terms,
+    monitoring: accountChanged ? [] : current.monitoring,
+    contracts: accountChanged ? [] : current.contracts,
+    documents: accountChanged ? [] : current.documents,
+    communications: accountChanged ? [] : current.communications,
+    finalReports: accountChanged ? [] : current.finalReports,
+    activity: accountChanged ? [] : current.activity,
+  }));
 }
 
 export function clearAccessToken() {
@@ -126,8 +148,27 @@ export function clearAccessToken() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ADMIN_KEY);
     localStorage.removeItem(SESSION_DEMO_HIDDEN_KEY);
-  } catch { /* storage unavailable */ }
-  setState((current) => ({ ...current, accessToken: null, authenticatedAdmin: null, liveMode: false, mockHidden: false }));
+  } catch {
+    /* storage unavailable */
+  }
+  setState((current) => ({
+    ...current,
+    accessToken: null,
+    authenticatedAdmin: null,
+    liveMode: false,
+    mockHidden: false,
+    clients: [],
+    programs: [],
+    formTemplates: [],
+    formAssignments: [],
+    terms: [],
+    monitoring: [],
+    contracts: [],
+    documents: [],
+    communications: [],
+    finalReports: [],
+    activity: [],
+  }));
 }
 
 const isDemoRecord = (record: { id: string; isDemo?: boolean }, ids: Set<string>) =>
@@ -136,7 +177,11 @@ const isDemoRecord = (record: { id: string; isDemo?: boolean }, ids: Set<string>
 export function hideMockData(permanent: boolean) {
   const orgId = state.authenticatedAdmin?.organizationId;
   if (!permanent && orgId) {
-    try { localStorage.setItem(SESSION_DEMO_HIDDEN_KEY, orgId); } catch { /* noop */ }
+    try {
+      localStorage.setItem(SESSION_DEMO_HIDDEN_KEY, orgId);
+    } catch {
+      /* noop */
+    }
   }
   setState((current) => ({
     ...current,
@@ -144,7 +189,9 @@ export function hideMockData(permanent: boolean) {
     mockHidden: true,
     clients: current.clients.filter((c) => !isDemoRecord(c, MOCK_IDS.clients)),
     // programs and formTemplates are intentionally kept
-    formAssignments: current.formAssignments.filter((a) => !isDemoRecord(a, MOCK_IDS.formAssignments)),
+    formAssignments: current.formAssignments.filter(
+      (a) => !isDemoRecord(a, MOCK_IDS.formAssignments),
+    ),
     terms: current.terms.filter((t) => !isDemoRecord(t, MOCK_IDS.terms)),
     monitoring: current.monitoring.filter((m) => !isDemoRecord(m, MOCK_IDS.monitoring)),
     contracts: current.contracts.filter((c) => !isDemoRecord(c, MOCK_IDS.contracts)),

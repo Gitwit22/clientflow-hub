@@ -54,7 +54,7 @@ const delay = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => reso
 
 const nowISO = () => new Date().toISOString();
 
-function log(clientId: string, action: string, description: string, user = "Alicia Monroe") {
+async function log(clientId: string, action: string, description: string, user = "Alicia Monroe") {
   const entry: ActivityLog = {
     id: uid("al"),
     clientId,
@@ -63,8 +63,15 @@ function log(clientId: string, action: string, description: string, user = "Alic
     user,
     timestamp: nowISO(),
   };
+  await cfCreateActivity({
+    id: entry.id,
+    clientId,
+    action,
+    description,
+    user,
+    timestamp: entry.timestamp,
+  });
   setState((s) => ({ ...s, activity: [entry, ...s.activity] }));
-  cfCreateActivity({ id: entry.id, clientId, action, description, user, timestamp: entry.timestamp }).catch(() => undefined);
 }
 
 /* ---------------------------------- Clients --------------------------------- */
@@ -95,7 +102,7 @@ export async function refreshClientProfile(clientId: string) {
 export async function createClient(
   data: Omit<Client, "id" | "createdAt" | "updatedAt" | "isArchived">,
 ) {
-  const backendClient = await cfCreateClient({
+  const backendClient = (await cfCreateClient({
     businessName: data.businessName,
     primaryContactName: data.primaryContactName,
     email: data.email,
@@ -115,18 +122,18 @@ export async function createClient(
     isDemo: data.isDemo,
     intake: data.intake,
     snapchat: data.snapchat,
-  }) as Client;
+  })) as Client;
   const client: Client = {
     ...data,
     ...backendClient,
   };
   setState((s) => ({ ...s, clients: [client, ...s.clients] }));
-  log(client.id, "Intake received", `New intake created for ${client.businessName}.`);
+  await log(client.id, "Intake received", `New intake created for ${client.businessName}.`);
   return delay(client);
 }
 
 export async function updateClient(id: string, data: Partial<Client>) {
-  const updatedClient = await cfUpdateClient(id, data as Record<string, unknown>) as Client;
+  const updatedClient = (await cfUpdateClient(id, data as Record<string, unknown>)) as Client;
   setState((s) => ({
     ...s,
     clients: s.clients.map((client) => (client.id === id ? updatedClient : client)),
@@ -146,13 +153,13 @@ export async function archiveClient(
     finalStatus,
     archivedAt: nowISO(),
   });
-  log(id, "Client archived", reason);
+  await log(id, "Client archived", reason);
   return delay(true);
 }
 
 export async function restoreClient(id: string) {
   await updateClient(id, { isArchived: false, status: "Active", archiveReason: undefined });
-  log(id, "Client restored", "Client restored to active caseload.");
+  await log(id, "Client restored", "Client restored to active caseload.");
   return delay(true);
 }
 
@@ -161,14 +168,14 @@ export async function restoreClient(id: string) {
 export const getPrograms = async () => delay(getState().programs);
 
 export async function createProgram(data: Omit<Program, "id">) {
-  const backend = await cfCreateProgram(data as Record<string, unknown>).catch(() => null) as { id: string } | null;
-  const program: Program = { ...data, id: backend?.id ?? uid("prog") };
+  const backend = (await cfCreateProgram(data as Record<string, unknown>)) as { id: string };
+  const program: Program = { ...data, id: backend.id };
   setState((s) => ({ ...s, programs: [...s.programs, program] }));
   return delay(program);
 }
 
 export async function updateProgram(id: string, data: Partial<Program>) {
-  cfUpdateProgram(id, data as Record<string, unknown>).catch(() => undefined);
+  await cfUpdateProgram(id, data as Record<string, unknown>);
   setState((s) => ({
     ...s,
     programs: s.programs.map((p) => (p.id === id ? { ...p, ...data } : p)),
@@ -182,14 +189,14 @@ export const getFormTemplates = async () => delay(getState().formTemplates);
 
 export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
   // Persist to backend so the template is findable by the public form endpoint.
-  const backendTemplate = await cfCreateFormTemplate(data as Record<string, unknown>).catch(() => null);
-  const template: FormTemplate = { ...data, id: backendTemplate?.id ?? uid("form") };
+  const backendTemplate = await cfCreateFormTemplate(data as Record<string, unknown>);
+  const template: FormTemplate = { ...data, id: backendTemplate.id };
   setState((s) => ({ ...s, formTemplates: [...s.formTemplates, template] }));
   return delay(template);
 }
 
 export async function updateFormTemplate(id: string, data: Partial<FormTemplate>) {
-  cfUpdateFormTemplate(id, data as Record<string, unknown>).catch(() => undefined);
+  await cfUpdateFormTemplate(id, data as Record<string, unknown>);
   setState((s) => ({
     ...s,
     formTemplates: s.formTemplates.map((t) => (t.id === id ? { ...t, ...data } : t)),
@@ -198,9 +205,9 @@ export async function updateFormTemplate(id: string, data: Partial<FormTemplate>
 }
 
 export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {
-  const appOrigin = typeof window !== "undefined" ? window.location.origin : "https://clientflow-2g9.pages.dev";
-  const assignment: FormAssignment = {
-    id: uid("fa"),
+  const appOrigin =
+    typeof window !== "undefined" ? window.location.origin : "https://clientflow-2g9.pages.dev";
+  const assignment = await cfCreateFormAssignment({
     clientId,
     formId,
     status: "draft",
@@ -208,9 +215,7 @@ export async function assignFormToClient(clientId: string, formId: string, dueDa
     deliveryMethod: "email",
     dueDate,
     secureLink: `${appOrigin}/s/${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
-    createdAt: nowISO(),
-    updatedAt: nowISO(),
-  };
+  });
   setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
   return delay(assignment);
 }
@@ -266,7 +271,7 @@ export async function createFormAssignment(data: {
     });
   }
   setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
-  log(
+  await log(
     data.clientId,
     "Form assigned",
     isSendLink
@@ -283,7 +288,7 @@ export async function convertProfile(id: string, newRelationshipType: Relationsh
     convertedAt: nowISO(),
     status: newRelationshipType === "client" ? "Active" : undefined,
   });
-  log(id, "Profile converted", `Relationship type changed to ${newRelationshipType}.`);
+  await log(id, "Profile converted", `Relationship type changed to ${newRelationshipType}.`);
   return delay(true);
 }
 
@@ -293,11 +298,9 @@ export async function sendFormEmail(formAssignmentId: string, personalMessage?: 
   });
   setState((s) => ({
     ...s,
-    formAssignments: s.formAssignments.map((a) =>
-      a.id === formAssignmentId ? assignment : a,
-    ),
+    formAssignments: s.formAssignments.map((a) => (a.id === formAssignmentId ? assignment : a)),
   }));
-  log(
+  await log(
     assignment.clientId,
     "Form sent",
     `Secure form link emailed to ${assignment.recipientEmail ?? "the recipient"}.`,
@@ -309,12 +312,13 @@ export async function submitFormResponse(
   formAssignmentId: string,
   responses: Record<string, string>,
 ) {
-  cfUpdateFormAssignment(formAssignmentId, { status: "submitted", submittedAt: nowISO(), responses }).catch(() => undefined);
+  const submittedAt = nowISO();
+  await cfUpdateFormAssignment(formAssignmentId, { status: "submitted", submittedAt, responses });
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
       a.id === formAssignmentId
-        ? { ...a, status: "submitted" as const, submittedAt: nowISO(), responses }
+        ? { ...a, status: "submitted" as const, submittedAt, responses }
         : a,
     ),
   }));
@@ -322,7 +326,7 @@ export async function submitFormResponse(
 }
 
 export async function cancelFormAssignment(id: string) {
-  cfUpdateFormAssignment(id, { status: "cancelled", cancelledAt: nowISO() }).catch(() => undefined);
+  await cfUpdateFormAssignment(id, { status: "cancelled", cancelledAt: nowISO() });
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
@@ -333,7 +337,7 @@ export async function cancelFormAssignment(id: string) {
 }
 
 export async function saveFormDraft(id: string, responses: Record<string, string>) {
-  cfUpdateFormAssignment(id, { status: "in_progress", responses }).catch(() => undefined);
+  await cfUpdateFormAssignment(id, { status: "in_progress", responses });
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
@@ -342,19 +346,19 @@ export async function saveFormDraft(id: string, responses: Record<string, string
   }));
   const assignment = getState().formAssignments.find((a) => a.id === id);
   if (assignment)
-    log(assignment.clientId, "Form draft saved", "Admin saved form responses as a draft.");
+    await log(assignment.clientId, "Form draft saved", "Admin saved form responses as a draft.");
   return delay(true);
 }
 
 export async function changeAssignmentStatus(id: string, status: FormAssignmentStatus) {
-  cfUpdateFormAssignment(id, { status }).catch(() => undefined);
+  await cfUpdateFormAssignment(id, { status });
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) => (a.id === id ? { ...a, status } : a)),
   }));
   const assignment = getState().formAssignments.find((a) => a.id === id);
   if (assignment)
-    log(
+    await log(
       assignment.clientId,
       "Form status changed",
       `Assignment status updated to ${status.replace(/_/g, " ")}.`,
@@ -395,18 +399,16 @@ export async function saveFormEdits(id: string, newResponses: Record<string, str
   const edit: FormEdit = { id: uid("fe"), editedAt: nowISO(), editedBy, changes };
   const nextHistory = [...(assignment.editHistory ?? []), edit];
 
-  cfUpdateFormAssignment(id, { responses: newResponses, editHistory: nextHistory }).catch(() => undefined);
+  await cfUpdateFormAssignment(id, { responses: newResponses, editHistory: nextHistory });
 
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((a) =>
-      a.id === id
-        ? { ...a, responses: newResponses, editHistory: nextHistory }
-        : a,
+      a.id === id ? { ...a, responses: newResponses, editHistory: nextHistory } : a,
     ),
   }));
 
-  log(
+  await log(
     assignment.clientId,
     "Form edited",
     `${editedBy} edited ${changes.length} field${changes.length !== 1 ? "s" : ""} on "${template?.name ?? id}".`,
@@ -431,15 +433,15 @@ export const renderEmailBody = (vars: {
 /* ----------------------------------- Terms ---------------------------------- */
 
 export async function createTerms(clientId: string, data: Omit<Terms, "id" | "clientId">) {
-  const backend = await cfCreateTerms(clientId, data as Record<string, unknown>).catch(() => null);
-  const terms: Terms = { ...data, id: backend?.id ?? uid("tm"), clientId };
+  const backend = await cfCreateTerms(clientId, data as Record<string, unknown>);
+  const terms: Terms = { ...data, id: backend.id, clientId };
   setState((s) => ({ ...s, terms: [terms, ...s.terms] }));
-  log(clientId, "Terms drafted", `${data.supportType} terms created.`);
+  await log(clientId, "Terms drafted", `${data.supportType} terms created.`);
   return delay(terms);
 }
 
 export async function updateTerms(termsId: string, data: Partial<Terms>) {
-  cfUpdateTerms(termsId, data as Record<string, unknown>).catch(() => undefined);
+  await cfUpdateTerms(termsId, data as Record<string, unknown>);
   setState((s) => ({
     ...s,
     terms: s.terms.map((t) => (t.id === termsId ? { ...t, ...data } : t)),
@@ -470,10 +472,10 @@ export async function generateContract(clientId: string, termsId?: string) {
     contractType: contract.contractType,
     status: contract.status,
     content: contract.content,
-  }).catch(() => null);
-  const finalContract: Contract = { ...contract, id: backend?.id ?? contract.id };
+  });
+  const finalContract: Contract = { ...contract, id: backend.id };
   setState((st) => ({ ...st, contracts: [finalContract, ...st.contracts] }));
-  log(clientId, "Contract generated", `${contract.contractType} draft created.`);
+  await log(clientId, "Contract generated", `${contract.contractType} draft created.`);
   return delay(finalContract);
 }
 
@@ -511,7 +513,7 @@ EA Management: ______________   Date: __________`;
 }
 
 export async function updateContract(id: string, data: Partial<Contract>) {
-  cfUpdateContract(id, data as Record<string, unknown>).catch(() => undefined);
+  await cfUpdateContract(id, data as Record<string, unknown>);
   setState((s) => ({
     ...s,
     contracts: s.contracts.map((c) => (c.id === id ? { ...c, ...data } : c)),
@@ -522,15 +524,15 @@ export async function updateContract(id: string, data: Partial<Contract>) {
 /* -------------------------------- Monitoring -------------------------------- */
 
 export async function createMonitoringItem(data: Omit<MonitoringItem, "id">) {
-  const backend = await cfCreateMonitoringItem(data.clientId, data as Record<string, unknown>).catch(() => null);
-  const item: MonitoringItem = { ...data, id: backend?.id ?? uid("mo") };
+  const backend = await cfCreateMonitoringItem(data.clientId, data as Record<string, unknown>);
+  const item: MonitoringItem = { ...data, id: backend.id };
   setState((s) => ({ ...s, monitoring: [item, ...s.monitoring] }));
   return delay(item);
 }
 
 export async function completeMonitoringItem(id: string) {
   const completedAt = nowISO();
-  cfUpdateMonitoringItem(id, { status: "Completed", completedAt }).catch(() => undefined);
+  await cfUpdateMonitoringItem(id, { status: "Completed", completedAt });
   setState((s) => ({
     ...s,
     monitoring: s.monitoring.map((m) =>
@@ -541,7 +543,7 @@ export async function completeMonitoringItem(id: string) {
 }
 
 export async function rescheduleMonitoringItem(id: string, dueDate: string) {
-  cfUpdateMonitoringItem(id, { dueDate, status: "Scheduled" }).catch(() => undefined);
+  await cfUpdateMonitoringItem(id, { dueDate, status: "Scheduled" });
   setState((s) => ({
     ...s,
     monitoring: s.monitoring.map((m) => (m.id === id ? { ...m, dueDate, status: "Scheduled" } : m)),
@@ -552,10 +554,10 @@ export async function rescheduleMonitoringItem(id: string, dueDate: string) {
 /* ------------------------------- Final reports ------------------------------ */
 
 export async function createFinalReport(clientId: string, data: FinalReportDraft) {
-  const backend = await cfCreateFinalReport(clientId, data as Record<string, unknown>).catch(() => null);
-  const report: FinalReport = { ...data, id: backend?.id ?? uid("fr"), clientId };
+  const backend = await cfCreateFinalReport(clientId, data as Record<string, unknown>);
+  const report: FinalReport = { ...data, id: backend.id, clientId };
   setState((s) => ({ ...s, finalReports: [report, ...s.finalReports] }));
-  log(clientId, "Final report completed", `Outcome recorded: ${data.clientOutcome}.`);
+  await log(clientId, "Final report completed", `Outcome recorded: ${data.clientOutcome}.`);
   return delay(report);
 }
 
@@ -573,9 +575,9 @@ export async function uploadDocument(clientId: string, file: { name: string; typ
     url: "#",
     uploadedAt,
     uploadedBy: "Alicia Monroe",
-  }).catch(() => null);
+  });
   const doc: ClientDocument = {
-    id: backend?.id ?? uid("doc"),
+    id: backend.id,
     clientId,
     name: file.name,
     type: file.type,
@@ -591,10 +593,10 @@ export async function addCommunication(
   clientId: string,
   data: Omit<Communication, "id" | "clientId">,
 ) {
-  const backend = await cfCreateCommunication(clientId, data as Record<string, unknown>).catch(() => null);
-  const comm: Communication = { ...data, id: backend?.id ?? uid("cm"), clientId };
+  const backend = await cfCreateCommunication(clientId, data as Record<string, unknown>);
+  const comm: Communication = { ...data, id: backend.id, clientId };
   setState((s) => ({ ...s, communications: [comm, ...s.communications] }));
-  log(clientId, "Note added", data.subject);
+  await log(clientId, "Note added", data.subject);
   return delay(comm);
 }
 

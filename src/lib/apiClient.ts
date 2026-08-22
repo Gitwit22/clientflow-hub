@@ -272,12 +272,30 @@ export interface PublicFormField {
   options?: string[];
 }
 
+export type PublicFormResponseValue = string | string[] | boolean | number | null;
+
+export interface PublicFormSection {
+  id: string;
+  kind: "core" | "program";
+  templateId: string;
+  templateVersion: number;
+  programId: string | null;
+  title: string;
+  description: string;
+  fields: PublicFormField[];
+}
+
 export interface PublicFormData {
   assignment: { id: string; status: string; dueDate: string | null };
   form: { id: string; name: string; description: string; fields: PublicFormField[] };
   program: { name: string };
   contact: { name: string };
   prefill: Record<string, string>;
+  intakeConfiguration: {
+    configurationToken: string;
+    programs: Array<{ id: string; name: string }>;
+    sections: PublicFormSection[];
+  };
 }
 
 /** GET /public/form/:token — load form for a client (no auth). */
@@ -288,9 +306,15 @@ export async function getPublicForm(token: string): Promise<PublicFormData> {
 /** POST /public/form/:token/submit — submit responses (no auth). */
 export async function submitPublicForm(
   token: string,
-  payload: { responses: Record<string, string>; startedAt?: string },
-): Promise<{ success: boolean }> {
-  return publicRequest<{ success: boolean }>(
+  payload: {
+    responses: Record<string, PublicFormResponseValue>;
+    selectedProgramIds: string[];
+    configurationToken: string;
+    idempotencyKey: string;
+    startedAt?: string;
+  },
+): Promise<{ success: boolean; enrollmentIds: string[] }> {
+  return publicRequest<{ success: boolean; enrollmentIds: string[] }>(
     `/api/v1/public/form/${encodeURIComponent(token)}/submit`,
     { method: "POST", body: JSON.stringify(payload) },
   );
