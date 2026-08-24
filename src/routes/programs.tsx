@@ -31,6 +31,7 @@ export const Route = createFileRoute("/programs")({
 });
 
 function ProgramsPage() {
+  const navigate = Route.useNavigate();
   const { programs, formTemplates, clients, enrollments } = useAppState();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProgram, setEditingProgram] = useState<Program | undefined>(undefined);
@@ -163,10 +164,16 @@ function ProgramsPage() {
                   <p className="text-xs text-muted-foreground border-t border-border pt-3">No active clients</p>
                 );
               })()}
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/programs/$programId" params={{ programId: p.id }}>
-                  View program
-                </Link>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void navigate({
+                  to: "/programs/$programId",
+                  params: { programId: p.id },
+                })}
+              >
+                View program
               </Button>
             </CardContent>
           </Card>
