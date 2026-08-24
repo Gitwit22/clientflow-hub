@@ -5,6 +5,7 @@ import type {
   IntakeSubmission,
   OrgMember,
   OrgSettings,
+  ProgramDetailResponse,
   ProgramEnrollment,
 } from "@/types";
 
@@ -357,6 +358,9 @@ export async function cfCreateClient(data: Record<string, unknown>) { return api
 export async function cfUpdateClient(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/clients/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
 
 export async function cfListPrograms() { return apiRequest<unknown[]>(`${CF}/programs`); }
+export async function cfGetProgramDetail(id: string) {
+  return apiRequest<ProgramDetailResponse>(`${CF}/programs/${encodeURIComponent(id)}/detail`);
+}
 export async function cfCreateProgram(data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/programs`, { method: "POST", body: JSON.stringify(data) }); }
 export async function cfUpdateProgram(id: string, data: Record<string, unknown>) { return apiRequest<unknown>(`${CF}/programs/${id}`, { method: "PATCH", body: JSON.stringify(data) }); }
 

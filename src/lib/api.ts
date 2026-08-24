@@ -16,6 +16,7 @@ import {
   cfListFormAssignments,
   cfUpdateClient,
   cfCreateProgram,
+  cfGetProgramDetail,
   cfUpdateProgram,
   cfCreateEnrollment,
   cfListEnrollments,
@@ -175,6 +176,8 @@ export async function restoreClient(id: string) {
 /* --------------------------------- Programs --------------------------------- */
 
 export const getPrograms = async () => delay(getState().programs);
+
+export const getProgramDetail = (id: string) => cfGetProgramDetail(id);
 
 export async function createProgram(data: Omit<Program, "id">) {
   const backend = (await cfCreateProgram(data as Record<string, unknown>)) as { id: string };

@@ -222,6 +222,53 @@ export interface ProgramEnrollment {
   updatedAt: string;
 }
 
+export interface ProgramDetailAnswer {
+  fieldId: string;
+  label: string;
+  value: unknown;
+}
+
+export interface ProgramDetailAnswerGroup {
+  id: string;
+  title: string;
+  submittedAt?: string | null;
+  answers: ProgramDetailAnswer[];
+}
+
+export interface ProgramDetailForm {
+  id: string;
+  formId: string;
+  templateName: string;
+  status: FormAssignmentStatus;
+  dueAt?: string | null;
+  dueDate?: string | null;
+  sentAt?: string | null;
+  openedAt?: string | null;
+  submittedAt?: string | null;
+  answers: ProgramDetailAnswer[];
+}
+
+export interface ProgramParticipantDetail {
+  client: Pick<Client, "id" | "businessName" | "primaryContactName" | "email" | "phone">;
+  enrollment: ProgramEnrollment;
+  coreIntake: ProgramDetailAnswerGroup[];
+  programIntake: ProgramDetailAnswerGroup[];
+  forms: ProgramDetailForm[];
+  terms: Terms[];
+  contracts: Contract[];
+  monitoring: MonitoringItem[];
+}
+
+export interface ProgramDetailResponse {
+  program: Program;
+  summary: {
+    current: number;
+    completed: number;
+    closed: number;
+  };
+  participants: ProgramParticipantDetail[];
+}
+
 export interface EnrollmentStatusHistory {
   id: string;
   organizationId: string;

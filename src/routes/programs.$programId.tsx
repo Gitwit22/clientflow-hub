@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, Pencil, Plus, Search, UserMinus, Users } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
+import { ProgramParticipantRow } from "@/components/programs/ProgramParticipantRow";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   AlertDialog,
@@ -20,10 +21,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { withdrawEnrollment } from "@/lib/api";
+import { getProgramDetail, withdrawEnrollment } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { toast } from "sonner";
-import type { ProgramEnrollment } from "@/types";
+import type { ProgramDetailResponse, ProgramEnrollment } from "@/types";
 
 export const Route = createFileRoute("/programs/$programId")({
   head: () => ({
@@ -40,13 +41,69 @@ const PAST_STATUSES = new Set(["completed", "declined", "withdrawn"]);
 function ProgramDetailPage() {
   const { programId } = Route.useParams();
   const state = useAppState();
-  const program = state.programs.find((candidate) => candidate.id === programId);
+  const [detail, setDetail] = useState<ProgramDetailResponse | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(true);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [expandedEnrollmentId, setExpandedEnrollmentId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
   const [withdrawing, setWithdrawing] = useState<ProgramEnrollment | null>(null);
   const [withdrawReason, setWithdrawReason] = useState("");
   const [savingWithdrawal, setSavingWithdrawal] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingDetail(true);
+    setDetailError(null);
+    void getProgramDetail(programId)
+      .then((response) => {
+        if (!cancelled) setDetail(response);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setDetailError(error instanceof Error ? error.message : "Unable to load program details.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDetail(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [programId, refreshVersion]);
+
+  const program = detail?.program ?? state.programs.find((candidate) => candidate.id === programId);
+
+  if (loadingDetail && !detail) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/programs"><ArrowLeft className="mr-2 h-4 w-4" />Programs</Link>
+        </Button>
+        <Card className="shadow-card"><CardContent className="py-12 text-center text-sm text-muted-foreground">Loading program details...</CardContent></Card>
+      </div>
+    );
+  }
+
+  if (detailError && !detail) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/programs"><ArrowLeft className="mr-2 h-4 w-4" />Programs</Link>
+        </Button>
+        <Card className="shadow-card">
+          <CardContent className="py-10 text-center">
+            <p className="text-sm text-destructive">{detailError}</p>
+            <Button className="mt-4" variant="outline" onClick={() => setRefreshVersion((value) => value + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" />Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (!program) {
     return (
@@ -62,25 +119,27 @@ function ProgramDetailPage() {
     );
   }
 
-  const enrollments = state.enrollments.filter(
-    (enrollment) => enrollment.programId === program.id && !enrollment.isArchived,
+  const participants = detail?.participants ?? [];
+  const currentParticipants = participants.filter(
+    ({ enrollment }) => !PAST_STATUSES.has(enrollment.status),
   );
-  const currentEnrollments = enrollments.filter(
-    (enrollment) => !PAST_STATUSES.has(enrollment.status),
-  );
-  const pastEnrollments = enrollments.filter((enrollment) => PAST_STATUSES.has(enrollment.status));
+  const pastParticipants = participants.filter(({ enrollment }) => PAST_STATUSES.has(enrollment.status));
   const programTemplates = state.formTemplates.filter(
     (template) => template.programId === program.id,
   );
 
   const MemberList = ({ past = false }: { past?: boolean }) => {
     const normalizedQuery = memberQuery.trim().toLowerCase();
-    const records = (past ? pastEnrollments : currentEnrollments).filter((enrollment) => {
+    const records = (past ? pastParticipants : currentParticipants).filter((participant) => {
       if (!normalizedQuery) return true;
-      const client = state.clients.find((candidate) => candidate.id === enrollment.clientId);
-      return [client?.businessName, client?.primaryContactName, client?.email, enrollment.status]
+      return [
+        participant.client.businessName,
+        participant.client.primaryContactName,
+        participant.client.email,
+        participant.enrollment.status,
+      ]
         .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(normalizedQuery));
+        .some((value) => value.toLowerCase().includes(normalizedQuery));
     });
     if (records.length === 0) {
       return (
@@ -91,71 +150,20 @@ function ProgramDetailPage() {
     }
 
     return (
-      <div className="divide-y divide-border">
-        {records.map((enrollment) => {
-          const client = state.clients.find((candidate) => candidate.id === enrollment.clientId);
-          return (
-            <div
-              key={enrollment.id}
-              className="grid gap-4 py-4 md:grid-cols-[minmax(0,1fr)_auto_10rem_auto] md:items-center"
-            >
-              <div className="min-w-0">
-                {client ? (
-                  <Link
-                    to="/clients/$clientId"
-                    params={{ clientId: client.id }}
-                    search={{ programId: program.id, tab: "program" }}
-                    className="font-medium hover:text-primary"
-                  >
-                    {client.businessName}
-                  </Link>
-                ) : (
-                  <p className="font-medium">Unavailable client</p>
-                )}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {client?.primaryContactName ?? enrollment.clientId} · Assigned to{" "}
-                  {enrollment.assignedStaff || "Unassigned"}
-                </p>
-                {enrollment.nextAction && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Next: {enrollment.nextAction}
-                    {enrollment.nextActionDate
-                      ? ` · ${new Date(enrollment.nextActionDate).toLocaleDateString()}`
-                      : ""}
-                  </p>
-                )}
-              </div>
-              <StatusBadge status={enrollment.status} />
-              <div>
-                <div className="flex justify-between font-mono text-[10px] uppercase text-muted-foreground">
-                  <span>Progress</span>
-                  <span>{enrollment.progressPercentage}%</span>
-                </div>
-                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-primary"
-                    style={{
-                      width: `${Math.min(100, Math.max(0, enrollment.progressPercentage))}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              {!past && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Withdraw ${client?.businessName ?? "client"} from program`}
-                  onClick={() => {
-                    setWithdrawReason("");
-                    setWithdrawing(enrollment);
-                  }}
-                >
-                  <UserMinus className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          );
-        })}
+      <div>
+        {records.map((participant) => (
+          <ProgramParticipantRow
+            key={participant.enrollment.id}
+            participant={participant}
+            open={expandedEnrollmentId === participant.enrollment.id}
+            onOpenChange={(open) => setExpandedEnrollmentId(open ? participant.enrollment.id : null)}
+            canWithdraw={!past}
+            onWithdraw={() => {
+              setWithdrawReason("");
+              setWithdrawing(participant.enrollment);
+            }}
+          />
+        ))}
       </div>
     );
   };
@@ -194,17 +202,17 @@ function ProgramDetailPage() {
       <div className="flex flex-wrap items-center gap-3">
         <StatusBadge status={program.isActive ? "Active" : "Inactive"} />
         <span className="font-mono text-xs text-muted-foreground">
-          {currentEnrollments.length} current member{currentEnrollments.length === 1 ? "" : "s"}
+          {detail?.summary.current ?? currentParticipants.length} current member{(detail?.summary.current ?? currentParticipants.length) === 1 ? "" : "s"}
         </span>
         <span className="font-mono text-xs text-muted-foreground">
-          {pastEnrollments.length} past member{pastEnrollments.length === 1 ? "" : "s"}
+          {(detail?.summary.completed ?? 0) + (detail?.summary.closed ?? 0)} past member{((detail?.summary.completed ?? 0) + (detail?.summary.closed ?? 0)) === 1 ? "" : "s"}
         </span>
       </div>
 
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="members">Members ({currentEnrollments.length})</TabsTrigger>
+          <TabsTrigger value="members">Members ({detail?.summary.current ?? currentParticipants.length})</TabsTrigger>
           <TabsTrigger value="questions">Program questions</TabsTrigger>
         </TabsList>
 
@@ -238,18 +246,18 @@ function ProgramDetailPage() {
             </CardHeader>
             <CardContent className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <p className="font-display text-2xl font-semibold">{currentEnrollments.length}</p>
+                <p className="font-display text-2xl font-semibold">{detail?.summary.current ?? currentParticipants.length}</p>
                 <p className="text-xs text-muted-foreground">Current</p>
               </div>
               <div>
                 <p className="font-display text-2xl font-semibold">
-                  {enrollments.filter((item) => item.status === "completed").length}
+                  {detail?.summary.completed ?? 0}
                 </p>
                 <p className="text-xs text-muted-foreground">Completed</p>
               </div>
               <div>
                 <p className="font-display text-2xl font-semibold">
-                  {enrollments.filter((item) => ["declined", "withdrawn"].includes(item.status)).length}
+                  {detail?.summary.closed ?? 0}
                 </p>
                 <p className="text-xs text-muted-foreground">Closed</p>
               </div>
@@ -292,7 +300,7 @@ function ProgramDetailPage() {
               <MemberList />
             </CardContent>
           </Card>
-          {pastEnrollments.length > 0 && (
+          {pastParticipants.length > 0 && (
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="font-display text-base">Past memberships</CardTitle>
@@ -368,6 +376,8 @@ function ProgramDetailPage() {
                   .then(() => {
                     toast.success("Member withdrawn from program.");
                     setWithdrawing(null);
+                    setExpandedEnrollmentId(null);
+                    setRefreshVersion((value) => value + 1);
                   })
                   .catch((error: unknown) => {
                     toast.error(error instanceof Error ? error.message : "Unable to withdraw member.");
