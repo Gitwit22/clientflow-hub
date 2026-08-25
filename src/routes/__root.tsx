@@ -8,7 +8,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -140,11 +140,21 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const { accessToken } = useAppState();
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  const isPublicRoute =
+    pathname === "/login" || pathname.startsWith("/accept-invite") || pathname.startsWith("/s/");
 
   return (
     <QueryClientProvider client={queryClient}>
-      {pathname === "/login" || pathname.startsWith("/accept-invite") || pathname.startsWith("/s/") ? (
+      {isPublicRoute ? (
         <Outlet />
+      ) : !hydrated ? (
+        <AccessCheck />
       ) : accessToken ? (
         <AuthenticatedShell />
       ) : (
@@ -155,6 +165,14 @@ function RootComponent() {
   );
 }
 
+function AccessCheck() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <p className="text-sm text-muted-foreground">Checking access...</p>
+    </div>
+  );
+}
+
 function AuthRedirect() {
   const router = useRouter();
 
@@ -162,11 +180,7 @@ function AuthRedirect() {
     void router.navigate({ to: "/login", replace: true });
   }, [router]);
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <p className="text-sm text-muted-foreground">Checking access...</p>
-    </div>
-  );
+  return <AccessCheck />;
 }
 
 function AuthenticatedShell() {

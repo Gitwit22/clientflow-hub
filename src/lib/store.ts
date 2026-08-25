@@ -96,6 +96,13 @@ let state: AppState = {
     : false,
 };
 
+const serverState: AppState = {
+  ...state,
+  accessToken: null,
+  authenticatedAdmin: null,
+  mockHidden: false,
+};
+
 const listeners = new Set<() => void>();
 
 export const getState = () => state;
@@ -111,7 +118,7 @@ function subscribe(listener: () => void) {
 }
 
 export function useAppState(): AppState {
-  return useSyncExternalStore(subscribe, getState, getState);
+  return useSyncExternalStore(subscribe, getState, () => serverState);
 }
 
 export function setAuthSession(accessToken: string, authenticatedAdmin: AuthenticatedAdmin) {

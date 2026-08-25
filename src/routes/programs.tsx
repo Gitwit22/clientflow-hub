@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Pencil, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,10 +27,14 @@ export const Route = createFileRoute("/programs")({
       },
     ],
   }),
-  component: ProgramsPage,
+  component: ProgramsLayout,
 });
 
-function ProgramsPage() {
+function ProgramsLayout() {
+  return <Outlet />;
+}
+
+export function ProgramsPage() {
   const navigate = Route.useNavigate();
   const { programs, formTemplates, clients, enrollments } = useAppState();
   const [dialogOpen, setDialogOpen] = useState(false);

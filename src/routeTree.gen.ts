@@ -23,6 +23,7 @@ import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ClientsIndexRouteImport } from './routes/clients.index'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
+import { Route as ProgramsIndexRouteImport } from './routes/programs.index'
 import { Route as ProgramsProgramIdRouteImport } from './routes/programs.$programId'
 import { Route as STokenRouteImport } from './routes/s.$token'
 
@@ -96,6 +97,11 @@ const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
   path: '/$clientId',
   getParentRoute: () => ClientsRoute,
 } as any)
+const ProgramsIndexRoute = ProgramsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ProgramsRoute,
+} as any)
 const ProgramsProgramIdRoute = ProgramsProgramIdRouteImport.update({
   id: '/$programId',
   path: '/$programId',
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
   '/clients/': typeof ClientsIndexRoute
+  '/programs/': typeof ProgramsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -134,13 +141,13 @@ export interface FileRoutesByTo {
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
-  '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
   '/clients': typeof ClientsIndexRoute
+  '/programs': typeof ProgramsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -160,6 +167,7 @@ export interface FileRoutesById {
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
   '/clients/': typeof ClientsIndexRoute
+  '/programs/': typeof ProgramsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -180,6 +188,7 @@ export interface FileRouteTypes {
     | '/programs/$programId'
     | '/s/$token'
     | '/clients/'
+    | '/programs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -190,13 +199,13 @@ export interface FileRouteTypes {
     | '/intake'
     | '/login'
     | '/monitoring'
-    | '/programs'
     | '/reports'
     | '/settings'
     | '/clients/$clientId'
     | '/programs/$programId'
     | '/s/$token'
     | '/clients'
+    | '/programs'
   id:
     | '__root__'
     | '/'
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/programs/$programId'
     | '/s/$token'
     | '/clients/'
+    | '/programs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -333,6 +343,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientsClientIdRouteImport
       parentRoute: typeof ClientsRoute
     }
+    '/programs/': {
+      id: '/programs/'
+      path: '/'
+      fullPath: '/programs/'
+      preLoaderRoute: typeof ProgramsIndexRouteImport
+      parentRoute: typeof ProgramsRoute
+    }
     '/programs/$programId': {
       id: '/programs/$programId'
       path: '/$programId'
@@ -365,10 +382,12 @@ const ClientsRouteWithChildren =
 
 interface ProgramsRouteChildren {
   ProgramsProgramIdRoute: typeof ProgramsProgramIdRoute
+  ProgramsIndexRoute: typeof ProgramsIndexRoute
 }
 
 const ProgramsRouteChildren: ProgramsRouteChildren = {
   ProgramsProgramIdRoute: ProgramsProgramIdRoute,
+  ProgramsIndexRoute: ProgramsIndexRoute,
 }
 
 const ProgramsRouteWithChildren = ProgramsRoute._addFileChildren(
