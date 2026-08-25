@@ -115,7 +115,7 @@ function PublicFormPage() {
     const visibleSections = getVisibleSections(formData, selectedProgramIds);
     const missing = visibleSections
       .flatMap((section) => section.fields
-        .filter((field) => field.required && isBlank(responsesFor(section)[field.id]))
+        .filter((field) => isPublicFieldRequired(field) && isBlank(responsesFor(section)[field.id]))
         .map(publicFieldLabel));
 
     if (missing.length > 0) {
@@ -231,10 +231,10 @@ function PublicFormPage() {
   const visibleSections = getVisibleSections(formData, selectedProgramIds);
   const requiredFields = visibleSections
     .flatMap((section) => section.fields)
-    .filter((field) => field.required);
+    .filter(isPublicFieldRequired);
   const completed = visibleSections.reduce(
     (count, section) => count + section.fields.filter(
-      (field) => field.required && !isBlank(responsesFor(section)[field.id]),
+      (field) => isPublicFieldRequired(field) && !isBlank(responsesFor(section)[field.id]),
     ).length,
     0,
   );
@@ -311,7 +311,9 @@ function PublicFormPage() {
                 <div key={`${section.id}:${field.id}`} className="space-y-1.5">
                   <Label htmlFor={`field-${section.id}-${field.id}`}>
                     {publicFieldLabel(field)}
-                    {field.required && <span className="ml-1 text-destructive">*</span>}
+                    {isPublicFieldRequired(field) && (
+                      <span className="ml-1 text-destructive">*</span>
+                    )}
                   </Label>
                   <PublicFieldInput
                     field={field}
@@ -355,6 +357,10 @@ function isBlank(value: PublicFormResponseValue | undefined): boolean {
     || value === null
     || (typeof value === "string" && value.trim().length === 0)
     || (Array.isArray(value) && value.length === 0);
+}
+
+function isPublicFieldRequired(field: PublicFormField): boolean {
+  return field.required && field.type !== "file";
 }
 
 const legacyFieldLabels: Record<string, string> = {
