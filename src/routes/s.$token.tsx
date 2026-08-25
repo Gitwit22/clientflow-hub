@@ -116,7 +116,7 @@ function PublicFormPage() {
     const missing = visibleSections
       .flatMap((section) => section.fields
         .filter((field) => field.required && isBlank(responsesFor(section)[field.id]))
-        .map((field) => field.label));
+        .map(publicFieldLabel));
 
     if (missing.length > 0) {
       toast.error(
@@ -310,7 +310,7 @@ function PublicFormPage() {
               {section.fields.map((field) => (
                 <div key={`${section.id}:${field.id}`} className="space-y-1.5">
                   <Label htmlFor={`field-${section.id}-${field.id}`}>
-                    {field.label}
+                    {publicFieldLabel(field)}
                     {field.required && <span className="ml-1 text-destructive">*</span>}
                   </Label>
                   <PublicFieldInput
@@ -355,6 +355,45 @@ function isBlank(value: PublicFormResponseValue | undefined): boolean {
     || value === null
     || (typeof value === "string" && value.trim().length === 0)
     || (Array.isArray(value) && value.length === 0);
+}
+
+const legacyFieldLabels: Record<string, string> = {
+  name: "Name",
+  primaryContactName: "Name",
+  business: "Business / Organization Name",
+  businessName: "Business / Organization Name",
+  email: "Email",
+  phone: "Phone",
+  website: "Website",
+  facebookUrl: "Facebook URL",
+  instagramUrl: "Instagram URL",
+  linkedinUrl: "LinkedIn URL",
+  tiktokUrl: "TikTok URL",
+  youtubeUrl: "YouTube URL",
+  businessType: "Business type",
+  program: "Program or service of interest",
+  programOfInterest: "Program or service of interest",
+  description: "Brief business description",
+  businessDescription: "Brief business description",
+  assistance: "Type of assistance needed",
+  assistanceRequested: "Type of assistance needed",
+  budget: "Estimated budget",
+  budgetNeed: "Estimated budget",
+  start: "Desired start date",
+  contact: "Preferred contact method",
+  preferredContact: "Preferred contact method",
+  heard: "How did you hear about us?",
+  heardAboutUs: "How did you hear about us?",
+  comments: "Additional comments",
+  additionalComments: "Additional comments",
+};
+
+function publicFieldLabel(field: PublicFormField): string {
+  const label = field.label.trim();
+  if (label) return label;
+  return legacyFieldLabels[field.id]
+    ?? (field.id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").trim()
+      || "Form field");
 }
 
 function PublicFieldInput({
