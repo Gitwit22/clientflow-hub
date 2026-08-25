@@ -60,23 +60,18 @@ const delay = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => reso
 const nowISO = () => new Date().toISOString();
 
 async function log(clientId: string, action: string, description: string, user = "Alicia Monroe") {
-  const entry: ActivityLog = {
-    id: uid("al"),
-    clientId,
-    action,
-    description,
-    user,
-    timestamp: nowISO(),
-  };
-  await cfCreateActivity({
-    id: entry.id,
-    clientId,
-    action,
-    description,
-    user,
-    timestamp: entry.timestamp,
-  });
-  setState((s) => ({ ...s, activity: [entry, ...s.activity] }));
+  try {
+    const entry = (await cfCreateActivity({
+      clientId,
+      action,
+      description,
+      user,
+      timestamp: nowISO(),
+    })) as ActivityLog;
+    setState((s) => ({ ...s, activity: [entry, ...s.activity] }));
+  } catch (error) {
+    console.error("Unable to record activity", error);
+  }
 }
 
 /* ---------------------------------- Clients --------------------------------- */

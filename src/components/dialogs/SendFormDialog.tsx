@@ -13,14 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  assignFormToClient,
   createFormAssignment,
   renderEmailBody,
   sendFormEmail,
@@ -37,16 +29,25 @@ export function SendFormDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
-  const { formTemplates, programs } = useAppState();
-  const [templateId, setTemplateId] = useState<string>("");
+  const { formTemplates, programs, enrollments } = useAppState();
   const [dueDate, setDueDate] = useState<string>(
     new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
   );
   const [subject, setSubject] = useState("Next step for your program application");
   const [preview, setPreview] = useState(false);
+  const [isSending, setIsSending] = useState(false);
 
-  const template = formTemplates.find((t) => t.id === templateId);
-  const program = programs.find((p) => p.id === template?.programId);
+  const template = formTemplates.find((candidate) =>
+    candidate.scope === "master_core" && candidate.isActive,
+  ) ?? formTemplates.find((candidate) =>
+    candidate.programId === null && candidate.isActive,
+  );
+  const enrollment = enrollments.find((candidate) =>
+    candidate.clientId === client?.id
+      && !candidate.isArchived
+      && !["completed", "declined", "withdrawn"].includes(candidate.status),
+  );
+  const program = programs.find((candidate) => candidate.id === enrollment?.programId);
   const secureLink = "https://forms.clientflow.app/s/{{generated-on-send}}";
 
   const body = useMemo(
@@ -74,6 +75,7 @@ export function SendFormDialog({
 
   async function handleSend() {
     if (!client || !template) return;
+    setIsSending(true);
     try {
       const assignment = await createFormAssignment({
         clientId: client.id,
@@ -92,10 +94,11 @@ export function SendFormDialog({
       toast.success(`${template.name} sent to ${client.email}`);
       onOpenChange(false);
       setPreview(false);
-      setTemplateId("");
       setBodyOverride(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
+    } finally {
+      setIsSending(false);
     }
   }
 
@@ -110,6 +113,11 @@ export function SendFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {!template && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              No active Master Intake form is configured.
+            </p>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Recipient email</Label>
@@ -119,22 +127,6 @@ export function SendFormDialog({
               <Label>Due date</Label>
               <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
             </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Program form</Label>
-            <Select value={templateId} onValueChange={setTemplateId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a form" />
-              </SelectTrigger>
-              <SelectContent>
-                {formTemplates.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="space-y-1.5">
@@ -181,11 +173,11 @@ export function SendFormDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => setPreview((p) => !p)}>
+          <Button variant="outline" onClick={() => setPreview((p) => !p)} disabled={isSending}>
             {preview ? "Hide preview" : "Send preview"}
           </Button>
-          <Button onClick={handleSend} disabled={!template}>
-            Send form
+          <Button onClick={handleSend} disabled={!template || isSending}>
+            {isSending ? "Sending..." : "Send form"}
           </Button>
         </DialogFooter>
       </DialogContent>
