@@ -24,6 +24,12 @@ function displayAnswer(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function fieldLabel(field: FormTemplate["fields"][number]): string {
+  return field.label.trim()
+    || field.id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").trim()
+    || "Form field";
+}
+
 export const Route = createFileRoute("/forms")({
   head: () => ({
     meta: [
@@ -157,7 +163,19 @@ function FormsPage() {
                           key={f.id}
                           className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
                         >
-                          <span>{f.label}</span>
+                          <span>
+                            {fieldLabel(f)}
+                            {f.options?.length ? (
+                              <span className="mt-0.5 block text-xs text-muted-foreground">
+                                {f.options.join(" · ")}
+                              </span>
+                            ) : null}
+                            {f.helpText ? (
+                              <span className="mt-0.5 block max-w-3xl text-xs leading-relaxed text-muted-foreground">
+                                {f.helpText}
+                              </span>
+                            ) : null}
+                          </span>
                           <span className="font-mono text-[10px] text-muted-foreground">
                             {f.type}
                             {f.required ? " · required" : " · optional"}
@@ -292,8 +310,10 @@ function FormsPage() {
                     (section) => section.kind === "core",
                   )?.fields ?? []).map((field) => (
                     <div key={field.id} className="grid gap-1 py-2 sm:grid-cols-[180px_1fr]">
-                      <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                      <dd className="text-sm">{displayAnswer(reviewingSubmission.responsePayload[field.id]) || "—"}</dd>
+                      <dt className="text-xs text-muted-foreground">{fieldLabel(field)}</dt>
+                      <dd className={field.type === "signature" ? "font-signature text-2xl" : "text-sm"}>
+                        {displayAnswer(reviewingSubmission.responsePayload[field.id]) || "—"}
+                      </dd>
                     </div>
                   ))}
                 </dl>
@@ -312,8 +332,8 @@ function FormsPage() {
                     <dl className="divide-y divide-border rounded-md border border-border px-4">
                       {section.fields.map((field) => (
                         <div key={field.id} className="grid gap-1 py-2 sm:grid-cols-[180px_1fr]">
-                          <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                          <dd className="text-sm">
+                          <dt className="text-xs text-muted-foreground">{fieldLabel(field)}</dt>
+                          <dd className={field.type === "signature" ? "font-signature text-2xl" : "text-sm"}>
                             {displayAnswer(responses[field.id] ?? reviewingSubmission.responsePayload[field.id]) || "—"}
                           </dd>
                         </div>

@@ -225,6 +225,7 @@ export interface ProgramEnrollment {
 export interface ProgramDetailAnswer {
   fieldId: string;
   label: string;
+  type?: string;
   value: unknown;
 }
 
@@ -323,9 +324,10 @@ export interface FormField {
   id: string;
   label: string;
   type:
-    "text" | "email" | "phone" | "url" | "textarea" | "number" | "date" | "select" | "file" | "checkbox";
+    "text" | "email" | "phone" | "url" | "textarea" | "number" | "date" | "select" | "file" | "checkbox" | "signature";
   required: boolean;
   options?: string[];
+  helpText?: string;
   prefillKey?: keyof Client | keyof IntakeDetails;
 }
 

@@ -302,7 +302,8 @@ const f = (
   type: FormTemplate["fields"][number]["type"] = "text",
   required = false,
   options?: string[],
-): FormTemplate["fields"][number] => ({ id, label, type, required, options });
+  helpText?: string,
+): FormTemplate["fields"][number] => ({ id, label, type, required, options, helpText });
 
 const socialMediaFields = () => [
   f("facebookUrl", "Facebook URL", "url"),
@@ -492,11 +493,22 @@ const configuredFormTemplates: FormTemplate[] = [
       f("purpose", "Purpose of funds", "textarea", true),
       f("eligibility", "Eligibility information", "textarea", true),
       f("impact", "Community impact", "textarea", true),
-      f("stage", "Business stage", "select"),
-      f("revenue", "Revenue stage", "select"),
+      f("stage", "Business stage", "select", true, [
+        "Idea Stage", "Pre-Revenue", "Early Revenue", "Growth Stage", "Established",
+      ]),
+      f("revenue", "Revenue stage", "select", true, [
+        "$0", "Under $1,000", "$1,000-$5,000", "$5,000-$10,000", "$10,000+",
+      ]),
       f("documents", "Required documents", "file", true),
-      f("agreement", "Agreement checkbox", "checkbox", true),
-      f("signature", "Signature field placeholder", "text", true),
+      f(
+        "agreement",
+        "I Accept",
+        "checkbox",
+        true,
+        undefined,
+        "By selecting I Accept, I certify that the information I have provided is true and accurate to the best of my knowledge. I understand that participation in this program may require me to complete certain actions, provide requested information or documentation, meet applicable deadlines, and actively participate in the process. I acknowledge that achieving my desired outcome may depend, in part, on my timely cooperation and completion of these requirements.",
+      ),
+      f("signature", "Signature", "signature", true),
     ],
   },
   {

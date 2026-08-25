@@ -278,6 +278,7 @@ export interface PublicFormField {
   type: string;
   required: boolean;
   options?: string[];
+  helpText?: string;
 }
 
 export type PublicFormResponseValue = string | string[] | boolean | number | null;

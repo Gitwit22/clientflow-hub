@@ -35,6 +35,7 @@ const FIELD_TYPES: FormField["type"][] = [
   "select",
   "file",
   "checkbox",
+  "signature",
 ];
 
 interface FieldRow {
@@ -44,6 +45,7 @@ interface FieldRow {
   type: FormField["type"];
   required: boolean;
   options: string; // comma-separated; only used when type === "select"
+  helpText: string;
   prefillKey?: FormField["prefillKey"];
 }
 
@@ -86,6 +88,7 @@ function rowToField(row: FieldRow): FormField {
     type: row.type,
     required: row.required,
     ...(row.prefillKey ? { prefillKey: row.prefillKey } : {}),
+    ...(row.helpText.trim() ? { helpText: row.helpText.trim() } : {}),
   };
   if (row.type === "select" && row.options.trim()) {
     field.options = row.options
@@ -104,12 +107,13 @@ function fieldToRow(field: FormField): FieldRow {
     type: field.type,
     required: field.required,
     options: field.options?.join(", ") ?? "",
+    helpText: field.helpText ?? "",
     prefillKey: field.prefillKey,
   };
 }
 
 function newRow(): FieldRow {
-  return { id: "", label: "", type: "text", required: false, options: "" };
+  return { id: "", label: "", type: "text", required: false, options: "", helpText: "" };
 }
 
 export function AddEditFormTemplateDialog({
@@ -470,6 +474,18 @@ export function AddEditFormTemplateDialog({
                       />
                     </div>
                   )}
+
+                  <div className="space-y-1">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Supporting text
+                    </p>
+                    <Textarea
+                      value={row.helpText}
+                      onChange={(event) => updateField(idx, { helpText: event.target.value })}
+                      rows={2}
+                      placeholder="Optional guidance shown below this field"
+                    />
+                  </div>
                 </div>
               ))}
             </div>

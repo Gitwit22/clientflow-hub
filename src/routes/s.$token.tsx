@@ -115,7 +115,7 @@ function PublicFormPage() {
     const visibleSections = getVisibleSections(formData, selectedProgramIds);
     const missing = visibleSections
       .flatMap((section) => section.fields
-        .filter((field) => isPublicFieldRequired(field) && isBlank(responsesFor(section)[field.id]))
+        .filter((field) => !isRequiredResponseComplete(field, responsesFor(section)[field.id]))
         .map(publicFieldLabel));
 
     if (missing.length > 0) {
@@ -234,7 +234,7 @@ function PublicFormPage() {
     .filter(isPublicFieldRequired);
   const completed = visibleSections.reduce(
     (count, section) => count + section.fields.filter(
-      (field) => isPublicFieldRequired(field) && !isBlank(responsesFor(section)[field.id]),
+      (field) => isRequiredResponseComplete(field, responsesFor(section)[field.id]),
     ).length,
     0,
   );
@@ -309,12 +309,14 @@ function PublicFormPage() {
               </div>
               {section.fields.map((field) => (
                 <div key={`${section.id}:${field.id}`} className="space-y-1.5">
-                  <Label htmlFor={`field-${section.id}-${field.id}`}>
-                    {publicFieldLabel(field)}
-                    {isPublicFieldRequired(field) && (
-                      <span className="ml-1 text-destructive">*</span>
-                    )}
-                  </Label>
+                  {field.type !== "checkbox" && (
+                    <Label htmlFor={`field-${section.id}-${field.id}`}>
+                      {publicFieldLabel(field)}
+                      {isPublicFieldRequired(field) && (
+                        <span className="ml-1 text-destructive">*</span>
+                      )}
+                    </Label>
+                  )}
                   <PublicFieldInput
                     field={field}
                     inputId={`field-${section.id}-${field.id}`}
@@ -324,6 +326,16 @@ function PublicFormPage() {
                     onChange={(value) => set(section, field.id, value)}
                     disabled={status === "submitting"}
                   />
+                  {field.helpText && (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {field.id === "agreement" && field.helpText.startsWith("By selecting I Accept") ? (
+                        <>
+                          By selecting <strong className="font-semibold text-foreground">I Accept</strong>
+                          {field.helpText.slice("By selecting I Accept".length)}
+                        </>
+                      ) : field.helpText}
+                    </p>
+                  )}
                 </div>
               ))}
             </section>
@@ -361,6 +373,15 @@ function isBlank(value: PublicFormResponseValue | undefined): boolean {
 
 function isPublicFieldRequired(field: PublicFormField): boolean {
   return field.required && field.type !== "file";
+}
+
+function isRequiredResponseComplete(
+  field: PublicFormField,
+  value: PublicFormResponseValue | undefined,
+): boolean {
+  if (!isPublicFieldRequired(field)) return true;
+  if (field.type === "checkbox") return value === true || value === "true";
+  return !isBlank(value);
 }
 
 const legacyFieldLabels: Record<string, string> = {
@@ -464,7 +485,8 @@ function PublicFieldInput({
           disabled={disabled}
         />
         <label htmlFor={inputId} className="cursor-pointer text-sm">
-          I agree
+          {publicFieldLabel(field)}
+          {isPublicFieldRequired(field) && <span className="ml-1 text-destructive">*</span>}
         </label>
       </div>
     );
@@ -473,6 +495,26 @@ function PublicFieldInput({
     return (
       <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
         File upload — coming soon
+      </div>
+    );
+  }
+  if (field.type === "signature") {
+    return (
+      <div className="space-y-3">
+        <Input
+          id={inputId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+          maxLength={200}
+          autoComplete="name"
+          placeholder="Type your full legal name"
+        />
+        <div className="flex min-h-20 items-center border-b border-foreground/50 px-3 py-2">
+          <span className="font-signature text-3xl text-foreground">
+            {value || "Your signature"}
+          </span>
+        </div>
       </div>
     );
   }

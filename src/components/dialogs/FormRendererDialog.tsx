@@ -127,6 +127,22 @@ function FieldInput({
       </div>
     );
   }
+  if (field.type === "signature") {
+    return (
+      <div className="space-y-3">
+        <Input
+          id={`field-${field.id}`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          maxLength={200}
+          placeholder="Type your full legal name"
+        />
+        <div className="flex min-h-20 items-center border-b border-foreground/50 px-3 py-2">
+          <span className="font-signature text-3xl">{value || "Your signature"}</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <Input
       id={`field-${field.id}`}
