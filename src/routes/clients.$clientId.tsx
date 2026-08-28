@@ -32,19 +32,18 @@ import {
   addCommunication,
   archiveClient,
   cancelFormAssignment,
-  completeMonitoringItem,
+  createEnrollmentMonitoring,
   createFinalReport,
-  createMonitoringItem,
   generateContract,
   refreshClientProfile,
-  rescheduleMonitoringItem,
+  recordMonitoringResult,
   updateClient,
   updateContract,
   uploadDocument,
 } from "@/lib/api";
-import { ARCHIVE_DECISIONS, STAFF, type FormAssignment, type MonitoringType } from "@/types";
+import { ARCHIVE_DECISIONS, STAFF, type FormAssignment } from "@/types";
 
-const MONITORING_TYPES: MonitoringType[] = [
+const MONITORING_TYPES = [
   "Payment check",
   "Milestone check",
   "Progress report",
@@ -82,7 +81,9 @@ export const Route = createFileRoute("/clients/$clientId")({
 function Row({ label, value }: { label: string; value?: string }) {
   return (
     <div className="border-b border-border py-2 last:border-0">
-      <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{label}</dt>
+      <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </dt>
       <dd className="mt-0.5 text-sm">{value || "—"}</dd>
     </div>
   );
@@ -119,22 +120,24 @@ function ClientProfile() {
   // Monitoring dialog state
   const [monitoringOpen, setMonitoringOpen] = useState(false);
   const [monitoringForm, setMonitoringForm] = useState({
-    type: "Follow-up meeting" as MonitoringType,
+    name: "Follow-up meeting",
+    frequency: "monthly" as const,
     dueDate: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
     notes: "",
-    assignedStaff: STAFF[0],
   });
-  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
-  const [rescheduleDate, setRescheduleDate] = useState("");
 
   // Documents
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
   // Communications
-  const [commType, setCommType] = useState<"Note" | "Email" | "Call" | "Meeting" | "Snapchat">("Note");
+  const [commType, setCommType] = useState<"Note" | "Email" | "Call" | "Meeting" | "Snapchat">(
+    "Note",
+  );
   const [commSubject, setCommSubject] = useState("");
-  const [commDirection, setCommDirection] = useState<"Inbound" | "Outbound" | "Internal">("Internal");
+  const [commDirection, setCommDirection] = useState<"Inbound" | "Outbound" | "Internal">(
+    "Internal",
+  );
 
   useEffect(() => {
     const refresh = () => {
@@ -161,7 +164,8 @@ function ClientProfile() {
   );
   const assignments = s.formAssignments.filter((a) => a.clientId === client.id);
   const terms = s.terms.filter((t) => t.clientId === client.id);
-  const monitoring = s.monitoring.filter((m) => m.clientId === client.id);
+  const enrollmentIds = new Set(enrollments.map((enrollment) => enrollment.id));
+  const monitoring = s.monitoring.filter((item) => enrollmentIds.has(item.enrollmentId));
   const docs = s.documents.filter((d) => d.clientId === client.id);
   const comms = s.communications.filter((c) => c.clientId === client.id);
   const contracts = s.contracts.filter((c) => c.clientId === client.id);
@@ -180,41 +184,41 @@ function ClientProfile() {
   const selectedProgramAssignments = selectedEnrollment
     ? assignments.filter((assignment) => {
         if (assignment.enrollmentId) return assignment.enrollmentId === selectedEnrollment.id;
-        return s.formTemplates.find((template) => template.id === assignment.formId)?.programId ===
-          selectedEnrollment.programId;
+        return (
+          s.formTemplates.find((template) => template.id === assignment.formId)?.programId ===
+          selectedEnrollment.programId
+        );
       })
     : [];
   const selectedProgramMonitoring = selectedEnrollment
-    ? monitoring.filter((item) =>
-        item.enrollmentId
-          ? item.enrollmentId === selectedEnrollment.id
-          : item.programId === selectedEnrollment.programId,
-      )
+    ? monitoring.filter((item) => item.enrollmentId === selectedEnrollment.id)
     : [];
   const programAnswerGroups = enrollments.flatMap((enrollment) => {
     for (const submission of intakeSubmissions) {
       const link = submission.programs.find(
-        (candidate) => candidate.enrollmentId === enrollment.id
-          || candidate.programId === enrollment.programId,
+        (candidate) =>
+          candidate.enrollmentId === enrollment.id || candidate.programId === enrollment.programId,
       );
       const section = submission.snapshot?.renderedSections.find(
-        (candidate) => candidate.kind === "program"
-          && candidate.programId === enrollment.programId,
+        (candidate) => candidate.kind === "program" && candidate.programId === enrollment.programId,
       );
       if (!link || !section) continue;
       const storedResponses = link.responsePayload ?? {};
-      const responses = Object.keys(storedResponses).length > 0
-        ? storedResponses
-        : Object.fromEntries(
-            section.fields.map((field) => [field.id, submission.responsePayload[field.id]]),
-          );
-      return [{
-        enrollment,
-        program: s.programs.find((candidate) => candidate.id === enrollment.programId),
-        section,
-        responses,
-        submittedAt: submission.submittedAt,
-      }];
+      const responses =
+        Object.keys(storedResponses).length > 0
+          ? storedResponses
+          : Object.fromEntries(
+              section.fields.map((field) => [field.id, submission.responsePayload[field.id]]),
+            );
+      return [
+        {
+          enrollment,
+          program: s.programs.find((candidate) => candidate.id === enrollment.programId),
+          section,
+          responses,
+          submittedAt: submission.submittedAt,
+        },
+      ];
     }
     return [];
   });
@@ -269,9 +273,11 @@ function ClientProfile() {
         <span className="font-mono text-xs text-muted-foreground">
           {enrollments.length > 0
             ? `${enrollments.length} program enrollment${enrollments.length === 1 ? "" : "s"}`
-            : program?.name ?? "No program enrollments"}
+            : (program?.name ?? "No program enrollments")}
         </span>
-        <span className="font-mono text-xs text-muted-foreground">Staff: {client.assignedStaff}</span>
+        <span className="font-mono text-xs text-muted-foreground">
+          Staff: {client.assignedStaff}
+        </span>
         <span className="font-mono text-xs text-muted-foreground">
           Next follow-up:{" "}
           {client.nextFollowUpDate ? new Date(client.nextFollowUpDate).toLocaleDateString() : "—"}
@@ -326,8 +332,14 @@ function ClientProfile() {
                 </CardHeader>
                 <CardContent className="grid gap-x-8 sm:grid-cols-2">
                   <dl>
-                    <Row label="Enrollment status" value={selectedEnrollment.status.replace(/_/g, " ")} />
-                    <Row label="Assigned staff" value={selectedEnrollment.assignedStaff ?? undefined} />
+                    <Row
+                      label="Enrollment status"
+                      value={selectedEnrollment.status.replace(/_/g, " ")}
+                    />
+                    <Row
+                      label="Assigned staff"
+                      value={selectedEnrollment.assignedStaff ?? undefined}
+                    />
                     <Row
                       label="Start date"
                       value={
@@ -350,7 +362,8 @@ function ClientProfile() {
                     <Row
                       label="Open monitoring items"
                       value={String(
-                        selectedProgramMonitoring.filter((item) => item.status !== "Completed").length,
+                        selectedProgramMonitoring.filter((item) => item.status !== "Completed")
+                          .length,
                       )}
                     />
                   </dl>
@@ -411,10 +424,15 @@ function ClientProfile() {
                       (candidate) => candidate.id === assignment.formId,
                     );
                     return (
-                      <section key={assignment.id} className="border-b border-border pb-5 last:border-0 last:pb-0">
+                      <section
+                        key={assignment.id}
+                        className="border-b border-border pb-5 last:border-0 last:pb-0"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <h3 className="text-sm font-medium">{template?.name ?? assignment.formId}</h3>
+                            <h3 className="text-sm font-medium">
+                              {template?.name ?? assignment.formId}
+                            </h3>
                             <p className="mt-1 text-xs text-muted-foreground">
                               {assignment.submittedAt
                                 ? `Submitted ${new Date(assignment.submittedAt).toLocaleDateString()}`
@@ -430,7 +448,10 @@ function ClientProfile() {
                             {Object.entries(assignment.responses).map(([fieldId, answer]) => (
                               <Row
                                 key={fieldId}
-                                label={template?.fields.find((field) => field.id === fieldId)?.label ?? fieldId}
+                                label={
+                                  template?.fields.find((field) => field.id === fieldId)?.label ??
+                                  fieldId
+                                }
                                 value={answer || undefined}
                               />
                             ))}
@@ -459,8 +480,9 @@ function ClientProfile() {
                   value={
                     enrollments.length > 0
                       ? enrollments
-                          .map((enrollment) =>
-                            s.programs.find((item) => item.id === enrollment.programId)?.name,
+                          .map(
+                            (enrollment) =>
+                              s.programs.find((item) => item.id === enrollment.programId)?.name,
                           )
                           .filter(Boolean)
                           .join(", ")
@@ -524,7 +546,9 @@ function ClientProfile() {
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{enrollmentProgram?.name ?? "Unknown program"}</p>
+                          <p className="font-medium">
+                            {enrollmentProgram?.name ?? "Unknown program"}
+                          </p>
                           <StatusBadge status={enrollment.status} />
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
@@ -540,7 +564,9 @@ function ClientProfile() {
                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
                           <div
                             className="h-full bg-primary"
-                            style={{ width: `${Math.min(100, Math.max(0, enrollment.progressPercentage))}%` }}
+                            style={{
+                              width: `${Math.min(100, Math.max(0, enrollment.progressPercentage))}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -698,7 +724,7 @@ function ClientProfile() {
                           size="sm"
                           variant="outline"
                           onClick={() =>
-                            toast.info("Use \"Assign a Form\" to send a secure link to this client")
+                            toast.info('Use "Assign a Form" to send a secure link to this client')
                           }
                         >
                           Send to Client
@@ -723,7 +749,7 @@ function ClientProfile() {
                           size="sm"
                           variant="outline"
                           onClick={() =>
-                            toast.info("Resend not yet configured — use \"Assign a Form\" instead")
+                            toast.info('Resend not yet configured — use "Assign a Form" instead')
                           }
                         >
                           Resend
@@ -772,11 +798,7 @@ function ClientProfile() {
                         >
                           Review Answers
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setMergeAssignment(a)}
-                        >
+                        <Button size="sm" variant="outline" onClick={() => setMergeAssignment(a)}>
                           Apply to Profile
                         </Button>
                         <Button
@@ -789,9 +811,7 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() =>
-                            toast.info("Use the Communications tab to add notes")
-                          }
+                          onClick={() => toast.info("Use the Communications tab to add notes")}
                         >
                           Add Note
                         </Button>
@@ -902,69 +922,29 @@ function ClientProfile() {
               <CardContent className="space-y-3 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="font-medium">{m.type}</p>
+                    <p className="font-medium">{m.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      Due {new Date(m.dueDate).toLocaleDateString()} · {m.assignedStaff} · {m.notes}
+                      Next review{" "}
+                      {m.nextReviewAt
+                        ? new Date(m.nextReviewAt).toLocaleDateString()
+                        : "not scheduled"}
+                      {m.notes ? ` · ${m.notes}` : ""}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <StatusBadge status={m.status} />
-                    {m.status !== "Completed" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={async () => {
-                            await completeMonitoringItem(m.id);
-                            toast.success("Marked complete");
-                          }}
-                        >
-                          Complete
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setRescheduleId(m.id);
-                            setRescheduleDate(m.dueDate.slice(0, 10));
-                          }}
-                        >
-                          Reschedule
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {rescheduleId === m.id && (
-                  <div className="flex items-end gap-3 border-t pt-3">
-                    <div className="space-y-1">
-                      <Label>New due date</Label>
-                      <Input
-                        type="date"
-                        value={rescheduleDate}
-                        onChange={(e) => setRescheduleDate(e.target.value)}
-                        className="w-44"
-                      />
-                    </div>
+                    <StatusBadge status={m.complianceStatus} />
                     <Button
                       size="sm"
+                      variant="outline"
                       onClick={async () => {
-                        if (!rescheduleDate) return;
-                        await rescheduleMonitoringItem(
-                          m.id,
-                          new Date(rescheduleDate + "T00:00:00").toISOString(),
-                        );
-                        setRescheduleId(null);
-                        toast.success("Rescheduled");
+                        await recordMonitoringResult(m.id, { complianceStatus: "compliant" });
+                        toast.success("Monitoring review recorded");
                       }}
                     >
-                      Save
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setRescheduleId(null)}>
-                      Cancel
+                      Record compliant
                     </Button>
                   </div>
-                )}
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -973,7 +953,9 @@ function ClientProfile() {
 
         <TabsContent value="documents" className="mt-4 space-y-3">
           {docs.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">No documents uploaded yet.</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No documents uploaded yet.
+            </p>
           )}
           {docs.map((d) => (
             <Card key={d.id} className="shadow-card">
@@ -1023,16 +1005,15 @@ function ClientProfile() {
               <div className="flex flex-wrap gap-3">
                 <div className="space-y-1.5">
                   <Label>Type</Label>
-                  <Select
-                    value={commType}
-                    onValueChange={(v) => setCommType(v as typeof commType)}
-                  >
+                  <Select value={commType} onValueChange={(v) => setCommType(v as typeof commType)}>
                     <SelectTrigger className="w-36">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {(["Note", "Email", "Call", "Meeting", "Snapchat"] as const).map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1059,7 +1040,9 @@ function ClientProfile() {
                       </SelectTrigger>
                       <SelectContent>
                         {(["Inbound", "Outbound", "Internal"] as const).map((d) => (
-                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                          <SelectItem key={d} value={d}>
+                            {d}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1279,7 +1262,8 @@ function ClientProfile() {
                     issuesEncountered: report.issuesEncountered || "None recorded",
                     staffComments: report.staffComments,
                     clientOutcome: report.clientOutcome,
-                    recommendedNextSteps: report.recommendedNextSteps || "Review for future programs",
+                    recommendedNextSteps:
+                      report.recommendedNextSteps || "Review for future programs",
                     archiveDecision: report.archiveDecision,
                   });
                   toast.success("Final report saved");
@@ -1293,13 +1277,19 @@ function ClientProfile() {
 
         <TabsContent value="activity" className="mt-4 space-y-2">
           {logs.map((a) => (
-            <div key={a.id} className="relative grid grid-cols-[80px_1fr] gap-4 rounded-lg border border-border px-5 py-3.5">
+            <div
+              key={a.id}
+              className="relative grid grid-cols-[80px_1fr] gap-4 rounded-lg border border-border px-5 py-3.5"
+            >
               <div className="pt-0.5">
                 <p className="font-mono text-[10px] leading-tight text-muted-foreground">
                   {new Date(a.timestamp).toLocaleDateString()}
                 </p>
                 <p className="mt-0.5 font-mono text-[9px] text-muted-foreground/70">
-                  {new Date(a.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {new Date(a.timestamp).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </p>
               </div>
               <div>
@@ -1320,20 +1310,21 @@ function ClientProfile() {
         onOpenChange={(v) => !v && setActiveAssignment(null)}
         readOnly={formReadOnly}
       />
-      {mergeAssignment && (() => {
-        const tpl = s.formTemplates.find((t) => t.id === mergeAssignment.formId);
-        if (!tpl) return null;
-        return (
-          <MergeResponsesDialog
-            key={mergeAssignment.id}
-            assignment={mergeAssignment}
-            template={tpl}
-            client={client}
-            open={!!mergeAssignment}
-            onOpenChange={(v) => !v && setMergeAssignment(null)}
-          />
-        );
-      })()}
+      {mergeAssignment &&
+        (() => {
+          const tpl = s.formTemplates.find((t) => t.id === mergeAssignment.formId);
+          if (!tpl) return null;
+          return (
+            <MergeResponsesDialog
+              key={mergeAssignment.id}
+              assignment={mergeAssignment}
+              template={tpl}
+              client={client}
+              open={!!mergeAssignment}
+              onOpenChange={(v) => !v && setMergeAssignment(null)}
+            />
+          );
+        })()}
       <SendFormDialog client={client} open={sendOpen} onOpenChange={setSendOpen} />
       <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
 
@@ -1347,10 +1338,8 @@ function ClientProfile() {
             <div className="space-y-1.5">
               <Label>Type</Label>
               <Select
-                value={monitoringForm.type}
-                onValueChange={(v) =>
-                  setMonitoringForm({ ...monitoringForm, type: v as MonitoringType })
-                }
+                value={monitoringForm.name}
+                onValueChange={(v) => setMonitoringForm({ ...monitoringForm, name: v })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -1369,39 +1358,15 @@ function ClientProfile() {
               <Input
                 type="date"
                 value={monitoringForm.dueDate}
-                onChange={(e) =>
-                  setMonitoringForm({ ...monitoringForm, dueDate: e.target.value })
-                }
+                onChange={(e) => setMonitoringForm({ ...monitoringForm, dueDate: e.target.value })}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Assigned staff</Label>
-              <Select
-                value={monitoringForm.assignedStaff}
-                onValueChange={(v) =>
-                  setMonitoringForm({ ...monitoringForm, assignedStaff: v })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STAFF.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Notes</Label>
               <Textarea
                 rows={2}
                 value={monitoringForm.notes}
-                onChange={(e) =>
-                  setMonitoringForm({ ...monitoringForm, notes: e.target.value })
-                }
+                onChange={(e) => setMonitoringForm({ ...monitoringForm, notes: e.target.value })}
                 placeholder="Describe what needs to be checked or completed…"
               />
             </div>
@@ -1412,22 +1377,20 @@ function ClientProfile() {
             </Button>
             <Button
               onClick={async () => {
-                if (!monitoringForm.dueDate) return;
-                await createMonitoringItem({
-                  clientId: client.id,
-                  programId: client.programId ?? "",
-                  type: monitoringForm.type,
-                  dueDate: new Date(monitoringForm.dueDate + "T00:00:00").toISOString(),
-                  status: "Scheduled",
-                  assignedStaff: monitoringForm.assignedStaff,
+                const enrollment = selectedEnrollment ?? enrollments[0];
+                if (!monitoringForm.dueDate || !enrollment) return;
+                await createEnrollmentMonitoring(enrollment.id, {
+                  name: monitoringForm.name,
+                  frequency: monitoringForm.frequency,
+                  nextReviewAt: new Date(monitoringForm.dueDate + "T00:00:00").toISOString(),
                   notes: monitoringForm.notes,
                 });
                 setMonitoringOpen(false);
                 setMonitoringForm({
-                  type: "Follow-up meeting",
+                  name: "Follow-up meeting",
+                  frequency: "monthly",
                   dueDate: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
                   notes: "",
-                  assignedStaff: STAFF[0],
                 });
                 toast.success("Monitoring item added");
               }}

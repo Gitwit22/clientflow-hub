@@ -25,8 +25,8 @@ import {
   cfUpdateTerms,
   cfCreateContract,
   cfUpdateContract,
-  cfCreateMonitoringItem,
-  cfUpdateMonitoringItem,
+  cfCreateEnrollmentMonitoring,
+  cfRecordMonitoringResult,
   cfCreateDocument,
   cfCreateCommunication,
   cfCreateFinalReport,
@@ -48,7 +48,7 @@ import type {
   FinalReportDraft,
   FormEdit,
   FormTemplate,
-  MonitoringItem,
+  EnrollmentMonitoring,
   Program,
   ProgramEnrollment,
   RelationshipType,
@@ -208,9 +208,7 @@ export async function updateEnrollment(
   const enrollment = await cfUpdateEnrollment(id, data as Record<string, unknown>);
   setState((state) => ({
     ...state,
-    enrollments: state.enrollments.map((existing) =>
-      existing.id === id ? enrollment : existing,
-    ),
+    enrollments: state.enrollments.map((existing) => (existing.id === id ? enrollment : existing)),
   }));
   return enrollment;
 }
@@ -545,30 +543,53 @@ export async function updateContract(id: string, data: Partial<Contract>) {
 
 /* -------------------------------- Monitoring -------------------------------- */
 
-export async function createMonitoringItem(data: Omit<MonitoringItem, "id">) {
-  const backend = await cfCreateMonitoringItem(data.clientId, data as Record<string, unknown>);
-  const item: MonitoringItem = { ...data, id: backend.id };
+export async function createEnrollmentMonitoring(
+  enrollmentId: string,
+  data: Pick<EnrollmentMonitoring, "name" | "frequency"> &
+    Partial<
+      Pick<
+        EnrollmentMonitoring,
+        | "description"
+        | "customIntervalDays"
+        | "expectedValue"
+        | "unit"
+        | "nextReviewAt"
+        | "evidenceRequired"
+        | "notes"
+      >
+    >,
+) {
+  const item = (await cfCreateEnrollmentMonitoring(
+    enrollmentId,
+    data as Record<string, unknown>,
+  )) as EnrollmentMonitoring;
   setState((s) => ({ ...s, monitoring: [item, ...s.monitoring] }));
   return delay(item);
 }
 
-export async function completeMonitoringItem(id: string) {
-  const completedAt = nowISO();
-  await cfUpdateMonitoringItem(id, { status: "Completed", completedAt });
+export async function recordMonitoringResult(
+  id: string,
+  data: Pick<EnrollmentMonitoring, "complianceStatus"> &
+    Partial<
+      Pick<
+        EnrollmentMonitoring,
+        "actualValue" | "expectedValue" | "unit" | "nextReviewAt" | "followUpRequired" | "notes"
+      >
+    >,
+) {
+  await cfRecordMonitoringResult(id, data as Record<string, unknown>);
   setState((s) => ({
     ...s,
-    monitoring: s.monitoring.map((m) =>
-      m.id === id ? { ...m, status: "Completed", completedAt } : m,
+    monitoring: s.monitoring.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            ...data,
+            actualValue: data.actualValue ?? item.actualValue,
+            lastReviewedAt: nowISO(),
+          }
+        : item,
     ),
-  }));
-  return delay(true);
-}
-
-export async function rescheduleMonitoringItem(id: string, dueDate: string) {
-  await cfUpdateMonitoringItem(id, { dueDate, status: "Scheduled" });
-  setState((s) => ({
-    ...s,
-    monitoring: s.monitoring.map((m) => (m.id === id ? { ...m, dueDate, status: "Scheduled" } : m)),
   }));
   return delay(true);
 }

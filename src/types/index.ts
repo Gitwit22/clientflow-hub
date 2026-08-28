@@ -84,17 +84,11 @@ export type SupportType =
 
 export type MonitoringFrequency = "Weekly" | "Biweekly" | "Monthly" | "Quarterly" | "Custom";
 
-export type MonitoringType =
-  | "Payment check"
-  | "Milestone check"
-  | "Progress report"
-  | "Document request"
-  | "Follow-up meeting"
-  | "Grant compliance"
-  | "Sponsorship benefit fulfillment"
-  | "Contract review";
+export type EnrollmentMonitoringFrequency =
+  "once" | "weekly" | "monthly" | "quarterly" | "annually" | "custom";
 
-export type MonitoringStatus = "Scheduled" | "Due" | "Overdue" | "Completed";
+export type MonitoringComplianceStatus =
+  "pending" | "compliant" | "partially_compliant" | "non_compliant" | "not_applicable";
 
 export type UserRole = "Admin" | "Manager" | "Staff" | "Viewer";
 
@@ -257,7 +251,7 @@ export interface ProgramParticipantDetail {
   forms: ProgramDetailForm[];
   terms: Terms[];
   contracts: Contract[];
-  monitoring: MonitoringItem[];
+  monitoring: EnrollmentMonitoring[];
 }
 
 export interface ProgramDetailResponse {
@@ -324,7 +318,17 @@ export interface FormField {
   id: string;
   label: string;
   type:
-    "text" | "email" | "phone" | "url" | "textarea" | "number" | "date" | "select" | "file" | "checkbox" | "signature";
+    | "text"
+    | "email"
+    | "phone"
+    | "url"
+    | "textarea"
+    | "number"
+    | "date"
+    | "select"
+    | "file"
+    | "checkbox"
+    | "signature";
   required: boolean;
   options?: string[];
   helpText?: string;
@@ -447,18 +451,28 @@ export interface Terms {
   approvalStatus: "Pending" | "Approved" | "Rejected";
 }
 
-export interface MonitoringItem {
+export interface EnrollmentMonitoring {
   id: string;
   isDemo?: boolean;
-  clientId: string;
-  enrollmentId?: string | null;
-  programId: string;
-  type: MonitoringType;
-  dueDate: string;
-  status: MonitoringStatus;
-  assignedStaff: string;
-  notes: string;
-  completedAt?: string;
+  enrollmentId: string;
+  monitoringRequirementId?: string | null;
+  name: string;
+  description?: string | null;
+  frequency: EnrollmentMonitoringFrequency;
+  customIntervalDays?: number | null;
+  expectedValue?: number | null;
+  actualValue?: number | null;
+  unit?: string | null;
+  complianceStatus: MonitoringComplianceStatus;
+  lastReviewedAt?: string | null;
+  nextReviewAt?: string | null;
+  assignedReviewerId?: string | null;
+  followUpRequired: boolean;
+  evidenceRequired: boolean;
+  notes?: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Contract {

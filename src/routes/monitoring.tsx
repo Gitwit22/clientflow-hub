@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppState } from "@/lib/store";
-import { completeMonitoringItem, rescheduleMonitoringItem } from "@/lib/api";
+import { recordMonitoringResult } from "@/lib/api";
 
 export const Route = createFileRoute("/monitoring")({
   head: () => ({
@@ -32,27 +32,28 @@ export const Route = createFileRoute("/monitoring")({
 const day = 864e5;
 
 function MonitoringPage() {
-  const { monitoring, clients, programs } = useAppState();
+  const { monitoring, clients, programs, enrollments } = useAppState();
   const [tab, setTab] = useState("today");
   const now = Date.now();
 
   const buckets: Record<string, typeof monitoring> = {
     today: monitoring.filter(
-      (m) => m.status !== "Completed" && Math.abs(new Date(m.dueDate).getTime() - now) < day,
+      (m) => m.active && m.nextReviewAt && Math.abs(new Date(m.nextReviewAt).getTime() - now) < day,
     ),
     week: monitoring.filter(
       (m) =>
-        m.status !== "Completed" &&
-        new Date(m.dueDate).getTime() - now > 0 &&
-        new Date(m.dueDate).getTime() - now <= 7 * day,
+        m.active &&
+        m.nextReviewAt &&
+        new Date(m.nextReviewAt).getTime() - now > 0 &&
+        new Date(m.nextReviewAt).getTime() - now <= 7 * day,
     ),
     overdue: monitoring.filter(
-      (m) => m.status !== "Completed" && new Date(m.dueDate).getTime() < now - day,
+      (m) => m.active && m.nextReviewAt && new Date(m.nextReviewAt).getTime() < now - day,
     ),
     upcoming: monitoring.filter(
-      (m) => m.status !== "Completed" && new Date(m.dueDate).getTime() - now > 7 * day,
+      (m) => m.active && m.nextReviewAt && new Date(m.nextReviewAt).getTime() - now > 7 * day,
     ),
-    completed: monitoring.filter((m) => m.status === "Completed"),
+    completed: monitoring.filter((m) => m.lastReviewedAt),
   };
 
   const labels = [
@@ -80,52 +81,39 @@ function MonitoringPage() {
         {labels.map(([k]) => (
           <TabsContent key={k} value={k} className="mt-4 space-y-3">
             {buckets[k].map((m) => {
-              const client = clients.find((c) => c.id === m.clientId);
+              const enrollment = enrollments.find((item) => item.id === m.enrollmentId);
+              const client = clients.find((c) => c.id === enrollment?.clientId);
               return (
                 <Card key={m.id} className="shadow-card">
                   <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
                     <div className="min-w-0">
                       <Link
                         to="/clients/$clientId"
-                        params={{ clientId: m.clientId }}
+                        params={{ clientId: enrollment?.clientId ?? "" }}
                         className="font-medium hover:text-primary"
                       >
                         {client?.businessName}
                       </Link>
                       <p className="font-mono text-xs text-muted-foreground">
-                        {programs.find((p) => p.id === m.programId)?.name} · {m.type} · Due{" "}
-                        {new Date(m.dueDate).toLocaleDateString()} · {m.assignedStaff}
+                        {programs.find((p) => p.id === enrollment?.programId)?.name} · {m.name} ·
+                        Next review{" "}
+                        {m.nextReviewAt
+                          ? new Date(m.nextReviewAt).toLocaleDateString()
+                          : "not scheduled"}
                       </p>
                       <p className="mt-1 text-sm text-muted-foreground">{m.notes}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <StatusBadge status={m.status} />
-                      {m.status !== "Completed" ? (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              completeMonitoringItem(m.id);
-                              toast.success("Marked complete");
-                            }}
-                          >
-                            Mark complete
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              rescheduleMonitoringItem(
-                                m.id,
-                                new Date(Date.now() + 14 * day).toISOString(),
-                              );
-                              toast.success("Rescheduled 2 weeks out");
-                            }}
-                          >
-                            Reschedule
-                          </Button>
-                        </>
-                      ) : null}
+                      <StatusBadge status={m.complianceStatus} />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          void recordMonitoringResult(m.id, { complianceStatus: "compliant" });
+                          toast.success("Monitoring review recorded");
+                        }}
+                      >
+                        Record compliant
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

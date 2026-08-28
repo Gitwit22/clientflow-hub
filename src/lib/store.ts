@@ -11,7 +11,7 @@ import type {
   FormAssignment,
   FormTemplate,
   IntakeSubmission,
-  MonitoringItem,
+  EnrollmentMonitoring,
   Program,
   ProgramEnrollment,
   Terms,
@@ -27,7 +27,7 @@ export interface AppState {
   formAssignments: FormAssignment[];
   intakeSubmissions: IntakeSubmission[];
   terms: Terms[];
-  monitoring: MonitoringItem[];
+  monitoring: EnrollmentMonitoring[];
   contracts: Contract[];
   documents: ClientDocument[];
   communications: Communication[];
@@ -84,7 +84,7 @@ let state: AppState = {
   formAssignments: mock.formAssignments,
   intakeSubmissions: [],
   terms: mock.termsList,
-  monitoring: mock.monitoringItems,
+  monitoring: [],
   contracts: mock.contracts,
   documents: mock.documents,
   communications: mock.communications,
