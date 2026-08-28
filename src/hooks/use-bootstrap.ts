@@ -85,6 +85,9 @@ export function useBootstrap() {
             hideDemo ? records.filter((record) => !record.isDemo) : records;
           const remoteClientIds = new Set((remoteClients as Client[]).map((c) => c.id));
           const remoteProgramIds = new Set((remotePrograms as Program[]).map((p) => p.id));
+          const remoteEnrollmentIds = new Set(
+            (remoteEnrollments as ProgramEnrollment[]).map((e) => e.id),
+          );
           const remoteTemplateIds = new Set(
             (remoteFormTemplates as FormTemplate[]).map((t) => t.id),
           );
@@ -92,6 +95,9 @@ export function useBootstrap() {
             (remoteFormAssignments as FormAssignment[]).map((a) => a.id),
           );
           const remoteTermIds = new Set((remoteTerms as Terms[]).map((t) => t.id));
+          const remoteMonitoringIds = new Set(
+            (remoteMonitoring as EnrollmentMonitoring[]).map((m) => m.id),
+          );
           const remoteContractIds = new Set((remoteContracts as Contract[]).map((c) => c.id));
           const remoteDocumentIds = new Set((remoteDocuments as ClientDocument[]).map((d) => d.id));
           const remoteCommIds = new Set((remoteCommunications as Communication[]).map((c) => c.id));
@@ -112,7 +118,12 @@ export function useBootstrap() {
               ...(remotePrograms as Program[]),
               ...(keepMock ? mock.programs.filter((p) => !remoteProgramIds.has(p.id)) : []),
             ],
-            enrollments: visible(remoteEnrollments as ProgramEnrollment[]),
+            enrollments: [
+              ...visible(remoteEnrollments as ProgramEnrollment[]),
+              ...(keepMock
+                ? mock.enrollments.filter((e) => !remoteEnrollmentIds.has(e.id))
+                : []),
+            ],
             formTemplates: [
               ...(remoteFormTemplates as FormTemplate[]),
               ...(keepMock ? mock.formTemplates.filter((t) => !remoteTemplateIds.has(t.id)) : []),
@@ -128,7 +139,12 @@ export function useBootstrap() {
               ...visible(remoteTerms as Terms[]),
               ...(keepMock ? mock.termsList.filter((t) => !remoteTermIds.has(t.id)) : []),
             ],
-            monitoring: visible(remoteMonitoring as EnrollmentMonitoring[]),
+            monitoring: [
+              ...visible(remoteMonitoring as EnrollmentMonitoring[]),
+              ...(keepMock
+                ? mock.monitoring.filter((m) => !remoteMonitoringIds.has(m.id))
+                : []),
+            ],
             contracts: [
               ...visible(remoteContracts as Contract[]),
               ...(keepMock ? mock.contracts.filter((c) => !remoteContractIds.has(c.id)) : []),

@@ -79,12 +79,12 @@ let state: AppState = {
   ...persisted,
   clients: mock.clients,
   programs: mock.programs,
-  enrollments: [],
+  enrollments: mock.enrollments,
   formTemplates: mock.formTemplates,
   formAssignments: mock.formAssignments,
   intakeSubmissions: [],
   terms: mock.termsList,
-  monitoring: [],
+  monitoring: mock.monitoring,
   contracts: mock.contracts,
   documents: mock.documents,
   communications: mock.communications,
@@ -205,7 +205,9 @@ export function hideMockData(permanent: boolean) {
     liveMode: permanent ? true : current.liveMode,
     mockHidden: true,
     clients: current.clients.filter((c) => !isDemoRecord(c, MOCK_IDS.clients)),
-    enrollments: current.enrollments.filter((enrollment) => !enrollment.isDemo),
+    enrollments: current.enrollments.filter(
+      (enrollment) => !isDemoRecord(enrollment, MOCK_IDS.enrollments),
+    ),
     // programs and formTemplates are intentionally kept
     formAssignments: current.formAssignments.filter(
       (a) => !isDemoRecord(a, MOCK_IDS.formAssignments),
