@@ -34,60 +34,91 @@ export function useBootstrap() {
         const demoStatus = await api.cfGetDemoStatus();
         const liveMode = demoStatus.liveMode;
 
-        // Load each dataset individually so we can identify which one fails
-        const results = {
-          remoteClients: await api.cfListClients().catch((e) => {
+        // Parallelize all data fetches using Promise.all() to reduce load time
+        // Each call has individual error handling to identify which one fails
+        const [
+          remoteClients,
+          remotePrograms,
+          remoteEnrollments,
+          remoteFormTemplates,
+          remoteFormAssignments,
+          remoteIntakeSubmissions,
+          remoteTerms,
+          remoteMonitoring,
+          remoteContracts,
+          remoteDocuments,
+          remoteCommunications,
+          remoteFinalReports,
+          remoteActivity,
+        ] = await Promise.all([
+          api.cfListClients().catch((e) => {
             console.error("[Bootstrap] cfListClients failed:", e);
             return [];
           }),
-          remotePrograms: await api.cfListPrograms().catch((e) => {
+          api.cfListPrograms().catch((e) => {
             console.error("[Bootstrap] cfListPrograms failed:", e);
             return [];
           }),
-          remoteEnrollments: await api.cfListEnrollments().catch((e) => {
+          api.cfListEnrollments().catch((e) => {
             console.error("[Bootstrap] cfListEnrollments failed:", e);
             return [];
           }),
-          remoteFormTemplates: await api.cfListFormTemplates().catch((e) => {
+          api.cfListFormTemplates().catch((e) => {
             console.error("[Bootstrap] cfListFormTemplates failed:", e);
             return [];
           }),
-          remoteFormAssignments: await api.cfListFormAssignments().catch((e) => {
+          api.cfListFormAssignments().catch((e) => {
             console.error("[Bootstrap] cfListFormAssignments failed:", e);
             return [];
           }),
-          remoteIntakeSubmissions: await api.cfListIntakeSubmissions().catch((e) => {
+          api.cfListIntakeSubmissions().catch((e) => {
             console.error("[Bootstrap] cfListIntakeSubmissions failed:", e);
             return [];
           }),
-          remoteTerms: await api.cfListAllTerms().catch((e) => {
+          api.cfListAllTerms().catch((e) => {
             console.error("[Bootstrap] cfListAllTerms failed:", e);
             return [];
           }),
-          remoteMonitoring: await api.cfListAllMonitoring().catch((e) => {
+          api.cfListAllMonitoring().catch((e) => {
             console.error("[Bootstrap] cfListAllMonitoring failed:", e);
             return [];
           }),
-          remoteContracts: await api.cfListAllContracts().catch((e) => {
+          api.cfListAllContracts().catch((e) => {
             console.error("[Bootstrap] cfListAllContracts failed:", e);
             return [];
           }),
-          remoteDocuments: await api.cfListAllDocuments().catch((e) => {
+          api.cfListAllDocuments().catch((e) => {
             console.error("[Bootstrap] cfListAllDocuments failed:", e);
             return [];
           }),
-          remoteCommunications: await api.cfListAllCommunications().catch((e) => {
+          api.cfListAllCommunications().catch((e) => {
             console.error("[Bootstrap] cfListAllCommunications failed:", e);
             return [];
           }),
-          remoteFinalReports: await api.cfListAllFinalReports().catch((e) => {
+          api.cfListAllFinalReports().catch((e) => {
             console.error("[Bootstrap] cfListAllFinalReports failed:", e);
             return [];
           }),
-          remoteActivity: await api.cfListActivity().catch((e) => {
+          api.cfListActivity().catch((e) => {
             console.error("[Bootstrap] cfListActivity failed:", e);
             return [];
           }),
+        ]);
+
+        const results = {
+          remoteClients,
+          remotePrograms,
+          remoteEnrollments,
+          remoteFormTemplates,
+          remoteFormAssignments,
+          remoteIntakeSubmissions,
+          remoteTerms,
+          remoteMonitoring,
+          remoteContracts,
+          remoteDocuments,
+          remoteCommunications,
+          remoteFinalReports,
+          remoteActivity,
         };
 
         setState((prev) => {
