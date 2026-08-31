@@ -233,6 +233,9 @@ export function AddEditFormTemplateDialog({
         toast.success("Form template created.");
       }
       onOpenChange(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`Failed to save form template: ${message}`);
     } finally {
       setSaving(false);
     }
