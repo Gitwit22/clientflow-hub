@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   findSocialLink,
@@ -183,16 +183,48 @@ export function FormRendererDialog({
   readOnly = false,
 }: FormRendererDialogProps) {
   const { formTemplates, programs } = useAppState();
-  const template = assignment ? formTemplates.find((t) => t.id === assignment.formId) : null;
+  const cachedTemplate = assignment ? formTemplates.find((t) => t.id === assignment.formId) : null;
+  const [currentTemplate, setCurrentTemplate] = useState(cachedTemplate);
+
+  // Refresh template data when dialog opens to show any newly added questions
+  useEffect(() => {
+    if (open && assignment) {
+      // Use the current formTemplates from state, which may have been updated since dialog last opened
+      const freshTemplate = formTemplates.find((t) => t.id === assignment.formId);
+      if (freshTemplate) {
+        setCurrentTemplate(freshTemplate);
+      }
+    }
+  }, [open, assignment, formTemplates]);
+
+  const template = currentTemplate;
 
   const [responses, setResponses] = useState<Record<string, string>>(() => {
     if (!template) return {};
     const existing = assignment?.responses ?? {};
     if (readOnly) return existing;
+    // Initialize responses for ALL current template fields, including newly added ones.
+    // Prefill from existing responses, client data, or leave empty for new fields.
     return Object.fromEntries(
       template.fields.map((f) => [f.id, existing[f.id] ?? prefillFromClient(f, client)]),
     );
   });
+
+  // When template updates (new fields added), sync response state to include them
+  useEffect(() => {
+    if (!template || readOnly) return;
+    setResponses((prev) => {
+      const existing = assignment?.responses ?? {};
+      const updated = { ...prev };
+      // Add any new fields from the updated template
+      for (const field of template.fields) {
+        if (!(field.id in updated)) {
+          updated[field.id] = existing[field.id] ?? prefillFromClient(field, client);
+        }
+      }
+      return updated;
+    });
+  }, [template?.id, template?.fields.length, assignment, readOnly, client]);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [nextStatus, setNextStatus] = useState<FormAssignmentStatus | "">("");

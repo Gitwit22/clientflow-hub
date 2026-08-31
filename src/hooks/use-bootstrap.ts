@@ -33,35 +33,62 @@ export function useBootstrap() {
       try {
         const demoStatus = await api.cfGetDemoStatus();
         const liveMode = demoStatus.liveMode;
-        const [
-          remoteClients,
-          remotePrograms,
-          remoteEnrollments,
-          remoteFormTemplates,
-          remoteFormAssignments,
-          remoteIntakeSubmissions,
-          remoteTerms,
-          remoteMonitoring,
-          remoteContracts,
-          remoteDocuments,
-          remoteCommunications,
-          remoteFinalReports,
-          remoteActivity,
-        ] = await Promise.all([
-          api.cfListClients(),
-          api.cfListPrograms(),
-          api.cfListEnrollments(),
-          api.cfListFormTemplates(),
-          api.cfListFormAssignments(),
-          api.cfListIntakeSubmissions(),
-          api.cfListAllTerms(),
-          api.cfListAllMonitoring(),
-          api.cfListAllContracts(),
-          api.cfListAllDocuments(),
-          api.cfListAllCommunications(),
-          api.cfListAllFinalReports(),
-          api.cfListActivity(),
-        ]);
+
+        // Load each dataset individually so we can identify which one fails
+        const results = {
+          remoteClients: await api.cfListClients().catch((e) => {
+            console.error("[Bootstrap] cfListClients failed:", e);
+            return [];
+          }),
+          remotePrograms: await api.cfListPrograms().catch((e) => {
+            console.error("[Bootstrap] cfListPrograms failed:", e);
+            return [];
+          }),
+          remoteEnrollments: await api.cfListEnrollments().catch((e) => {
+            console.error("[Bootstrap] cfListEnrollments failed:", e);
+            return [];
+          }),
+          remoteFormTemplates: await api.cfListFormTemplates().catch((e) => {
+            console.error("[Bootstrap] cfListFormTemplates failed:", e);
+            return [];
+          }),
+          remoteFormAssignments: await api.cfListFormAssignments().catch((e) => {
+            console.error("[Bootstrap] cfListFormAssignments failed:", e);
+            return [];
+          }),
+          remoteIntakeSubmissions: await api.cfListIntakeSubmissions().catch((e) => {
+            console.error("[Bootstrap] cfListIntakeSubmissions failed:", e);
+            return [];
+          }),
+          remoteTerms: await api.cfListAllTerms().catch((e) => {
+            console.error("[Bootstrap] cfListAllTerms failed:", e);
+            return [];
+          }),
+          remoteMonitoring: await api.cfListAllMonitoring().catch((e) => {
+            console.error("[Bootstrap] cfListAllMonitoring failed:", e);
+            return [];
+          }),
+          remoteContracts: await api.cfListAllContracts().catch((e) => {
+            console.error("[Bootstrap] cfListAllContracts failed:", e);
+            return [];
+          }),
+          remoteDocuments: await api.cfListAllDocuments().catch((e) => {
+            console.error("[Bootstrap] cfListAllDocuments failed:", e);
+            return [];
+          }),
+          remoteCommunications: await api.cfListAllCommunications().catch((e) => {
+            console.error("[Bootstrap] cfListAllCommunications failed:", e);
+            return [];
+          }),
+          remoteFinalReports: await api.cfListAllFinalReports().catch((e) => {
+            console.error("[Bootstrap] cfListAllFinalReports failed:", e);
+            return [];
+          }),
+          remoteActivity: await api.cfListActivity().catch((e) => {
+            console.error("[Bootstrap] cfListActivity failed:", e);
+            return [];
+          }),
+        };
 
         setState((prev) => {
           return {
@@ -69,27 +96,32 @@ export function useBootstrap() {
             liveMode,
             bootstrapStatus: "ready",
             bootstrapError: null,
-            clients: remoteClients as Client[],
-            programs: remotePrograms as Program[],
-            enrollments: remoteEnrollments as ProgramEnrollment[],
-            formTemplates: remoteFormTemplates as FormTemplate[],
-            formAssignments: remoteFormAssignments as FormAssignment[],
-            intakeSubmissions: remoteIntakeSubmissions as IntakeSubmission[],
-            terms: remoteTerms as Terms[],
-            monitoring: remoteMonitoring as EnrollmentMonitoring[],
-            contracts: remoteContracts as Contract[],
-            documents: remoteDocuments as ClientDocument[],
-            communications: remoteCommunications as Communication[],
-            finalReports: remoteFinalReports as FinalReport[],
-            activity: remoteActivity as ActivityLog[],
+            clients: results.remoteClients as Client[],
+            programs: results.remotePrograms as Program[],
+            enrollments: results.remoteEnrollments as ProgramEnrollment[],
+            formTemplates: results.remoteFormTemplates as FormTemplate[],
+            formAssignments: results.remoteFormAssignments as FormAssignment[],
+            intakeSubmissions: results.remoteIntakeSubmissions as IntakeSubmission[],
+            terms: results.remoteTerms as Terms[],
+            monitoring: results.remoteMonitoring as EnrollmentMonitoring[],
+            contracts: results.remoteContracts as Contract[],
+            documents: results.remoteDocuments as ClientDocument[],
+            communications: results.remoteCommunications as Communication[],
+            finalReports: results.remoteFinalReports as FinalReport[],
+            activity: results.remoteActivity as ActivityLog[],
           };
         });
       } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : "ClientFlow data could not be loaded.";
+        console.error("[Bootstrap] Failed to load data:", {
+          error,
+          errorMsg,
+          stack: error instanceof Error ? error.stack : undefined,
+        });
         setState((current) => ({
           ...current,
           bootstrapStatus: "error",
-          bootstrapError:
-            error instanceof Error ? error.message : "ClientFlow data could not be loaded.",
+          bootstrapError: errorMsg,
         }));
       }
     })();
