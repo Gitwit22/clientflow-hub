@@ -239,12 +239,19 @@ export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
 }
 
 export async function updateFormTemplate(id: string, data: Partial<FormTemplate>) {
-  await cfUpdateFormTemplate(id, data as Record<string, unknown>);
-  setState((s) => ({
-    ...s,
-    formTemplates: s.formTemplates.map((t) => (t.id === id ? { ...t, ...data } : t)),
-  }));
-  return delay(getState().formTemplates.find((t) => t.id === id) ?? null);
+  try {
+    console.log('[updateFormTemplate] Sending to backend:', { id, fields: data.fields?.length, data });
+    await cfUpdateFormTemplate(id, data as Record<string, unknown>);
+    setState((s) => ({
+      ...s,
+      formTemplates: s.formTemplates.map((t) => (t.id === id ? { ...t, ...data } : t)),
+    }));
+    console.log('[updateFormTemplate] Update successful');
+    return delay(getState().formTemplates.find((t) => t.id === id) ?? null);
+  } catch (error) {
+    console.error('[updateFormTemplate] Error:', error);
+    throw error;
+  }
 }
 
 export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {
