@@ -241,12 +241,15 @@ export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
 export async function updateFormTemplate(id: string, data: Partial<FormTemplate>) {
   try {
     console.log('[updateFormTemplate] Sending to backend:', { id, fields: data.fields?.length, data });
-    await cfUpdateFormTemplate(id, data as Record<string, unknown>);
+    const updated = await cfUpdateFormTemplate(id, data as Record<string, unknown>);
+    console.log('[updateFormTemplate] Received from backend:', { id, fields: updated.fields?.length });
+    
+    // Use the server response which has normalized fields
     setState((s) => ({
       ...s,
-      formTemplates: s.formTemplates.map((t) => (t.id === id ? { ...t, ...data } : t)),
+      formTemplates: s.formTemplates.map((t) => (t.id === id ? updated : t)),
     }));
-    console.log('[updateFormTemplate] Update successful');
+    console.log('[updateFormTemplate] Update successful, app state updated');
     return delay(getState().formTemplates.find((t) => t.id === id) ?? null);
   } catch (error) {
     console.error('[updateFormTemplate] Error:', error);

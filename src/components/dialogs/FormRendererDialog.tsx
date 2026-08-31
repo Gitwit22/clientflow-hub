@@ -188,14 +188,11 @@ export function FormRendererDialog({
 
   // Refresh template data when dialog opens to show any newly added questions
   useEffect(() => {
-    if (open && assignment) {
-      // Use the current formTemplates from state, which may have been updated since dialog last opened
-      const freshTemplate = formTemplates.find((t) => t.id === assignment.formId);
-      if (freshTemplate) {
-        setCurrentTemplate(freshTemplate);
-      }
+    if (open && assignment && cachedTemplate) {
+      // Always use the current cached template from app state first
+      setCurrentTemplate(cachedTemplate);
     }
-  }, [open, assignment, formTemplates]);
+  }, [open, assignment, cachedTemplate]);
 
   const template = currentTemplate;
 

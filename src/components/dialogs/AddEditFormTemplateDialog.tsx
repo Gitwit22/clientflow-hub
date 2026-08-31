@@ -219,7 +219,7 @@ export function AddEditFormTemplateDialog({
         description: description.trim(),
         dueInDays,
         isActive,
-        internalNotes: internalNotes.trim() || undefined,
+        internalNotes: internalNotes.trim(),
         emailTemplate: template?.emailTemplate ?? "default",
         fields: fields
           .filter((r) => r.label.trim())
