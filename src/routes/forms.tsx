@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { emailTemplateBody } from "@/data/mock";
+import { emailTemplateBody } from "@/data/defaults";
 import { useAppState } from "@/lib/store";
 import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
 import { SendFormFlowDialog } from "@/components/dialogs/SendFormFlowDialog";

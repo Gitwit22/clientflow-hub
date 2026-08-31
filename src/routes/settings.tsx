@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Crown, UserPlus } from "lucide-react";
 import {
   ApiError,
+  cfSeedDemo,
   disableMember,
   enableMember,
   getOrganizationSettings,
@@ -103,7 +104,7 @@ function MemberStatusBadge({ member }: { member: OrgMember }) {
 // ─── Settings page ────────────────────────────────────────────────────────────
 
 function SettingsPage() {
-  const { programs, formTemplates, authenticatedAdmin, mockHidden } = useAppState();
+  const { programs, formTemplates, authenticatedAdmin, retryBootstrap } = useAppState();
   const orgId = authenticatedAdmin?.organizationId ?? null;
   const selfId = authenticatedAdmin?.id ?? null;
   const canRemoveDemoPermanently =
@@ -125,6 +126,7 @@ function SettingsPage() {
   const [liveMode, setLiveMode] = useState(false);
   const [demoRemovedAt, setDemoRemovedAt] = useState<string | null>(null);
   const [removeDemoOpen, setRemoveDemoOpen] = useState(false);
+  const [demoSeeding, setDemoSeeding] = useState(false);
 
   // Templates card (local toggles)
   const [templateToggles, setTemplateToggles] = useState({
@@ -133,6 +135,7 @@ function SettingsPage() {
     contractDraft: true,
     finalReport: true,
   });
+  const [templateSaving, setTemplateSaving] = useState<string | null>(null);
 
   // ── Fetch members ────────────────────────────────────────────────────────────
 
@@ -159,6 +162,10 @@ function SettingsPage() {
       setCompanyName(data.name ?? "");
       setReplyTo((data.settings.replyToEmail as string) ?? "");
       setMonitoringFreq((data.settings.defaultMonitoringFrequency as string) ?? "");
+      setTemplateToggles((current) => ({
+        ...current,
+        ...data.settings.notificationTemplateToggles,
+      }));
       setLiveMode(data.liveMode);
       setDemoRemovedAt(data.demoRemovedAt ?? null);
     } catch {
@@ -173,6 +180,22 @@ function SettingsPage() {
     void fetchOrgSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
+
+  async function handleSeedDemo() {
+    if (!window.confirm("Create server-persisted sample data for this organization?")) return;
+    setDemoSeeding(true);
+    try {
+      const result = await cfSeedDemo();
+      setLiveMode(result.liveMode);
+      setDemoRemovedAt(null);
+      retryBootstrap();
+      toast.success("Demo data created.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Failed to create demo data.");
+    } finally {
+      setDemoSeeding(false);
+    }
+  }
 
   // ── Role change ──────────────────────────────────────────────────────────────
 
@@ -231,6 +254,30 @@ function SettingsPage() {
       toast.error(err instanceof ApiError ? err.message : "Failed to save profile.");
     } finally {
       setOrgSaving(false);
+    }
+  }
+
+  async function handleTemplateToggle(
+    key: keyof typeof templateToggles,
+    enabled: boolean,
+  ) {
+    if (!orgId) return;
+    const previous = templateToggles[key];
+    setTemplateToggles((current) => ({ ...current, [key]: enabled }));
+    setTemplateSaving(key);
+    try {
+      const updated = await updateOrganizationSettings(orgId, {
+        notificationTemplateToggles: { [key]: enabled },
+      });
+      setTemplateToggles((current) => ({
+        ...current,
+        ...updated.settings.notificationTemplateToggles,
+      }));
+    } catch (error) {
+      setTemplateToggles((current) => ({ ...current, [key]: previous }));
+      toast.error(error instanceof ApiError ? error.message : "Failed to save template setting.");
+    } finally {
+      setTemplateSaving(null);
     }
   }
 
@@ -448,7 +495,8 @@ function SettingsPage() {
                 </div>
                 <Switch
                   checked={templateToggles[key]}
-                  onCheckedChange={(v) => setTemplateToggles((prev) => ({ ...prev, [key]: v }))}
+                  disabled={!orgId || templateSaving !== null}
+                  onCheckedChange={(value) => void handleTemplateToggle(key, value)}
                   aria-label={`Toggle ${label}`}
                 />
               </div>
@@ -472,12 +520,14 @@ function SettingsPage() {
               <Button variant="destructive" size="sm" onClick={() => setRemoveDemoOpen(true)}>
                 Remove demo data permanently
               </Button>
+            ) : liveMode && canRemoveDemoPermanently ? (
+              <Button size="sm" disabled={demoSeeding} onClick={() => void handleSeedDemo()}>
+                {demoSeeding ? "Creating demo data..." : "Create demo data"}
+              </Button>
             ) : (
               <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
                 {liveMode
                   ? `Demo data permanently removed${demoRemovedAt ? ` ${new Date(demoRemovedAt).toLocaleDateString()}` : ""}`
-                  : mockHidden
-                    ? "Demo data hidden for this session"
                     : "Only organization administrators can permanently remove demo data"}
               </p>
             )}
@@ -495,7 +545,6 @@ function SettingsPage() {
       )}
 
       <DemoDataRemovalDialog
-        mode="permanent"
         open={removeDemoOpen}
         onOpenChange={setRemoveDemoOpen}
         onPermanentSuccess={(result) => {

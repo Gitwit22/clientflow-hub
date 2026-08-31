@@ -19,7 +19,7 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { accessToken } = useAppState();
+  const { authStatus } = useAppState();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -27,10 +27,10 @@ function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (accessToken) {
+    if (authStatus === "authenticated") {
       void navigate({ to: "/", replace: true });
     }
-  }, [accessToken, navigate]);
+  }, [authStatus, navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

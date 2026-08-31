@@ -115,6 +115,12 @@ export interface OrgSettings {
   settings: {
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;
+    notificationTemplateToggles?: {
+      programInvite?: boolean;
+      monitoringReminder?: boolean;
+      contractDraft?: boolean;
+      finalReport?: boolean;
+    };
     [key: string]: unknown;
   };
 }
@@ -498,6 +504,11 @@ export interface ClientDocument {
   name: string;
   type: string;
   url: string;
+  objectKey?: string | null;
+  bucket?: string | null;
+  byteSize?: number | null;
+  checksum?: string | null;
+  uploadStatus?: "pending" | "ready";
   uploadedAt: string;
   uploadedBy: string;
 }

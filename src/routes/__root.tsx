@@ -17,7 +17,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import { useAppState } from "@/lib/store";
+import { retryBootstrap, useAppState } from "@/lib/store";
+import { restoreSession } from "@/lib/apiClient";
 import { useBootstrap } from "@/hooks/use-bootstrap";
 
 function NotFoundComponent() {
@@ -139,11 +140,12 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const { accessToken } = useAppState();
+  const { authStatus } = useAppState();
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     setHydrated(true);
+    void restoreSession();
   }, []);
 
   const isPublicRoute =
@@ -153,9 +155,9 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {isPublicRoute ? (
         <Outlet />
-      ) : !hydrated ? (
+      ) : !hydrated || authStatus === "checking" ? (
         <AccessCheck />
-      ) : accessToken ? (
+      ) : authStatus === "authenticated" ? (
         <AuthenticatedShell />
       ) : (
         <AuthRedirect />
@@ -185,6 +187,7 @@ function AuthRedirect() {
 
 function AuthenticatedShell() {
   useBootstrap();
+  const { bootstrapStatus, bootstrapError } = useAppState();
   return (
     <>
       <div className="flex min-h-screen w-full bg-background font-sans">
@@ -208,8 +211,19 @@ function AuthenticatedShell() {
           </header>
 
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-            <Outlet />
+            {bootstrapStatus === "ready" ? (
+              <Outlet />
+            ) : bootstrapStatus === "error" ? (
+              <div className="mx-auto flex min-h-[50vh] max-w-md flex-col items-center justify-center text-center">
+                <h1 className="font-display text-xl font-semibold">ClientFlow could not load</h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {bootstrapError ?? "The server did not return your organization data."}
+                </p>
+                <Button className="mt-5" onClick={retryBootstrap}>Retry</Button>
+              </div>
+            ) : (
+              <AccessCheck />
+            )}
           </main>
         </div>
       </div>

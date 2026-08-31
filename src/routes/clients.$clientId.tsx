@@ -34,6 +34,7 @@ import {
   cancelFormAssignment,
   createEnrollmentMonitoring,
   createFinalReport,
+  downloadDocument,
   generateContract,
   refreshClientProfile,
   recordMonitoringResult,
@@ -969,8 +970,11 @@ function ClientProfile() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!d.url || d.url === "#"}
-                  onClick={() => window.open(d.url, "_blank", "noopener,noreferrer")}
+                  onClick={() => {
+                    void downloadDocument(d.id).catch((error: unknown) => {
+                      toast.error(error instanceof Error ? error.message : "Document download failed.");
+                    });
+                  }}
                 >
                   Download
                 </Button>
@@ -985,13 +989,15 @@ function ClientProfile() {
               const file = e.target.files?.[0];
               if (!file) return;
               setUploading(true);
-              await uploadDocument(client.id, {
-                name: file.name,
-                type: file.type || "application/octet-stream",
-              });
-              setUploading(false);
-              toast.success(`${file.name} uploaded`);
-              e.target.value = "";
+              try {
+                await uploadDocument(client.id, file);
+                toast.success(`${file.name} uploaded`);
+                e.target.value = "";
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Document upload failed.");
+              } finally {
+                setUploading(false);
+              }
             }}
           />
           <Button disabled={uploading} onClick={() => fileInputRef.current?.click()}>

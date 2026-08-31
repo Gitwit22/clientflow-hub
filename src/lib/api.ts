@@ -6,7 +6,7 @@
  * Firebase, Appwrite, Node/Express) without touching components.
  */
 import { getState, setState, uid } from "./store";
-import { emailTemplateBody } from "@/data/mock";
+import { emailTemplateBody } from "@/data/defaults";
 import {
   cfCreateFormAssignment,
   cfCreateFormTemplate,
@@ -27,7 +27,9 @@ import {
   cfUpdateContract,
   cfCreateEnrollmentMonitoring,
   cfRecordMonitoringResult,
-  cfCreateDocument,
+  cfCreateDocumentUpload,
+  cfCompleteDocumentUpload,
+  cfGetDocumentDownload,
   cfCreateCommunication,
   cfCreateFinalReport,
   cfUpdateFormAssignment,
@@ -610,26 +612,27 @@ export async function archiveAfterFinalReport(clientId: string, decision: string
 
 /* --------------------------- Documents / comms / log ------------------------- */
 
-export async function uploadDocument(clientId: string, file: { name: string; type: string }) {
-  const uploadedAt = nowISO();
-  const backend = await cfCreateDocument(clientId, {
+export async function uploadDocument(clientId: string, file: File) {
+  const contentType = file.type || "application/octet-stream";
+  const intent = await cfCreateDocumentUpload(clientId, {
     name: file.name,
-    type: file.type,
-    url: "#",
-    uploadedAt,
-    uploadedBy: "Alicia Monroe",
+    type: contentType,
+    byteSize: file.size,
   });
-  const doc: ClientDocument = {
-    id: backend.id,
-    clientId,
-    name: file.name,
-    type: file.type,
-    url: "#",
-    uploadedAt,
-    uploadedBy: "Alicia Monroe",
-  };
+  const uploadResponse = await fetch(intent.uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: file,
+  });
+  if (!uploadResponse.ok) throw new Error("Document bytes could not be uploaded.");
+  const doc = await cfCompleteDocumentUpload(intent.document.id);
   setState((s) => ({ ...s, documents: [doc, ...s.documents] }));
   return delay(doc);
+}
+
+export async function downloadDocument(documentId: string) {
+  const result = await cfGetDocumentDownload(documentId);
+  window.open(result.url, "_blank", "noopener,noreferrer");
 }
 
 export async function addCommunication(

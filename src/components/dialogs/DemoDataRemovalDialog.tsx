@@ -12,21 +12,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError, cfRemoveDemo, type LiveModeTransitionResult } from "@/lib/apiClient";
-import { hideMockData } from "@/lib/store";
+import { retryBootstrap } from "@/lib/store";
 
 const PERMANENT_CONFIRMATION = "REMOVE DEMO DATA";
 
-type DemoRemovalMode = "session" | "permanent";
-
 interface DemoDataRemovalDialogProps {
-  mode: DemoRemovalMode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPermanentSuccess?: (result: LiveModeTransitionResult) => void | Promise<void>;
 }
 
 export function DemoDataRemovalDialog({
-  mode,
   open,
   onOpenChange,
   onPermanentSuccess,
@@ -34,7 +30,6 @@ export function DemoDataRemovalDialog({
   const [currentPassword, setCurrentPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const permanent = mode === "permanent";
 
   function resetAndClose() {
     setCurrentPassword("");
@@ -43,21 +38,14 @@ export function DemoDataRemovalDialog({
   }
 
   async function handleConfirm() {
-    if (!permanent) {
-      hideMockData(false);
-      resetAndClose();
-      toast.success("Demo data hidden until you log out.");
-      return;
-    }
-
     setSubmitting(true);
     try {
       const result = await cfRemoveDemo({
         currentPassword,
         confirmation,
       });
-      hideMockData(true);
       await onPermanentSuccess?.(result);
+      retryBootstrap();
       resetAndClose();
       toast.success("Demo data permanently removed from this account.");
     } catch (error) {
@@ -71,18 +59,13 @@ export function DemoDataRemovalDialog({
     <Dialog open={open} onOpenChange={submitting ? undefined : onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            {permanent ? "Remove demo data permanently?" : "Hide demo data for this session?"}
-          </DialogTitle>
+          <DialogTitle>Remove demo data permanently?</DialogTitle>
           <DialogDescription>
-            {permanent
-              ? "Sample clients and their operational records will be permanently deleted for this organization. Programs, form templates, and real records will remain. This cannot be undone."
-              : "Sample clients and their operational records will be hidden until you log out. Programs and form templates will remain, and no account data will be deleted."}
+            Sample clients and their operational records will be permanently deleted for this organization. Programs, form templates, and real records will remain. This cannot be undone.
           </DialogDescription>
         </DialogHeader>
 
-        {permanent && (
-          <div className="space-y-4 py-2">
+        <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label htmlFor="remove-demo-password">Current password</Label>
               <Input
@@ -101,8 +84,7 @@ export function DemoDataRemovalDialog({
                 onChange={(event) => setConfirmation(event.target.value)}
               />
             </div>
-          </div>
-        )}
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={resetAndClose} disabled={submitting}>
@@ -113,10 +95,10 @@ export function DemoDataRemovalDialog({
             onClick={handleConfirm}
             disabled={
               submitting ||
-              (permanent && (!currentPassword || confirmation !== PERMANENT_CONFIRMATION))
+              !currentPassword || confirmation !== PERMANENT_CONFIRMATION
             }
           >
-            {submitting ? "Removing..." : permanent ? "Remove permanently" : "Hide for session"}
+            {submitting ? "Removing..." : "Remove permanently"}
           </Button>
         </DialogFooter>
       </DialogContent>

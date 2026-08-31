@@ -1,5 +1,6 @@
-import { clearAccessToken, getState, setAuthSession } from "./store";
+import { clearAuthSession, setAuthSession } from "./store";
 import type {
+  ClientDocument,
   EnrollmentStatusHistory,
   FormAssignment,
   IntakeSubmission,
@@ -56,21 +57,52 @@ async function parseApiError(response: Response): Promise<ApiError> {
 
 // ─── Core request helper ─────────────────────────────────────────────────────
 
-export async function apiRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const accessToken = getState().accessToken;
-  const response = await fetch(`${API_URL}${path}`, {
+async function sendRequest(path: string, init: RequestInit): Promise<Response> {
+  return fetch(`${API_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       "X-App-Partition": APP_PARTITION,
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init.headers,
     },
   });
+}
 
-  if (response.status === 401 && path !== "/api/v1/auth/login") {
-    clearAccessToken();
-    throw new SessionExpiredError();
+let refreshRequest: Promise<boolean> | null = null;
+
+async function refreshCookies(): Promise<boolean> {
+  if (!refreshRequest) {
+    refreshRequest = sendRequest("/api/v1/auth/refresh", { method: "POST" })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshRequest = null;
+      });
+  }
+  return refreshRequest;
+}
+
+function canRefresh(path: string): boolean {
+  return ![
+    "/api/v1/auth/login",
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/accept-invite",
+    "/api/v1/auth/validate-invite",
+  ].some((publicPath) => path.startsWith(publicPath));
+}
+
+export async function apiRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  let response = await sendRequest(path, init);
+
+  if (response.status === 401 && canRefresh(path)) {
+    if (await refreshCookies()) {
+      response = await sendRequest(path, init);
+    }
+    if (response.status === 401) {
+      clearAuthSession();
+      throw new SessionExpiredError();
+    }
   }
 
   if (!response.ok) {
@@ -126,24 +158,24 @@ export interface BootstrapData {
   permissions: string[];
 }
 
-/** POST /auth/login — stores the returned Bearer token in memory. */
+/** POST /auth/login - the API establishes HttpOnly session cookies. */
 export async function login(
   payload: LoginPayload,
-): Promise<{ accessToken: string; admin: AdminInfo }> {
-  const result = await apiRequest<{ accessToken: string; admin: AdminInfo }>("/api/v1/auth/login", {
+): Promise<{ admin: AdminInfo }> {
+  const result = await apiRequest<{ admin: AdminInfo }>("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify(payload),
   });
-  setAuthSession(result.accessToken, result.admin);
+  setAuthSession(result.admin);
   return result;
 }
 
-/** POST /auth/logout — clears the in-memory Bearer token. */
+/** POST /auth/logout - revokes and clears the cookie session. */
 export async function logout(): Promise<void> {
   try {
     await apiRequest("/api/v1/auth/logout", { method: "POST" });
   } finally {
-    clearAccessToken();
+    clearAuthSession();
   }
 }
 
@@ -166,6 +198,17 @@ export async function bootstrap(): Promise<BootstrapData> {
 /** GET /auth/session — lightweight liveness check. Returns 401 if expired. */
 export async function getSession(): Promise<{ valid: boolean }> {
   return apiRequest("/api/v1/auth/session");
+}
+
+export async function restoreSession(): Promise<boolean> {
+  try {
+    const admin = await apiRequest<AdminInfo>("/api/v1/auth/me");
+    setAuthSession(admin);
+    return true;
+  } catch {
+    clearAuthSession();
+    return false;
+  }
 }
 
 export interface ChangePasswordPayload {
@@ -197,7 +240,17 @@ export async function getOrganizationSettings(organizationId: string): Promise<O
 
 export async function updateOrganizationSettings(
   organizationId: string,
-  payload: { name?: string; replyToEmail?: string; defaultMonitoringFrequency?: string },
+  payload: {
+    name?: string;
+    replyToEmail?: string;
+    defaultMonitoringFrequency?: string;
+    notificationTemplateToggles?: {
+      programInvite?: boolean;
+      monitoringReminder?: boolean;
+      contractDraft?: boolean;
+      finalReport?: boolean;
+    };
+  },
 ): Promise<OrgSettings> {
   return apiRequest(`/api/v1/organizations/${organizationId}/settings`, {
     method: "PATCH",
@@ -270,15 +323,15 @@ export async function validateInvite(
 export async function acceptInvite(
   token: string,
   newPassword: string,
-): Promise<{ accessToken: string; admin: AdminInfo }> {
-  const result = await apiRequest<{ accessToken: string; admin: AdminInfo }>(
+): Promise<{ admin: AdminInfo }> {
+  const result = await apiRequest<{ admin: AdminInfo }>(
     "/api/v1/auth/accept-invite",
     {
       method: "POST",
       body: JSON.stringify({ token, newPassword }),
     },
   );
-  setAuthSession(result.accessToken, result.admin);
+  setAuthSession(result.admin);
   return result;
 }
 
@@ -538,11 +591,28 @@ export async function cfListAllContracts() {
 export async function cfListDocuments(clientId: string) {
   return apiRequest<unknown[]>(`${CF}/clients/${clientId}/documents`);
 }
-export async function cfCreateDocument(clientId: string, data: Record<string, unknown>) {
-  return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/documents`, {
+export async function cfCreateDocumentUpload(
+  clientId: string,
+  data: { name: string; type: string; byteSize: number; enrollmentId?: string },
+) {
+  return apiRequest<{
+    document: ClientDocument;
+    uploadUrl: string;
+    expiresInSeconds: number;
+  }>(`${CF}/clients/${clientId}/documents/upload-intent`, {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+export async function cfCompleteDocumentUpload(documentId: string) {
+  return apiRequest<ClientDocument>(`${CF}/documents/${documentId}/complete-upload`, {
+    method: "POST",
+  });
+}
+export async function cfGetDocumentDownload(documentId: string) {
+  return apiRequest<{ url: string; expiresInSeconds: number }>(
+    `${CF}/documents/${documentId}/download`,
+  );
 }
 export async function cfListAllDocuments() {
   return apiRequest<unknown[]>(`${CF}/documents`);
@@ -582,10 +652,9 @@ export async function cfCreateActivity(data: Record<string, unknown>) {
   return apiRequest<unknown>(`${CF}/activity`, { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function cfSeedDemo(payload: Record<string, unknown[]>) {
-  return apiRequest<{ seeded: Record<string, number> }>(`${CF}/seed-demo`, {
+export async function cfSeedDemo() {
+  return apiRequest<{ seeded: Record<string, number>; liveMode: boolean }>(`${CF}/seed-demo`, {
     method: "POST",
-    body: JSON.stringify(payload),
   });
 }
 
