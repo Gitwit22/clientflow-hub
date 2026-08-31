@@ -3,6 +3,7 @@ import type {
   ClientDocument,
   EnrollmentStatusHistory,
   FormAssignment,
+  FormTemplate,
   IntakeSubmission,
   OrgMember,
   OrgSettings,
@@ -484,7 +485,7 @@ export async function cfCreateFormTemplate(data: Record<string, unknown>) {
   });
 }
 export async function cfUpdateFormTemplate(id: string, data: Record<string, unknown>) {
-  return apiRequest<{ id: string }>(`${CF}/form-templates/${id}`, {
+  return apiRequest<FormTemplate>(`${CF}/form-templates/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });

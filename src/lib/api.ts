@@ -239,10 +239,10 @@ export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
 }
 
 export async function updateFormTemplate(id: string, data: Partial<FormTemplate>) {
-  await cfUpdateFormTemplate(id, data as Record<string, unknown>);
+  const updated = await cfUpdateFormTemplate(id, data as Record<string, unknown>);
   setState((s) => ({
     ...s,
-    formTemplates: s.formTemplates.map((t) => (t.id === id ? { ...t, ...data } : t)),
+    formTemplates: s.formTemplates.map((t) => (t.id === id ? updated : t)),
   }));
   return delay(getState().formTemplates.find((t) => t.id === id) ?? null);
 }
