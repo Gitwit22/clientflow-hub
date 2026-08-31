@@ -439,10 +439,10 @@ export async function cfGetProgramDetail(id: string) {
   return apiRequest<ProgramDetailResponse>(`${CF}/programs/${encodeURIComponent(id)}/detail`);
 }
 export async function cfCreateProgram(data: Record<string, unknown>) {
-  return apiRequest<unknown>(`${CF}/programs`, { method: "POST", body: JSON.stringify(data) });
+  return apiRequest<Program>(`${CF}/programs`, { method: "POST", body: JSON.stringify(data) });
 }
 export async function cfUpdateProgram(id: string, data: Record<string, unknown>) {
-  return apiRequest<unknown>(`${CF}/programs/${id}`, {
+  return apiRequest<Program>(`${CF}/programs/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });
@@ -478,7 +478,7 @@ export async function cfListFormTemplates() {
   return apiRequest<unknown[]>(`${CF}/form-templates`);
 }
 export async function cfCreateFormTemplate(data: Record<string, unknown>) {
-  return apiRequest<{ id: string }>(`${CF}/form-templates`, {
+  return apiRequest<FormTemplate>(`${CF}/form-templates`, {
     method: "POST",
     body: JSON.stringify(data),
   });

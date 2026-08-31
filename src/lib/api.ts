@@ -177,19 +177,18 @@ export const getPrograms = async () => delay(getState().programs);
 export const getProgramDetail = (id: string) => cfGetProgramDetail(id);
 
 export async function createProgram(data: Omit<Program, "id">) {
-  const backend = (await cfCreateProgram(data as Record<string, unknown>)) as { id: string };
-  const program: Program = { ...data, id: backend.id };
+  const program = await cfCreateProgram(data as Record<string, unknown>);
   setState((s) => ({ ...s, programs: [...s.programs, program] }));
   return delay(program);
 }
 
 export async function updateProgram(id: string, data: Partial<Program>) {
-  await cfUpdateProgram(id, data as Record<string, unknown>);
+  const program = await cfUpdateProgram(id, data as Record<string, unknown>);
   setState((s) => ({
     ...s,
-    programs: s.programs.map((p) => (p.id === id ? { ...p, ...data } : p)),
+    programs: s.programs.map((p) => (p.id === id ? program : p)),
   }));
-  return delay(getState().programs.find((p) => p.id === id) ?? null);
+  return delay(program);
 }
 
 /* ---------------------------- Program Enrollments --------------------------- */
@@ -231,30 +230,18 @@ export async function reactivateEnrollment(id: string) {
 export const getFormTemplates = async () => delay(getState().formTemplates);
 
 export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
-  // Persist to backend so the template is findable by the public form endpoint.
-  const backendTemplate = await cfCreateFormTemplate(data as Record<string, unknown>);
-  const template: FormTemplate = { ...data, id: backendTemplate.id };
-  setState((s) => ({ ...s, formTemplates: [...s.formTemplates, template] }));
+  const template = await cfCreateFormTemplate(data as Record<string, unknown>);
+    setState((s) => ({ ...s, formTemplates: [...s.formTemplates, template] }));
   return delay(template);
 }
 
 export async function updateFormTemplate(id: string, data: Partial<FormTemplate>) {
-  try {
-    console.log('[updateFormTemplate] Sending to backend:', { id, fields: data.fields?.length, data });
-    const updated = await cfUpdateFormTemplate(id, data as Record<string, unknown>);
-    console.log('[updateFormTemplate] Received from backend:', { id, fields: updated.fields?.length });
-    
-    // Use the server response which has normalized fields
-    setState((s) => ({
-      ...s,
-      formTemplates: s.formTemplates.map((t) => (t.id === id ? updated : t)),
-    }));
-    console.log('[updateFormTemplate] Update successful, app state updated');
-    return delay(getState().formTemplates.find((t) => t.id === id) ?? null);
-  } catch (error) {
-    console.error('[updateFormTemplate] Error:', error);
-    throw error;
-  }
+  const template = await cfUpdateFormTemplate(id, data as Record<string, unknown>);
+  setState((s) => ({
+    ...s,
+    formTemplates: s.formTemplates.map((t) => (t.id === id ? template : t)),
+  }));
+  return delay(template);
 }
 
 export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {

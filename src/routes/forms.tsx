@@ -53,25 +53,31 @@ function FormsPage() {
   const [openId, setOpenId] = useState<string | null>(formTemplates[0]?.id ?? null);
   const [view, setView] = useState<"master" | "sections" | "submissions">("master");
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<FormTemplate | undefined>(undefined);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [sendFormOpen, setSendFormOpen] = useState(false);
   const [sendFormTemplateId, setSendFormTemplateId] = useState<string | undefined>(undefined);
   const [reviewingSubmission, setReviewingSubmission] = useState<IntakeSubmission | null>(null);
 
   function openTemplateAdd() {
-    setEditingTemplate(undefined);
+    setEditingTemplateId(null);
     setTemplateDialogOpen(true);
   }
 
   function openTemplateEdit(t: FormTemplate) {
-    setEditingTemplate(t);
+    setEditingTemplateId(t.id);
     setTemplateDialogOpen(true);
   }
+
+  const editingTemplate = formTemplates.find((template) => template.id === editingTemplateId);
 
   const clientName = (id: string) => clients.find((c) => c.id === id)?.businessName ?? id;
   const masterTemplates = formTemplates.filter((template) => template.scope === "master_core");
   const sectionTemplates = formTemplates
-    .filter((template) => template.scope === "program_section")
+    .filter(
+      (template) =>
+        template.scope === "program_section" ||
+        (template.scope === "legacy" && template.programId !== null),
+    )
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
   const displayedTemplates = view === "master" ? masterTemplates : sectionTemplates;
 

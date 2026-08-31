@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Pencil, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -8,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { useAppState } from "@/lib/store";
 import { updateProgram } from "@/lib/api";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
-import type { Program } from "@/types";
 
 export const Route = createFileRoute("/programs")({
   head: () => ({
@@ -38,17 +38,31 @@ export function ProgramsPage() {
   const navigate = Route.useNavigate();
   const { programs, formTemplates, clients, enrollments } = useAppState();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingProgram, setEditingProgram] = useState<Program | undefined>(undefined);
+  const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
+  const [updatingProgramId, setUpdatingProgramId] = useState<string | null>(null);
 
   function openAdd() {
-    setEditingProgram(undefined);
+    setEditingProgramId(null);
     setDialogOpen(true);
   }
 
-  function openEdit(p: Program) {
-    setEditingProgram(p);
+  function openEdit(programId: string) {
+    setEditingProgramId(programId);
     setDialogOpen(true);
   }
+
+  async function toggleProgram(programId: string, isActive: boolean) {
+    setUpdatingProgramId(programId);
+    try {
+      await updateProgram(programId, { isActive });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update program status.");
+    } finally {
+      setUpdatingProgramId(null);
+    }
+  }
+
+  const editingProgram = programs.find((program) => program.id === editingProgramId);
 
   return (
     <div className="space-y-6">
@@ -84,14 +98,16 @@ export function ProgramsPage() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8"
-                    onClick={() => openEdit(p)}
+                    onClick={() => openEdit(p.id)}
                     aria-label="Edit program"
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Switch
                     checked={p.isActive}
-                    onCheckedChange={(v) => updateProgram(p.id, { isActive: v })}
+                    disabled={updatingProgramId === p.id}
+                    onCheckedChange={(isActive) => void toggleProgram(p.id, isActive)}
+                    aria-label={`${p.isActive ? "Deactivate" : "Activate"} ${p.name}`}
                   />
                 </div>
               </div>
