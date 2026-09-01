@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -24,6 +25,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
+import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
 import { MergeResponsesDialog } from "@/components/dialogs/MergeResponsesDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
@@ -102,6 +104,7 @@ function ClientProfile() {
   const { programId: selectedProgramId, tab } = Route.useSearch();
   const s = useAppState();
   const client = s.clients.find((c) => c.id === clientId);
+  const [editOpen, setEditOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
   const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
@@ -231,6 +234,10 @@ function ClientProfile() {
         description={`${client.primaryContactName} · ${client.email} · ${client.phone}`}
         actions={
           <>
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil className="size-4" />
+              Edit client
+            </Button>
             <Button onClick={() => setSendOpen(true)}>Send program form</Button>
             <Button variant="outline" onClick={() => setTermsOpen(true)}>
               Create terms
@@ -972,7 +979,9 @@ function ClientProfile() {
                   variant="outline"
                   onClick={() => {
                     void downloadDocument(d.id).catch((error: unknown) => {
-                      toast.error(error instanceof Error ? error.message : "Document download failed.");
+                      toast.error(
+                        error instanceof Error ? error.message : "Document download failed.",
+                      );
                     });
                   }}
                 >
@@ -1333,6 +1342,7 @@ function ClientProfile() {
         })()}
       <SendFormDialog client={client} open={sendOpen} onOpenChange={setSendOpen} />
       <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
+      <EditClientDialog client={client} open={editOpen} onOpenChange={setEditOpen} />
 
       {/* Monitoring item dialog */}
       <Dialog open={monitoringOpen} onOpenChange={setMonitoringOpen}>

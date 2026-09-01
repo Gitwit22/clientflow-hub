@@ -13,6 +13,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppSidebarNav } from "@/components/AppSidebar";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { Toaster } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -196,6 +197,9 @@ function AuthenticatedShell() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
+          <header className="hidden h-16 items-center justify-end border-b border-border bg-background px-8 lg:flex">
+            <NotificationCenter />
+          </header>
           <header className="flex items-center gap-3 border-b border-border bg-sidebar px-4 py-3 lg:hidden">
             <Sheet>
               <SheetTrigger asChild>
@@ -208,6 +212,9 @@ function AuthenticatedShell() {
               </SheetContent>
             </Sheet>
             <span className="font-display text-sm font-semibold text-white">ClientFlow</span>
+            <div className="ml-auto">
+              <NotificationCenter inverted />
+            </div>
           </header>
 
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

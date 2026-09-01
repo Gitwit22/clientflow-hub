@@ -541,6 +541,36 @@ export async function cfGetIntakeSubmission(id: string) {
   >(`${CF}/intake-submissions/${id}`);
 }
 
+export interface ClientflowNotification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  actionUrl: string | null;
+  clientId: string | null;
+  submissionId: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export async function cfListNotifications(limit = 30) {
+  return apiRequest<{ items: ClientflowNotification[]; unreadCount: number }>(
+    `${CF}/notifications?limit=${limit}`,
+  );
+}
+
+export async function cfMarkNotificationRead(id: string) {
+  return apiRequest<{ id: string; read: true }>(`${CF}/notifications/${id}/read`, {
+    method: "PATCH",
+  });
+}
+
+export async function cfMarkAllNotificationsRead() {
+  return apiRequest<{ updated: number }>(`${CF}/notifications/read-all`, {
+    method: "PATCH",
+  });
+}
+
 export async function cfListTerms(clientId: string) {
   return apiRequest<unknown[]>(`${CF}/clients/${clientId}/terms`);
 }
