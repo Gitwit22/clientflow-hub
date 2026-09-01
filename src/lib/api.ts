@@ -178,7 +178,15 @@ export const getProgramDetail = (id: string) => cfGetProgramDetail(id);
 
 export async function createProgram(data: Omit<Program, "id">) {
   const program = await cfCreateProgram(data as Record<string, unknown>);
-  setState((s) => ({ ...s, programs: [...s.programs, program] }));
+  setState((s) => ({
+    ...s,
+    programs: [...s.programs, program],
+    formTemplates: s.formTemplates.map((template) =>
+      template.id === program.defaultFormTemplateId
+        ? { ...template, programId: program.id, scope: "program_section" }
+        : template,
+    ),
+  }));
   return delay(program);
 }
 
@@ -187,6 +195,11 @@ export async function updateProgram(id: string, data: Partial<Program>) {
   setState((s) => ({
     ...s,
     programs: s.programs.map((p) => (p.id === id ? program : p)),
+    formTemplates: s.formTemplates.map((template) =>
+      template.id === program.defaultFormTemplateId
+        ? { ...template, programId: program.id, scope: "program_section" }
+        : template,
+    ),
   }));
   return delay(program);
 }

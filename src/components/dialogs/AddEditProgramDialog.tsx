@@ -120,6 +120,11 @@ export function AddEditProgramDialog({
 }) {
   const { formTemplates } = useAppState();
   const isEdit = !!program;
+  const eligibleFormTemplates = formTemplates.filter((template) =>
+    template.isActive
+    && template.scope !== "master_core"
+    && (template.programId === null || template.programId === program?.id),
+  );
 
   const [name, setName] = useState(program?.name ?? "");
   const [description, setDescription] = useState(program?.description ?? "");
@@ -168,6 +173,10 @@ export function AddEditProgramDialog({
     e.preventDefault();
     if (!name.trim()) {
       toast.error("Program name is required.");
+      return;
+    }
+    if (!defaultFormTemplateId) {
+      toast.error("Choose a default form template.");
       return;
     }
     setSaving(true);
@@ -239,7 +248,7 @@ export function AddEditProgramDialog({
                   <SelectValue placeholder="Choose a form" />
                 </SelectTrigger>
                 <SelectContent>
-                  {formTemplates.map((t) => (
+                  {eligibleFormTemplates.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name}
                     </SelectItem>
