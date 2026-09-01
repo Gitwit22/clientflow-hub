@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -71,8 +71,9 @@ function FormsPage() {
   const editingTemplate = formTemplates.find((template) => template.id === editingTemplateId);
 
   const clientName = (id: string) => clients.find((c) => c.id === id)?.businessName ?? id;
-  const masterTemplates = formTemplates.filter((template) => template.scope === "master_core");
-  const sectionTemplates = formTemplates
+  const activeTemplates = formTemplates.filter((template) => template.isActive);
+  const masterTemplates = activeTemplates.filter((template) => template.scope === "master_core");
+  const sectionTemplates = activeTemplates
     .filter(
       (template) =>
         template.scope === "program_section" ||
@@ -80,6 +81,13 @@ function FormsPage() {
     )
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
   const displayedTemplates = view === "master" ? masterTemplates : sectionTemplates;
+
+  useEffect(() => {
+    if (view === "submissions") return;
+    if (!displayedTemplates.some((template) => template.id === openId)) {
+      setOpenId(displayedTemplates[0]?.id ?? null);
+    }
+  }, [displayedTemplates, openId, view]);
 
   return (
     <div className="space-y-6">
