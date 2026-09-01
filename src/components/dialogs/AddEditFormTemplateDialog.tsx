@@ -83,8 +83,8 @@ function toSlug(str: string): string {
 
 function rowToField(row: FieldRow): FormField {
   const field: FormField = {
-    id: row.id || toSlug(row.label),
-    label: row.label,
+    id: row.id.trim() || toSlug(row.label),
+    label: row.label.trim(),
     type: row.type,
     required: row.required,
     ...(row.prefillKey ? { prefillKey: row.prefillKey } : {}),
@@ -157,8 +157,9 @@ export function AddEditFormTemplateDialog({
       prev.map((row, i) => {
         if (i !== idx) return row;
         const updated = { ...row, ...patch };
-        // Auto-generate id from label when it hasn't been manually set
-        if (!updated.originalId && (!updated.id || updated.id === toSlug(row.label))) {
+        if (row.originalId) {
+          updated.id = row.originalId;
+        } else if (!updated.id || updated.id === toSlug(row.label)) {
           updated.id = toSlug(updated.label);
         }
         return updated;
@@ -182,7 +183,9 @@ export function AddEditFormTemplateDialog({
       toast.error("Template name is required.");
       return;
     }
-    const activeFields = fields.filter((row) => row.label.trim());
+    const activeFields = fields
+      .filter((row) => row.label.trim())
+      .map((row) => ({ ...row, id: row.id.trim() || toSlug(row.label) }));
     const duplicateId = activeFields.find((row, index) =>
       activeFields.findIndex((candidate) => candidate.id === row.id) !== index,
     );
@@ -221,9 +224,7 @@ export function AddEditFormTemplateDialog({
         isActive,
         internalNotes: internalNotes.trim(),
         emailTemplate: template?.emailTemplate ?? "default",
-        fields: fields
-          .filter((r) => r.label.trim())
-          .map((r) => rowToField({ ...r, id: r.id || toSlug(r.label) })),
+        fields: activeFields.map(rowToField),
       };
       if (isEdit && template) {
         await updateFormTemplate(template.id, data);
