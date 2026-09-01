@@ -491,7 +491,11 @@ export async function cfUpdateFormTemplate(id: string, data: Record<string, unkn
   });
 }
 export async function cfDeleteFormTemplate(id: string) {
-  return apiRequest<{ id: string }>(`${CF}/form-templates/${encodeURIComponent(id)}`, {
+  return apiRequest<{
+    id: string;
+    unlinkedProgramIds: string[];
+    cancelledAssignments: number;
+  }>(`${CF}/form-templates/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

@@ -260,9 +260,15 @@ export async function updateFormTemplate(id: string, data: Partial<FormTemplate>
 
 export async function deleteFormTemplate(id: string) {
   const deleted = await cfDeleteFormTemplate(id);
+  const unlinkedProgramIds = new Set(deleted.unlinkedProgramIds);
   setState((s) => ({
     ...s,
     formTemplates: s.formTemplates.filter((template) => template.id !== deleted.id),
+    programs: s.programs.map((program) =>
+      unlinkedProgramIds.has(program.id)
+        ? { ...program, defaultFormTemplateId: "", isActive: false }
+        : program,
+    ),
   }));
   return delay(deleted);
 }

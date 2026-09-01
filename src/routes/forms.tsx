@@ -344,8 +344,9 @@ function FormsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this form?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deletingTemplate?.name} will be permanently deleted. Forms used by programs,
-              assignments, or intake history cannot be deleted.
+              {deletingTemplate?.name} will be permanently deleted. Linked programs will be
+              made inactive until another form is selected. Unfinished form links will be
+              cancelled, while submitted intake history will be preserved.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
