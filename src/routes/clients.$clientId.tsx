@@ -106,6 +106,7 @@ function ClientProfile() {
   const client = s.clients.find((c) => c.id === clientId);
   const [editOpen, setEditOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [sendTemplateId, setSendTemplateId] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
   const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
   const [mergeAssignment, setMergeAssignment] = useState<FormAssignment | null>(null);
@@ -238,7 +239,14 @@ function ClientProfile() {
               <Pencil className="size-4" />
               Edit client
             </Button>
-            <Button onClick={() => setSendOpen(true)}>Send program form</Button>
+            <Button
+              onClick={() => {
+                setSendTemplateId(null);
+                setSendOpen(true);
+              }}
+            >
+              Send program form
+            </Button>
             <Button variant="outline" onClick={() => setTermsOpen(true)}>
               Create terms
             </Button>
@@ -800,6 +808,16 @@ function ClientProfile() {
                           size="sm"
                           variant="outline"
                           onClick={() => {
+                            setSendTemplateId(a.formId);
+                            setSendOpen(true);
+                          }}
+                        >
+                          Send another form
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
                             setFormReadOnly(true);
                             setActiveAssignment(a);
                           }}
@@ -884,7 +902,14 @@ function ClientProfile() {
               </Card>
             );
           })}
-          <Button onClick={() => setSendOpen(true)}>Assign a form</Button>
+          <Button
+            onClick={() => {
+              setSendTemplateId(null);
+              setSendOpen(true);
+            }}
+          >
+            Assign a form
+          </Button>
         </TabsContent>
 
         <TabsContent value="terms" className="mt-4 space-y-3">
@@ -1340,7 +1365,15 @@ function ClientProfile() {
             />
           );
         })()}
-      <SendFormDialog client={client} open={sendOpen} onOpenChange={setSendOpen} />
+      <SendFormDialog
+        client={client}
+        templateId={sendTemplateId}
+        open={sendOpen}
+        onOpenChange={(nextOpen) => {
+          setSendOpen(nextOpen);
+          if (!nextOpen) setSendTemplateId(null);
+        }}
+      />
       <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
       <EditClientDialog client={client} open={editOpen} onOpenChange={setEditOpen} />
 

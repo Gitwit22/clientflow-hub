@@ -33,13 +33,7 @@ export const Route = createFileRoute("/s/$token")({
 });
 
 type PageStatus =
-  | "loading"
-  | "ready"
-  | "submitting"
-  | "success"
-  | "error"
-  | "not_found"
-  | "already_submitted";
+  "loading" | "ready" | "submitting" | "success" | "error" | "not_found" | "already_submitted";
 
 function PublicFormPage() {
   const { token } = Route.useParams();
@@ -61,9 +55,8 @@ function PublicFormPage() {
         const initialCore: Record<string, PublicFormResponseValue> = {};
         const initialPrograms: Record<string, Record<string, PublicFormResponseValue>> = {};
         for (const section of data.intakeConfiguration.sections) {
-          const target = section.kind === "core"
-            ? initialCore
-            : (initialPrograms[section.programId!] ??= {});
+          const target =
+            section.kind === "core" ? initialCore : (initialPrograms[section.programId!] ??= {});
           for (const field of section.fields) {
             target[field.id] = section.kind === "core" ? (data.prefill[field.id] ?? "") : "";
           }
@@ -101,22 +94,19 @@ function PublicFormPage() {
     section.kind === "core" ? coreResponses : (programResponses[section.programId!] ?? {});
 
   const toggleProgram = (programId: string, checked: boolean) => {
-    setSelectedProgramIds((current) => checked
-      ? [...current, programId]
-      : current.filter((id) => id !== programId));
+    setSelectedProgramIds((current) =>
+      checked ? [...current, programId] : current.filter((id) => id !== programId),
+    );
   };
 
   async function handleSubmit() {
     if (!formData) return;
-    if (selectedProgramIds.length === 0) {
-      toast.error("Select at least one program.");
-      return;
-    }
     const visibleSections = getVisibleSections(formData, selectedProgramIds);
-    const missing = visibleSections
-      .flatMap((section) => section.fields
+    const missing = visibleSections.flatMap((section) =>
+      section.fields
         .filter((field) => !isRequiredResponseComplete(field, responsesFor(section)[field.id]))
-        .map(publicFieldLabel));
+        .map(publicFieldLabel),
+    );
 
     if (missing.length > 0) {
       toast.error(
@@ -233,9 +223,11 @@ function PublicFormPage() {
     .flatMap((section) => section.fields)
     .filter(isPublicFieldRequired);
   const completed = visibleSections.reduce(
-    (count, section) => count + section.fields.filter(
-      (field) => isRequiredResponseComplete(field, responsesFor(section)[field.id]),
-    ).length,
+    (count, section) =>
+      count +
+      section.fields.filter((field) =>
+        isRequiredResponseComplete(field, responsesFor(section)[field.id]),
+      ).length,
     0,
   );
   const progressPct =
@@ -274,31 +266,41 @@ function PublicFormPage() {
         )}
 
         <fieldset className="space-y-3 border-y border-border py-5">
-          <legend className="px-1 text-sm font-semibold">Select programs</legend>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {formData.intakeConfiguration.programs.map((program) => {
-              const checked = selectedProgramIds.includes(program.id);
-              return (
-                <label
-                  key={program.id}
-                  className="flex cursor-pointer items-center gap-3 rounded-md border border-border p-3 text-sm"
-                >
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={(value) => toggleProgram(program.id, value === true)}
-                    disabled={status === "submitting"}
-                  />
-                  <span>{program.name}</span>
-                </label>
-              );
-            })}
-          </div>
+          <legend className="px-1 text-sm font-semibold">Additional programs (optional)</legend>
+          {formData.intakeConfiguration.programs.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {formData.intakeConfiguration.programs.map((program) => {
+                const checked = selectedProgramIds.includes(program.id);
+                return (
+                  <label
+                    key={program.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-md border border-border p-3 text-sm"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(value) => toggleProgram(program.id, value === true)}
+                      disabled={status === "submitting"}
+                    />
+                    <span>{program.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              There are no additional programs available for this profile.
+            </p>
+          )}
         </fieldset>
 
         {/* Core and selected-program fields */}
         <div className="space-y-8">
           {visibleSections.map((section) => (
-            <section key={section.id} className="space-y-5" aria-labelledby={`section-${section.id}`}>
+            <section
+              key={section.id}
+              className="space-y-5"
+              aria-labelledby={`section-${section.id}`}
+            >
               <div className="space-y-1 border-b border-border pb-3">
                 <h2 id={`section-${section.id}`} className="font-display text-lg font-semibold">
                   {section.title}
@@ -320,20 +322,26 @@ function PublicFormPage() {
                   <PublicFieldInput
                     field={field}
                     inputId={`field-${section.id}-${field.id}`}
-                    value={typeof responsesFor(section)[field.id] === "string"
-                      ? String(responsesFor(section)[field.id])
-                      : ""}
+                    value={
+                      typeof responsesFor(section)[field.id] === "string"
+                        ? String(responsesFor(section)[field.id])
+                        : ""
+                    }
                     onChange={(value) => set(section, field.id, value)}
                     disabled={status === "submitting"}
                   />
                   {field.helpText && (
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      {field.id === "agreement" && field.helpText.startsWith("By selecting I Accept") ? (
+                      {field.id === "agreement" &&
+                      field.helpText.startsWith("By selecting I Accept") ? (
                         <>
-                          By selecting <strong className="font-semibold text-foreground">I Accept</strong>
+                          By selecting{" "}
+                          <strong className="font-semibold text-foreground">I Accept</strong>
                           {field.helpText.slice("By selecting I Accept".length)}
                         </>
-                      ) : field.helpText}
+                      ) : (
+                        field.helpText
+                      )}
                     </p>
                   )}
                 </div>
@@ -359,16 +367,18 @@ function getVisibleSections(
 ): PublicFormSection[] {
   const selected = new Set(selectedProgramIds);
   return formData.intakeConfiguration.sections.filter(
-    (section) => section.kind === "core"
-      || (section.programId !== null && selected.has(section.programId)),
+    (section) =>
+      section.kind === "core" || (section.programId !== null && selected.has(section.programId)),
   );
 }
 
 function isBlank(value: PublicFormResponseValue | undefined): boolean {
-  return value === undefined
-    || value === null
-    || (typeof value === "string" && value.trim().length === 0)
-    || (Array.isArray(value) && value.length === 0);
+  return (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim().length === 0) ||
+    (Array.isArray(value) && value.length === 0)
+  );
 }
 
 function isPublicFieldRequired(field: PublicFormField): boolean {
@@ -418,9 +428,14 @@ const legacyFieldLabels: Record<string, string> = {
 function publicFieldLabel(field: PublicFormField): string {
   const label = field.label.trim();
   if (label) return label;
-  return legacyFieldLabels[field.id]
-    ?? (field.id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").trim()
-      || "Form field");
+  return (
+    legacyFieldLabels[field.id] ??
+    (field.id
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[-_]+/g, " ")
+      .trim() ||
+      "Form field")
+  );
 }
 
 function PublicFieldInput({
@@ -528,11 +543,11 @@ function PublicFieldInput({
             ? "email"
             : field.type === "url"
               ? "url"
-            : field.type === "number"
-              ? "number"
-              : field.type === "date"
-                ? "date"
-                : "text"
+              : field.type === "number"
+                ? "number"
+                : field.type === "date"
+                  ? "date"
+                  : "text"
       }
       value={value}
       onChange={(e) => onChange(e.target.value)}

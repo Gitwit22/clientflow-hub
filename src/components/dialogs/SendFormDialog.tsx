@@ -12,20 +12,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  createFormAssignment,
-  renderEmailBody,
-  sendFormEmail,
-} from "@/lib/api";
+import { createFormAssignment, renderEmailBody, sendFormEmail } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import type { Client } from "@/types";
 
 export function SendFormDialog({
   client,
+  templateId,
   open,
   onOpenChange,
 }: {
   client: Client | null;
+  templateId?: string | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
@@ -37,15 +35,15 @@ export function SendFormDialog({
   const [preview, setPreview] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
-  const template = formTemplates.find((candidate) =>
-    candidate.scope === "master_core" && candidate.isActive,
-  ) ?? formTemplates.find((candidate) =>
-    candidate.programId === null && candidate.isActive,
-  );
-  const enrollment = enrollments.find((candidate) =>
-    candidate.clientId === client?.id
-      && !candidate.isArchived
-      && !["completed", "declined", "withdrawn"].includes(candidate.status),
+  const template = templateId
+    ? formTemplates.find((candidate) => candidate.id === templateId && candidate.isActive)
+    : (formTemplates.find((candidate) => candidate.scope === "master_core" && candidate.isActive) ??
+      formTemplates.find((candidate) => candidate.programId === null && candidate.isActive));
+  const enrollment = enrollments.find(
+    (candidate) =>
+      candidate.clientId === client?.id &&
+      !candidate.isArchived &&
+      !["completed", "declined", "withdrawn"].includes(candidate.status),
   );
   const program = programs.find((candidate) => candidate.id === enrollment?.programId);
   const secureLink = "https://forms.clientflow.app/s/{{generated-on-send}}";
@@ -96,7 +94,9 @@ export function SendFormDialog({
       setPreview(false);
       setBodyOverride(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to send form. Please try again.",
+      );
     } finally {
       setIsSending(false);
     }
@@ -115,8 +115,16 @@ export function SendFormDialog({
         <div className="space-y-4">
           {!template && (
             <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              No active Master Intake form is configured.
+              {templateId
+                ? "The selected form template is no longer active."
+                : "No active Master Intake form is configured."}
             </p>
+          )}
+          {template && (
+            <div className="space-y-1.5">
+              <Label>Form</Label>
+              <Input value={template.name} readOnly />
+            </div>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
