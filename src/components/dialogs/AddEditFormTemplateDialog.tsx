@@ -225,6 +225,18 @@ export function AddEditFormTemplateDialog({
           .filter((r) => r.label.trim())
           .map((r) => rowToField({ ...r, id: r.id || toSlug(r.label) })),
       };
+      if (template?.id === "form-inspired-detroit") {
+        console.info("[form-template-save:editor]", {
+          templateId: template.id,
+          programId: data.programId,
+          scope: data.scope,
+          rawFieldCount: fields.length,
+          rawFields: fields,
+          submittedFieldCount: data.fields.length,
+          submittedFieldIds: data.fields.map((field) => field.id),
+          submittedFields: data.fields,
+        });
+      }
       if (isEdit && template) {
         await updateFormTemplate(template.id, data);
         toast.success("Form template updated.");
