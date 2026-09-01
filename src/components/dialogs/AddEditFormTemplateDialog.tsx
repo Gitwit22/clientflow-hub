@@ -318,11 +318,12 @@ export function AddEditFormTemplateDialog({
             />
           </div>
 
-          {/* Active toggle */}
-          <div className="flex items-center gap-3">
-            <Switch id="tmpl-active" checked={isActive} onCheckedChange={setIsActive} />
-            <Label htmlFor="tmpl-active">Active</Label>
-          </div>
+          {(template?.scope ?? "program_section") === "master_core" && (
+            <div className="flex items-center gap-3">
+              <Switch id="tmpl-active" checked={isActive} onCheckedChange={setIsActive} />
+              <Label htmlFor="tmpl-active">Active</Label>
+            </div>
+          )}
 
           {/* Field builder */}
           <div className="space-y-3">

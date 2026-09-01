@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { emailTemplateBody } from "@/data/defaults";
+import { deleteFormTemplate } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
 import { SendFormFlowDialog } from "@/components/dialogs/SendFormFlowDialog";
@@ -57,6 +69,8 @@ function FormsPage() {
   const [sendFormOpen, setSendFormOpen] = useState(false);
   const [sendFormTemplateId, setSendFormTemplateId] = useState<string | undefined>(undefined);
   const [reviewingSubmission, setReviewingSubmission] = useState<IntakeSubmission | null>(null);
+  const [deletingTemplate, setDeletingTemplate] = useState<FormTemplate | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   function openTemplateAdd() {
     setEditingTemplateId(null);
@@ -165,7 +179,13 @@ function FormsPage() {
                       <h2 className="font-display text-lg font-semibold">{t.name}</h2>
                       <p className="text-sm text-muted-foreground">{t.description}</p>
                     </div>
-                    <StatusBadge status={t.isActive ? "Active" : "Draft"} />
+                    <StatusBadge
+                      status={t.scope === "master_core"
+                        ? (t.isActive ? "Active" : "Inactive")
+                        : (programs.find((program) => program.id === t.programId)?.isActive
+                            ? "Active"
+                            : "Inactive")}
+                    />
                   </div>
                   <div>
                     <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -241,6 +261,15 @@ function FormsPage() {
                     <Button variant="outline" size="sm" onClick={() => openTemplateEdit(t)}>
                       Edit template
                     </Button>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => setDeletingTemplate(t)}
+                      aria-label={`Delete ${t.name}`}
+                      title="Delete form"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -307,6 +336,43 @@ function FormsPage() {
         onOpenChange={setSendFormOpen}
         preselectedTemplateId={sendFormTemplateId}
       />
+      <AlertDialog
+        open={deletingTemplate !== null}
+        onOpenChange={(open) => !open && !isDeleting && setDeletingTemplate(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this form?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingTemplate?.name} will be permanently deleted. Forms used by programs,
+              assignments, or intake history cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!deletingTemplate) return;
+                setIsDeleting(true);
+                void deleteFormTemplate(deletingTemplate.id)
+                  .then(() => {
+                    toast.success("Form deleted.");
+                    setDeletingTemplate(null);
+                  })
+                  .catch((error: unknown) => {
+                    toast.error(error instanceof Error ? error.message : "Unable to delete form.");
+                  })
+                  .finally(() => setIsDeleting(false));
+              }}
+            >
+              {isDeleting ? "Deleting..." : "Delete form"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog
         open={Boolean(reviewingSubmission)}
         onOpenChange={(open) => !open && setReviewingSubmission(null)}

@@ -398,6 +398,7 @@ export async function submitPublicForm(
 async function publicRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
+    cache: init.cache ?? "no-store",
     headers: {
       "Content-Type": "application/json",
       "X-App-Partition": APP_PARTITION,
@@ -487,6 +488,11 @@ export async function cfUpdateFormTemplate(id: string, data: Record<string, unkn
   return apiRequest<FormTemplate>(`${CF}/form-templates/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),
+  });
+}
+export async function cfDeleteFormTemplate(id: string) {
+  return apiRequest<{ id: string }>(`${CF}/form-templates/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }
 

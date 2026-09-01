@@ -10,6 +10,7 @@ import { emailTemplateBody } from "@/data/defaults";
 import {
   cfCreateFormAssignment,
   cfCreateFormTemplate,
+  cfDeleteFormTemplate,
   cfUpdateFormTemplate,
   cfCreateClient,
   cfGetClient,
@@ -255,6 +256,15 @@ export async function updateFormTemplate(id: string, data: Partial<FormTemplate>
     formTemplates: s.formTemplates.map((t) => (t.id === id ? template : t)),
   }));
   return delay(template);
+}
+
+export async function deleteFormTemplate(id: string) {
+  const deleted = await cfDeleteFormTemplate(id);
+  setState((s) => ({
+    ...s,
+    formTemplates: s.formTemplates.filter((template) => template.id !== deleted.id),
+  }));
+  return delay(deleted);
 }
 
 export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {
