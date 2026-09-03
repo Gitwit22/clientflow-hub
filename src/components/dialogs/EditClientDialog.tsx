@@ -19,8 +19,12 @@ import {
 } from "@/components/ui/select";
 import { updateClient } from "@/lib/api";
 import {
+  memberName,
+  memberOptionLabel,
+  useOrganizationMembers,
+} from "@/hooks/use-organization-members";
+import {
   CLIENT_STATUSES,
-  STAFF,
   type Client,
   type ClientStatus,
   type ProfileType,
@@ -61,7 +65,8 @@ export function EditClientDialog({
   const [profileType, setProfileType] = useState<ProfileType>("business");
   const [relationshipType, setRelationshipType] = useState<RelationshipType>("prospect");
   const [status, setStatus] = useState<ClientStatus>("New Intake");
-  const [assignedStaff, setAssignedStaff] = useState(STAFF[0]);
+  const { activeMembers } = useOrganizationMembers();
+  const [assignedUserId, setAssignedUserId] = useState("__unassigned");
   const [nextFollowUpDate, setNextFollowUpDate] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -75,7 +80,7 @@ export function EditClientDialog({
     setProfileType(client.profileType ?? "business");
     setRelationshipType(client.relationshipType ?? "prospect");
     setStatus(client.status);
-    setAssignedStaff(client.assignedStaff || STAFF[0]);
+    setAssignedUserId(client.assignedUserId ?? (client.assignedStaff ? "__legacy" : "__unassigned"));
     setNextFollowUpDate(dateInputValue(client.nextFollowUpDate));
   }, [client, open]);
 
@@ -88,6 +93,7 @@ export function EditClientDialog({
 
     setSaving(true);
     try {
+      const selectedMember = activeMembers.find((member) => member.id === assignedUserId);
       await updateClient(client.id, {
         businessName: businessName.trim(),
         primaryContactName: primaryContactName.trim(),
@@ -97,7 +103,14 @@ export function EditClientDialog({
         profileType,
         relationshipType,
         status,
-        assignedStaff,
+        assignedUserId:
+          assignedUserId === "__legacy" ? client.assignedUserId : selectedMember?.id ?? null,
+        assignedStaff:
+          assignedUserId === "__legacy"
+            ? client.assignedStaff
+            : selectedMember
+              ? memberName(selectedMember)
+              : "",
         nextFollowUpDate,
       });
       toast.success("Client updated.");
@@ -218,14 +231,18 @@ export function EditClientDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Assigned staff</Label>
-              <Select value={assignedStaff} onValueChange={setAssignedStaff}>
+              <Select value={assignedUserId} onValueChange={setAssignedUserId}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {STAFF.map((staffMember) => (
-                    <SelectItem key={staffMember} value={staffMember}>
-                      {staffMember}
+                  <SelectItem value="__unassigned">Unassigned</SelectItem>
+                  {client.assignedStaff && !client.assignedUserId && (
+                    <SelectItem value="__legacy">{client.assignedStaff} · Legacy assignment</SelectItem>
+                  )}
+                  {activeMembers.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {memberOptionLabel(member)}
                     </SelectItem>
                   ))}
                 </SelectContent>

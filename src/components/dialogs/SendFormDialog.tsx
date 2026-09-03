@@ -81,12 +81,11 @@ export function SendFormDialog({
         completionMethod: "secure_link",
         deliveryMethod: "email",
         recipientEmail: client.email,
-        assignedUserId: null,
+        assignedUserId: client.assignedUserId ?? null,
         dueDate: new Date(dueDate).toISOString(),
         status: "draft",
         organizationId: "org_ea_management",
         isDemo: client.isDemo ?? false,
-        createdByUserId: "user_alicia",
       });
       await sendFormEmail(assignment.id);
       toast.success(`${template.name} sent to ${client.email}`);

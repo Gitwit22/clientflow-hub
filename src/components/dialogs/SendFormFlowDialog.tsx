@@ -16,7 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { createClient, createFormAssignment, renderEmailBody, sendFormEmail } from "@/lib/api";
 import { useAppState } from "@/lib/store";
-import { STAFF, type Client } from "@/types";
+import { memberName, useOrganizationMembers } from "@/hooks/use-organization-members";
+import type { Client } from "@/types";
 
 type FlowStep = "profile" | "form" | "send" | "done";
 
@@ -35,7 +36,8 @@ export function SendFormFlowDialog({
   preselectedTemplateId,
   preselectedClient,
 }: Props) {
-  const { clients, formTemplates, programs } = useAppState();
+  const { clients, formTemplates, programs, authenticatedAdmin } = useAppState();
+  const { activeMembers } = useOrganizationMembers();
 
   function initStep(): FlowStep {
     if (preselectedClient) return preselectedTemplateId ? "send" : "form";
@@ -141,6 +143,7 @@ export function SendFormFlowDialog({
       toast.error("Name and email are required");
       return;
     }
+    const signedInMember = activeMembers.find((member) => member.id === authenticatedAdmin?.id);
     const created = await createClient({
       organizationId: "org_ea_management",
       businessName: quickName.trim(),
@@ -154,8 +157,8 @@ export function SendFormFlowDialog({
       profileType: "individual",
       relationshipType: "prospect",
       lifecycleStatus: "new",
-      assignedStaff: STAFF[0],
-      assignedUserId: null,
+      assignedStaff: signedInMember ? memberName(signedInMember) : "",
+      assignedUserId: signedInMember?.id ?? null,
       intakeSource: "admin_created",
       source: "admin_created",
       nextFollowUpDate: new Date(Date.now() + 3 * 864e5).toISOString(),
@@ -187,12 +190,11 @@ export function SendFormFlowDialog({
         completionMethod: "secure_link",
         deliveryMethod: "email",
         recipientEmail,
-        assignedUserId: null,
+        assignedUserId: selectedClient.assignedUserId ?? null,
         dueDate: new Date(dueDate).toISOString(),
         status: "draft",
         organizationId: "org_ea_management",
         isDemo: selectedClient.isDemo ?? false,
-        createdByUserId: "user_alicia",
         personalMessage: personalMessage || undefined,
       });
       await sendFormEmail(assignment.id, personalMessage || undefined);

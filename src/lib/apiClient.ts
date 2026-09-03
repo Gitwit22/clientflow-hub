@@ -129,6 +129,7 @@ export interface AdminInfo {
   email: string;
   firstName?: string;
   lastName?: string;
+  jobTitle?: string;
   platformRole?: string | null;
   role?: string;
   organizationId?: string;
@@ -211,6 +212,19 @@ export async function restoreSession(): Promise<boolean> {
   }
 }
 
+export async function updateProfile(payload: {
+  firstName?: string;
+  lastName?: string;
+  jobTitle?: string;
+}): Promise<AdminInfo> {
+  const admin = await apiRequest<AdminInfo>("/api/v1/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  setAuthSession(admin);
+  return admin;
+}
+
 export interface ChangePasswordPayload {
   currentPassword: string;
   newPassword: string;
@@ -218,10 +232,12 @@ export interface ChangePasswordPayload {
 
 /** POST /auth/change-password — revokes all sessions; user must log in again. */
 export async function changePassword(payload: ChangePasswordPayload): Promise<{ message: string }> {
-  return apiRequest("/api/v1/auth/change-password", {
+  const result = await apiRequest<{ message: string }>("/api/v1/auth/change-password", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  clearAuthSession();
+  return result;
 }
 
 /** POST /auth/forgot-password */
@@ -504,7 +520,18 @@ export async function cfListFormAssignments(clientId?: string) {
   const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
   return apiRequest<unknown[]>(`${CF}/form-assignments${qs}`);
 }
-export async function cfCreateFormAssignment(data: Record<string, unknown>) {
+export async function cfCreateFormAssignment(data: {
+  clientId: string;
+  enrollmentId?: string;
+  formId: string;
+  assignedUserId?: string | null;
+  completionMethod?: string;
+  deliveryMethod?: string;
+  recipientEmail?: string | null;
+  recipientPhone?: string | null;
+  dueDate?: string;
+  isDemo?: boolean;
+}) {
   return apiRequest<FormAssignment>(`${CF}/form-assignments`, {
     method: "POST",
     body: JSON.stringify(data),
@@ -688,7 +715,12 @@ export async function cfListActivity(clientId?: string) {
   const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
   return apiRequest<unknown[]>(`${CF}/activity${qs}`);
 }
-export async function cfCreateActivity(data: Record<string, unknown>) {
+export async function cfCreateActivity(data: {
+  clientId: string;
+  enrollmentId?: string;
+  action: string;
+  description: string;
+}) {
   return apiRequest<unknown>(`${CF}/activity`, { method: "POST", body: JSON.stringify(data) });
 }
 

@@ -18,14 +18,16 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Crown, UserPlus } from "lucide-react";
+import { Crown, Eye, EyeOff, UserPlus } from "lucide-react";
 import {
   ApiError,
+  changePassword,
   cfSeedDemo,
   disableMember,
   enableMember,
   getOrganizationSettings,
   listMembers,
+  updateProfile,
   updateMemberRole,
   updateOrganizationSettings,
 } from "@/lib/apiClient";
@@ -117,6 +119,19 @@ function SettingsPage() {
   const [activeUpdating, setActiveUpdating] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
 
+  // Personal profile
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+
+  // Security
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
   // Company profile
   const [orgLoading, setOrgLoading] = useState(false);
   const [companyName, setCompanyName] = useState("");
@@ -180,6 +195,59 @@ function SettingsPage() {
     void fetchOrgSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
+
+  useEffect(() => {
+    setFirstName(authenticatedAdmin?.firstName ?? "");
+    setLastName(authenticatedAdmin?.lastName ?? "");
+    setJobTitle(authenticatedAdmin?.jobTitle ?? "");
+  }, [authenticatedAdmin]);
+
+  async function handleSavePersonalProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setProfileSaving(true);
+    try {
+      const admin = await updateProfile({ firstName, lastName, jobTitle });
+      setMembers((current) =>
+        current.map((member) =>
+          member.id === admin.id
+            ? {
+                ...member,
+                firstName: admin.firstName,
+                lastName: admin.lastName,
+                jobTitle: admin.jobTitle,
+              }
+            : member,
+        ),
+      );
+      toast.success("Personal profile saved.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Failed to save personal profile.");
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function handleChangePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error("New password must be at least 8 characters.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const result = await changePassword({ currentPassword, newPassword });
+      toast.success(result.message);
+      window.location.assign("/login");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Failed to change password.");
+      setPasswordSaving(false);
+    }
+  }
 
   async function handleSeedDemo() {
     if (!window.confirm("Create server-persisted sample data for this organization?")) return;
@@ -333,7 +401,7 @@ function SettingsPage() {
                         )}
                       </p>
                       <p className="truncate font-mono text-xs text-muted-foreground">
-                        {member.email}
+                        {[member.jobTitle, member.email].filter(Boolean).join(" · ")}
                       </p>
                     </div>
                     <MemberStatusBadge member={member} />
@@ -364,6 +432,134 @@ function SettingsPage() {
               })
             )}
           </CardContent>
+        </Card>
+
+        {/* ── Personal profile ──────────────────────────────────────────────── */}
+        <Card className="shadow-card">
+          <CardHeader>
+            <CardTitle className="font-display text-base">Personal profile</CardTitle>
+          </CardHeader>
+          <form onSubmit={handleSavePersonalProfile}>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="s-first-name">First name</Label>
+                  <Input
+                    id="s-first-name"
+                    value={firstName}
+                    onChange={(event) => setFirstName(event.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="s-last-name">Last name</Label>
+                  <Input
+                    id="s-last-name"
+                    value={lastName}
+                    onChange={(event) => setLastName(event.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="s-profile-email">Email</Label>
+                <Input
+                  id="s-profile-email"
+                  type="email"
+                  value={authenticatedAdmin?.email ?? ""}
+                  disabled
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="s-job-title">Job title</Label>
+                <Input
+                  id="s-job-title"
+                  value={jobTitle}
+                  onChange={(event) => setJobTitle(event.target.value)}
+                  placeholder="Program manager"
+                  maxLength={150}
+                />
+              </div>
+            </CardContent>
+            <CardFooter className="pt-0">
+              <Button type="submit" size="sm" disabled={profileSaving || !authenticatedAdmin}>
+                {profileSaving ? "Saving…" : "Save profile"}
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+
+        {/* ── Security ─────────────────────────────────────────────────────── */}
+        <Card className="shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="font-display text-base">Security</CardTitle>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowPasswords((visible) => !visible)}
+              aria-label={showPasswords ? "Hide passwords" : "Show passwords"}
+              title={showPasswords ? "Hide passwords" : "Show passwords"}
+            >
+              {showPasswords ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </Button>
+          </CardHeader>
+          <form onSubmit={handleChangePassword}>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="s-current-password">Current password</Label>
+                <Input
+                  id="s-current-password"
+                  type={showPasswords ? "text" : "password"}
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  autoComplete="current-password"
+                  minLength={8}
+                  maxLength={72}
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="s-new-password">New password</Label>
+                  <Input
+                    id="s-new-password"
+                    type={showPasswords ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    maxLength={72}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="s-confirm-password">Confirm password</Label>
+                  <Input
+                    id="s-confirm-password"
+                    type={showPasswords ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    maxLength={72}
+                    required
+                  />
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="pt-0">
+              <Button
+                type="submit"
+                size="sm"
+                disabled={
+                  passwordSaving || !currentPassword || !newPassword || !confirmPassword
+                }
+              >
+                {passwordSaving ? "Changing…" : "Change password"}
+              </Button>
+            </CardFooter>
+          </form>
         </Card>
 
         {/* ── Company profile ────────────────────────────────────────────────── */}

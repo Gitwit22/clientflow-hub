@@ -41,6 +41,7 @@ export interface AuthenticatedAdmin {
   email: string;
   firstName?: string;
   lastName?: string;
+  jobTitle?: string;
   role?: string;
   organizationId?: string;
 }

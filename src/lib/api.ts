@@ -62,14 +62,12 @@ const delay = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => reso
 
 const nowISO = () => new Date().toISOString();
 
-async function log(clientId: string, action: string, description: string, user = "Alicia Monroe") {
+async function log(clientId: string, action: string, description: string) {
   try {
     const entry = (await cfCreateActivity({
       clientId,
       action,
       description,
-      user,
-      timestamp: nowISO(),
     })) as ActivityLog;
     setState((s) => ({ ...s, activity: [entry, ...s.activity] }));
   } catch (error) {
@@ -301,7 +299,6 @@ export async function createFormAssignment(data: {
   status?: FormAssignmentStatus;
   organizationId?: string;
   isDemo?: boolean;
-  createdByUserId?: string;
   personalMessage?: string;
 }) {
   const isSendLink = data.completionMethod === "secure_link";
@@ -316,7 +313,6 @@ export async function createFormAssignment(data: {
     dueDate: data.dueDate,
     status: "draft",
     isDemo: data.isDemo ?? false,
-    createdByUserId: data.createdByUserId ?? "user_alicia",
   });
   setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
   await log(

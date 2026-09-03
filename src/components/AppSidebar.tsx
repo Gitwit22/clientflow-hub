@@ -149,7 +149,7 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               {displayName}
             </p>
             <p className="font-mono text-[10.5px] capitalize text-sidebar-foreground/60">
-              {authenticatedAdmin?.role?.replace("_", " ") ?? "Admin"}
+              {authenticatedAdmin?.jobTitle || authenticatedAdmin?.role?.replace("_", " ") || "Admin"}
             </p>
           </div>
           <button

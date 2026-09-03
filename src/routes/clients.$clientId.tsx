@@ -44,7 +44,7 @@ import {
   updateContract,
   uploadDocument,
 } from "@/lib/api";
-import { ARCHIVE_DECISIONS, STAFF, type FormAssignment } from "@/types";
+import { ARCHIVE_DECISIONS, type FormAssignment } from "@/types";
 
 const MONITORING_TYPES = [
   "Payment check",

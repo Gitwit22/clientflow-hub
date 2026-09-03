@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CheckCircle, Plus, Search, Send, User } from "lucide-react";
 import { toast } from "sonner";
@@ -17,9 +17,13 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/lib/store";
+import {
+  memberName,
+  memberOptionLabel,
+  useOrganizationMembers,
+} from "@/hooks/use-organization-members";
 import { createClient, createFormAssignment, sendFormEmail } from "@/lib/api";
 import {
-  STAFF,
   type Client,
   type ProfileSource,
   type ProfileType,
@@ -81,7 +85,11 @@ function StepIndicator({ step }: { step: IntakeStep }) {
 }
 
 function IntakePage() {
-  const { clients, formTemplates, programs } = useAppState();
+  const { clients, formTemplates, programs, authenticatedAdmin } = useAppState();
+  const { activeMembers } = useOrganizationMembers();
+  const signedInMemberId = activeMembers.find(
+    (member) => member.id === authenticatedAdmin?.id,
+  )?.id;
   const navigate = useNavigate();
   const masterTemplate = formTemplates.find(
     (template) => template.scope === "master_core" && template.isActive,
@@ -103,14 +111,26 @@ function IntakePage() {
     profileType: "business" as ProfileType,
     relationshipType: "prospect" as RelationshipType,
     source: "admin_created" as ProfileSource,
-    assignedStaff: STAFF[0],
+    assignedUserId: "__unassigned",
   });
   const [recipientEmail, setRecipientEmail] = useState("");
   const [dueDate, setDueDate] = useState(
     new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
   );
-  const [assignedStaff, setAssignedStaff] = useState(STAFF[0]);
+  const [assignedUserId, setAssignedUserId] = useState("__unassigned");
   const [personalMessage, setPersonalMessage] = useState("");
+
+  useEffect(() => {
+    if (!signedInMemberId) return;
+    setNewProfile((current) =>
+      current.assignedUserId === "__unassigned"
+        ? { ...current, assignedUserId: signedInMemberId }
+        : current,
+    );
+    setAssignedUserId((current) =>
+      current === "__unassigned" ? signedInMemberId : current,
+    );
+  }, [signedInMemberId]);
 
   function handleSearch() {
     const em = searchEmail.toLowerCase().trim();
@@ -138,7 +158,7 @@ function IntakePage() {
     }
     setSelectedProfile(client);
     setRecipientEmail(client.email);
-    setAssignedStaff(client.assignedStaff);
+    setAssignedUserId(client.assignedUserId ?? "__unassigned");
     setStep("choose-method");
   }
 
@@ -147,6 +167,9 @@ function IntakePage() {
       toast.error("Contact name and email are required");
       return;
     }
+    const selectedMember = activeMembers.find(
+      (member) => member.id === newProfile.assignedUserId,
+    );
     const created = await createClient({
       organizationId: "org_ea_management",
       businessName: newProfile.businessName || newProfile.primaryContactName,
@@ -160,8 +183,8 @@ function IntakePage() {
       profileType: newProfile.profileType,
       relationshipType: newProfile.relationshipType,
       lifecycleStatus: "new",
-      assignedStaff: newProfile.assignedStaff,
-      assignedUserId: null,
+      assignedStaff: selectedMember ? memberName(selectedMember) : "",
+      assignedUserId: selectedMember?.id ?? null,
       intakeSource: newProfile.source,
       source: newProfile.source,
       nextFollowUpDate: new Date(Date.now() + 3 * 864e5).toISOString(),
@@ -179,7 +202,7 @@ function IntakePage() {
     });
     setSelectedProfile(created);
     setRecipientEmail(created.email);
-    setAssignedStaff(created.assignedStaff);
+    setAssignedUserId(created.assignedUserId ?? "__unassigned");
     toast.success("Profile created");
     setStep("choose-method");
   }
@@ -192,12 +215,11 @@ function IntakePage() {
       completionMethod: "admin_assisted",
       deliveryMethod: "none",
       recipientEmail: selectedProfile.email,
-      assignedUserId: null,
+      assignedUserId: assignedUserId === "__unassigned" ? null : assignedUserId,
       dueDate,
       status: "draft",
       organizationId: "org_ea_management",
       isDemo: selectedProfile.isDemo ?? false,
-      createdByUserId: "user_alicia",
     });
     if (!assignment.secureLink) {
       toast.error("Could not create a secure Master Intake link");
@@ -219,12 +241,11 @@ function IntakePage() {
         completionMethod: "secure_link",
         deliveryMethod: "email",
         recipientEmail,
-        assignedUserId: null,
+        assignedUserId: assignedUserId === "__unassigned" ? null : assignedUserId,
         dueDate,
         status: "draft",
         organizationId: "org_ea_management",
         isDemo: selectedProfile.isDemo ?? false,
-        createdByUserId: "user_alicia",
         personalMessage,
       });
       await sendFormEmail(assignment.id, personalMessage || undefined);
@@ -437,16 +458,19 @@ function IntakePage() {
               <div className="space-y-1.5">
                 <Label>Assigned staff</Label>
                 <Select
-                  value={newProfile.assignedStaff}
-                  onValueChange={(v) => setNewProfile({ ...newProfile, assignedStaff: v })}
+                  value={newProfile.assignedUserId}
+                  onValueChange={(value) =>
+                    setNewProfile({ ...newProfile, assignedUserId: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {STAFF.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
+                    <SelectItem value="__unassigned">Unassigned</SelectItem>
+                    {activeMembers.map((member) => (
+                      <SelectItem key={member.id} value={member.id}>
+                        {memberOptionLabel(member)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -535,14 +559,15 @@ function IntakePage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Assigned staff member</Label>
-                <Select value={assignedStaff} onValueChange={setAssignedStaff}>
+                <Select value={assignedUserId} onValueChange={setAssignedUserId}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {STAFF.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
+                    <SelectItem value="__unassigned">Unassigned</SelectItem>
+                    {activeMembers.map((member) => (
+                      <SelectItem key={member.id} value={member.id}>
+                        {memberOptionLabel(member)}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -24,7 +24,8 @@ import {
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { useAppState } from "@/lib/store";
 import { archiveClient } from "@/lib/api";
-import { CLIENT_STATUSES, STAFF, type Client } from "@/types";
+import { memberOptionLabel, useOrganizationMembers } from "@/hooks/use-organization-members";
+import { CLIENT_STATUSES, type Client } from "@/types";
 
 export const Route = createFileRoute("/clients/")({
   head: () => ({
@@ -46,6 +47,7 @@ export const Route = createFileRoute("/clients/")({
 
 function ClientsPage() {
   const { clients, programs } = useAppState();
+  const { members } = useOrganizationMembers();
   const [q, setQ] = useState("");
   const [program, setProgram] = useState("all");
   const [status, setStatus] = useState("all");
@@ -76,7 +78,7 @@ function ClientsPage() {
     }
     if (program !== "all" && c.programId !== program) return false;
     if (status !== "all" && c.status !== status) return false;
-    if (staff !== "all" && c.assignedStaff !== staff) return false;
+    if (staff !== "all" && c.assignedUserId !== staff) return false;
     const t = q.toLowerCase();
     return (
       !t ||
@@ -159,9 +161,9 @@ function ClientsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All staff</SelectItem>
-              {STAFF.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
+              {members.map((member) => (
+                <SelectItem key={member.id} value={member.id}>
+                  {memberOptionLabel(member)}
                 </SelectItem>
               ))}
             </SelectContent>

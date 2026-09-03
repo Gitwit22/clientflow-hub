@@ -99,6 +99,7 @@ export interface OrgMember {
   email: string;
   firstName?: string | null;
   lastName?: string | null;
+  jobTitle?: string | null;
   role: BackendRole;
   isActive: boolean;
   createdAt: string;
@@ -570,5 +571,3 @@ export const ARCHIVE_DECISIONS = [
   "Pre-Archive",
   "Archived",
 ];
-
-export const STAFF = ["Alicia Monroe", "Derrick Hale", "Priya Raman", "Marcus Webb"];
