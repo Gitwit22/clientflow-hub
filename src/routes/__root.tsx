@@ -13,6 +13,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppSidebarNav } from "@/components/AppSidebar";
+import { IdleSessionWarning } from "@/components/IdleSessionWarning";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { Toaster } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -21,6 +22,7 @@ import { Menu } from "lucide-react";
 import { retryBootstrap, useAppState } from "@/lib/store";
 import { restoreSession } from "@/lib/apiClient";
 import { useBootstrap } from "@/hooks/use-bootstrap";
+import { useIdleLogout } from "@/hooks/use-idle-logout";
 
 function NotFoundComponent() {
   return (
@@ -188,6 +190,7 @@ function AuthRedirect() {
 
 function AuthenticatedShell() {
   useBootstrap();
+  const idleSession = useIdleLogout();
   const { bootstrapStatus, bootstrapError } = useAppState();
   return (
     <>
@@ -203,7 +206,12 @@ function AuthenticatedShell() {
           <header className="flex items-center gap-3 border-b border-border bg-sidebar px-4 py-3 lg:hidden">
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="Open navigation" className="border-sidebar-border text-sidebar-foreground hover:bg-sidebar-accent">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Open navigation"
+                  className="border-sidebar-border text-sidebar-foreground hover:bg-sidebar-accent"
+                >
                   <Menu className="size-4" />
                 </Button>
               </SheetTrigger>
@@ -226,7 +234,9 @@ function AuthenticatedShell() {
                 <p className="mt-2 text-sm text-muted-foreground">
                   {bootstrapError ?? "The server did not return your organization data."}
                 </p>
-                <Button className="mt-5" onClick={retryBootstrap}>Retry</Button>
+                <Button className="mt-5" onClick={retryBootstrap}>
+                  Retry
+                </Button>
               </div>
             ) : (
               <AccessCheck />
@@ -234,6 +244,13 @@ function AuthenticatedShell() {
           </main>
         </div>
       </div>
+      <IdleSessionWarning
+        open={idleSession.warningOpen}
+        secondsRemaining={idleSession.secondsRemaining}
+        isLoggingOut={idleSession.isLoggingOut}
+        onContinue={idleSession.continueSession}
+        onLogout={idleSession.signOutNow}
+      />
     </>
   );
 }

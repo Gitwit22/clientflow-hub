@@ -1,4 +1,11 @@
 import { clearAuthSession, setAuthSession } from "./store";
+import {
+  broadcastLogout,
+  clearIdleSession,
+  getLastActivityAt,
+  isIdleSessionExpired,
+  recordActivity,
+} from "./idle-session";
 import type {
   ClientDocument,
   EnrollmentStatusHistory,
@@ -160,13 +167,12 @@ export interface BootstrapData {
 }
 
 /** POST /auth/login - the API establishes HttpOnly session cookies. */
-export async function login(
-  payload: LoginPayload,
-): Promise<{ admin: AdminInfo }> {
+export async function login(payload: LoginPayload): Promise<{ admin: AdminInfo }> {
   const result = await apiRequest<{ admin: AdminInfo }>("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  recordActivity();
   setAuthSession(result.admin);
   return result;
 }
@@ -176,6 +182,8 @@ export async function logout(): Promise<void> {
   try {
     await apiRequest("/api/v1/auth/logout", { method: "POST" });
   } finally {
+    clearIdleSession();
+    broadcastLogout();
     clearAuthSession();
   }
 }
@@ -202,8 +210,20 @@ export async function getSession(): Promise<{ valid: boolean }> {
 }
 
 export async function restoreSession(): Promise<boolean> {
+  if (isIdleSessionExpired()) {
+    try {
+      await logout();
+    } catch {
+      // Local session state is cleared by logout even if the API is unavailable.
+    }
+    return false;
+  }
+
   try {
     const admin = await apiRequest<AdminInfo>("/api/v1/auth/me");
+    if (getLastActivityAt() === null) {
+      recordActivity();
+    }
     setAuthSession(admin);
     return true;
   } catch {
@@ -340,13 +360,10 @@ export async function acceptInvite(
   token: string,
   newPassword: string,
 ): Promise<{ admin: AdminInfo }> {
-  const result = await apiRequest<{ admin: AdminInfo }>(
-    "/api/v1/auth/accept-invite",
-    {
-      method: "POST",
-      body: JSON.stringify({ token, newPassword }),
-    },
-  );
+  const result = await apiRequest<{ admin: AdminInfo }>("/api/v1/auth/accept-invite", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword }),
+  });
   setAuthSession(result.admin);
   return result;
 }
