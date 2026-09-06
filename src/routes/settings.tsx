@@ -394,6 +394,11 @@ function SettingsPage() {
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5 truncate font-medium leading-tight">
                         {memberName(member)}
+                        {isSelf && (
+                          <Badge variant="secondary" className="shrink-0 text-[10px] uppercase">
+                            You
+                          </Badge>
+                        )}
                         {member.isPrincipal && (
                           <Badge variant="outline" className="gap-1 text-[10px] uppercase">
                             <Crown className="size-3" /> Principal
