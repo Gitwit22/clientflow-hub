@@ -2,10 +2,12 @@
 
 ## Overview
 
-ClientFlow Hub is a TanStack Start + React application that can be deployed to:
-- **Render** (recommended for beginners)
-- **Cloudflare Workers/Pages** (recommended for edge deployment)
-- **Any Node.js-compatible platform**
+ClientFlow Hub is a TanStack Start + React application deployed primarily to Cloudflare Pages.
+The production site is `https://clientflow-2g9.pages.dev` and the production API is
+`https://nxt-lvl-api2.onrender.com`.
+
+> `VITE_*` values are public browser configuration. Never put email provider keys, JWT secrets,
+> database URLs, backend credentials, or Cloudflare API tokens in a `VITE_*` variable.
 
 ---
 
@@ -33,10 +35,7 @@ In Render Dashboard, go to **Environment**:
 
 ```
 NODE_ENV=production
-VITE_API_URL=https://your-backend-url.com
-VITE_SENDGRID_API_KEY=SG.xxxxx
-VITE_SENDGRID_FROM_EMAIL=noreply@yourdomain.com
-VITE_BACKEND_API_KEY=your-secret-key
+VITE_API_URL=https://nxt-lvl-api2.onrender.com
 ```
 
 ### Step 3: Deploy
@@ -57,12 +56,9 @@ Update `wrangler.toml` with your settings:
 account_id = "your-account-id"
 ```
 
-### Step 2: Set Secrets
-```bash
-wrangler secret put VITE_API_URL
-wrangler secret put VITE_SENDGRID_API_KEY
-wrangler secret put VITE_BACKEND_API_KEY
-```
+### Step 2: Configure the API URL
+The application defaults to `https://nxt-lvl-api2.onrender.com`. Set `VITE_API_URL` as a
+Cloudflare Pages build variable only when deploying against a different API.
 
 ### Step 3: Deploy
 ```bash
@@ -79,14 +75,8 @@ wrangler deploy --env production
 | `NODE_ENV` | Deployment environment | `production` |
 | `VITE_API_URL` | Backend API URL | `https://api.clientflow.app` |
 
-### Optional Variables
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VITE_SENDGRID_API_KEY` | SendGrid API key for emails | (none) |
-| `VITE_SENDGRID_FROM_EMAIL` | Sender email address | (none) |
-| `VITE_BACKEND_API_KEY` | Backend authentication key | (none) |
-| `VITE_SENTRY_DSN` | Sentry error tracking | (none) |
-| `VITE_ANALYTICS_ID` | Google Analytics ID | (none) |
+Email is sent by `nxt-lvl-api2`. Configure `RESEND_API_KEY`, `EMAIL_FROM`,
+`EMAIL_REPLY_TO`, and `EMAIL_SEND_ENABLED` only on the API service.
 
 ---
 
@@ -140,6 +130,6 @@ All scripts now use npm instead of Bun.
 
 1. Update `.env.example` with your actual service endpoints
 2. Configure API backend URL in environment variables
-3. Set up email service (SendGrid) if sending forms
+3. Configure Resend on the API service if sending forms
 4. Test locally with `npm run dev`
 5. Deploy to Render or Cloudflare

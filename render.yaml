@@ -12,14 +12,6 @@ services:
         scope: build
       - key: VITE_API_URL
         scope: runtime
-      - key: VITE_CLOUDFLARE_ACCOUNT_ID
-        scope: build
-      - key: VITE_CLOUDFLARE_API_TOKEN
-        scope: build
-      - key: VITE_SENDGRID_API_KEY
-        scope: build
-      - key: VITE_SENDGRID_FROM_EMAIL
-        scope: build
     rootDir: .
     healthCheckPath: /
     preDeployCommand: ""

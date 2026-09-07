@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useAppState, setState } from "@/lib/store";
+import { getState, useAppState, setState } from "@/lib/store";
 import * as api from "@/lib/apiClient";
 
 async function loadRequired<T>(label: string, request: Promise<T>): Promise<T> {
@@ -21,8 +21,7 @@ export function useBootstrap() {
   useEffect(() => {
     if (authStatus !== "authenticated" || !authenticatedAdmin) return;
     if (bootstrapStatus !== "idle") return;
-
-    let cancelled = false;
+    const adminId = authenticatedAdmin.id;
 
     setState((current) => ({ ...current, bootstrapStatus: "loading", bootstrapError: null }));
 
@@ -61,7 +60,11 @@ export function useBootstrap() {
           loadRequired("Activity", api.cfListActivity()),
         ]);
 
-        if (cancelled) return;
+        if (
+          getState().authStatus !== "authenticated" ||
+          getState().authenticatedAdmin?.id !== adminId
+        )
+          return;
 
         setState((prev) => {
           return {
@@ -85,8 +88,13 @@ export function useBootstrap() {
           };
         });
       } catch (error) {
-        if (cancelled) return;
-        const errorMsg = error instanceof Error ? error.message : "ClientFlow data could not be loaded.";
+        if (
+          getState().authStatus !== "authenticated" ||
+          getState().authenticatedAdmin?.id !== adminId
+        )
+          return;
+        const errorMsg =
+          error instanceof Error ? error.message : "ClientFlow data could not be loaded.";
         console.error("[Bootstrap] Failed to load data:", {
           error,
           errorMsg,
@@ -99,9 +107,5 @@ export function useBootstrap() {
         }));
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [authStatus, authenticatedAdmin, bootstrapStatus]);
 }
