@@ -7,14 +7,23 @@ import {
   recordActivity,
 } from "./idle-session";
 import type {
+  ActivityLog,
+  Client,
   ClientDocument,
+  Communication,
+  Contract,
   EnrollmentStatusHistory,
+  EnrollmentMonitoring,
+  FinalReport,
   FormAssignment,
+  FormTemplate,
   IntakeSubmission,
   OrgMember,
   OrgSettings,
+  Program,
   ProgramDetailResponse,
   ProgramEnrollment,
+  Terms,
 } from "@/types";
 
 const API_URL =
@@ -449,12 +458,27 @@ async function publicRequest<T = unknown>(path: string, init: RequestInit = {}):
 // ─── ClientFlow CRUD ──────────────────────────────────────────────────────────
 
 const CF = "/api/v1/admin/cf";
+const MAX_PAGE_SIZE = 500;
+
+async function listAllPages<T>(path: string): Promise<T[]> {
+  const records: T[] = [];
+
+  for (let offset = 0; ; offset += MAX_PAGE_SIZE) {
+    const separator = path.includes("?") ? "&" : "?";
+    const page = await apiRequest<T[]>(
+      `${path}${separator}limit=${MAX_PAGE_SIZE}&offset=${offset}`,
+    );
+    records.push(...page);
+
+    if (page.length < MAX_PAGE_SIZE) return records;
+  }
+}
 
 export async function cfListClients() {
-  return apiRequest<unknown[]>(`${CF}/clients`);
+  return apiRequest<Client[]>(`${CF}/clients`);
 }
 export async function cfGetClient(id: string) {
-  return apiRequest<unknown>(`${CF}/clients/${id}`);
+  return apiRequest<Client>(`${CF}/clients/${id}`);
 }
 export async function cfCreateClient(data: Record<string, unknown>) {
   return apiRequest<unknown>(`${CF}/clients`, { method: "POST", body: JSON.stringify(data) });
@@ -467,7 +491,7 @@ export async function cfUpdateClient(id: string, data: Record<string, unknown>) 
 }
 
 export async function cfListPrograms() {
-  return apiRequest<unknown[]>(`${CF}/programs`);
+  return apiRequest<Program[]>(`${CF}/programs`);
 }
 export async function cfGetProgramDetail(id: string) {
   return apiRequest<ProgramDetailResponse>(`${CF}/programs/${encodeURIComponent(id)}/detail`);
@@ -509,7 +533,7 @@ export async function cfUpdateEnrollment(id: string, data: Record<string, unknow
 }
 
 export async function cfListFormTemplates() {
-  return apiRequest<unknown[]>(`${CF}/form-templates`);
+  return apiRequest<FormTemplate[]>(`${CF}/form-templates`);
 }
 export async function cfCreateFormTemplate(data: Record<string, unknown>) {
   return apiRequest<FormTemplate>(`${CF}/form-templates`, {
@@ -535,7 +559,7 @@ export async function cfDeleteFormTemplate(id: string) {
 
 export async function cfListFormAssignments(clientId?: string) {
   const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
-  return apiRequest<unknown[]>(`${CF}/form-assignments${qs}`);
+  return apiRequest<FormAssignment[]>(`${CF}/form-assignments${qs}`);
 }
 export async function cfCreateFormAssignment(data: {
   clientId: string;
@@ -616,7 +640,7 @@ export async function cfMarkAllNotificationsRead() {
 }
 
 export async function cfListTerms(clientId: string) {
-  return apiRequest<unknown[]>(`${CF}/clients/${clientId}/terms`);
+  return apiRequest<Terms[]>(`${CF}/clients/${clientId}/terms`);
 }
 export async function cfCreateTerms(clientId: string, data: Record<string, unknown>) {
   return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/terms`, {
@@ -628,11 +652,11 @@ export async function cfUpdateTerms(id: string, data: Record<string, unknown>) {
   return apiRequest<unknown>(`${CF}/terms/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 }
 export async function cfListAllTerms() {
-  return apiRequest<unknown[]>(`${CF}/terms`);
+  return listAllPages<Terms>(`${CF}/terms`);
 }
 
 export async function cfListAllMonitoring() {
-  return apiRequest<unknown[]>(`${CF}/monitoring`);
+  return apiRequest<EnrollmentMonitoring[]>(`${CF}/monitoring`);
 }
 export async function cfCreateEnrollmentMonitoring(
   enrollmentId: string,
@@ -654,7 +678,7 @@ export async function cfGetMonitoringHistory(id: string) {
 }
 
 export async function cfListContracts(clientId: string) {
-  return apiRequest<unknown[]>(`${CF}/clients/${clientId}/contracts`);
+  return apiRequest<Contract[]>(`${CF}/clients/${clientId}/contracts`);
 }
 export async function cfCreateContract(clientId: string, data: Record<string, unknown>) {
   return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/contracts`, {
@@ -669,11 +693,11 @@ export async function cfUpdateContract(id: string, data: Record<string, unknown>
   });
 }
 export async function cfListAllContracts() {
-  return apiRequest<unknown[]>(`${CF}/contracts`);
+  return listAllPages<Contract>(`${CF}/contracts`);
 }
 
 export async function cfListDocuments(clientId: string) {
-  return apiRequest<unknown[]>(`${CF}/clients/${clientId}/documents`);
+  return apiRequest<ClientDocument[]>(`${CF}/clients/${clientId}/documents`);
 }
 export async function cfCreateDocumentUpload(
   clientId: string,
@@ -699,11 +723,11 @@ export async function cfGetDocumentDownload(documentId: string) {
   );
 }
 export async function cfListAllDocuments() {
-  return apiRequest<unknown[]>(`${CF}/documents`);
+  return listAllPages<ClientDocument>(`${CF}/documents`);
 }
 
 export async function cfListCommunications(clientId: string) {
-  return apiRequest<unknown[]>(`${CF}/clients/${clientId}/communications`);
+  return apiRequest<Communication[]>(`${CF}/clients/${clientId}/communications`);
 }
 export async function cfCreateCommunication(clientId: string, data: Record<string, unknown>) {
   return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/communications`, {
@@ -712,11 +736,11 @@ export async function cfCreateCommunication(clientId: string, data: Record<strin
   });
 }
 export async function cfListAllCommunications() {
-  return apiRequest<unknown[]>(`${CF}/communications`);
+  return listAllPages<Communication>(`${CF}/communications`);
 }
 
 export async function cfListFinalReports(clientId: string) {
-  return apiRequest<unknown[]>(`${CF}/clients/${clientId}/final-reports`);
+  return apiRequest<FinalReport[]>(`${CF}/clients/${clientId}/final-reports`);
 }
 export async function cfCreateFinalReport(clientId: string, data: Record<string, unknown>) {
   return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/final-reports`, {
@@ -725,12 +749,12 @@ export async function cfCreateFinalReport(clientId: string, data: Record<string,
   });
 }
 export async function cfListAllFinalReports() {
-  return apiRequest<unknown[]>(`${CF}/final-reports`);
+  return listAllPages<FinalReport>(`${CF}/final-reports`);
 }
 
 export async function cfListActivity(clientId?: string) {
   const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
-  return apiRequest<unknown[]>(`${CF}/activity${qs}`);
+  return apiRequest<ActivityLog[]>(`${CF}/activity${qs}`);
 }
 export async function cfCreateActivity(data: {
   clientId: string;

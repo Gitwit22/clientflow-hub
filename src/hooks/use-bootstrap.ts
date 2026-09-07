@@ -1,21 +1,16 @@
 import { useEffect } from "react";
 import { useAppState, setState } from "@/lib/store";
 import * as api from "@/lib/apiClient";
-import type {
-  Client,
-  Program,
-  ProgramEnrollment,
-  FormTemplate,
-  FormAssignment,
-  IntakeSubmission,
-  Terms,
-  EnrollmentMonitoring,
-  Contract,
-  ClientDocument,
-  Communication,
-  FinalReport,
-  ActivityLog,
-} from "@/types";
+
+async function loadRequired<T>(label: string, request: Promise<T>): Promise<T> {
+  try {
+    return await request;
+  } catch (error) {
+    if (error instanceof api.SessionExpiredError) throw error;
+    const message = error instanceof Error ? error.message : "Request failed";
+    throw new Error(`${label} could not be loaded: ${message}`, { cause: error });
+  }
+}
 
 /**
  * Loads the complete persisted organization snapshot after authentication.
@@ -27,6 +22,8 @@ export function useBootstrap() {
     if (authStatus !== "authenticated" || !authenticatedAdmin) return;
     if (bootstrapStatus !== "idle") return;
 
+    let cancelled = false;
+
     setState((current) => ({ ...current, bootstrapStatus: "loading", bootstrapError: null }));
 
     void (async () => {
@@ -34,8 +31,6 @@ export function useBootstrap() {
         const demoStatus = await api.cfGetDemoStatus();
         const liveMode = demoStatus.liveMode;
 
-        // Parallelize all data fetches using Promise.all() to reduce load time
-        // Each call has individual error handling to identify which one fails
         const [
           remoteClients,
           remotePrograms,
@@ -51,75 +46,22 @@ export function useBootstrap() {
           remoteFinalReports,
           remoteActivity,
         ] = await Promise.all([
-          api.cfListClients().catch((e) => {
-            console.error("[Bootstrap] cfListClients failed:", e);
-            return [];
-          }),
-          api.cfListPrograms().catch((e) => {
-            console.error("[Bootstrap] cfListPrograms failed:", e);
-            return [];
-          }),
-          api.cfListEnrollments().catch((e) => {
-            console.error("[Bootstrap] cfListEnrollments failed:", e);
-            return [];
-          }),
-          api.cfListFormTemplates().catch((e) => {
-            console.error("[Bootstrap] cfListFormTemplates failed:", e);
-            return [];
-          }),
-          api.cfListFormAssignments().catch((e) => {
-            console.error("[Bootstrap] cfListFormAssignments failed:", e);
-            return [];
-          }),
-          api.cfListIntakeSubmissions().catch((e) => {
-            console.error("[Bootstrap] cfListIntakeSubmissions failed:", e);
-            return [];
-          }),
-          api.cfListAllTerms().catch((e) => {
-            console.error("[Bootstrap] cfListAllTerms failed:", e);
-            return [];
-          }),
-          api.cfListAllMonitoring().catch((e) => {
-            console.error("[Bootstrap] cfListAllMonitoring failed:", e);
-            return [];
-          }),
-          api.cfListAllContracts().catch((e) => {
-            console.error("[Bootstrap] cfListAllContracts failed:", e);
-            return [];
-          }),
-          api.cfListAllDocuments().catch((e) => {
-            console.error("[Bootstrap] cfListAllDocuments failed:", e);
-            return [];
-          }),
-          api.cfListAllCommunications().catch((e) => {
-            console.error("[Bootstrap] cfListAllCommunications failed:", e);
-            return [];
-          }),
-          api.cfListAllFinalReports().catch((e) => {
-            console.error("[Bootstrap] cfListAllFinalReports failed:", e);
-            return [];
-          }),
-          api.cfListActivity().catch((e) => {
-            console.error("[Bootstrap] cfListActivity failed:", e);
-            return [];
-          }),
+          loadRequired("Clients", api.cfListClients()),
+          loadRequired("Programs", api.cfListPrograms()),
+          loadRequired("Enrollments", api.cfListEnrollments()),
+          loadRequired("Form templates", api.cfListFormTemplates()),
+          loadRequired("Form assignments", api.cfListFormAssignments()),
+          loadRequired("Intake submissions", api.cfListIntakeSubmissions()),
+          loadRequired("Terms", api.cfListAllTerms()),
+          loadRequired("Monitoring", api.cfListAllMonitoring()),
+          loadRequired("Contracts", api.cfListAllContracts()),
+          loadRequired("Documents", api.cfListAllDocuments()),
+          loadRequired("Communications", api.cfListAllCommunications()),
+          loadRequired("Final reports", api.cfListAllFinalReports()),
+          loadRequired("Activity", api.cfListActivity()),
         ]);
 
-        const results = {
-          remoteClients,
-          remotePrograms,
-          remoteEnrollments,
-          remoteFormTemplates,
-          remoteFormAssignments,
-          remoteIntakeSubmissions,
-          remoteTerms,
-          remoteMonitoring,
-          remoteContracts,
-          remoteDocuments,
-          remoteCommunications,
-          remoteFinalReports,
-          remoteActivity,
-        };
+        if (cancelled) return;
 
         setState((prev) => {
           return {
@@ -127,22 +69,23 @@ export function useBootstrap() {
             liveMode,
             bootstrapStatus: "ready",
             bootstrapError: null,
-            clients: results.remoteClients as Client[],
-            programs: results.remotePrograms as Program[],
-            enrollments: results.remoteEnrollments as ProgramEnrollment[],
-            formTemplates: results.remoteFormTemplates as FormTemplate[],
-            formAssignments: results.remoteFormAssignments as FormAssignment[],
-            intakeSubmissions: results.remoteIntakeSubmissions as IntakeSubmission[],
-            terms: results.remoteTerms as Terms[],
-            monitoring: results.remoteMonitoring as EnrollmentMonitoring[],
-            contracts: results.remoteContracts as Contract[],
-            documents: results.remoteDocuments as ClientDocument[],
-            communications: results.remoteCommunications as Communication[],
-            finalReports: results.remoteFinalReports as FinalReport[],
-            activity: results.remoteActivity as ActivityLog[],
+            clients: remoteClients,
+            programs: remotePrograms,
+            enrollments: remoteEnrollments,
+            formTemplates: remoteFormTemplates,
+            formAssignments: remoteFormAssignments,
+            intakeSubmissions: remoteIntakeSubmissions,
+            terms: remoteTerms,
+            monitoring: remoteMonitoring,
+            contracts: remoteContracts,
+            documents: remoteDocuments,
+            communications: remoteCommunications,
+            finalReports: remoteFinalReports,
+            activity: remoteActivity,
           };
         });
       } catch (error) {
+        if (cancelled) return;
         const errorMsg = error instanceof Error ? error.message : "ClientFlow data could not be loaded.";
         console.error("[Bootstrap] Failed to load data:", {
           error,
@@ -156,5 +99,9 @@ export function useBootstrap() {
         }));
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [authStatus, authenticatedAdmin, bootstrapStatus]);
 }
