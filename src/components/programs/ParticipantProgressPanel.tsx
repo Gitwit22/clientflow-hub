@@ -1,5 +1,11 @@
 import { StatusBadge } from "@/components/StatusBadge";
-import type { Contract, EnrollmentMonitoring, ProgramEnrollment, Terms } from "@/types";
+import type {
+  Contract,
+  EnrollmentMonitoring,
+  EnrollmentStatusHistory,
+  ProgramEnrollment,
+  Terms,
+} from "@/types";
 
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString() : "Not set";
@@ -7,14 +13,20 @@ function formatDate(value?: string | null) {
 
 export function ParticipantProgressPanel({
   enrollment,
+  assignedStaffName,
+  lastModifiedByName,
   terms,
   contracts,
   monitoring,
+  statusHistory,
 }: {
   enrollment: ProgramEnrollment;
+  assignedStaffName: string;
+  lastModifiedByName: string;
   terms: Terms[];
   contracts: Contract[];
   monitoring: EnrollmentMonitoring[];
+  statusHistory: EnrollmentStatusHistory[];
 }) {
   const compliantMonitoring = monitoring.filter(
     (item) => item.complianceStatus === "compliant",
@@ -34,7 +46,11 @@ export function ParticipantProgressPanel({
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Assigned staff</dt>
-            <dd>{enrollment.assignedStaff || "Unassigned"}</dd>
+            <dd>{assignedStaffName}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Last changed by</dt>
+            <dd>{lastModifiedByName}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Next action</dt>
@@ -104,6 +120,27 @@ export function ParticipantProgressPanel({
             </p>
           </div>
         ))}
+      </section>
+      <section className="border-t border-border pt-5 lg:col-span-4">
+        <h4 className="font-display text-sm font-semibold">Enrollment history</h4>
+        {statusHistory.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">No status changes recorded.</p>
+        ) : (
+          <ol className="mt-3 divide-y divide-border">
+            {[...statusHistory].reverse().map((item) => (
+              <li key={item.id} className="grid gap-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                <StatusBadge status={item.newStatus} />
+                <div className="text-sm">
+                  <span>Changed by {item.changedByDisplayName || "Unknown user"}</span>
+                  {item.reason && <p className="text-xs text-muted-foreground">{item.reason}</p>}
+                </div>
+                <time className="text-xs text-muted-foreground" dateTime={item.createdAt}>
+                  {new Date(item.createdAt).toLocaleString()}
+                </time>
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
     </div>
   );

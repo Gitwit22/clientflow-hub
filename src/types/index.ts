@@ -209,6 +209,8 @@ export interface ProgramEnrollment {
   status: EnrollmentStatus;
   assignedUserId?: string | null;
   assignedStaff?: string | null;
+  lastModifiedByUserId?: string | null;
+  lastModifiedByDisplayName?: string | null;
   startDate?: string | null;
   nextAction?: string | null;
   nextActionDate?: string | null;
@@ -259,6 +261,7 @@ export interface ProgramParticipantDetail {
   terms: Terms[];
   contracts: Contract[];
   monitoring: EnrollmentMonitoring[];
+  statusHistory: EnrollmentStatusHistory[];
 }
 
 export interface ProgramDetailResponse {
@@ -278,6 +281,7 @@ export interface EnrollmentStatusHistory {
   previousStatus?: EnrollmentStatus | null;
   newStatus: EnrollmentStatus;
   changedByUserId?: string | null;
+  changedByDisplayName?: string | null;
   reason?: string | null;
   createdAt: string;
 }

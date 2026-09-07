@@ -7,6 +7,15 @@ export function memberName(member: Pick<OrgMember, "email" | "firstName" | "last
   return [member.firstName, member.lastName].filter(Boolean).join(" ") || member.email;
 }
 
+export function resolveMemberName(
+  members: OrgMember[],
+  userId?: string | null,
+  fallback = "Unknown user",
+): string {
+  const member = userId ? members.find((candidate) => candidate.id === userId) : undefined;
+  return member ? memberName(member) : fallback;
+}
+
 export function memberOptionLabel(member: OrgMember): string {
   const name = memberName(member);
   return member.jobTitle ? `${name} · ${member.jobTitle}` : name;

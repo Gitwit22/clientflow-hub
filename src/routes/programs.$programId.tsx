@@ -21,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { resolveMemberName, useOrganizationMembers } from "@/hooks/use-organization-members";
 import { getProgramDetail, withdrawEnrollment } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { toast } from "sonner";
@@ -41,6 +42,7 @@ const PAST_STATUSES = new Set(["completed", "declined", "withdrawn"]);
 function ProgramDetailPage() {
   const { programId } = Route.useParams();
   const state = useAppState();
+  const { members } = useOrganizationMembers();
   const [detail, setDetail] = useState<ProgramDetailResponse | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
@@ -154,7 +156,27 @@ function ProgramDetailPage() {
         {records.map((participant) => (
           <ProgramParticipantRow
             key={participant.enrollment.id}
-            participant={participant}
+            participant={{
+              ...participant,
+              statusHistory: (participant.statusHistory ?? []).map((item) => ({
+                ...item,
+                changedByDisplayName: resolveMemberName(
+                  members,
+                  item.changedByUserId,
+                  item.changedByDisplayName || "Unknown user",
+                ),
+              })),
+            }}
+            assignedStaffName={resolveMemberName(
+              members,
+              participant.enrollment.assignedUserId,
+              participant.enrollment.assignedStaff || "Unassigned",
+            )}
+            lastModifiedByName={resolveMemberName(
+              members,
+              participant.enrollment.lastModifiedByUserId,
+              participant.enrollment.lastModifiedByDisplayName || "Unknown user",
+            )}
             open={expandedEnrollmentId === participant.enrollment.id}
             onOpenChange={(open) => setExpandedEnrollmentId(open ? participant.enrollment.id : null)}
             canWithdraw={!past}

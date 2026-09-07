@@ -9,12 +9,16 @@ import type { ProgramParticipantDetail } from "@/types";
 
 export function ProgramParticipantRow({
   participant,
+  assignedStaffName,
+  lastModifiedByName,
   open,
   onOpenChange,
   canWithdraw,
   onWithdraw,
 }: {
   participant: ProgramParticipantDetail;
+  assignedStaffName: string;
+  lastModifiedByName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canWithdraw: boolean;
@@ -36,7 +40,10 @@ export function ProgramParticipantRow({
             {client.businessName}
           </Link>
           <p className="mt-1 text-xs text-muted-foreground">
-            {client.primaryContactName} · {client.email} · Assigned to {enrollment.assignedStaff || "Unassigned"}
+            {client.primaryContactName} · {client.email} · Assigned to {assignedStaffName}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Last changed by {lastModifiedByName} · {new Date(enrollment.updatedAt).toLocaleDateString()}
           </p>
           {enrollment.nextAction && (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -69,7 +76,15 @@ export function ProgramParticipantRow({
       <CollapsibleContent className="pb-6">
         <div className="space-y-6 bg-muted/35 px-4 py-5 sm:px-6">
           <ParticipantRepliesPanel coreIntake={participant.coreIntake} programIntake={participant.programIntake} forms={participant.forms} />
-          <ParticipantProgressPanel enrollment={enrollment} terms={participant.terms} contracts={participant.contracts} monitoring={participant.monitoring} />
+          <ParticipantProgressPanel
+            enrollment={enrollment}
+            assignedStaffName={assignedStaffName}
+            lastModifiedByName={lastModifiedByName}
+            terms={participant.terms}
+            contracts={participant.contracts}
+            monitoring={participant.monitoring}
+            statusHistory={participant.statusHistory}
+          />
         </div>
       </CollapsibleContent>
     </Collapsible>
