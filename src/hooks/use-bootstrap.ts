@@ -12,6 +12,16 @@ async function loadRequired<T>(label: string, request: Promise<T>): Promise<T> {
   }
 }
 
+async function loadOptional<T>(label: string, request: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await request;
+  } catch (error) {
+    if (error instanceof api.SessionExpiredError) throw error;
+    console.error(`[Bootstrap] ${label} could not be loaded.`, error);
+    return fallback;
+  }
+}
+
 /**
  * Loads the complete persisted organization snapshot after authentication.
  */
@@ -47,7 +57,7 @@ export function useBootstrap() {
         ] = await Promise.all([
           loadRequired("Clients", api.cfListClients()),
           loadRequired("Programs", api.cfListPrograms()),
-          loadRequired("Enrollments", api.cfListEnrollments()),
+          loadOptional("Enrollments", api.cfListEnrollments(), []),
           loadRequired("Form templates", api.cfListFormTemplates()),
           loadRequired("Form assignments", api.cfListFormAssignments()),
           loadRequired("Intake submissions", api.cfListIntakeSubmissions()),
@@ -57,7 +67,7 @@ export function useBootstrap() {
           loadRequired("Documents", api.cfListAllDocuments()),
           loadRequired("Communications", api.cfListAllCommunications()),
           loadRequired("Final reports", api.cfListAllFinalReports()),
-          loadRequired("Activity", api.cfListActivity()),
+          loadOptional("Activity", api.cfListActivity(), []),
         ]);
 
         if (

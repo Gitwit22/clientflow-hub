@@ -73,4 +73,17 @@ describe("useBootstrap", () => {
     expect(getState().clients).toEqual([]);
     unmount();
   });
+
+  it("keeps the app usable when enrollment and activity feeds are unavailable", async () => {
+    vi.mocked(api.cfListEnrollments).mockRejectedValue(new Error("Enrollment schema unavailable"));
+    vi.mocked(api.cfListActivity).mockRejectedValue(new Error("Activity schema unavailable"));
+
+    const { unmount } = renderHook(() => useBootstrap());
+
+    await waitFor(() => expect(getState().bootstrapStatus).toBe("ready"));
+    expect(getState().bootstrapError).toBeNull();
+    expect(getState().enrollments).toEqual([]);
+    expect(getState().activity).toEqual([]);
+    unmount();
+  });
 });
