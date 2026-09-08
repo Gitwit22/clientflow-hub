@@ -79,8 +79,8 @@ async function sendRequest(path: string, init: RequestInit): Promise<Response> {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      "X-App-Partition": APP_PARTITION,
       ...init.headers,
+      "X-App-Partition": APP_PARTITION,
     },
   });
 }
