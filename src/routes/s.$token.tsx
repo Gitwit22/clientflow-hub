@@ -17,6 +17,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   getPublicForm,
+  isStalePublicFormError,
   submitPublicForm,
   ApiError,
   type PublicFormData,
@@ -33,7 +34,15 @@ export const Route = createFileRoute("/s/$token")({
 });
 
 type PageStatus =
-  "loading" | "ready" | "submitting" | "success" | "error" | "not_found" | "already_submitted";
+  | "loading"
+  | "ready"
+  | "submitting"
+  | "success"
+  | "error"
+  | "not_found"
+  | "unavailable"
+  | "already_submitted"
+  | "stale";
 
 function PublicFormPage() {
   const { token } = Route.useParams();
@@ -72,6 +81,8 @@ function PublicFormPage() {
       .catch((err: { status?: number } | null) => {
         if (err && err.status === 404) {
           setStatus("not_found");
+        } else if (err && err.status === 410) {
+          setStatus("unavailable");
         } else {
           setErrorMsg("Unable to load the form. Please try again or contact us directly.");
           setStatus("error");
@@ -129,6 +140,11 @@ function PublicFormPage() {
       });
       setStatus("success");
     } catch (error) {
+      if (isStalePublicFormError(error)) {
+        setErrorMsg(error.message);
+        setStatus("stale");
+        return;
+      }
       setStatus("ready");
       toast.error(
         error instanceof ApiError ? error.message : "Submission failed. Please try again.",
@@ -159,6 +175,19 @@ function PublicFormPage() {
     );
   }
 
+  if (status === "unavailable") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <div className="max-w-md space-y-2 text-center">
+          <h1 className="font-display text-xl font-semibold">Form link unavailable</h1>
+          <p className="text-sm text-muted-foreground">
+            This form link is no longer active. Please contact us for a new link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // ── Error ────────────────────────────────────────────────────────────────
   if (status === "error") {
     return (
@@ -166,6 +195,18 @@ function PublicFormPage() {
         <div className="max-w-md space-y-2 text-center">
           <h1 className="text-xl font-semibold">Something went wrong</h1>
           <p className="text-sm text-muted-foreground">{errorMsg}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "stale") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <div className="max-w-md space-y-4 text-center">
+          <h1 className="font-display text-xl font-semibold">Form updated</h1>
+          <p className="text-sm text-muted-foreground">{errorMsg}</p>
+          <Button onClick={() => globalThis.location.reload()}>Reload latest form</Button>
         </div>
       </div>
     );

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiRequest, cfListAllTerms } from "./apiClient";
+import { ApiError, apiRequest, cfListAllTerms, isStalePublicFormError } from "./apiClient";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -60,5 +60,13 @@ describe("ClientFlow partition routing", () => {
     expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
       headers: expect.objectContaining({ "X-App-Partition": "clientflow" }),
     }));
+  });
+});
+
+describe("public form errors", () => {
+  it("identifies stale form conflicts as recoverable", () => {
+    expect(isStalePublicFormError(new ApiError(409, "CONFLICT", "Reload the form."))).toBe(true);
+    expect(isStalePublicFormError(new ApiError(500, "INTERNAL_SERVER_ERROR", "Failed"))).toBe(false);
+    expect(isStalePublicFormError(new Error("Failed"))).toBe(false);
   });
 });

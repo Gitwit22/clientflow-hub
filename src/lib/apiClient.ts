@@ -50,6 +50,10 @@ export class ApiError extends Error {
   }
 }
 
+export function isStalePublicFormError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 409;
+}
+
 async function parseApiError(response: Response): Promise<ApiError> {
   try {
     const body = (await response.json()) as Record<string, unknown>;
