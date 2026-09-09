@@ -438,25 +438,44 @@ export async function submitPublicForm(
   return publicRequest<{ success: boolean; enrollmentIds: string[] }>(
     `/api/v1/public/form/${encodeURIComponent(token)}/submit`,
     { method: "POST", body: JSON.stringify(payload) },
+    1,
   );
 }
 
-async function publicRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    cache: init.cache ?? "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      "X-App-Partition": APP_PARTITION,
-      ...init.headers,
-    },
-  });
-  if (!response.ok) {
-    throw await parseApiError(response);
+async function publicRequest<T = unknown>(
+  path: string,
+  init: RequestInit = {},
+  maxTransientRetries = 0,
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}${path}`, {
+        ...init,
+        cache: init.cache ?? "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "X-App-Partition": APP_PARTITION,
+          ...init.headers,
+        },
+      });
+    } catch (error) {
+      if (attempt >= maxTransientRetries) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+      continue;
+    }
+    if (!response.ok) {
+      const error = await parseApiError(response);
+      if (response.status < 500 || attempt >= maxTransientRetries) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+      continue;
+    }
+    if (response.status === 204) return undefined as unknown as T;
+    const body = (await response.json()) as T | { success: true; data: T };
+    return body && typeof body === "object" && "success" in body && "data" in body
+      ? body.data
+      : body;
   }
-  if (response.status === 204) return undefined as unknown as T;
-  const body = (await response.json()) as T | { success: true; data: T };
-  return body && typeof body === "object" && "success" in body && "data" in body ? body.data : body;
 }
 
 // ─── ClientFlow CRUD ──────────────────────────────────────────────────────────

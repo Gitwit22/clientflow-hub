@@ -25,6 +25,10 @@ import {
   type PublicFormResponseValue,
   type PublicFormSection,
 } from "@/lib/apiClient";
+import {
+  clearPublicFormIdempotencyKey,
+  getPublicFormIdempotencyKey,
+} from "@/lib/public-form-session";
 
 export const Route = createFileRoute("/s/$token")({
   head: () => ({
@@ -55,7 +59,7 @@ function PublicFormPage() {
   const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [startedAt] = useState(() => new Date().toISOString());
-  const [idempotencyKey] = useState(() => globalThis.crypto.randomUUID());
+  const [idempotencyKey] = useState(() => getPublicFormIdempotencyKey(token));
 
   useEffect(() => {
     getPublicForm(token)
@@ -138,6 +142,7 @@ function PublicFormPage() {
         idempotencyKey,
         startedAt,
       });
+      clearPublicFormIdempotencyKey(token, idempotencyKey);
       setStatus("success");
     } catch (error) {
       if (isStalePublicFormError(error)) {
@@ -147,7 +152,9 @@ function PublicFormPage() {
       }
       setStatus("ready");
       toast.error(
-        error instanceof ApiError ? error.message : "Submission failed. Please try again.",
+        error instanceof ApiError
+          ? `${error.message}${error.code !== "UNKNOWN" ? ` (Reference: ${error.code})` : ""}`
+          : "Submission failed. Please try again.",
       );
     }
   }
