@@ -153,7 +153,7 @@ function PublicFormPage() {
       setStatus("ready");
       toast.error(
         error instanceof ApiError
-          ? `${error.message}${error.code !== "UNKNOWN" ? ` (Reference: ${error.code})` : ""}`
+          ? `${error.message}${error.requestId ? ` (Reference: ${error.requestId})` : ""}`
           : "Submission failed. Please try again.",
       );
     }

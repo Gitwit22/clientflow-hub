@@ -63,21 +63,46 @@ describe("ClientFlow partition routing", () => {
       headers: { "X-App-Partition": "fba-app" },
     });
 
-    expect(fetchMock.mock.calls[0][1]).toEqual(
-      expect.objectContaining({
-        headers: expect.objectContaining({ "X-App-Partition": "clientflow" }),
-      }),
-    );
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({ "X-App-Partition": "clientflow" }),
+    }));
   });
 });
 
 describe("public form errors", () => {
   it("identifies stale form conflicts as recoverable", () => {
     expect(isStalePublicFormError(new ApiError(409, "CONFLICT", "Reload the form."))).toBe(true);
-    expect(isStalePublicFormError(new ApiError(500, "INTERNAL_SERVER_ERROR", "Failed"))).toBe(
-      false,
-    );
+    expect(isStalePublicFormError(new ApiError(500, "INTERNAL_SERVER_ERROR", "Failed"))).toBe(false);
     expect(isStalePublicFormError(new Error("Failed"))).toBe(false);
+  });
+
+  it("exposes the API request ID as the support reference", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "INTERNAL_SERVER_ERROR",
+            message: "An unexpected error occurred.",
+            requestId: "request-123",
+          },
+        }),
+        {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Request-Id": "request-123",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiRequest("/api/v1/test")).rejects.toEqual(
+      expect.objectContaining({
+        code: "INTERNAL_SERVER_ERROR",
+        requestId: "request-123",
+      }),
+    );
   });
 
   it("retries one server failure with the same submission payload", async () => {
@@ -105,22 +130,18 @@ describe("public form errors", () => {
   });
 
   it("does not retry validation failures", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse({ error: { code: "BAD_REQUEST", message: "Please complete the form." } }, 400),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ error: { code: "BAD_REQUEST", message: "Please complete the form." } }, 400),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(
-      submitPublicForm("token-1", {
-        coreResponses: {},
-        programResponses: {},
-        selectedProgramIds: [],
-        configurationToken: "configuration-1",
-        idempotencyKey: "request-1",
-      }),
-    ).rejects.toEqual(expect.objectContaining({ status: 400 }));
+    await expect(submitPublicForm("token-1", {
+      coreResponses: {},
+      programResponses: {},
+      selectedProgramIds: [],
+      configurationToken: "configuration-1",
+      idempotencyKey: "request-1",
+    })).rejects.toEqual(expect.objectContaining({ status: 400 }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

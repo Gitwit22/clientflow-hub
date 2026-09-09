@@ -44,6 +44,7 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    public readonly requestId?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -69,9 +70,18 @@ async function parseApiError(response: Response): Promise<ApiError> {
       (nestedError?.["code"] as string | undefined) ??
       (typeof body["error"] === "string" ? body["error"] : undefined) ??
       "UNKNOWN";
-    return new ApiError(response.status, code, message);
+    const requestId =
+      (nestedError?.["requestId"] as string | undefined) ??
+      response.headers.get("X-Request-Id") ??
+      undefined;
+    return new ApiError(response.status, code, message, requestId);
   } catch {
-    return new ApiError(response.status, "PARSE_ERROR", response.statusText);
+    return new ApiError(
+      response.status,
+      "PARSE_ERROR",
+      response.statusText,
+      response.headers.get("X-Request-Id") ?? undefined,
+    );
   }
 }
 
