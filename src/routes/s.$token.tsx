@@ -1,7 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { isSocialMediaField, SocialMediaInput } from "@/components/SocialMediaInput";
+import {
+  isSocialMediaField,
+  RepeatableSocialLinksInput,
+  SocialMediaInput,
+} from "@/components/SocialMediaInput";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -371,9 +375,8 @@ function PublicFormPage() {
                     field={field}
                     inputId={`field-${section.id}-${field.id}`}
                     value={
-                      typeof responsesFor(section)[field.id] === "string"
-                        ? String(responsesFor(section)[field.id])
-                        : ""
+                      responsesFor(section)[field.id] ??
+                      (field.type === "social_links" ? [] : "")
                     }
                     onChange={(value) => set(section, field.id, value)}
                     disabled={status === "submitting"}
@@ -495,16 +498,27 @@ function PublicFieldInput({
 }: {
   field: PublicFormField;
   inputId: string;
-  value: string;
-  onChange: (v: string) => void;
+  value: PublicFormResponseValue;
+  onChange: (v: PublicFormResponseValue) => void;
   disabled?: boolean;
 }) {
+  if (field.type === "social_links") {
+    return (
+      <RepeatableSocialLinksInput
+        inputId={inputId}
+        value={Array.isArray(value) ? value : []}
+        onChange={onChange}
+        disabled={disabled}
+      />
+    );
+  }
+  const stringValue = typeof value === "string" ? value : "";
   if (isSocialMediaField(field.id)) {
     return (
       <SocialMediaInput
         fieldId={field.id}
         inputId={inputId}
-        value={value}
+        value={stringValue}
         onChange={onChange}
         disabled={disabled}
       />
@@ -514,7 +528,7 @@ function PublicFieldInput({
     return (
       <Textarea
         id={inputId}
-        value={value}
+        value={stringValue}
         onChange={(e) => onChange(e.target.value)}
         rows={3}
         disabled={disabled}
@@ -524,7 +538,7 @@ function PublicFieldInput({
   }
   if (field.type === "select" && field.options?.length) {
     return (
-      <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <Select value={stringValue} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger id={inputId}>
           <SelectValue placeholder="Select…" />
         </SelectTrigger>
@@ -543,7 +557,7 @@ function PublicFieldInput({
       <div className="flex items-center gap-2">
         <Checkbox
           id={inputId}
-          checked={value === "true"}
+          checked={value === true || value === "true"}
           onCheckedChange={(checked) => onChange(String(Boolean(checked)))}
           disabled={disabled}
         />
@@ -566,7 +580,7 @@ function PublicFieldInput({
       <div className="space-y-3">
         <Input
           id={inputId}
-          value={value}
+          value={stringValue}
           onChange={(event) => onChange(event.target.value)}
           disabled={disabled}
           maxLength={200}
@@ -575,7 +589,7 @@ function PublicFieldInput({
         />
         <div className="flex min-h-20 items-center border-b border-foreground/50 px-3 py-2">
           <span className="font-signature text-3xl text-foreground">
-            {value || "Your signature"}
+            {stringValue || "Your signature"}
           </span>
         </div>
       </div>
@@ -597,7 +611,7 @@ function PublicFieldInput({
                   ? "date"
                   : "text"
       }
-      value={value}
+      value={stringValue}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
       placeholder="Enter your answer…"

@@ -23,8 +23,11 @@ import type {
   Program,
   ProgramDetailResponse,
   ProgramEnrollment,
+  PublicFormResponseValue,
   Terms,
 } from "@/types";
+
+export type { PublicFormResponseValue } from "@/types";
 
 const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? "https://nxt-lvl-api2.onrender.com";
@@ -411,8 +414,6 @@ export interface PublicFormField {
   helpText?: string;
 }
 
-export type PublicFormResponseValue = string | string[] | boolean | number | null;
-
 export interface PublicFormSection {
   id: string;
   kind: "core" | "program";
@@ -429,7 +430,7 @@ export interface PublicFormData {
   form: { id: string; name: string; description: string; fields: PublicFormField[] };
   program: { name: string };
   contact: { name: string };
-  prefill: Record<string, string>;
+  prefill: Record<string, PublicFormResponseValue>;
   intakeConfiguration: {
     configurationToken: string;
     programs: Array<{ id: string; name: string }>;

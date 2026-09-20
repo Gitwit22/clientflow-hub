@@ -54,6 +54,7 @@ import type {
   EnrollmentMonitoring,
   Program,
   ProgramEnrollment,
+  PublicFormResponseValue,
   RelationshipType,
   Terms,
 } from "@/types";
@@ -375,7 +376,7 @@ export async function sendFormEmail(formAssignmentId: string, personalMessage?: 
 
 export async function submitFormResponse(
   formAssignmentId: string,
-  responses: Record<string, string>,
+  responses: Record<string, PublicFormResponseValue>,
 ) {
   const submittedAt = nowISO();
   await cfUpdateFormAssignment(formAssignmentId, { status: "submitted", submittedAt, responses });
@@ -401,7 +402,7 @@ export async function cancelFormAssignment(id: string) {
   return delay(true);
 }
 
-export async function saveFormDraft(id: string, responses: Record<string, string>) {
+export async function saveFormDraft(id: string, responses: Record<string, PublicFormResponseValue>) {
   await cfUpdateFormAssignment(id, { status: "in_progress", responses });
   setState((s) => ({
     ...s,
@@ -431,7 +432,10 @@ export async function changeAssignmentStatus(id: string, status: FormAssignmentS
   return delay(true);
 }
 
-export async function saveFormEdits(id: string, newResponses: Record<string, string>) {
+export async function saveFormEdits(
+  id: string,
+  newResponses: Record<string, PublicFormResponseValue>,
+) {
   const s = getState();
   const assignment = s.formAssignments.find((a) => a.id === id);
   if (!assignment) return delay(false);
@@ -443,14 +447,17 @@ export async function saveFormEdits(id: string, newResponses: Record<string, str
     : [...new Set([...Object.keys(oldResponses), ...Object.keys(newResponses)])];
 
   const changes = allFieldIds
-    .filter((fid) => (oldResponses[fid] ?? "") !== (newResponses[fid] ?? ""))
+    .filter(
+      (fid) =>
+        JSON.stringify(oldResponses[fid] ?? "") !== JSON.stringify(newResponses[fid] ?? ""),
+    )
     .map((fid) => {
       const field = template?.fields.find((f) => f.id === fid);
       return {
         fieldId: fid,
         fieldLabel: field?.label ?? fid,
-        oldValue: oldResponses[fid] ?? "(empty)",
-        newValue: newResponses[fid] ?? "(empty)",
+        oldValue: responseDisplayValue(oldResponses[fid]),
+        newValue: responseDisplayValue(newResponses[fid]),
       };
     });
 
@@ -481,6 +488,11 @@ export async function saveFormEdits(id: string, newResponses: Record<string, str
   );
 
   return delay(true);
+}
+
+function responseDisplayValue(value: PublicFormResponseValue | undefined): string {
+  if (Array.isArray(value)) return value.join("\n") || "(empty)";
+  return value === undefined || value === null || value === "" ? "(empty)" : String(value);
 }
 
 export const renderEmailBody = (vars: {

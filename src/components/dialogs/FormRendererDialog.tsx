@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   findSocialLink,
   isSocialMediaField,
+  RepeatableSocialLinksInput,
   SocialMediaInput,
 } from "@/components/SocialMediaInput";
 import { Button } from "@/components/ui/button";
@@ -27,9 +28,16 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { changeAssignmentStatus, saveFormDraft, saveFormEdits, submitFormResponse } from "@/lib/api";
 import { useAppState } from "@/lib/store";
-import type { Client, FormAssignment, FormAssignmentStatus, FormField } from "@/types";
+import type {
+  Client,
+  FormAssignment,
+  FormAssignmentStatus,
+  FormField,
+  PublicFormResponseValue,
+} from "@/types";
 
-function prefillFromClient(field: FormField, client: Client): string {
+function prefillFromClient(field: FormField, client: Client): PublicFormResponseValue {
+  if (field.type === "social_links") return client.socialLinks ?? [];
   if (isSocialMediaField(field.id)) return findSocialLink(field.id, client.socialLinks);
   if (field.prefillKey) {
     const k = field.prefillKey;
@@ -66,15 +74,25 @@ function FieldInput({
   onChange,
 }: {
   field: FormField;
-  value: string;
-  onChange: (v: string) => void;
+  value: PublicFormResponseValue;
+  onChange: (v: PublicFormResponseValue) => void;
 }) {
+  if (field.type === "social_links") {
+    return (
+      <RepeatableSocialLinksInput
+        inputId={`field-${field.id}`}
+        value={Array.isArray(value) ? value : []}
+        onChange={onChange}
+      />
+    );
+  }
+  const stringValue = typeof value === "string" ? value : "";
   if (isSocialMediaField(field.id)) {
     return (
       <SocialMediaInput
         fieldId={field.id}
         inputId={`field-${field.id}`}
-        value={value}
+        value={stringValue}
         onChange={onChange}
       />
     );
@@ -83,7 +101,7 @@ function FieldInput({
     return (
       <Textarea
         id={`field-${field.id}`}
-        value={value}
+        value={stringValue}
         onChange={(e) => onChange(e.target.value)}
         rows={3}
         placeholder={`Enter ${field.label.toLowerCase()}…`}
@@ -92,7 +110,7 @@ function FieldInput({
   }
   if (field.type === "select" && field.options?.length) {
     return (
-      <Select value={value} onValueChange={onChange}>
+      <Select value={stringValue} onValueChange={onChange}>
         <SelectTrigger id={`field-${field.id}`}>
           <SelectValue placeholder="Select…" />
         </SelectTrigger>
@@ -196,7 +214,7 @@ export function FormRendererDialog({
 
   const template = currentTemplate;
 
-  const [responses, setResponses] = useState<Record<string, string>>(() => {
+  const [responses, setResponses] = useState<Record<string, PublicFormResponseValue>>(() => {
     if (!template) return {};
     const existing = assignment?.responses ?? {};
     if (readOnly) return existing;
@@ -228,14 +246,24 @@ export function FormRendererDialog({
   const [changingStatus, setChangingStatus] = useState(false);
   const [editing, setEditing] = useState(false);
   const [savingEdits, setSavingEdits] = useState(false);
-  const [originalResponses] = useState<Record<string, string>>(() => assignment?.responses ?? {});
+  const [originalResponses] = useState<Record<string, PublicFormResponseValue>>(
+    () => assignment?.responses ?? {},
+  );
 
   if (!assignment || !template) return null;
 
-  const set = (id: string, v: string) => setResponses((prev) => ({ ...prev, [id]: v }));
+  const set = (id: string, value: PublicFormResponseValue) => {
+    setResponses((prev) => ({ ...prev, [id]: value }));
+  };
 
   const requiredFields = template.fields.filter((f) => f.required);
-  const missingRequired = requiredFields.filter((f) => !responses[f.id]?.trim());
+  const missingRequired = requiredFields.filter((field) => {
+    const value = responses[field.id];
+    return value === undefined
+      || value === null
+      || (typeof value === "string" && !value.trim())
+      || (Array.isArray(value) && value.length === 0);
+  });
   const completedRequired = requiredFields.length - missingRequired.length;
   const progressPct =
     requiredFields.length > 0
@@ -322,7 +350,7 @@ export function FormRendererDialog({
 
         <div className="space-y-5">
           {template.fields.map((field) => {
-            const value = responses[field.id] ?? "";
+            const value = responses[field.id] ?? (field.type === "social_links" ? [] : "");
             const renderedField =
               field.id === "program" || field.prefillKey === "programOfInterest"
                 ? {
@@ -341,8 +369,8 @@ export function FormRendererDialog({
                   )}
                 </Label>
                 {(readOnly && !editing) ? (
-                  <p className={`text-sm ${value ? "" : "italic text-muted-foreground"}`}>
-                    {value || "(not answered)"}
+                  <p className={`whitespace-pre-line text-sm ${value ? "" : "italic text-muted-foreground"}`}>
+                    {Array.isArray(value) ? value.join("\n") || "(not answered)" : String(value || "(not answered)")}
                   </p>
                 ) : (
                   <FieldInput field={renderedField} value={value} onChange={(v) => set(field.id, v)} />

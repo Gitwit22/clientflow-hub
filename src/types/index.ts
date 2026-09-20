@@ -339,7 +339,8 @@ export interface FormField {
     | "select"
     | "file"
     | "checkbox"
-    | "signature";
+    | "signature"
+    | "social_links";
   required: boolean;
   options?: string[];
   helpText?: string;
@@ -396,6 +397,8 @@ export type FormAssignmentStatus =
   | "cancelled"
   | "expired";
 
+export type PublicFormResponseValue = string | string[] | boolean | number | null;
+
 export interface FormAssignment {
   id: string;
   organizationId?: string;
@@ -417,7 +420,7 @@ export interface FormAssignment {
   cancelledAt?: string | null;
   dueDate?: string;
   secureLink?: string;
-  responses?: Record<string, string>;
+  responses?: Record<string, PublicFormResponseValue>;
   editHistory?: FormEdit[];
   createdByUserId?: string;
   isDemo?: boolean;

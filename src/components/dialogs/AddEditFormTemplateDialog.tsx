@@ -36,6 +36,7 @@ const FIELD_TYPES: FormField["type"][] = [
   "file",
   "checkbox",
   "signature",
+  "social_links",
 ];
 
 interface FieldRow {
@@ -70,6 +71,7 @@ const SHARED_FIELD_IDS = new Set([
   "contact", "email", "phone", "website", "description", "assistance", "businessType",
   "bizType", "industry", "program", "budget", "contact_pref", "heard", "comments",
   "facebookUrl", "instagramUrl", "linkedinUrl", "tiktokUrl", "youtubeUrl",
+  "socialLinks",
 ]);
 
 function toSlug(str: string): string {
