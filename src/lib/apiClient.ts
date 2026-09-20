@@ -532,6 +532,11 @@ export async function cfUpdateClient(id: string, data: Record<string, unknown>) 
     body: JSON.stringify(data),
   });
 }
+export async function cfDeleteClient(id: string) {
+  return apiRequest<{ id: string; deleted: true }>(`${CF}/clients/${id}`, {
+    method: "DELETE",
+  });
+}
 
 export async function cfListPrograms() {
   return apiRequest<Program[]>(`${CF}/programs`);

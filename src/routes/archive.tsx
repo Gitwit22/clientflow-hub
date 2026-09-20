@@ -1,8 +1,20 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -12,7 +24,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAppState } from "@/lib/store";
-import { restoreClient } from "@/lib/api";
+import { deleteClient, restoreClient } from "@/lib/api";
+import type { Client } from "@/types";
 
 export const Route = createFileRoute("/archive")({
   head: () => ({
@@ -33,13 +46,17 @@ export const Route = createFileRoute("/archive")({
 });
 
 function ArchivePage() {
-  const { clients, programs, finalReports } = useAppState();
+  const { authenticatedAdmin, clients, programs, finalReports } = useAppState();
+  const [deletingClient, setDeletingClient] = useState<Client | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const canDelete = authenticatedAdmin?.role === "org_admin"
+    || authenticatedAdmin?.role === "super_admin";
   const rows = clients.filter((c) => c.isArchived);
   return (
     <div className="space-y-6">
       <PageHeader
         title="Archive"
-        description="Clients are archived, never deleted — records stay available for audit and restore."
+        description="Archived clients remain available for audit and restore unless an administrator permanently deletes them."
       />
       <Card className="overflow-x-auto p-4 shadow-card">
         <Table>
@@ -90,6 +107,18 @@ function ArchivePage() {
                     <Button size="sm" variant="ghost" disabled={!hasReport}>
                       Download report
                     </Button>
+                    {canDelete ? (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        title={`Permanently delete ${c.businessName}`}
+                        aria-label={`Permanently delete ${c.businessName}`}
+                        onClick={() => setDeletingClient(c)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               );
@@ -102,6 +131,44 @@ function ArchivePage() {
           </p>
         ) : null}
       </Card>
+      <AlertDialog
+        open={deletingClient !== null}
+        onOpenChange={(open) => !open && !isDeleting && setDeletingClient(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete this client?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingClient?.businessName} and all associated enrollments, forms, uploaded files,
+              communications, reports, tasks, monitoring, and activity will be permanently deleted.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!deletingClient) return;
+                setIsDeleting(true);
+                void deleteClient(deletingClient.id)
+                  .then(() => {
+                    toast.success("Client and associated information permanently deleted.");
+                    setDeletingClient(null);
+                  })
+                  .catch((error: unknown) => {
+                    toast.error(error instanceof Error ? error.message : "Unable to delete client.");
+                  })
+                  .finally(() => setIsDeleting(false));
+              }}
+            >
+              {isDeleting ? "Deleting..." : "Delete permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

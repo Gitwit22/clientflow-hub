@@ -5,7 +5,7 @@
  * the in-memory mock store to a real backend (Lovable Cloud / Supabase,
  * Firebase, Appwrite, Node/Express) without touching components.
  */
-import { getState, setState, uid } from "./store";
+import { getState, retryBootstrap, setState, uid } from "./store";
 import { emailTemplateBody } from "@/data/defaults";
 import {
   cfCreateFormAssignment,
@@ -13,6 +13,7 @@ import {
   cfDeleteFormTemplate,
   cfUpdateFormTemplate,
   cfCreateClient,
+  cfDeleteClient,
   cfGetClient,
   cfListFormAssignments,
   cfUpdateClient,
@@ -183,6 +184,15 @@ export async function archiveClient(
   });
   await log(id, "Client archived", reason);
   return delay(true);
+}
+
+export async function deleteClient(id: string) {
+  await cfDeleteClient(id);
+  setState((current) => ({
+    ...current,
+    clients: current.clients.filter((client) => client.id !== id),
+  }));
+  retryBootstrap();
 }
 
 export async function restoreClient(id: string) {
