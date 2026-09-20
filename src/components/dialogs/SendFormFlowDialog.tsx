@@ -17,7 +17,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { createClient, createFormAssignment, renderEmailBody, sendFormEmail } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { memberName, useOrganizationMembers } from "@/hooks/use-organization-members";
-import type { Client } from "@/types";
+import type { Client, FormTemplate, Program } from "@/types";
 
 type FlowStep = "profile" | "form" | "send" | "done";
 
@@ -28,6 +28,29 @@ interface Props {
   preselectedTemplateId?: string;
   /** Pre-select a client — skips the profile search/create step. */
   preselectedClient?: Client;
+}
+
+export function getAvailableSendForms(formTemplates: FormTemplate[], programs: Program[]) {
+  const masterForms = formTemplates
+    .filter((template) => template.isActive && template.scope === "master_core")
+    .map((template) => ({ template, program: undefined }));
+  const programForms = programs
+    .filter((program) => program.isActive)
+    .flatMap((program) => {
+      const defaultTemplate = formTemplates.find(
+        (template) => template.id === program.defaultFormTemplateId && template.isActive,
+      );
+      const linkedTemplate = formTemplates.find(
+        (template) => template.programId === program.id && template.isActive,
+      );
+      const template = defaultTemplate ?? linkedTemplate;
+      return template ? [{ template, program }] : [];
+    });
+  const programTemplateIds = new Set(programForms.map(({ template }) => template.id));
+  return [
+    ...masterForms.filter(({ template }) => !programTemplateIds.has(template.id)),
+    ...programForms,
+  ];
 }
 
 export function SendFormFlowDialog({
@@ -87,7 +110,11 @@ export function SendFormFlowDialog({
   }, [open]);
 
   const template = formTemplates.find((t) => t.id === selectedFormId);
-  const program = programs.find((p) => p.id === template?.programId);
+  const program = programs.find(
+    (candidate) =>
+      candidate.id === template?.programId || candidate.defaultFormTemplateId === template?.id,
+  );
+  const availableForms = getAvailableSendForms(formTemplates, programs);
 
   const emailBody = useMemo(
     () =>
@@ -375,8 +402,7 @@ export function SendFormFlowDialog({
         {step === "form" && (
           <div className="space-y-4">
             <div className="grid max-h-[52vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
-              {formTemplates.map((t) => {
-                const prog = programs.find((p) => p.id === t.programId);
+              {availableForms.map(({ template: t, program: prog }) => {
                 return (
                   <button
                     key={t.id}
