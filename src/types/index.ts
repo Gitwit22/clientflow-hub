@@ -387,6 +387,8 @@ export type DeliveryMethod = "none" | "email" | "sms" | "email_and_sms";
 
 export type FormAssignmentStatus =
   | "draft"
+  | "sending"
+  | "delivery_failed"
   | "sent"
   | "delivered"
   | "opened"
@@ -413,6 +415,7 @@ export interface FormAssignment {
   recipientPhone?: string | null;
   status: FormAssignmentStatus;
   dueAt?: string | null;
+  expiresAt?: string | null;
   sentAt?: string;
   openedAt?: string;
   startedAt?: string | null;

@@ -627,7 +627,15 @@ export async function cfCreateFormAssignment(data: {
   });
 }
 export async function cfSendFormAssignment(id: string, data: { personalMessage?: string }) {
-  return apiRequest<FormAssignment>(`${CF}/form-assignments/${id}/send`, {
+  return apiRequest<{
+    success: true;
+    status: "SENT";
+    message: string;
+    formId: string;
+    recipientEmail: string;
+    sentAt: string;
+    assignment: FormAssignment;
+  }>(`${CF}/form-assignments/${id}/send`, {
     method: "POST",
     body: JSON.stringify(data),
   });

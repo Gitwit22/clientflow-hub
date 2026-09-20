@@ -3,6 +3,7 @@ import {
   ApiError,
   apiRequest,
   cfListAllTerms,
+  cfSendFormAssignment,
   isStalePublicFormError,
   submitPublicForm,
 } from "./apiClient";
@@ -66,6 +67,18 @@ describe("ClientFlow partition routing", () => {
     expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
       headers: expect.objectContaining({ "X-App-Partition": "clientflow" }),
     }));
+  });
+
+  it("does not retry an ambiguous form-email server failure", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ error: { code: "BAD_GATEWAY", message: "Delivery unconfirmed" } }, 502),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(cfSendFormAssignment("assignment-1", {})).rejects.toEqual(
+      expect.objectContaining({ status: 502, message: "Delivery unconfirmed" }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -119,6 +119,8 @@ function IntakePage() {
   );
   const [assignedUserId, setAssignedUserId] = useState("__unassigned");
   const [personalMessage, setPersonalMessage] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!signedInMemberId) return;
@@ -159,6 +161,7 @@ function IntakePage() {
     setSelectedProfile(client);
     setRecipientEmail(client.email);
     setAssignedUserId(client.assignedUserId ?? "__unassigned");
+    setPendingAssignmentId(null);
     setStep("choose-method");
   }
 
@@ -203,6 +206,7 @@ function IntakePage() {
     setSelectedProfile(created);
     setRecipientEmail(created.email);
     setAssignedUserId(created.assignedUserId ?? "__unassigned");
+    setPendingAssignmentId(null);
     toast.success("Profile created");
     setStep("choose-method");
   }
@@ -230,29 +234,39 @@ function IntakePage() {
 
   async function handleSendSecureLink() {
     if (!selectedProfile || !masterTemplate) return;
+    if (isSending) return;
     if (!recipientEmail) {
       toast.error("Recipient email is required");
       return;
     }
+    setIsSending(true);
     try {
-      const assignment = await createFormAssignment({
-        clientId: selectedProfile.id,
-        formId: masterTemplate.id,
-        completionMethod: "secure_link",
-        deliveryMethod: "email",
-        recipientEmail,
-        assignedUserId: assignedUserId === "__unassigned" ? null : assignedUserId,
-        dueDate,
-        status: "draft",
-        organizationId: "org_ea_management",
-        isDemo: selectedProfile.isDemo ?? false,
-        personalMessage,
-      });
-      await sendFormEmail(assignment.id, personalMessage || undefined);
-      toast.success(`Secure link sent to ${recipientEmail}`);
+      let assignmentId = pendingAssignmentId;
+      if (!assignmentId) {
+        const assignment = await createFormAssignment({
+          clientId: selectedProfile.id,
+          formId: masterTemplate.id,
+          completionMethod: "secure_link",
+          deliveryMethod: "email",
+          recipientEmail,
+          assignedUserId: assignedUserId === "__unassigned" ? null : assignedUserId,
+          dueDate,
+          status: "draft",
+          organizationId: "org_ea_management",
+          isDemo: selectedProfile.isDemo ?? false,
+          personalMessage,
+        });
+        assignmentId = assignment.id;
+        setPendingAssignmentId(assignment.id);
+      }
+      const result = await sendFormEmail(assignmentId, personalMessage || undefined);
+      setPendingAssignmentId(null);
+      toast.success(`${result.message} Sent to ${result.recipientEmail}`);
       setStep("done");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
+    } finally {
+      setIsSending(false);
     }
   }
 
@@ -609,11 +623,15 @@ function IntakePage() {
               />
             </div>
             <div className="flex gap-3">
-              <Button onClick={handleSendSecureLink}>
+              <Button onClick={handleSendSecureLink} disabled={isSending}>
                 <Send className="size-4" />
-                Send secure link
+                {isSending ? "Sending..." : "Send secure link"}
               </Button>
-              <Button variant="outline" onClick={() => setStep("choose-method")}>
+              <Button
+                variant="outline"
+                onClick={() => setStep("choose-method")}
+                disabled={isSending}
+              >
                 Back
               </Button>
             </div>

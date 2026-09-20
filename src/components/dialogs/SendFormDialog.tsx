@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +34,11 @@ export function SendFormDialog({
   const [subject, setSubject] = useState("Next step for your program application");
   const [preview, setPreview] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) setPendingAssignmentId(null);
+  }, [open, client?.id, templateId]);
 
   const template = templateId
     ? formTemplates.find((candidate) => candidate.id === templateId && candidate.isActive)
@@ -75,20 +80,26 @@ export function SendFormDialog({
     if (!client || !template) return;
     setIsSending(true);
     try {
-      const assignment = await createFormAssignment({
-        clientId: client.id,
-        formId: template.id,
-        completionMethod: "secure_link",
-        deliveryMethod: "email",
-        recipientEmail: client.email,
-        assignedUserId: client.assignedUserId ?? null,
-        dueDate: new Date(dueDate).toISOString(),
-        status: "draft",
-        organizationId: "org_ea_management",
-        isDemo: client.isDemo ?? false,
-      });
-      await sendFormEmail(assignment.id);
-      toast.success(`${template.name} sent to ${client.email}`);
+      let assignmentId = pendingAssignmentId;
+      if (!assignmentId) {
+        const assignment = await createFormAssignment({
+          clientId: client.id,
+          formId: template.id,
+          completionMethod: "secure_link",
+          deliveryMethod: "email",
+          recipientEmail: client.email,
+          assignedUserId: client.assignedUserId ?? null,
+          dueDate: new Date(dueDate).toISOString(),
+          status: "draft",
+          organizationId: "org_ea_management",
+          isDemo: client.isDemo ?? false,
+        });
+        assignmentId = assignment.id;
+        setPendingAssignmentId(assignment.id);
+      }
+      const result = await sendFormEmail(assignmentId);
+      setPendingAssignmentId(null);
+      toast.success(`${result.message} Sent to ${result.recipientEmail}`);
       onOpenChange(false);
       setPreview(false);
       setBodyOverride(null);

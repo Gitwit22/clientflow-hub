@@ -315,7 +315,10 @@ export async function assignFormToClient(clientId: string, formId: string, dueDa
     dueDate,
     secureLink: `${appOrigin}/s/${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
   });
-  setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
+  setState((s) => ({
+    ...s,
+    formAssignments: [assignment, ...s.formAssignments.filter(({ id }) => id !== assignment.id)],
+  }));
   return delay(assignment);
 }
 
@@ -369,19 +372,16 @@ export async function convertProfile(id: string, newRelationshipType: Relationsh
 }
 
 export async function sendFormEmail(formAssignmentId: string, personalMessage?: string) {
-  const assignment = await cfSendFormAssignment(formAssignmentId, {
+  const result = await cfSendFormAssignment(formAssignmentId, {
     ...(personalMessage ? { personalMessage } : {}),
   });
   setState((s) => ({
     ...s,
-    formAssignments: s.formAssignments.map((a) => (a.id === formAssignmentId ? assignment : a)),
+    formAssignments: s.formAssignments.map((assignment) =>
+      assignment.id === formAssignmentId ? result.assignment : assignment,
+    ),
   }));
-  await log(
-    assignment.clientId,
-    "Form sent",
-    `Secure form link emailed to ${assignment.recipientEmail ?? "the recipient"}.`,
-  );
-  return delay(assignment);
+  return delay(result);
 }
 
 export async function submitFormResponse(

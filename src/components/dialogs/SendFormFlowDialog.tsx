@@ -65,6 +65,7 @@ export function SendFormFlowDialog({
   const [personalMessage, setPersonalMessage] = useState("");
   const [bodyOverride, setBodyOverride] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
 
   // Reset state every time the dialog opens
   useEffect(() => {
@@ -82,6 +83,7 @@ export function SendFormFlowDialog({
     setPersonalMessage("");
     setBodyOverride(null);
     setIsSending(false);
+    setPendingAssignmentId(null);
   }, [open]);
 
   const template = formTemplates.find((t) => t.id === selectedFormId);
@@ -184,21 +186,27 @@ export function SendFormFlowDialog({
     if (!selectedClient || !selectedFormId || !recipientEmail) return;
     setIsSending(true);
     try {
-      const assignment = await createFormAssignment({
-        clientId: selectedClient.id,
-        formId: selectedFormId,
-        completionMethod: "secure_link",
-        deliveryMethod: "email",
-        recipientEmail,
-        assignedUserId: selectedClient.assignedUserId ?? null,
-        dueDate: new Date(dueDate).toISOString(),
-        status: "draft",
-        organizationId: "org_ea_management",
-        isDemo: selectedClient.isDemo ?? false,
-        personalMessage: personalMessage || undefined,
-      });
-      await sendFormEmail(assignment.id, personalMessage || undefined);
-      toast.success(`Form sent to ${recipientEmail}`);
+      let assignmentId = pendingAssignmentId;
+      if (!assignmentId) {
+        const assignment = await createFormAssignment({
+          clientId: selectedClient.id,
+          formId: selectedFormId,
+          completionMethod: "secure_link",
+          deliveryMethod: "email",
+          recipientEmail,
+          assignedUserId: selectedClient.assignedUserId ?? null,
+          dueDate: new Date(dueDate).toISOString(),
+          status: "draft",
+          organizationId: "org_ea_management",
+          isDemo: selectedClient.isDemo ?? false,
+          personalMessage: personalMessage || undefined,
+        });
+        assignmentId = assignment.id;
+        setPendingAssignmentId(assignment.id);
+      }
+      const result = await sendFormEmail(assignmentId, personalMessage || undefined);
+      setPendingAssignmentId(null);
+      toast.success(`${result.message} Sent to ${result.recipientEmail}`);
       setStep("done");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
@@ -219,6 +227,7 @@ export function SendFormFlowDialog({
     setRecipientEmail(preselectedClient?.email ?? "");
     setPersonalMessage("");
     setBodyOverride(null);
+    setPendingAssignmentId(null);
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
