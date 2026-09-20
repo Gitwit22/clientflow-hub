@@ -139,10 +139,31 @@ export async function createClient(
 }
 
 export async function updateClient(id: string, data: Partial<Client>) {
+  const previousClient = getState().clients.find((client) => client.id === id);
   const updatedClient = (await cfUpdateClient(id, data as Record<string, unknown>)) as Client;
+  const isArchiving = updatedClient.isArchived && !previousClient?.isArchived;
+  const isRestoring = !updatedClient.isArchived && previousClient?.isArchived;
   setState((s) => ({
     ...s,
     clients: s.clients.map((client) => (client.id === id ? updatedClient : client)),
+    enrollments: s.enrollments.map((enrollment) => {
+      if (enrollment.clientId !== id) return enrollment;
+      if (isArchiving && !enrollment.isArchived) {
+        return {
+          ...enrollment,
+          isArchived: true,
+          archivedAt: updatedClient.archivedAt ?? null,
+        };
+      }
+      if (
+        isRestoring
+        && enrollment.isArchived
+        && enrollment.archivedAt === previousClient?.archivedAt
+      ) {
+        return { ...enrollment, isArchived: false, archivedAt: null };
+      }
+      return enrollment;
+    }),
   }));
   return delay(updatedClient);
 }

@@ -342,6 +342,15 @@ export async function inviteMember(
   });
 }
 
+export async function revokeMemberInvite(
+  organizationId: string,
+  memberId: string,
+): Promise<{ message: string }> {
+  return apiRequest(`/api/v1/organizations/${organizationId}/invitations/${memberId}/revoke`, {
+    method: "POST",
+  });
+}
+
 export async function updateMemberRole(
   organizationId: string,
   memberId: string,

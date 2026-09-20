@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Eye, EyeOff, UserPlus } from "lucide-react";
+import { Crown, Eye, EyeOff, UserPlus, UserX } from "lucide-react";
 import {
   ApiError,
   changePassword,
@@ -27,6 +27,7 @@ import {
   enableMember,
   getOrganizationSettings,
   listMembers,
+  revokeMemberInvite,
   updateProfile,
   updateMemberRole,
   updateOrganizationSettings,
@@ -117,6 +118,7 @@ function SettingsPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [roleUpdating, setRoleUpdating] = useState<string | null>(null);
   const [activeUpdating, setActiveUpdating] = useState<string | null>(null);
+  const [inviteRevoking, setInviteRevoking] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
 
   // Personal profile
@@ -304,6 +306,20 @@ function SettingsPage() {
     }
   }
 
+  async function handleRevokeInvite(member: OrgMember) {
+    if (!orgId || !window.confirm(`Revoke the invitation to ${member.email}?`)) return;
+    setInviteRevoking(member.id);
+    try {
+      const result = await revokeMemberInvite(orgId, member.id);
+      setMembers((current) => current.filter((candidate) => candidate.id !== member.id));
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Failed to revoke invitation.");
+    } finally {
+      setInviteRevoking(null);
+    }
+  }
+
   // ── Save company profile ─────────────────────────────────────────────────────
 
   async function handleSaveProfile(e: FormEvent<HTMLFormElement>) {
@@ -426,12 +442,27 @@ function SettingsPage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Switch
-                      checked={member.isActive}
-                      onCheckedChange={() => handleToggleActive(member)}
-                      disabled={controlsLocked || activeUpdating === member.id}
-                      aria-label={member.isActive ? "Disable member" : "Enable member"}
-                    />
+                    {member.invitePending ? (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 shrink-0 text-destructive hover:text-destructive"
+                        onClick={() => void handleRevokeInvite(member)}
+                        disabled={inviteRevoking === member.id}
+                        aria-label={`Revoke invitation to ${member.email}`}
+                        title="Revoke invitation"
+                      >
+                        <UserX className="size-4" />
+                      </Button>
+                    ) : (
+                      <Switch
+                        checked={member.isActive}
+                        onCheckedChange={() => handleToggleActive(member)}
+                        disabled={controlsLocked || activeUpdating === member.id}
+                        aria-label={member.isActive ? "Disable member" : "Enable member"}
+                      />
+                    )}
                   </div>
                 );
               })
