@@ -31,6 +31,8 @@ services:
         sync: false
       - key: ALLOW_UNAUTHENTICATED_CLIENT_CREATION
         value: "false"
+      - key: ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT
+        value: "false"
       - key: APP_URL
         sync: false
       - key: CORS_ORIGIN

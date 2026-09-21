@@ -7,6 +7,7 @@ describe('environmentSchema', () => {
     expect(environment.N8N_ENABLED).toBe('false');
     expect(environment.STORAGE_ENABLED).toBe('false');
     expect(environment.ALLOW_UNAUTHENTICATED_CLIENT_CREATION).toBe('false');
+    expect(environment.ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT).toBe('false');
   });
 
   it('requires standalone identity and database secrets in production', () => {
@@ -26,5 +27,15 @@ describe('environmentSchema', () => {
       JWT_REFRESH_SECRET: 'b'.repeat(32),
       ALLOW_UNAUTHENTICATED_CLIENT_CREATION: 'true',
     })).toThrow('Unauthenticated client creation cannot be enabled in production.');
+  });
+
+  it('rejects unauthenticated contract management in production', () => {
+    expect(() => environmentSchema.parse({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://localhost/clientflow',
+      JWT_ACCESS_SECRET: 'a'.repeat(32),
+      JWT_REFRESH_SECRET: 'b'.repeat(32),
+      ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT: 'true',
+    })).toThrow('Unauthenticated contract management cannot be enabled in production.');
   });
 });

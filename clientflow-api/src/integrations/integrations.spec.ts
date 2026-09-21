@@ -65,4 +65,34 @@ describe('disabled integrations', () => {
     }));
     fetchMock.mockRestore();
   });
+
+  it('sends the exact contract payload with secret, bearer, and idempotency headers', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const service = new N8nService(configuredN8n());
+    const payload = {
+      eventType: 'contract.send' as const,
+      organizationId: 'org_ea_management',
+      clientId: 'client_123',
+      recipientEmail: 'client@example.com',
+      clientName: 'Client Name',
+      programName: 'Brand Awareness Subscription',
+      contractName: 'Brand Awareness Service Agreement',
+      contractUrl: 'https://clientflow.example.com/contracts/token',
+      dueDate: '2026-09-28',
+    };
+
+    await expect(service.sendContract('contract.send:contract-1:event-1', payload))
+      .resolves.toEqual(expect.objectContaining({ status: 'sent' }));
+    expect(fetchMock).toHaveBeenCalledWith('https://n8n.example.com/webhook/intake', expect.objectContaining({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-clientflow-secret': 'webhook-secret',
+        'Idempotency-Key': 'contract.send:contract-1:event-1',
+        Authorization: 'Bearer workflow-token',
+      },
+      body: JSON.stringify(payload),
+    }));
+    fetchMock.mockRestore();
+  });
 });

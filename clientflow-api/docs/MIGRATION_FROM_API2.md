@@ -28,6 +28,14 @@ Outbound events are `form.send`, `intake.send`, `contract.send`, `welcome.send`,
 
 Workflow names and the sender account must be verified in n8n before enabling delivery.
 
+`contract.send` contains organization/client IDs, recipient email/client name, program name, contract name, one-time contract URL, and a `YYYY-MM-DD` due date. Contract issue first records a `CfCommunication` row with `requested` or `skipped`, then updates it to `sent` or `failed` after enabled delivery. The contract remains issued when delivery is skipped or fails.
+
+## Contract workflow migration
+
+Migration `20260921120000_add_contract_workflow` is additive and must be reviewed before it is applied to a validated clone. It creates organization-scoped contract templates, adds hashed token/expiry/template/completion fields to existing contracts, and links communications to contracts. It preserves the physical legacy `CfContract.content` column as `generatedContent`, existing optional compatibility columns, and unknown historical status values.
+
+The migration seeds seven deterministic placeholder templates per represented organization and backfills every existing contract to a matching template or General Services Agreement. No production migration is run by build or startup. The expanded clone audit must show expected template rows and zero new client/program/template/event orphans before staging writes are enabled.
+
 ## Migration order
 
 1. Keep API 2 authoritative and freeze new ClientFlow features there.

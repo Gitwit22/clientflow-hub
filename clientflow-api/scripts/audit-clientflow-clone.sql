@@ -67,3 +67,54 @@ FROM "CfActivityLog" child
 LEFT JOIN "CfClient" parent
   ON parent.id = child."clientId" AND parent."organizationId" = child."organizationId"
 WHERE parent.id IS NULL;
+
+SELECT 'orphan' AS section, 'CfContract.clientId' AS name, count(*)::text AS value
+FROM "CfContract" child
+LEFT JOIN "CfClient" parent
+  ON parent.id = child."clientId" AND parent."organizationId" = child."organizationId"
+WHERE parent.id IS NULL;
+
+SELECT 'orphan' AS section, 'CfContract.programId' AS name, count(*)::text AS value
+FROM "CfContract" child
+LEFT JOIN "CfProgram" parent
+  ON parent.id = child."programId" AND parent."organizationId" = child."organizationId"
+WHERE parent.id IS NULL;
+
+SELECT 'SELECT ''orphan'' AS section, ''CfContract.contractTemplateId'' AS name, count(*)::text AS value
+FROM "CfContract" child
+LEFT JOIN "CfContractTemplate" parent
+  ON parent.id = child."contractTemplateId" AND parent."organizationId" = child."organizationId"
+WHERE parent.id IS NULL;'
+WHERE EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_schema = current_schema()
+    AND table_name = 'CfContract'
+    AND column_name = 'contractTemplateId'
+)
+\gexec
+
+SELECT 'SELECT ''orphan'' AS section, ''CfCommunication.contractId'' AS name, count(*)::text AS value
+FROM "CfCommunication" child
+LEFT JOIN "CfContract" parent
+  ON parent.id = child."contractId" AND parent."organizationId" = child."organizationId"
+WHERE child."contractId" IS NOT NULL AND parent.id IS NULL;'
+WHERE EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_schema = current_schema()
+    AND table_name = 'CfCommunication'
+    AND column_name = 'contractId'
+)
+\gexec
+
+SELECT 'SELECT ''contract_event'' AS section, coalesce("status", ''unset'') AS name, count(*)::text AS value
+FROM "CfCommunication"
+WHERE "contractId" IS NOT NULL
+GROUP BY coalesce("status", ''unset'')
+ORDER BY name;'
+WHERE EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_schema = current_schema()
+    AND table_name = 'CfCommunication'
+    AND column_name = 'contractId'
+)
+\gexec

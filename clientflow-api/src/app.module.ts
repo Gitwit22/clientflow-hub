@@ -11,7 +11,6 @@ import {
   AuditModule,
   AuthModule,
   CommunicationsModule,
-  ContractsModule,
   DocumentsModule,
   EmailModule,
   EnrollmentsModule,
@@ -25,6 +24,7 @@ import {
   WebhooksModule,
 } from './modules/domain-modules';
 import { ClientsModule } from './modules/clients/clients.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
 import { FormsModule } from './modules/forms/forms.module';
 import { HealthController } from './modules/health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';

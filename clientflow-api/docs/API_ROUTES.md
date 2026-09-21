@@ -2,7 +2,7 @@
 
 ## Status
 
-Health and the first intake lifecycle slice are implemented. Compatibility and future business endpoints remain scaffold routes returning HTTP 501 with code `CLIENTFLOW_NOT_IMPLEMENTED`.
+Health, intake, and contract-preparation lifecycle slices are implemented. Compatibility and future business endpoints remain scaffold routes returning HTTP 501 with code `CLIENTFLOW_NOT_IMPLEMENTED`.
 
 ## Implemented intake lifecycle
 
@@ -25,6 +25,32 @@ This route is a staging-only bridge. It returns HTTP 403 unless `ALLOW_UNAUTHENT
 	"assignedStaffId": "optional-admin-user-id"
 }
 ```
+
+When a program is selected, its name must match exactly one active same-organization program. The response includes `program`, `nextAction`, optional safe `contract` metadata, and `emailDelivery`. Staff-review programs finish as `PENDING_STAFF_REVIEW`; auto-contract programs finish as `CONTRACT_SENT`.
+
+## Implemented contract preparation
+
+### Generate contract
+
+`POST /clients/:id/contracts/generate` validates the client, selected active program, and active default contract template. It creates or reuses a non-terminal draft, rotates its secure token, and returns safe metadata plus a one-time public URL. The stored SHA-256 hash and generated legal content are not returned.
+
+### Send contract
+
+`POST /clients/:id/contracts/send` accepts:
+
+```json
+{
+	"contractId": "contract_123"
+}
+```
+
+It verifies ownership, rotates the public token, marks the contract `SENT`, marks the client `CONTRACT_SENT`, appends `Contract sent` activity, records a communication event, and attempts n8n delivery after commit. Disabled or failed delivery does not revert issuance.
+
+Both staff routes return HTTP 403 unless `ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT=true`; production configuration rejects that value.
+
+### Public contract placeholder
+
+`GET /public/contracts/:token` returns HTTP 501 with `CLIENTFLOW_NOT_IMPLEMENTED`. Signing is not part of this slice.
 
 ### Open public intake
 
@@ -86,10 +112,10 @@ Base path: `/admin/cf`
 
 ## Future groups
 
-Authentication, users, organizations, programs, form administration, contracts, terms, monitoring, documents, communications, reports, archive, inbound webhooks, email administration, and audit APIs remain future work.
+Authentication, users, organizations, program/form administration, contract signing/completion, terms, monitoring, documents, communications, reports, archive, inbound webhooks, email administration, and audit APIs remain future work.
 
 Do not switch the frontend to normalized paths until parity handlers, authorization, persistence, and compatibility tests are complete.
 
 ## Known gaps
 
-Public contract token routes, contract templates, explicit archive/restore commands, lifecycle email endpoints, webhook status ingestion, and first-class `ClientContact`, `FormAnswer`, `EmailEvent`, and `WebhookEvent` models require later design and migrations.
+Public contract signing, explicit archive/restore commands, webhook status ingestion, retry processing, and first-class `ClientContact`, `FormAnswer`, and `WebhookEvent` models require later design and migrations.

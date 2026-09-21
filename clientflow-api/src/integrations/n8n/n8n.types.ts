@@ -46,3 +46,17 @@ export type IntakeEmailDeliveryResult =
   | { status: 'sent'; sentAt: string }
   | { status: 'skipped'; reason: 'disabled' | 'not_configured' }
   | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' };
+
+export interface ContractEmailPayload {
+  eventType: 'contract.send';
+  organizationId: string;
+  clientId: string;
+  recipientEmail: string;
+  clientName: string;
+  programName: string;
+  contractName: string;
+  contractUrl: string;
+  dueDate: string;
+}
+
+export type ContractEmailDeliveryResult = IntakeEmailDeliveryResult;

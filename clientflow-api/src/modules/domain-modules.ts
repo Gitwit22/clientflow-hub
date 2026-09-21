@@ -5,7 +5,6 @@ import { Module } from '@nestjs/common';
 @Module({}) export class OrganizationsModule {}
 @Module({}) export class ProgramsModule {}
 @Module({}) export class EnrollmentsModule {}
-@Module({}) export class ContractsModule {}
 @Module({}) export class TermsModule {}
 @Module({}) export class MonitoringModule {}
 @Module({}) export class DocumentsModule {}

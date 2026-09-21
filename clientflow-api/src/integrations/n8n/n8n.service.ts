@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import type {
   ClientflowLifecyclePayload,
+  ContractEmailDeliveryResult,
+  ContractEmailPayload,
   IntakeEmailDeliveryResult,
   IntakeEmailPayload,
   N8nDeliveryReceipt,
@@ -20,8 +22,52 @@ export class N8nService {
       : 'not_configured';
   }
 
+  getContractAvailability(): 'ready' | 'disabled' | 'not_configured' {
+    return this.getIntakeAvailability();
+  }
+
   async sendIntake(eventId: string, payload: IntakeEmailPayload): Promise<IntakeEmailDeliveryResult> {
     const availability = this.getIntakeAvailability();
+    if (availability !== 'ready') return { status: 'skipped', reason: availability };
+
+    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })!;
+    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })!;
+    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true });
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this.config.get('N8N_TIMEOUT_MS', { infer: true }),
+    );
+
+    try {
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-clientflow-secret': secret,
+          'Idempotency-Key': eventId,
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!response.ok) return { status: 'failed', reason: 'rejected' };
+      return { status: 'sent', sentAt: new Date().toISOString() };
+    } catch (error) {
+      return {
+        status: 'failed',
+        reason: error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unavailable',
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async sendContract(
+    eventId: string,
+    payload: ContractEmailPayload,
+  ): Promise<ContractEmailDeliveryResult> {
+    const availability = this.getContractAvailability();
     if (availability !== 'ready') return { status: 'skipped', reason: availability };
 
     const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })!;

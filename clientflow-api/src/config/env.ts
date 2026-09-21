@@ -8,6 +8,7 @@ export const environmentSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4001),
   DATABASE_URL: z.string().min(1).optional(),
   ALLOW_UNAUTHENTICATED_CLIENT_CREATION: booleanFlag,
+  ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT: booleanFlag,
   CORS_ORIGIN: z.string().default('http://localhost:3000,http://localhost:5173'),
   APP_URL: z.string().url().default('http://localhost:3000'),
   JWT_ACCESS_SECRET: z.string().min(32).optional(),
@@ -50,6 +51,13 @@ export const environmentSchema = z.object({
       code: 'custom',
       path: ['ALLOW_UNAUTHENTICATED_CLIENT_CREATION'],
       message: 'Unauthenticated client creation cannot be enabled in production.',
+    });
+  }
+  if (environment.NODE_ENV === 'production' && environment.ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT === 'true') {
+    context.addIssue({
+      code: 'custom',
+      path: ['ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT'],
+      message: 'Unauthenticated contract management cannot be enabled in production.',
     });
   }
   if (environment.EMAIL_SEND_ENABLED === 'true' && (!environment.RESEND_API_KEY || !environment.EMAIL_FROM_ADDRESS)) {

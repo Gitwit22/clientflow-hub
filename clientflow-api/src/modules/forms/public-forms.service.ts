@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ContractsService } from '../contracts/contracts.service';
 import type { PublicAnswer, SubmitPublicFormDto } from './dto/submit-public-form.dto';
 import {
   CLIENT_STATUS,
@@ -20,7 +21,10 @@ function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
 
 @Injectable()
 export class PublicFormsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly contracts: ContractsService,
+  ) {}
 
   async getByToken(token: string) {
     const { assignment, client, template } = await this.resolveToken(token);
@@ -75,6 +79,9 @@ export class PublicFormsService {
     }
     const program = isProgramOption(selectedProgram) ? selectedProgram : null;
     const status = program ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted;
+    const preparedProgram = program
+      ? await this.contracts.prepareProgramSelection(assignment.organizationId, program)
+      : null;
     const submittedAt = new Date();
 
     await this.prisma.$transaction(async (transaction) => {
@@ -88,6 +95,7 @@ export class PublicFormsService {
         where: { id: client.id },
         data: {
           status,
+          programId: preparedProgram?.program.id ?? null,
           intake: {
             ...jsonObject(client.intake),
             ...(program ? { programOfInterest: program } : {}),
@@ -107,12 +115,20 @@ export class PublicFormsService {
       });
     });
 
+    const postIntake = preparedProgram
+      ? await this.contracts.handlePostIntakeProgramSelection(client.id, preparedProgram.program.id)
+      : null;
+
     return {
       success: true,
       clientId: client.id,
       assignmentId: assignment.id,
-      status,
+      status: postIntake?.clientStatus ?? status,
       selectedProgram: program,
+      program: postIntake?.program ?? null,
+      nextAction: postIntake?.nextAction ?? null,
+      contract: postIntake?.contract ?? null,
+      emailDelivery: postIntake?.emailDelivery ?? null,
     };
   }
 
