@@ -30,7 +30,7 @@ import type {
 export type { PublicFormResponseValue } from "@/types";
 
 const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? "https://nxt-lvl-api2.onrender.com";
+  (import.meta.env.VITE_API_URL as string | undefined) ?? "https://clientflow-api.onrender.com";
 const APP_PARTITION = "clientflow";
 
 // ─── Error types ─────────────────────────────────────────────────────────────

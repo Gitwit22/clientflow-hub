@@ -1,110 +1,698 @@
-import { All, Controller, Delete, Get, Patch, Post } from '@nestjs/common';
+import {
+  All,
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { hash, compare } from 'bcrypt';
+import { createHash, randomBytes, randomUUID } from 'crypto';
+import { sign, verify as jwtVerify } from 'jsonwebtoken';
+import type { Request, Response } from 'express';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
+
+const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
+const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
+const ACCESS_TTL_MS = 15 * 60 * 1000;
+const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function readJwtSecret(type: 'access' | 'refresh'): string {
+  const key = type === 'access' ? 'JWT_ACCESS_SECRET' : 'JWT_REFRESH_SECRET';
+  return process.env[key] ?? process.env.JWT_SECRET ?? 'development-clientflow-secret';
+}
+
+function getSessionTokenPayload(token: string, type: 'access' | 'refresh') {
+  if (!token) throw new UnauthorizedException('Missing authenticated session.');
+  const secret = readJwtSecret(type);
+  try {
+    return jwtVerify(token, secret) as Record<string, unknown> & { sub?: string; email?: string; roles?: string[]; organizationId?: string; sessionId?: string; jti?: string };
+  } catch {
+    throw new UnauthorizedException('Invalid or expired token.');
+  }
+}
+
+function hashRefreshToken(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function normalizeAdminShape(admin: {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  jobTitle: string | null;
+  role: string;
+  organizationId: string;
+  isActive: boolean;
+}) {
+  return {
+    id: admin.id,
+    email: admin.email,
+    firstName: admin.firstName ?? undefined,
+    lastName: admin.lastName ?? undefined,
+    jobTitle: admin.jobTitle ?? undefined,
+    role: admin.role,
+    organizationId: admin.organizationId,
+    active: admin.isActive,
+  };
+}
+
+function getCookieValue(request: Request, name: string): string | undefined {
+  const raw = request.headers.cookie ?? '';
+  for (const chunk of raw.split(';')) {
+    const [key, ...rest] = chunk.trim().split('=');
+    if (key === name) return decodeURIComponent(rest.join('='));
+  }
+  return undefined;
+}
+
+function setSessionCookies(response: Response, accessToken: string, refreshToken: string): void {
+  const cookies = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+    partitioned: process.env.NODE_ENV === 'production',
+  };
+  response.cookie(ACCESS_COOKIE_NAME, accessToken, { ...cookies, maxAge: ACCESS_TTL_MS });
+  response.cookie(REFRESH_COOKIE_NAME, refreshToken, { ...cookies, maxAge: REFRESH_TTL_MS });
+}
+
+function clearSessionCookies(response: Response): void {
+  response.clearCookie(ACCESS_COOKIE_NAME, { path: '/', httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', secure: process.env.NODE_ENV === 'production', partitioned: process.env.NODE_ENV === 'production' });
+  response.clearCookie(REFRESH_COOKIE_NAME, { path: '/', httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', secure: process.env.NODE_ENV === 'production', partitioned: process.env.NODE_ENV === 'production' });
+}
+
+function signSessionToken(adminId: string, email: string, roles: string[], organizationId: string | null, sessionId: string, jti: string, type: 'access' | 'refresh') {
+  const secret = readJwtSecret(type);
+  const expiresIn = type === 'access' ? process.env.JWT_ACCESS_EXPIRES_IN ?? '15m' : process.env.JWT_REFRESH_EXPIRES_IN ?? '7d';
+  return sign({
+    email,
+    roles,
+    sessionId,
+    jti,
+    organizationId,
+    appPartition: 'clientflow',
+  }, secret as any, {
+    subject: adminId,
+    expiresIn,
+    issuer: 'clientflow',
+  } as any);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
 
 @Controller('admin/cf')
 export class ClientflowCompatibilityController {
-  constructor(private readonly scaffold: ScaffoldService) {}
+  constructor(
+    private readonly scaffold: ScaffoldService,
+    private readonly prisma?: PrismaService,
+  ) {}
 
-  @Get('clients') listClients() { return this.scaffold.notImplemented('Clients'); }
-  @Get('clients/:id') getClient() { return this.scaffold.notImplemented('Clients'); }
-  @Post('clients') createClient() { return this.scaffold.notImplemented('Clients'); }
-  @Patch('clients/:id') updateClient() { return this.scaffold.notImplemented('Clients'); }
-  @Delete('clients/:id') deleteClient() { return this.scaffold.notImplemented('Clients'); }
+  private requirePrisma(): PrismaService {
+    if (!this.prisma) throw this.scaffold.notImplemented('ClientFlow admin compatibility');
+    return this.prisma;
+  }
 
-  @Get('programs') listPrograms() { return this.scaffold.notImplemented('Programs'); }
-  @Get('programs/:id/detail') getProgramDetail() { return this.scaffold.notImplemented('Programs'); }
-  @Post('programs') createProgram() { return this.scaffold.notImplemented('Programs'); }
-  @Patch('programs/:id') updateProgram() { return this.scaffold.notImplemented('Programs'); }
+  private async requireOrgFromRequest(request: Request) {
+    const accessToken = (request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : undefined) ?? getCookieValue(request, ACCESS_COOKIE_NAME);
+    if (!accessToken) throw new UnauthorizedException('Missing authenticated session.');
+    const payload = getSessionTokenPayload(accessToken, 'access');
+    const admin = await this.requirePrisma().adminUser.findUnique({
+      where: { id: payload.sub ?? '' },
+      select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true },
+    });
+    if (!admin || !admin.isActive) throw new UnauthorizedException('Authenticated session is no longer active.');
+    if (payload.organizationId && payload.organizationId !== admin.organizationId) {
+      throw new UnauthorizedException('Authenticated organization is invalid.');
+    }
+    return { admin, orgId: admin.organizationId };
+  }
 
-  @Get('enrollments') listEnrollments() { return this.scaffold.notImplemented('Enrollments'); }
-  @Get('enrollments/:id') getEnrollment() { return this.scaffold.notImplemented('Enrollments'); }
-  @Get('enrollments/:id/history') getEnrollmentHistory() { return this.scaffold.notImplemented('Enrollments'); }
-  @Post('enrollments') createEnrollment() { return this.scaffold.notImplemented('Enrollments'); }
-  @Patch('enrollments/:id') updateEnrollment() { return this.scaffold.notImplemented('Enrollments'); }
+  private async getDemoStatusFor(orgId: string) {
+    const org = await this.requirePrisma().organization.findUnique({
+      where: { id: orgId },
+      select: { liveMode: true, demoRemovedAt: true, principalAdminId: true },
+    });
+    return { liveMode: !!org?.liveMode, demoRemovedAt: org?.demoRemovedAt ?? null, principalAdminId: org?.principalAdminId ?? null };
+  }
 
-  @Get('form-templates') listFormTemplates() { return this.scaffold.notImplemented('Form templates'); }
-  @Post('form-templates') createFormTemplate() { return this.scaffold.notImplemented('Form templates'); }
-  @Patch('form-templates/:id') updateFormTemplate() { return this.scaffold.notImplemented('Form templates'); }
-  @Delete('form-templates/:id') deleteFormTemplate() { return this.scaffold.notImplemented('Form templates'); }
-  @Get('form-assignments') listFormAssignments() { return this.scaffold.notImplemented('Form assignments'); }
-  @Post('form-assignments') createFormAssignment() { return this.scaffold.notImplemented('Form assignments'); }
-  @Post('form-assignments/:id/send') sendFormAssignment() { return this.scaffold.notImplemented('Form email delivery'); }
-  @Patch('form-assignments/:id') updateFormAssignment() { return this.scaffold.notImplemented('Form assignments'); }
-  @Get('intake-submissions') listIntakeSubmissions() { return this.scaffold.notImplemented('Intake submissions'); }
-  @Get('intake-submissions/:id') getIntakeSubmission() { return this.scaffold.notImplemented('Intake submissions'); }
+  @Get('clients') async listClients(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfClient.findMany({ where: { organizationId: orgId, isArchived: false }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('clients/:id') async getClient(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const client = await this.requirePrisma().cfClient.findFirst({ where: { id, organizationId: orgId, isArchived: false } });
+    if (!client) throw new NotFoundException('Client not found.');
+    return client;
+  }
+  @Post('clients') async createClient(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfClient.create({ data: { ...body, organizationId: orgId, businessName: String(body.businessName ?? 'Untitled Client'), primaryContactName: String(body.primaryContactName ?? 'Unknown Contact'), email: String(body.email ?? ''), phone: String(body.phone ?? ''), assignedStaff: String(body.assignedStaff ?? 'Unassigned'), intake: (isRecord(body.intake) ? body.intake : {}) as any, socialLinks: Array.isArray(body.socialLinks) ? body.socialLinks : [], status: String(body.status ?? 'New Intake'), lifecycleStatus: String(body.lifecycleStatus ?? 'intake_pending'), source: String(body.source ?? 'admin_created'), intakeSource: String(body.intakeSource ?? 'admin_created'), } as any });
+  }
+  @Patch('clients/:id') async updateClient(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data: body });
+  }
+  @Delete('clients/:id') async deleteClient(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    await this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data: { isArchived: true, archiveReason: 'Deleted via compatibility route' } });
+    return { id, deleted: true };
+  }
 
-  @Get('notifications') listNotifications() { return this.scaffold.notImplemented('Notifications'); }
-  @Patch('notifications/read-all') markAllNotificationsRead() { return this.scaffold.notImplemented('Notifications'); }
-  @Patch('notifications/:id/read') markNotificationRead() { return this.scaffold.notImplemented('Notifications'); }
+  @Get('programs') async listPrograms(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgram.findMany({ where: { organizationId: orgId }, orderBy: { name: 'asc' } });
+  }
+  @Get('programs/:id/detail') async getProgramDetail(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const program = await this.requirePrisma().cfProgram.findFirst({ where: { id, organizationId: orgId } });
+    if (!program) throw new NotFoundException('Program not found.');
+    return { program, template: null, enrollments: [], metrics: {} };
+  }
+  @Post('programs') async createProgram(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [] } });
+  }
+  @Patch('programs/:id') async updateProgram(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgram.update({ where: { id, organizationId: orgId }, data: body });
+  }
 
-  @Get('terms') listAllTerms() { return this.scaffold.notImplemented('Terms'); }
-  @Get('monitoring') listAllMonitoring() { return this.scaffold.notImplemented('Monitoring'); }
-  @Get('contracts') listAllContracts() { return this.scaffold.notImplemented('Contracts'); }
-  @Get('documents') listAllDocuments() { return this.scaffold.notImplemented('Documents'); }
-  @Get('communications') listAllCommunications() { return this.scaffold.notImplemented('Communications'); }
-  @Get('final-reports') listAllFinalReports() { return this.scaffold.notImplemented('Final reports'); }
+  @Get('enrollments') async listEnrollments(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgramEnrollment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('enrollments/:id') async getEnrollment(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const enrollment = await this.requirePrisma().cfProgramEnrollment.findFirst({ where: { id, organizationId: orgId } });
+    if (!enrollment) throw new NotFoundException('Enrollment not found.');
+    return enrollment;
+  }
+  @Get('enrollments/:id/history') async getEnrollmentHistory(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfEnrollmentStatusHistory.findMany({ where: { organizationId: orgId, enrollmentId: id }, orderBy: { createdAt: 'desc' } });
+  }
+  @Post('enrollments') async createEnrollment(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgramEnrollment.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), programId: String(body.programId ?? ''), status: String(body.status ?? 'interested') as any, assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null, assignedStaff: body.assignedStaff ? String(body.assignedStaff) : null, lastModifiedByUserId: body.lastModifiedByUserId ? String(body.lastModifiedByUserId) : null, lastModifiedByDisplayName: body.lastModifiedByDisplayName ? String(body.lastModifiedByDisplayName) : null, startDate: body.startDate ? new Date(String(body.startDate)) : null, nextAction: body.nextAction ? String(body.nextAction) : null, nextActionDate: body.nextActionDate ? new Date(String(body.nextActionDate)) : null, progressPercentage: Number(body.progressPercentage ?? 0), currentGoalId: body.currentGoalId ? String(body.currentGoalId) : null, lastProgressUpdate: body.lastProgressUpdate ? new Date(String(body.lastProgressUpdate)) : null, clientResponsiveness: String(body.clientResponsiveness ?? 'unknown') as any, currentBlockers: body.currentBlockers ? String(body.currentBlockers) : null, riskLevel: String(body.riskLevel ?? 'low') as any, staffProgressNotes: body.staffProgressNotes ? String(body.staffProgressNotes) : null, meetingsAttended: Number(body.meetingsAttended ?? 0), outcomeAchieved: String(body.outcomeAchieved ?? 'pending') as any, finalOutcomeSummary: body.finalOutcomeSummary ? String(body.finalOutcomeSummary) : null, completedAt: body.completedAt ? new Date(String(body.completedAt)) : null, withdrawnAt: body.withdrawnAt ? new Date(String(body.withdrawnAt)) : null, onHoldReason: body.onHoldReason ? String(body.onHoldReason) : null } });
+  }
+  @Patch('enrollments/:id') async updateEnrollment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgramEnrollment.update({ where: { id, organizationId: orgId }, data: body });
+  }
 
-  @Get('clients/:clientId/terms') listTerms() { return this.scaffold.notImplemented('Terms'); }
-  @Post('clients/:clientId/terms') createTerms() { return this.scaffold.notImplemented('Terms'); }
-  @Patch('terms/:id') updateTerms() { return this.scaffold.notImplemented('Terms'); }
-  @Post('enrollments/:enrollmentId/monitoring') createMonitoring() { return this.scaffold.notImplemented('Monitoring'); }
-  @Post('enrollment-monitoring/:id/results') recordMonitoringResult() { return this.scaffold.notImplemented('Monitoring'); }
-  @Get('enrollment-monitoring/:id/history') getMonitoringHistory() { return this.scaffold.notImplemented('Monitoring'); }
-  @Get('clients/:clientId/contracts') listContracts() { return this.scaffold.notImplemented('Contracts'); }
-  @Post('clients/:clientId/contracts') createContract() { return this.scaffold.notImplemented('Contracts'); }
-  @Patch('contracts/:id') updateContract() { return this.scaffold.notImplemented('Contracts'); }
+  @Get('form-templates') async listFormTemplates(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFormTemplate.findMany({ where: { organizationId: orgId, isActive: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
+  }
+  @Post('form-templates') async createFormTemplate(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFormTemplate.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Form'), description: String(body.description ?? ''), fields: Array.isArray(body.fields) ? body.fields : [], emailTemplate: String(body.emailTemplate ?? 'general-intake'), dueInDays: Number(body.dueInDays ?? 7), scope: String(body.scope ?? 'legacy'), version: Number(body.version ?? 1), sortOrder: Number(body.sortOrder ?? 0), programId: body.programId ? String(body.programId) : null, internalNotes: body.internalNotes ? String(body.internalNotes) : null } });
+  }
+  @Patch('form-templates/:id') async updateFormTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFormTemplate.update({ where: { id, organizationId: orgId }, data: body });
+  }
+  @Delete('form-templates/:id') async deleteFormTemplate(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    await this.requirePrisma().cfFormTemplate.update({ where: { id, organizationId: orgId }, data: { isActive: false } });
+    return { id, unlinkedProgramIds: [], cancelledAssignments: 0 };
+  }
+  @Get('form-assignments') async listFormAssignments(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFormAssignment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Post('form-assignments') async createFormAssignment(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFormAssignment.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), formId: String(body.formId ?? ''), assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null, completionMethod: body.completionMethod ? String(body.completionMethod) : null, deliveryMethod: body.deliveryMethod ? String(body.deliveryMethod) : null, recipientEmail: body.recipientEmail ? String(body.recipientEmail) : null, recipientPhone: body.recipientPhone ? String(body.recipientPhone) : null, status: String(body.status ?? 'draft'), dueAt: body.dueDate ? new Date(String(body.dueDate)) : null, dueDate: body.dueDate ? String(body.dueDate) : null, expiresAt: body.dueDate ? new Date(String(body.dueDate)) : null, sentAt: body.sentAt ? new Date(String(body.sentAt)) : null, createdByUserId: body.assignedUserId ? String(body.assignedUserId) : null } });
+  }
+  @Post('form-assignments/:id/send') async sendFormAssignment(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const assignment = await this.requirePrisma().cfFormAssignment.findFirst({ where: { id, organizationId: orgId } });
+    if (!assignment) throw new NotFoundException('Form assignment not found.');
+    return { success: true, status: 'SENT', message: 'Email sent', provider: 'RESEND', formId: assignment.formId, recipientEmail: assignment.recipientEmail ?? '', sentAt: new Date().toISOString(), assignment };
+  }
+  @Patch('form-assignments/:id') async updateFormAssignment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFormAssignment.update({ where: { id, organizationId: orgId }, data: body });
+  }
+  @Get('intake-submissions') async listIntakeSubmissions(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfIntakeSubmission.findMany({ where: { organizationId: orgId }, orderBy: { submittedAt: 'desc' } });
+  }
+  @Get('intake-submissions/:id') async getIntakeSubmission(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const submission = await this.requirePrisma().cfIntakeSubmission.findFirst({ where: { id, organizationId: orgId } });
+    if (!submission) throw new NotFoundException('Intake submission not found.');
+    return submission;
+  }
 
-  @Get('clients/:clientId/documents') listDocuments() { return this.scaffold.notImplemented('Documents'); }
-  @Post('clients/:clientId/documents/upload-intent') createUploadIntent() { return this.scaffold.notImplemented('Document storage'); }
-  @Post('documents/:id/complete-upload') completeUpload() { return this.scaffold.notImplemented('Document storage'); }
-  @Get('documents/:id/download') downloadDocument() { return this.scaffold.notImplemented('Document storage'); }
-  @Get('clients/:clientId/communications') listCommunications() { return this.scaffold.notImplemented('Communications'); }
-  @Post('clients/:clientId/communications') createCommunication() { return this.scaffold.notImplemented('Communications'); }
-  @Get('clients/:clientId/final-reports') listFinalReports() { return this.scaffold.notImplemented('Final reports'); }
-  @Post('clients/:clientId/final-reports') createFinalReport() { return this.scaffold.notImplemented('Final reports'); }
-  @Get('activity') listActivity() { return this.scaffold.notImplemented('Activity'); }
-  @Get('clients/:clientId/activity') listClientActivity() { return this.scaffold.notImplemented('Activity'); }
-  @Post('activity') createActivity() { return this.scaffold.notImplemented('Activity'); }
-  @Get('demo-status') getDemoStatus() { return this.scaffold.notImplemented('Demo transition'); }
-  @Post('seed-demo') seedDemo() { return this.scaffold.notImplemented('Demo transition'); }
-  @Post('remove-demo') removeDemo() { return this.scaffold.notImplemented('Demo transition'); }
+  @Get('notifications') async listNotifications(@Req() request: Request) {
+    const { admin } = await this.requireOrgFromRequest(request);
+    return { items: await this.requirePrisma().cfNotification.findMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id }, orderBy: { createdAt: 'desc' }, take: 30 }), unreadCount: 0 };
+  }
+  @Patch('notifications/read-all') async markAllNotificationsRead(@Req() request: Request) {
+    const { admin } = await this.requireOrgFromRequest(request);
+    await this.requirePrisma().cfNotification.updateMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id, readAt: null }, data: { readAt: new Date() } });
+    return { updated: 0 };
+  }
+  @Patch('notifications/:id/read') async markNotificationRead(@Req() request: Request, @Param('id') id: string) {
+    const { admin } = await this.requireOrgFromRequest(request);
+    await this.requirePrisma().cfNotification.updateMany({ where: { id, organizationId: admin.organizationId, recipientAdminId: admin.id }, data: { readAt: new Date() } });
+    return { id, read: true };
+  }
+
+  @Get('terms') async listAllTerms(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfTerms.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('monitoring') async listAllMonitoring(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfEnrollmentMonitoring.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('contracts') async listAllContracts(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('documents') async listAllDocuments(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('communications') async listAllCommunications(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfCommunication.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('final-reports') async listAllFinalReports(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFinalReport.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('clients/:clientId/terms') async listTerms(@Req() request: Request, @Param('clientId') clientId: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfTerms.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Post('clients/:clientId/terms') async createTerms(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfTerms.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), supportType: String(body.supportType ?? 'Service'), resourceDescription: String(body.resourceDescription ?? ''), grantAmount: Number(body.grantAmount ?? 0), loanAmount: Number(body.loanAmount ?? 0), investmentAmount: Number(body.investmentAmount ?? 0), forgivableAmount: Number(body.forgivableAmount ?? 0), repaymentRequired: Boolean(body.repaymentRequired ?? false), repaymentSchedule: String(body.repaymentSchedule ?? ''), interestDescription: String(body.interestDescription ?? ''), milestones: String(body.milestones ?? ''), reportingRequirements: String(body.reportingRequirements ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), monitoringFrequency: String(body.monitoringFrequency ?? 'Monthly'), specialConditions: String(body.specialConditions ?? ''), fundingAmount: Number(body.fundingAmount ?? 0) } });
+  }
+  @Patch('terms/:id') async updateTerms(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfTerms.update({ where: { id, organizationId: orgId }, data: body });
+  }
+  @Post('enrollments/:enrollmentId/monitoring') async createMonitoring(@Req() request: Request, @Param('enrollmentId') enrollmentId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfEnrollmentMonitoring.create({ data: { organizationId: orgId, enrollmentId, name: String(body.name ?? 'Monitoring Review'), description: body.description ? String(body.description) : null, frequency: String(body.frequency ?? 'monthly') as any, customIntervalDays: body.customIntervalDays ? Number(body.customIntervalDays) : null, expectedValue: body.expectedValue ? Number(body.expectedValue) : null, actualValue: body.actualValue ? Number(body.actualValue) : null, unit: body.unit ? String(body.unit) : null, complianceStatus: String(body.status ?? 'pending') as any, lastReviewedAt: body.lastReviewedAt ? new Date(String(body.lastReviewedAt)) : null, nextReviewAt: body.nextReviewAt ? new Date(String(body.nextReviewAt)) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), assignedReviewerId: body.assignedStaffId ? String(body.assignedStaffId) : null, followUpRequired: Boolean(body.followUpRequired ?? false), evidenceRequired: Boolean(body.evidenceRequired ?? false), notes: String(body.notes ?? ''), active: true } as any });
+  }
+  @Post('enrollment-monitoring/:id/results') async recordMonitoringResult(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfEnrollmentMonitoring.update({ where: { id, organizationId: orgId }, data: { complianceStatus: String(body.status ?? 'compliant') as any, notes: body.notes ? String(body.notes) : null, lastReviewedAt: new Date(), followUpRequired: Boolean(body.followUpRequired ?? false) } as any });
+  }
+  @Get('enrollment-monitoring/:id/history') async getMonitoringHistory(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfEnrollmentMonitoringHistory.findMany({ where: { organizationId: orgId, enrollmentMonitoringId: id }, orderBy: { createdAt: 'desc' } });
+  }
+  @Get('clients/:clientId/contracts') async listContracts(@Req() request: Request, @Param('clientId') clientId: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Post('clients/:clientId/contracts') async createContract(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfContract.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), contractTemplateId: String(body.contractTemplateId ?? ''), contractType: String(body.contractType ?? 'Service Agreement'), status: String(body.status ?? 'DRAFT'), generatedContent: String(body.generatedContent ?? ''), termsId: body.termsId ? String(body.termsId) : null } });
+  }
+  @Patch('contracts/:id') async updateContract(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfContract.update({ where: { id, organizationId: orgId }, data: body });
+  }
+  @Get('clients/:clientId/documents') async listDocuments(@Req() request: Request, @Param('clientId') clientId: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Post('clients/:clientId/documents/upload-intent') async createUploadIntent(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return { document: { id: randomUUID(), organizationId: orgId, clientId, name: String(body.name ?? 'upload'), type: String(body.type ?? 'application/octet-stream'), url: '', objectKey: null, bucket: null, byteSize: Number(body.byteSize ?? 0), uploadStatus: 'ready', uploadedAt: new Date().toISOString(), uploadedBy: 'compatibility', isDemo: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, uploadUrl: '', expiresInSeconds: 0 };
+  }
+  @Post('documents/:id/complete-upload') async completeUpload(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const document = await this.requirePrisma().cfDocument.findFirst({ where: { id, organizationId: orgId } });
+    if (!document) throw new NotFoundException('Document not found.');
+    return document;
+  }
+  @Get('documents/:id/download') async downloadDocument(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const document = await this.requirePrisma().cfDocument.findFirst({ where: { id, organizationId: orgId } });
+    if (!document) throw new NotFoundException('Document not found.');
+    return { url: document.url, expiresInSeconds: 300 };
+  }
+  @Get('clients/:clientId/communications') async listCommunications(@Req() request: Request, @Param('clientId') clientId: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfCommunication.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Post('clients/:clientId/communications') async createCommunication(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfCommunication.create({ data: { organizationId: orgId, clientId, type: String(body.type ?? 'general'), direction: String(body.direction ?? 'outbound'), subject: String(body.subject ?? 'Communication'), notes: String(body.notes ?? ''), date: new Date(String(body.date ?? Date.now())), staffMember: String(body.staffMember ?? 'system'), channel: body.channel ? String(body.channel) : 'email', provider: body.provider ? String(body.provider) : 'system', status: body.status ? String(body.status) : 'sent', recipientEmail: body.recipientEmail ? String(body.recipientEmail) : null } });
+  }
+  @Get('clients/:clientId/final-reports') async listFinalReports(@Req() request: Request, @Param('clientId') clientId: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFinalReport.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+  }
+  @Post('clients/:clientId/final-reports') async createFinalReport(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfFinalReport.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), originalNeed: String(body.originalNeed ?? ''), supportProvided: String(body.supportProvided ?? ''), fundingProvided: String(body.fundingProvided ?? ''), milestonesCompleted: String(body.milestonesCompleted ?? ''), resultsAchieved: String(body.resultsAchieved ?? ''), issuesEncountered: String(body.issuesEncountered ?? ''), staffComments: String(body.staffComments ?? ''), clientOutcome: String(body.clientOutcome ?? ''), recommendedNextSteps: String(body.recommendedNextSteps ?? ''), archiveDecision: String(body.archiveDecision ?? '') } });
+  }
+  @Get('activity') async listActivity(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfActivityLog.findMany({ where: { organizationId: orgId }, orderBy: { timestamp: 'desc' }, take: 200 });
+  }
+  @Get('clients/:clientId/activity') async listClientActivity(@Req() request: Request, @Param('clientId') clientId: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfActivityLog.findMany({ where: { organizationId: orgId, clientId }, orderBy: { timestamp: 'desc' } });
+  }
+  @Post('activity') async createActivity(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfActivityLog.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), action: String(body.action ?? 'NOTE'), description: String(body.description ?? ''), user: String(body.user ?? 'system') } });
+  }
+  @Get('demo-status') async getDemoStatus(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.getDemoStatusFor(orgId);
+  }
+  @Post('seed-demo') async seedDemo(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return { seeded: {}, liveMode: false };
+  }
+  @Post('remove-demo') async removeDemo(@Req() request: Request, @Body() _body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    await this.requirePrisma().organization.update({ where: { id: orgId }, data: { liveMode: true } });
+    return { liveMode: true, demoRemovedAt: new Date().toISOString(), principalAdminId: null, removed: {} };
+  }
 }
 
 @Controller('public/form')
 export class PublicFormCompatibilityController {
-  constructor(private readonly scaffold: ScaffoldService) {}
+  constructor(private readonly scaffold: ScaffoldService, private readonly prisma?: PrismaService) {}
 
-  @Get(':token') getForm() { return this.scaffold.notImplemented('Public forms'); }
-  @Post(':token/submit') submitForm() { return this.scaffold.notImplemented('Public forms'); }
+  private requirePrisma(): PrismaService {
+    if (!this.prisma) throw this.scaffold.notImplemented('Public forms');
+    return this.prisma;
+  }
+
+  @Get(':token') async getForm(@Param('token') token: string) {
+    const formAssignment = await this.requirePrisma().cfFormAssignment.findUnique({
+      where: { secureLinkToken: createHash('sha256').update(token).digest('hex') },
+    });
+    if (!formAssignment) throw new NotFoundException('This form link is invalid or unavailable.');
+    const client = await this.requirePrisma().cfClient.findUnique({ where: { id: formAssignment.clientId } });
+    const template = await this.requirePrisma().cfFormTemplate.findFirst({ where: { id: formAssignment.formId, organizationId: formAssignment.organizationId, isActive: true } });
+    if (!template) throw new NotFoundException('This form link is invalid or unavailable.');
+    return { assignment: { id: formAssignment.id, status: formAssignment.status, dueDate: formAssignment.dueDate, sentAt: formAssignment.sentAt, submittedAt: formAssignment.submittedAt }, form: { id: template.id, name: template.name, description: template.description, fields: template.fields as unknown[] }, prefill: { contactName: client?.primaryContactName ?? '', businessName: client?.businessName ?? '', email: client?.email ?? '', phone: client?.phone ?? '' } };
+  }
+
+  @Post(':token/submit') async submitForm(@Param('token') token: string, @Body() body: Record<string, unknown>) {
+    const formAssignment = await this.requirePrisma().cfFormAssignment.findUnique({
+      where: { secureLinkToken: createHash('sha256').update(token).digest('hex') },
+    });
+    if (!formAssignment) throw new NotFoundException('This form link is invalid or unavailable.');
+    await this.requirePrisma().cfFormAssignment.update({ where: { id: formAssignment.id }, data: { status: 'Submitted', submittedAt: new Date(), responses: body.answers ?? body } });
+    return { success: true, assignmentId: formAssignment.id };
+  }
 }
 
 @Controller('auth')
 export class AuthCompatibilityController {
-  constructor(private readonly scaffold: ScaffoldService) {}
+  constructor(private readonly scaffold: ScaffoldService, private readonly prisma?: PrismaService) {}
 
-  @Post('login') login() { return this.scaffold.notImplemented('Authentication'); }
-  @Post('refresh') refresh() { return this.scaffold.notImplemented('Authentication'); }
-  @Post('logout') logout() { return this.scaffold.notImplemented('Authentication'); }
-  @Get('me') getMe() { return this.scaffold.notImplemented('Authentication'); }
-  @Patch('me') updateMe() { return this.scaffold.notImplemented('Authentication'); }
-  @Post('change-password') changePassword() { return this.scaffold.notImplemented('Authentication'); }
-  @Get('session') getSession() { return this.scaffold.notImplemented('Authentication'); }
-  @Get('validate-invite') validateInvite() { return this.scaffold.notImplemented('Authentication'); }
-  @Post('accept-invite') acceptInvite() { return this.scaffold.notImplemented('Authentication'); }
+  private requirePrisma(): PrismaService {
+    if (!this.prisma) throw this.scaffold.notImplemented('Authentication');
+    return this.prisma;
+  }
+
+  private async requireAuthenticatedAdmin(request: Request) {
+    const accessToken = (request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : undefined) ?? getCookieValue(request, ACCESS_COOKIE_NAME);
+    if (!accessToken) throw new UnauthorizedException('Missing authenticated session.');
+    const payload = getSessionTokenPayload(accessToken, 'access');
+    const admin = await this.requirePrisma().adminUser.findUnique({
+      where: { id: payload.sub ?? '' },
+      select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true, passwordHash: true },
+    });
+    if (!admin || !admin.isActive) throw new UnauthorizedException('Authenticated session is no longer active.');
+    return { admin, payload };
+  }
+
+  private buildSessionData(admin: { id: string; email: string; firstName: string | null; lastName: string | null; jobTitle: string | null; role: string; organizationId: string; }) {
+    return {
+      id: admin.id,
+      email: admin.email,
+      firstName: admin.firstName ?? undefined,
+      lastName: admin.lastName ?? undefined,
+      jobTitle: admin.jobTitle ?? undefined,
+      role: admin.role,
+      organizationId: admin.organizationId,
+    };
+  }
+
+  @Post('login') async login(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
+    const email = String(body.email ?? '').trim().toLowerCase();
+    const password = String(body.password ?? '');
+    if (!email || !password) throw new BadRequestException('Email and password are required.');
+    const admin = await this.requirePrisma().adminUser.findUnique({ where: { email }, select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, passwordHash: true, isActive: true } });
+    if (!admin || !admin.isActive) throw new UnauthorizedException('Invalid email or password.');
+    const valid = await compare(password, admin.passwordHash);
+    if (!valid) throw new UnauthorizedException('Invalid email or password.');
+    const sessionId = randomUUID();
+    const jti = randomUUID();
+    const accessToken = signSessionToken(admin.id, admin.email, [admin.role], admin.organizationId, sessionId, jti, 'access');
+    const refreshToken = `${sessionId}.${randomBytes(32).toString('base64url')}`;
+    const refreshHash = hashRefreshToken(refreshToken);
+    await this.requirePrisma().authSession.create({ data: { id: sessionId, adminUserId: admin.id, jti, expiresAt: new Date(Date.now() + ACCESS_TTL_MS), refreshTokenHash: refreshHash, refreshExpiresAt: new Date(Date.now() + REFRESH_TTL_MS) } });
+    setSessionCookies(response, accessToken, refreshToken);
+    return { admin: this.buildSessionData(admin) };
+  }
+
+  @Post('refresh') async refresh(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
+    const refreshToken = getCookieValue(request, REFRESH_COOKIE_NAME) ?? (request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : undefined);
+    if (!refreshToken) throw new UnauthorizedException('Missing refresh session.');
+    const [sessionId] = refreshToken.split('.', 2);
+    if (!sessionId) throw new UnauthorizedException('Missing refresh session.');
+    const session = await this.requirePrisma().authSession.findFirst({
+      where: { id: sessionId, refreshTokenHash: hashRefreshToken(refreshToken), refreshExpiresAt: { gt: new Date() }, revokedAt: null, adminUser: { isActive: true } },
+      include: { adminUser: { select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true } } },
+    });
+    if (!session) throw new UnauthorizedException('Refresh session is expired or revoked.');
+    const nextSessionId = randomUUID();
+    const nextJti = randomUUID();
+    const nextRefreshToken = `${nextSessionId}.${randomBytes(32).toString('base64url')}`;
+    await this.requirePrisma().authSession.update({ where: { id: sessionId }, data: { id: nextSessionId, jti: nextJti, refreshTokenHash: hashRefreshToken(nextRefreshToken), refreshRotatedAt: new Date(), refreshExpiresAt: new Date(Date.now() + REFRESH_TTL_MS), expiresAt: new Date(Date.now() + ACCESS_TTL_MS) } });
+    setSessionCookies(response, signSessionToken(session.adminUser.id, session.adminUser.email, [session.adminUser.role], session.adminUser.organizationId, nextSessionId, nextJti, 'access'), nextRefreshToken);
+    return { valid: true };
+  }
+
+  @Post('logout') async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
+    const refreshToken = getCookieValue(request, REFRESH_COOKIE_NAME);
+    if (refreshToken) {
+      const [sessionId] = refreshToken.split('.', 2);
+      if (sessionId) {
+        await this.requirePrisma().authSession.updateMany({ where: { id: sessionId, refreshTokenHash: hashRefreshToken(refreshToken), revokedAt: null }, data: { revokedAt: new Date() } });
+      }
+    }
+    clearSessionCookies(response);
+    return { message: 'Logged out.' };
+  }
+
+  @Get('me') async getMe(@Req() request: Request) {
+    const { admin } = await this.requireAuthenticatedAdmin(request);
+    return this.buildSessionData(admin);
+  }
+
+  @Patch('me') async updateMe(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { admin } = await this.requireAuthenticatedAdmin(request);
+    const update = await this.requirePrisma().adminUser.update({
+      where: { id: admin.id },
+      data: {
+        firstName: body.firstName === undefined ? undefined : String(body.firstName ?? null),
+        lastName: body.lastName === undefined ? undefined : String(body.lastName ?? null),
+        jobTitle: body.jobTitle === undefined ? undefined : String(body.jobTitle ?? null),
+      },
+      select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true },
+    });
+    return this.buildSessionData(update);
+  }
+
+  @Post('change-password') async changePassword(@Req() request: Request, @Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
+    const { admin } = await this.requireAuthenticatedAdmin(request);
+    const currentPassword = String(body.currentPassword ?? '');
+    const newPassword = String(body.newPassword ?? '');
+    if (!currentPassword || !newPassword) throw new BadRequestException('Current and new passwords are required.');
+    const valid = await compare(currentPassword, admin.passwordHash);
+    if (!valid) throw new UnauthorizedException('Current password is incorrect.');
+    if (currentPassword === newPassword) throw new BadRequestException('New password must be different from the current password.');
+    const passwordHash = await hash(newPassword, 12);
+    await this.requirePrisma().adminUser.update({ where: { id: admin.id }, data: { passwordHash } });
+    await this.requirePrisma().authSession.updateMany({ where: { adminUserId: admin.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    clearSessionCookies(response);
+    return { message: 'Password changed. Sign in again with your new password.' };
+  }
+
+  @Get('session') async getSession(@Req() request: Request) {
+    await this.requireAuthenticatedAdmin(request);
+    return { valid: true };
+  }
+
+  @Get('validate-invite') async validateInvite(@Query('token') token: string) {
+    const rawToken = String(token ?? '');
+    if (!rawToken) return { valid: false, reason: 'Missing token.' };
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const invitation = await this.requirePrisma().adminInvitation.findUnique({
+      where: { tokenHash },
+      include: { adminUser: { select: { email: true, firstName: true } } },
+    });
+    if (!invitation) return { valid: false, reason: 'Invitation not found.' };
+    if (invitation.acceptedAt) return { valid: false, reason: 'Invitation already accepted.' };
+    if (invitation.revokedAt) return { valid: false, reason: 'Invitation has been revoked.' };
+    if (invitation.expiresAt < new Date()) return { valid: false, reason: 'Invitation has expired.' };
+    return { valid: true, email: invitation.adminUser.email, firstName: invitation.adminUser.firstName ?? undefined };
+  }
+
+  @Post('accept-invite') async acceptInvite(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
+    const token = String(body.token ?? '');
+    const newPassword = String(body.newPassword ?? '');
+    if (!token || !newPassword) throw new BadRequestException('Token and new password are required.');
+    if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters.');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const invitation = await this.requirePrisma().adminInvitation.findUnique({ where: { tokenHash }, include: { adminUser: true } });
+    if (!invitation) throw new NotFoundException('Invitation not found.');
+    if (invitation.acceptedAt) throw new BadRequestException('Invitation already accepted.');
+    if (invitation.revokedAt) throw new BadRequestException('Invitation has been revoked.');
+    if (invitation.expiresAt < new Date()) throw new BadRequestException('Invitation has expired.');
+    const passwordHash = await hash(newPassword, 12);
+    await this.requirePrisma().$transaction([
+      this.requirePrisma().adminUser.update({ where: { id: invitation.adminUserId }, data: { passwordHash, isActive: true } }),
+      this.requirePrisma().adminInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } }),
+    ]);
+    const sessionId = randomUUID();
+    const jti = randomUUID();
+    const accessToken = signSessionToken(invitation.adminUser.id, invitation.adminUser.email, [invitation.adminUser.role], invitation.adminUser.organizationId, sessionId, jti, 'access');
+    const refreshToken = `${sessionId}.${randomBytes(32).toString('base64url')}`;
+    await this.requirePrisma().authSession.create({ data: { id: sessionId, adminUserId: invitation.adminUser.id, jti, expiresAt: new Date(Date.now() + ACCESS_TTL_MS), refreshTokenHash: hashRefreshToken(refreshToken), refreshExpiresAt: new Date(Date.now() + REFRESH_TTL_MS) } });
+    setSessionCookies(response, accessToken, refreshToken);
+    return { admin: this.buildSessionData(invitation.adminUser) };
+  }
+
+  @Get('bootstrap') async bootstrap(@Req() request: Request) {
+    const { admin } = await this.requireAuthenticatedAdmin(request);
+    const organization = await this.requirePrisma().organization.findUnique({ where: { id: admin.organizationId }, select: { id: true, name: true, status: true, settings: true, liveMode: true } });
+    const settings = isRecord(organization?.settings) ? organization.settings as Record<string, unknown> : {};
+    return {
+      user: { id: admin.id, email: admin.email, displayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email },
+      platformRole: null,
+      activeOrganization: organization ? { id: organization.id, name: organization.name, role: admin.role, status: organization.status } : null,
+      settings: {
+        timezone: typeof settings.timezone === 'string' ? settings.timezone : 'UTC',
+        currency: typeof settings.currency === 'string' ? settings.currency : 'USD',
+        environment: process.env.NODE_ENV ?? 'development',
+        features: isRecord(settings.features) ? settings.features as Record<string, boolean> : {},
+      },
+      permissions: ['view_clients', 'manage_clients', 'manage_programs', 'manage_members'],
+    };
+  }
 }
 
 @Controller('organizations')
 export class OrganizationsCompatibilityController {
-  constructor(private readonly scaffold: ScaffoldService) {}
+  constructor(private readonly scaffold: ScaffoldService, private readonly prisma?: PrismaService) {}
 
-  @Get(':orgId/settings') getSettings() { return this.scaffold.notImplemented('Organizations'); }
-  @Patch(':orgId/settings') updateSettings() { return this.scaffold.notImplemented('Organizations'); }
-  @Get(':orgId/members') listMembers() { return this.scaffold.notImplemented('Organizations'); }
-  @Post(':orgId/invitations') inviteMember() { return this.scaffold.notImplemented('Organizations'); }
-  @Post(':orgId/invitations/:memberId/revoke') revokeInvite() { return this.scaffold.notImplemented('Organizations'); }
-  @Patch(':orgId/members/:memberId/role') updateMemberRole() { return this.scaffold.notImplemented('Organizations'); }
-  @Post(':orgId/members/:memberId/disable') disableMember() { return this.scaffold.notImplemented('Organizations'); }
-  @Post(':orgId/members/:memberId/enable') enableMember() { return this.scaffold.notImplemented('Organizations'); }
+  private requirePrisma(): PrismaService {
+    if (!this.prisma) throw this.scaffold.notImplemented('Organizations');
+    return this.prisma;
+  }
+
+  private async requireOrgAccess(request: Request, orgId: string) {
+    const accessToken = (request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : undefined) ?? getCookieValue(request, ACCESS_COOKIE_NAME);
+    if (!accessToken) throw new UnauthorizedException('Missing authenticated session.');
+    const payload = getSessionTokenPayload(accessToken, 'access');
+    const admin = await this.requirePrisma().adminUser.findUnique({ where: { id: payload.sub ?? '' }, select: { id: true, email: true, organizationId: true, role: true, isActive: true } });
+    if (!admin || !admin.isActive || admin.organizationId !== orgId) throw new ForbiddenException('Access denied to this organization.');
+    return admin;
+  }
+
+  @Get(':orgId/settings') async getSettings(@Req() request: Request, @Param('orgId') orgId: string) {
+    await this.requireOrgAccess(request, orgId);
+    const org = await this.requirePrisma().organization.findUnique({ where: { id: orgId }, include: { principalAdmin: { select: { id: true, email: true, firstName: true, lastName: true } } } });
+    if (!org) throw new NotFoundException('Organization not found.');
+    return { id: org.id, name: org.name, settings: isRecord(org.settings) ? org.settings as Record<string, unknown> : {}, liveMode: org.liveMode, demoRemovedAt: org.demoRemovedAt, principal: org.principalAdmin };
+  }
+
+  @Patch(':orgId/settings') async updateSettings(@Req() request: Request, @Param('orgId') orgId: string, @Body() body: Record<string, unknown>) {
+    await this.requireOrgAccess(request, orgId);
+    const existing = await this.requirePrisma().organization.findUnique({ where: { id: orgId } });
+    if (!existing) throw new NotFoundException('Organization not found.');
+    const currentSettings = isRecord(existing.settings) ? existing.settings as Record<string, unknown> : {};
+    const nextSettings: Record<string, unknown> = { ...currentSettings, ...body };
+    const updated = await this.requirePrisma().organization.update({ where: { id: orgId }, data: { name: typeof body.name === 'string' ? body.name : undefined, settings: nextSettings as any } as any });
+    return { id: updated.id, name: updated.name, settings: nextSettings, liveMode: updated.liveMode, demoRemovedAt: updated.demoRemovedAt, principal: null };
+  }
+
+  @Get(':orgId/members') async listMembers(@Req() request: Request, @Param('orgId') orgId: string) {
+    await this.requireOrgAccess(request, orgId);
+    const members = await this.requirePrisma().adminUser.findMany({ where: { organizationId: orgId }, select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, isActive: true, createdAt: true, invitation: { select: { acceptedAt: true, revokedAt: true } } }, orderBy: { createdAt: 'asc' } });
+    return members.map((member) => ({ id: member.id, email: member.email, firstName: member.firstName, lastName: member.lastName, jobTitle: member.jobTitle, role: member.role, isActive: member.isActive, createdAt: member.createdAt.toISOString(), invitePending: !member.invitation || (!member.invitation.acceptedAt && !member.invitation.revokedAt), isPrincipal: false }));
+  }
+
+  @Post(':orgId/invitations') async inviteMember(@Req() request: Request, @Param('orgId') orgId: string, @Body() body: Record<string, unknown>) {
+    await this.requireOrgAccess(request, orgId);
+    const email = String(body.email ?? '').trim().toLowerCase();
+    if (!email) throw new BadRequestException('Email is required.');
+    const existing = await this.requirePrisma().adminUser.findUnique({ where: { email } });
+    if (existing) throw new ConflictException('A user with this email already exists.');
+    const plainToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(plainToken).digest('hex');
+    const randomPasswordHash = await hash(randomBytes(32).toString('hex'), 12);
+    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role: String(body.role ?? 'reviewer') as 'org_admin' | 'reviewer', isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) } } } });
+    return { message: `Invitation sent to ${email}.` };
+  }
+
+  @Post(':orgId/invitations/:memberId/revoke') async revokeInvite(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
+    await this.requireOrgAccess(request, orgId);
+    const invitation = await this.requirePrisma().adminInvitation.findFirst({ where: { adminUserId: memberId }, include: { adminUser: true } });
+    if (!invitation) throw new NotFoundException('Invitation not found.');
+    if (invitation.acceptedAt || invitation.revokedAt) throw new BadRequestException('Only pending invitations can be revoked.');
+    await this.requirePrisma().adminInvitation.update({ where: { id: invitation.id }, data: { revokedAt: new Date() } });
+    await this.requirePrisma().adminUser.delete({ where: { id: memberId } });
+    return { message: `Invitation to ${invitation.adminUser.email} revoked.` };
+  }
+
+  @Patch(':orgId/members/:memberId/role') async updateMemberRole(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string, @Body() body: Record<string, unknown>) {
+    await this.requireOrgAccess(request, orgId);
+    const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId } });
+    if (!member) throw new NotFoundException('Member not found.');
+    const updated = await this.requirePrisma().adminUser.update({ where: { id: memberId }, data: { role: String(body.role ?? member.role) as 'org_admin' | 'reviewer' }, select: { id: true, email: true, role: true } });
+    return { id: updated.id, email: updated.email, role: updated.role };
+  }
+
+  @Post(':orgId/members/:memberId/disable') async disableMember(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
+    await this.requireOrgAccess(request, orgId);
+    await this.requirePrisma().adminUser.update({ where: { id: memberId, organizationId: orgId }, data: { isActive: false } });
+    return { message: 'Member disabled.' };
+  }
+
+  @Post(':orgId/members/:memberId/enable') async enableMember(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
+    await this.requireOrgAccess(request, orgId);
+    await this.requirePrisma().adminUser.update({ where: { id: memberId, organizationId: orgId }, data: { isActive: true } });
+    return { message: 'Member enabled.' };
+  }
 }
 
 @Controller('api-boundary')

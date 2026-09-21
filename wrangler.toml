@@ -5,4 +5,4 @@ pages_build_output_dir = ".output/public"
 
 [vars]
 ENVIRONMENT = "production"
-VITE_API_URL = "https://nxt-lvl-api2.onrender.com"
+VITE_API_URL = "https://clientflow-api.onrender.com"
