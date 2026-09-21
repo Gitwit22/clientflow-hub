@@ -405,6 +405,12 @@ model CfContract {
   generatedContent     String    @map("content") @db.Text
   sentAt               DateTime?
   signedAt             DateTime?
+  signedName           String?
+  signedEmail          String?
+  agreedToTerms        Boolean?
+  signatureNote        String?
+  signerIp             String?
+  signerUserAgent      String?
   completedAt          DateTime?
   isDemo               Boolean   @default(false)
   createdAt            DateTime  @default(now())
@@ -417,6 +423,25 @@ model CfContract {
   @@index([organizationId, contractTemplateId])
   @@index([organizationId, status])
   @@index([enrollmentId])
+}
+
+model CfMonitoringTask {
+  id              String   @id @default(cuid())
+  organizationId  String
+  clientId        String
+  programId       String
+  contractId      String   @unique
+  type            String
+  dueDate         DateTime
+  status          String   @default("PENDING")
+  assignedStaffId String?
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, clientId])
+  @@index([organizationId, programId, status])
+  @@index([dueDate])
 }
 
 model CfDocument {

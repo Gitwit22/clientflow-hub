@@ -118,3 +118,49 @@ WHERE EXISTS (
     AND column_name = 'contractId'
 )
 \gexec
+
+SELECT 'SELECT ''orphan'' AS section, ''CfMonitoringTask.clientId'' AS name, count(*)::text AS value
+FROM "CfMonitoringTask" child
+LEFT JOIN "CfClient" parent
+  ON parent.id = child."clientId" AND parent."organizationId" = child."organizationId"
+WHERE parent.id IS NULL;'
+WHERE EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = current_schema() AND table_name = 'CfMonitoringTask'
+)
+\gexec
+
+SELECT 'SELECT ''orphan'' AS section, ''CfMonitoringTask.programId'' AS name, count(*)::text AS value
+FROM "CfMonitoringTask" child
+LEFT JOIN "CfProgram" parent
+  ON parent.id = child."programId" AND parent."organizationId" = child."organizationId"
+WHERE parent.id IS NULL;'
+WHERE EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = current_schema() AND table_name = 'CfMonitoringTask'
+)
+\gexec
+
+SELECT 'SELECT ''orphan'' AS section, ''CfMonitoringTask.contractId'' AS name, count(*)::text AS value
+FROM "CfMonitoringTask" child
+LEFT JOIN "CfContract" parent
+  ON parent.id = child."contractId" AND parent."organizationId" = child."organizationId"
+WHERE parent.id IS NULL;'
+WHERE EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = current_schema() AND table_name = 'CfMonitoringTask'
+)
+\gexec
+
+SELECT 'SELECT ''contract_acceptance'' AS section, "status" AS name, count(*)::text AS value
+FROM "CfContract"
+WHERE "completedAt" IS NOT NULL
+GROUP BY "status"
+ORDER BY "status";'
+WHERE EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_schema = current_schema()
+    AND table_name = 'CfContract'
+    AND column_name = 'agreedToTerms'
+)
+\gexec

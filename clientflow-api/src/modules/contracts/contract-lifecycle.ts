@@ -12,7 +12,20 @@ export const CONTRACT_STATUS = {
 export const CONTRACT_CLIENT_STATUS = {
   pendingStaffReview: 'PENDING_STAFF_REVIEW',
   contractSent: 'CONTRACT_SENT',
+  contractOpened: 'CONTRACT_OPENED',
+  onboarding: 'ONBOARDING',
 } as const;
+
+export const MONITORING_TASK_STATUS = {
+  pending: 'PENDING',
+  completed: 'COMPLETED',
+  overdue: 'OVERDUE',
+  cancelled: 'CANCELLED',
+} as const;
+
+export const INITIAL_FOLLOW_UP_TYPE = 'Initial Follow-Up';
+export const WELCOME_NEXT_STEP =
+  'Your onboarding has started. A team member will follow up with you soon.';
 
 export const LEGAL_TEMPLATE_DISCLAIMER =
   'Template draft only. Final legal language must be reviewed by the organization before use.';
@@ -64,6 +77,17 @@ export function hashContractToken(token: string): string {
 
 export function contractTokenExpiry(from: Date): Date {
   return new Date(from.getTime() + 7 * 86_400_000);
+}
+
+export function monitoringDueDate(from: Date, frequency: string): Date {
+  const daysByFrequency: Record<string, number> = {
+    weekly: 7,
+    biweekly: 14,
+    monthly: 30,
+    quarterly: 90,
+  };
+  const days = daysByFrequency[frequency.trim().toLowerCase()] ?? 7;
+  return new Date(from.getTime() + days * 86_400_000);
 }
 
 export function contractTemplateId(organizationId: string, templateName: string): string {

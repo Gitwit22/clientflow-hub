@@ -8,6 +8,8 @@ import type {
   IntakeEmailDeliveryResult,
   IntakeEmailPayload,
   N8nDeliveryReceipt,
+  WelcomeEmailDeliveryResult,
+  WelcomeEmailPayload,
 } from './n8n.types';
 
 @Injectable()
@@ -23,6 +25,10 @@ export class N8nService {
   }
 
   getContractAvailability(): 'ready' | 'disabled' | 'not_configured' {
+    return this.getIntakeAvailability();
+  }
+
+  getWelcomeAvailability(): 'ready' | 'disabled' | 'not_configured' {
     return this.getIntakeAvailability();
   }
 
@@ -68,6 +74,46 @@ export class N8nService {
     payload: ContractEmailPayload,
   ): Promise<ContractEmailDeliveryResult> {
     const availability = this.getContractAvailability();
+    if (availability !== 'ready') return { status: 'skipped', reason: availability };
+
+    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })!;
+    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })!;
+    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true });
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this.config.get('N8N_TIMEOUT_MS', { infer: true }),
+    );
+
+    try {
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-clientflow-secret': secret,
+          'Idempotency-Key': eventId,
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!response.ok) return { status: 'failed', reason: 'rejected' };
+      return { status: 'sent', sentAt: new Date().toISOString() };
+    } catch (error) {
+      return {
+        status: 'failed',
+        reason: error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unavailable',
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async sendWelcome(
+    eventId: string,
+    payload: WelcomeEmailPayload,
+  ): Promise<WelcomeEmailDeliveryResult> {
+    const availability = this.getWelcomeAvailability();
     if (availability !== 'ready') return { status: 'skipped', reason: availability };
 
     const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })!;

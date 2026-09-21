@@ -60,3 +60,15 @@ export interface ContractEmailPayload {
 }
 
 export type ContractEmailDeliveryResult = IntakeEmailDeliveryResult;
+
+export interface WelcomeEmailPayload {
+  eventType: 'welcome.send';
+  organizationId: string;
+  clientId: string;
+  recipientEmail: string;
+  clientName: string;
+  programName: string;
+  nextStep: string;
+}
+
+export type WelcomeEmailDeliveryResult = IntakeEmailDeliveryResult;

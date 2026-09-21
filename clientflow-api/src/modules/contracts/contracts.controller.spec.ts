@@ -1,7 +1,8 @@
-import { NotImplementedException } from '@nestjs/common';
 import { ContractsController } from './contracts.controller';
 import type { ContractsService } from './contracts.service';
+import { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 import { PublicContractsController } from './public-contracts.controller';
+import { validate } from 'class-validator';
 
 describe('contract controllers', () => {
   it('delegates generate and send endpoints using the requested client and contract IDs', async () => {
@@ -18,15 +19,46 @@ describe('contract controllers', () => {
     expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1');
   });
 
-  it('keeps public contract signing behind the structured 501 boundary', () => {
-    const scaffold = {
-      notImplemented: jest.fn(() => {
-        throw new NotImplementedException('Public contract signing is not implemented.');
-      }),
+  it('delegates public contract opening and completion with request metadata', async () => {
+    const service = {
+      openPublicContract: jest.fn().mockResolvedValue({ contract: { status: 'OPENED' } }),
+      completePublicContract: jest.fn().mockResolvedValue({ contract: { status: 'COMPLETED' } }),
     };
-    const controller = new PublicContractsController(scaffold);
+    const controller = new PublicContractsController(service as unknown as ContractsService);
+    const request = {
+      ip: '127.0.0.1',
+      socket: {},
+      get: jest.fn().mockReturnValue('Contract Browser'),
+    };
+    const body = {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true as const,
+    };
 
-    expect(() => controller.getContract()).toThrow(NotImplementedException);
-    expect(scaffold.notImplemented).toHaveBeenCalledWith('Public contract signing');
+    await controller.getContract('public-token');
+    await controller.submitContract('public-token', body, request as never);
+
+    expect(service.openPublicContract).toHaveBeenCalledWith('public-token');
+    expect(service.completePublicContract).toHaveBeenCalledWith('public-token', body, {
+      signerIp: '127.0.0.1',
+      userAgent: 'Contract Browser',
+    });
+  });
+
+  it('requires a valid signer identity and explicit agreement', async () => {
+    const invalid = Object.assign(new SubmitPublicContractDto(), {
+      signedName: '',
+      signedEmail: 'not-an-email',
+      agreedToTerms: false,
+    });
+    const valid = Object.assign(new SubmitPublicContractDto(), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    });
+
+    await expect(validate(invalid)).resolves.toHaveLength(3);
+    await expect(validate(valid)).resolves.toHaveLength(0);
   });
 });

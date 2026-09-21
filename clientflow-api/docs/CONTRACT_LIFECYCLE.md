@@ -2,7 +2,7 @@
 
 ## Boundary
 
-This slice ends when a contract is issued or a client is placed in staff review. Public contract rendering/signing, completion, welcome email, enrollment, onboarding, and monitoring are not implemented.
+The implemented lifecycle covers contract preparation, secure public opening and acceptance, onboarding, initial monitoring, and welcome email delivery. External e-signature providers, retry workers, and enrollment creation remain outside this slice.
 
 ## Post-intake rules
 
@@ -35,7 +35,11 @@ Existing contract content is preserved. Existing contract rows are linked to the
 
 Contract tokens use 32 random bytes encoded as base64url. Only a SHA-256 hash is persisted. Generate returns a one-time public URL. Send and resend rotate the token, invalidating the prior URL because a stored hash cannot reconstruct the original token.
 
-`GET /api/v1/public/contracts/:token` intentionally returns HTTP 501. It does not look up the token or expose contract data.
+`GET /api/v1/public/contracts/:token` validates the link and returns the immutable content snapshot plus safe client/program display metadata. Its first successful open moves `SENT` to `OPENED`, sets the client to `CONTRACT_OPENED`, and records activity. Malformed, unknown, expired, completed, and unavailable links share one not-found response.
+
+`POST /api/v1/public/contracts/:token` requires `signedName`, a valid `signedEmail`, and `agreedToTerms: true`; `signatureNote` is optional. One atomic transaction persists the acceptance metadata and request IP/user agent, marks the contract `COMPLETED`, invalidates its token, moves the client to `ONBOARDING`, creates a pending `Initial Follow-Up`, records activity, and creates the welcome communication event. Repeat submissions cannot create duplicate tasks because the contract transition is guarded and `contractId` is unique on `CfMonitoringTask`.
+
+The follow-up due date is 7, 14, 30, or 90 days for Weekly, Biweekly, Monthly, or Quarterly program defaults. Unknown and Custom values safely fall back to 7 days. Monitoring statuses are `PENDING`, `COMPLETED`, `OVERDUE`, and `CANCELLED`.
 
 ## Email event
 
@@ -63,3 +67,19 @@ A skipped or failed delivery does not revert `CfContract.status=SENT` or `CfClie
 ```
 
 Headers include `x-clientflow-secret: CLIENTFLOW_N8N_SECRET`, `Idempotency-Key`, JSON content type, and optional bearer authorization.
+
+Contract completion also records a durable `welcome_email` communication before sending this exact event:
+
+```json
+{
+  "eventType": "welcome.send",
+  "organizationId": "org_ea_management",
+  "clientId": "client_123",
+  "recipientEmail": "client@example.com",
+  "clientName": "Client Name",
+  "programName": "Brand Awareness Subscription",
+  "nextStep": "Your onboarding has started. A team member will follow up with you soon."
+}
+```
+
+Disabled or failed welcome delivery does not undo contract completion or onboarding. An accepted delivery updates the communication to `sent` and records `WELCOME_SENT`; the client remains `ONBOARDING`.

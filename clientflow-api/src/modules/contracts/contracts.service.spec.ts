@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import type { N8nService } from '../../integrations/n8n/n8n.service';
@@ -6,6 +6,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import {
   PROGRAM_CONTRACT_RULES,
   contractRuleFor,
+  monitoringDueDate,
 } from './contract-lifecycle';
 import { ContractsService } from './contracts.service';
 
@@ -46,6 +47,7 @@ const draftContract = {
   programId: 'program-1',
   contractTemplateId: 'template-1',
   contractType: template.name,
+  generatedContent: 'Generated contract content.',
   status: 'DRAFT',
   secureTokenHash: 'a'.repeat(64),
   secureTokenExpiresAt: new Date('2030-01-08T00:00:00.000Z'),
@@ -71,7 +73,9 @@ function config(enabled = true): ConfigService<Environment, true> {
 function n8nDisabled() {
   return {
     getContractAvailability: jest.fn().mockReturnValue('disabled'),
+    getWelcomeAvailability: jest.fn().mockReturnValue('disabled'),
     sendContract: jest.fn().mockResolvedValue({ status: 'skipped', reason: 'disabled' }),
+    sendWelcome: jest.fn().mockResolvedValue({ status: 'skipped', reason: 'disabled' }),
   };
 }
 
@@ -90,6 +94,12 @@ describe('contract lifecycle rules', () => {
     ]) {
       expect(contractRuleFor(programName)).toBe('staff_review');
     }
+  });
+
+  it('derives standard monitoring due dates and safely falls back to seven days', () => {
+    expect(monitoringDueDate(now, 'Weekly')).toEqual(new Date('2030-01-08T00:00:00.000Z'));
+    expect(monitoringDueDate(now, 'Monthly')).toEqual(new Date('2030-01-31T00:00:00.000Z'));
+    expect(monitoringDueDate(now, 'Custom')).toEqual(new Date('2030-01-08T00:00:00.000Z'));
   });
 });
 
@@ -301,5 +311,142 @@ describe('ContractsService', () => {
         errorCode: null,
       },
     });
+  });
+
+  it('opens a sent public contract once without exposing token or signer internals', async () => {
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_OPENED' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-opened' }) },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    const result = await service.openPublicContract('a'.repeat(43));
+
+    expect(transaction.cfContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'OPENED' },
+    }));
+    expect(transaction.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'CONTRACT_OPENED' }),
+    }));
+    expect(result.contract).toEqual(expect.objectContaining({
+      status: 'OPENED',
+      content: 'Generated contract content.',
+    }));
+    expect(JSON.stringify(result)).not.toMatch(/secureToken|signerIp|signedEmail/);
+  });
+
+  it('completes a public contract, starts onboarding, and creates the first monitoring task', async () => {
+    const monitoringTask = {
+      id: 'monitoring-1',
+      type: 'Initial Follow-Up',
+      status: 'PENDING',
+      dueDate: new Date('2030-01-31T00:00:00.000Z'),
+      assignedStaffId: null,
+    };
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
+      cfMonitoringTask: { create: jest.fn().mockResolvedValue(monitoringTask) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
+      },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...autoProgram,
+          defaultMonitoringFrequency: 'Monthly',
+        }),
+      },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const n8n = n8nDisabled();
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8n as unknown as N8nService,
+    );
+
+    const result = await service.completePublicContract('a'.repeat(43), {
+      signedName: ' Client Owner ',
+      signedEmail: 'CLIENT@EXAMPLE.COM',
+      agreedToTerms: true,
+    }, { signerIp: '127.0.0.1', userAgent: 'Contract Browser' });
+
+    expect(transaction.cfContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'COMPLETED',
+        signedName: 'Client Owner',
+        signedEmail: 'client@example.com',
+        agreedToTerms: true,
+        secureTokenHash: null,
+      }),
+    }));
+    expect(transaction.cfClient.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'ONBOARDING' }),
+    }));
+    expect(transaction.cfMonitoringTask.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        type: 'Initial Follow-Up',
+        status: 'PENDING',
+        assignedStaffId: null,
+      }),
+    }));
+    expect(n8n.sendWelcome).toHaveBeenCalledWith('welcome.send:contract-1', {
+      eventType: 'welcome.send',
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      recipientEmail: 'client@example.com',
+      clientName: 'Client Owner',
+      programName: 'Brand Awareness Subscription',
+      nextStep: 'Your onboarding has started. A team member will follow up with you soon.',
+    });
+    expect(result).toEqual(expect.objectContaining({
+      contract: expect.objectContaining({ status: 'COMPLETED' }),
+      client: { id: 'client-1', status: 'ONBOARDING' },
+      welcomeDelivery: { status: 'skipped', reason: 'disabled' },
+    }));
+  });
+
+  it('rejects a repeated public completion before creating onboarding records', async () => {
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...autoProgram,
+          defaultMonitoringFrequency: 'Weekly',
+        }),
+      },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    await expect(service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null })).rejects.toBeInstanceOf(NotFoundException);
   });
 });

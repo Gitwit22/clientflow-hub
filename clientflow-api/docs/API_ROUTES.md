@@ -2,7 +2,7 @@
 
 ## Status
 
-Health, intake, and contract-preparation lifecycle slices are implemented. Compatibility and future business endpoints remain scaffold routes returning HTTP 501 with code `CLIENTFLOW_NOT_IMPLEMENTED`.
+Health, intake, contract preparation, and lightweight contract completion/onboarding lifecycle slices are implemented. Compatibility and future business endpoints remain scaffold routes returning HTTP 501 with code `CLIENTFLOW_NOT_IMPLEMENTED`.
 
 ## Implemented intake lifecycle
 
@@ -48,9 +48,24 @@ It verifies ownership, rotates the public token, marks the contract `SENT`, mark
 
 Both staff routes return HTTP 403 unless `ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT=true`; production configuration rejects that value.
 
-### Public contract placeholder
+### Open public contract
 
-`GET /public/contracts/:token` returns HTTP 501 with `CLIENTFLOW_NOT_IMPLEMENTED`. Signing is not part of this slice.
+`GET /public/contracts/:token` validates the hashed, expiring token, moves a newly opened contract to `OPENED`, records activity, and returns only safe display metadata and the immutable generated content.
+
+### Complete public contract
+
+`POST /public/contracts/:token` accepts:
+
+```json
+{
+	"signedName": "Jordan Taylor",
+	"signedEmail": "jordan@example.com",
+	"agreedToTerms": true,
+	"signatureNote": "Optional acceptance note"
+}
+```
+
+It atomically records acceptance, completes and invalidates the contract link, moves the client to `ONBOARDING`, creates a pending `Initial Follow-Up`, appends activity, and records a welcome communication. Welcome delivery is attempted after commit and cannot revert the lifecycle.
 
 ### Open public intake
 
@@ -112,10 +127,10 @@ Base path: `/admin/cf`
 
 ## Future groups
 
-Authentication, users, organizations, program/form administration, contract signing/completion, terms, monitoring, documents, communications, reports, archive, inbound webhooks, email administration, and audit APIs remain future work.
+Authentication, users, organizations, program/form administration, monitoring administration, terms, documents, communications, reports, archive, inbound webhooks, email administration, and audit APIs remain future work.
 
 Do not switch the frontend to normalized paths until parity handlers, authorization, persistence, and compatibility tests are complete.
 
 ## Known gaps
 
-Public contract signing, explicit archive/restore commands, webhook status ingestion, retry processing, and first-class `ClientContact`, `FormAnswer`, and `WebhookEvent` models require later design and migrations.
+External e-signature providers, explicit archive/restore commands, webhook status ingestion, retry processing, and first-class `ClientContact`, `FormAnswer`, and `WebhookEvent` models require later design and migrations.

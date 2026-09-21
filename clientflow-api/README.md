@@ -6,7 +6,7 @@ This application lives inside the `clientflow-hub` repository but is an independ
 
 The first implemented vertical slice creates a client and General Intake assignment, issues a one-time public URL whose token is stored only as a SHA-256 hash, opens/submits that form, updates intake status/program selection, and records activity. n8n intake delivery runs after the database transaction and cannot roll it back.
 
-The second slice resolves selected programs, evaluates contract rules, generates and issues auto-contracts, or places the client in staff review. Contract email events are durable and n8n delivery remains non-fatal. Signing and welcome email are not implemented.
+The second slice resolves selected programs, evaluates contract rules, generates and issues auto-contracts, or places the client in staff review. The third slice opens and accepts public contracts, moves completed clients to onboarding, creates their initial follow-up task, and records non-fatal welcome delivery.
 
 ## Local commands
 
@@ -36,7 +36,8 @@ Implemented routes:
 - `POST /api/v1/public/forms/:token/submit`
 - `POST /api/v1/clients/:id/contracts/generate`
 - `POST /api/v1/clients/:id/contracts/send`
-- `GET /api/v1/public/contracts/:token` (structured 501 placeholder)
+- `GET /api/v1/public/contracts/:token`
+- `POST /api/v1/public/contracts/:token`
 
 All compatibility routes still return HTTP 501 until their business services are ported and verified. See `docs/API_ROUTES.md`, `docs/CONTRACT_LIFECYCLE.md`, `docs/MIGRATION_FROM_API2.md`, and `docs/RENDER_DEPLOYMENT.md`.
 
@@ -59,16 +60,24 @@ $generated = Invoke-RestMethod -Method Post `
 	-Uri "http://localhost:4001/api/v1/clients/client_123/contracts/generate"
 
 $body = @{ contractId = $generated.contract.id } | ConvertTo-Json
-Invoke-RestMethod -Method Post `
+$sent = Invoke-RestMethod -Method Post `
 	-Uri "http://localhost:4001/api/v1/clients/client_123/contracts/send" `
 	-ContentType "application/json" `
 	-Body $body
 
-try {
-	Invoke-RestMethod -Uri "http://localhost:4001/api/v1/public/contracts/placeholder"
-} catch {
-	$_.ErrorDetails.Message
-}
+$token = ($sent.publicContractUrl -split '/')[-1]
+Invoke-RestMethod -Uri "http://localhost:4001/api/v1/public/contracts/$token"
+
+$acceptance = @{
+	signedName = "Staging Client"
+	signedEmail = "staging-client@example.com"
+	agreedToTerms = $true
+	signatureNote = "Staging acceptance test"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post `
+	-Uri "http://localhost:4001/api/v1/public/contracts/$token" `
+	-ContentType "application/json" `
+	-Body $acceptance
 ```
 
-Expected results are a safe generated contract response, `SENT` plus `emailDelivery.status=skipped` after send, and structured HTTP 501 for the public route. Never run these commands against API 2 or production.
+Expected results are a safe generated contract response, `SENT` plus skipped contract delivery, `OPENED` after the public GET, and `COMPLETED` with client status `ONBOARDING`, one pending `Initial Follow-Up`, and skipped welcome delivery after POST. Never run these commands against API 2 or production.
