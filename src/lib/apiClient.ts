@@ -631,6 +631,7 @@ export async function cfSendFormAssignment(id: string, data: { personalMessage?:
     success: true;
     status: "SENT";
     message: string;
+    provider: "N8N_GMAIL" | "RESEND";
     formId: string;
     recipientEmail: string;
     sentAt: string;

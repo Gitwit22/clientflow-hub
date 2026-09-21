@@ -15,3 +15,63 @@ services:
     rootDir: .
     healthCheckPath: /
     preDeployCommand: ""
+  - type: web
+    name: clientflow-api
+    runtime: node
+    plan: starter
+    rootDir: clientflow-api
+    autoDeploy: false
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/v1/health/live
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOW_UNAUTHENTICATED_CLIENT_CREATION
+        value: "false"
+      - key: APP_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: STORAGE_ENABLED
+        value: "false"
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false
+      - key: EMAIL_SEND_ENABLED
+        value: "false"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: EA Management
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: EMAIL_REPLY_TO
+        sync: false
+      - key: N8N_ENABLED
+        value: "false"
+      - key: N8N_EMAIL_WEBHOOK_URL
+        sync: false
+      - key: CLIENTFLOW_N8N_SECRET
+        sync: false
+      - key: N8N_EMAIL_BEARER_TOKEN
+        sync: false
+      - key: N8N_TIMEOUT_MS
+        value: "15000"

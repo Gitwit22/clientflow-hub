@@ -71,12 +71,13 @@ describe("SendFormDialog", () => {
       success: true,
       status: "SENT",
       message: "Form email sent successfully.",
+      provider: "N8N_GMAIL",
       recipientEmail: client.email,
     });
 
     await waitFor(() =>
       expect(toastSuccess).toHaveBeenCalledWith(
-        "Form email sent successfully. Sent to jordan@example.com",
+        "Form email sent successfully. Sent to jordan@example.com via n8n Gmail.",
       ),
     );
     expect(sendFormEmail).toHaveBeenCalledTimes(1);

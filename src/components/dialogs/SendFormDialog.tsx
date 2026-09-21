@@ -99,7 +99,9 @@ export function SendFormDialog({
       }
       const result = await sendFormEmail(assignmentId);
       setPendingAssignmentId(null);
-      toast.success(`${result.message} Sent to ${result.recipientEmail}`);
+      toast.success(
+        `${result.message} Sent to ${result.recipientEmail} via ${result.provider === "N8N_GMAIL" ? "n8n Gmail" : "Resend"}.`,
+      );
       onOpenChange(false);
       setPreview(false);
       setBodyOverride(null);

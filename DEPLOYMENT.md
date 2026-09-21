@@ -9,6 +9,11 @@ The production site is `https://clientflow-2g9.pages.dev` and the production API
 > `VITE_*` values are public browser configuration. Never put email provider keys, JWT secrets,
 > database URLs, backend credentials, or Cloudflare API tokens in a `VITE_*` variable.
 
+The repository also contains the future standalone API at `clientflow-api/`. Render treats it as
+a second web service with that directory as its service root. Automatic deployment and outbound
+integrations are disabled, and the frontend remains pointed at API 2 until the migration gates in
+`clientflow-api/docs/RENDER_DEPLOYMENT.md` pass.
+
 ---
 
 ## Render Deployment

@@ -1,5 +1,21 @@
 # ClientFlow Hub
 
+## Standalone API Scaffold
+
+The standalone NestJS service is in `clientflow-api/` and is tracked by this repository. It has
+its own package, Prisma schema, tests, and Render service root. ClientFlow Hub still uses API 2;
+the scaffold is not connected to production traffic.
+
+```powershell
+Set-Location clientflow-api
+npm install
+npm run prisma:generate
+npm test
+npm run build
+```
+
+See `clientflow-api/docs/RENDER_DEPLOYMENT.md` before creating or deploying the Render service.
+
 Build a modern SaaS-style web application called ClientFlow for managing client intake, program routing, form assignments, funding/service terms, monitoring, contracts, final reports, and archives.
 
 The application is for a company that offers multiple programs to businesses, clients, sponsors, and community partners. The company currently receives information through disconnected Wix and Google Forms, but this new system should centralize the intake and workflow process.

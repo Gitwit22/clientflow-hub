@@ -233,7 +233,9 @@ export function SendFormFlowDialog({
       }
       const result = await sendFormEmail(assignmentId, personalMessage || undefined);
       setPendingAssignmentId(null);
-      toast.success(`${result.message} Sent to ${result.recipientEmail}`);
+      toast.success(
+        `${result.message} Sent to ${result.recipientEmail} via ${result.provider === "N8N_GMAIL" ? "n8n Gmail" : "Resend"}.`,
+      );
       setStep("done");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
