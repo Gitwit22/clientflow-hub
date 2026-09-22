@@ -4,15 +4,14 @@
 
 ClientFlow Hub is a TanStack Start + React application deployed primarily to Cloudflare Pages.
 The production site is `https://clientflow-2g9.pages.dev` and the production API is
-`https://nxt-lvl-api2.onrender.com`.
+`https://clientflow-vjqd.onrender.com`.
 
 > `VITE_*` values are public browser configuration. Never put email provider keys, JWT secrets,
 > database URLs, backend credentials, or Cloudflare API tokens in a `VITE_*` variable.
 
-The repository also contains the future standalone API at `clientflow-api/`. Render treats it as
-a second web service with that directory as its service root. Automatic deployment and outbound
-integrations are disabled, and the frontend remains pointed at API 2 until the migration gates in
-`clientflow-api/docs/RENDER_DEPLOYMENT.md` pass.
+The repository contains the standalone EA Management API at `clientflow-api/`. Render treats it
+as a second web service with that directory as its service root. The frontend routes all
+ClientFlow traffic to this service.
 
 ---
 
@@ -40,7 +39,7 @@ In Render Dashboard, go to **Environment**:
 
 ```
 NODE_ENV=production
-VITE_API_URL=https://nxt-lvl-api2.onrender.com
+VITE_CLIENTFLOW_API_URL=https://clientflow-vjqd.onrender.com
 ```
 
 ### Step 3: Deploy
@@ -62,7 +61,7 @@ account_id = "your-account-id"
 ```
 
 ### Step 2: Configure the API URL
-The application defaults to `https://nxt-lvl-api2.onrender.com`. Set `VITE_API_URL` as a
+The application defaults to `https://clientflow-vjqd.onrender.com`. Set `VITE_CLIENTFLOW_API_URL` as a
 Cloudflare Pages build variable only when deploying against a different API.
 
 ### Step 3: Deploy
@@ -78,10 +77,10 @@ wrangler deploy --env production
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `NODE_ENV` | Deployment environment | `production` |
-| `VITE_API_URL` | Backend API URL | `https://api.clientflow.app` |
+| `VITE_CLIENTFLOW_API_URL` | EA Management API URL | `https://clientflow-vjqd.onrender.com` |
 
-Email is sent by `nxt-lvl-api2`. Configure `RESEND_API_KEY`, `EMAIL_FROM`,
-`EMAIL_REPLY_TO`, and `EMAIL_SEND_ENABLED` only on the API service.
+Email is delivered through n8n by the EA Management API. Configure `N8N_ENABLED`,
+`N8N_EMAIL_WEBHOOK_URL`, `CLIENTFLOW_N8N_SECRET`, and any optional bearer token only on the API service.
 
 ---
 
@@ -109,7 +108,7 @@ npm run preview
 - Verify all environment variables are set
 
 ### API Connection Issues
-- Verify `VITE_API_URL` is correct and accessible
+- Verify `VITE_CLIENTFLOW_API_URL` is correct and accessible
 - Check backend service is running
 - Review CORS settings on backend
 
@@ -135,6 +134,6 @@ All scripts now use npm instead of Bun.
 
 1. Update `.env.example` with your actual service endpoints
 2. Configure API backend URL in environment variables
-3. Configure Resend on the API service if sending forms
+3. Configure n8n on the API service before sending forms
 4. Test locally with `npm run dev`
 5. Deploy to Render or Cloudflare

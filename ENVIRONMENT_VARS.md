@@ -7,10 +7,10 @@ ClientFlow Hub is deployed to Cloudflare Pages at `https://clientflow-2g9.pages.
 The only application-specific frontend variable is:
 
 ```env
-VITE_API_URL=https://nxt-lvl-api2.onrender.com
+VITE_CLIENTFLOW_API_URL=https://clientflow-vjqd.onrender.com
 ```
 
-The production code already uses that URL as its fallback. Set `VITE_API_URL` in the Cloudflare
+The production code already uses that URL as its fallback. Set `VITE_CLIENTFLOW_API_URL` in the Cloudflare
 Pages build environment only when targeting another API, such as local development.
 
 All `VITE_*` values are embedded in browser assets and are public. Never use them for API keys,
@@ -18,16 +18,16 @@ JWT signing secrets, database URLs, provider credentials, or Cloudflare deployme
 
 ## API
 
-Server credentials belong to the `nxt-lvl-api2` Render service. Relevant variables include:
+Server credentials belong to the EA Management Render service. Relevant variables include:
 
 - `DATABASE_URL`
-- `CLIENTFLOW_DATABASE_URL`
-- `JWT_SECRET`
+- `JWT_ACCESS_SECRET`
+- `JWT_REFRESH_SECRET`
 - `CORS_ORIGIN=https://clientflow-2g9.pages.dev`
-- `RESEND_API_KEY`
-- `EMAIL_FROM`
-- `EMAIL_REPLY_TO`
-- `EMAIL_SEND_ENABLED=true`
+- `N8N_ENABLED=true`
+- `N8N_EMAIL_WEBHOOK_URL`
+- `CLIENTFLOW_N8N_SECRET`
+- `N8N_EMAIL_BEARER_TOKEN`
 - R2 storage credentials
 
 Do not copy these values into ClientFlow Hub or prefix them with `VITE_`.
@@ -37,7 +37,7 @@ Do not copy these values into ClientFlow Hub or prefix them with `VITE_`.
 Create an untracked `.env` file when the API runs locally:
 
 ```env
-VITE_API_URL=http://localhost:3000
+VITE_CLIENTFLOW_API_URL=http://localhost:4001
 ```
 
 Then run `npm install` and `npm run dev`. See `DEPLOYMENT.md` for deployment steps.

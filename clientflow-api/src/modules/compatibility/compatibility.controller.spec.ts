@@ -1,4 +1,4 @@
-import { NotImplementedException } from '@nestjs/common';
+import { NotImplementedException, UnauthorizedException } from '@nestjs/common';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { ClientflowCompatibilityController, PublicFormCompatibilityController } from './compatibility.controller';
 import { COMPATIBILITY_ROUTE_GROUPS, FUTURE_ROUTE_GROUPS } from './route-inventory';
@@ -6,7 +6,7 @@ import { COMPATIBILITY_ROUTE_GROUPS, FUTURE_ROUTE_GROUPS } from './route-invento
 describe('compatibility route scaffold', () => {
   const scaffold = new ScaffoldService();
 
-  it('keeps the current API 2 route groups', () => {
+  it('keeps the ClientFlow compatibility route groups', () => {
     expect(COMPATIBILITY_ROUTE_GROUPS).toEqual({
       auth: '/api/v1/auth',
       organizations: '/api/v1/organizations',
@@ -21,10 +21,10 @@ describe('compatibility route scaffold', () => {
     expect(FUTURE_ROUTE_GROUPS).toContain('audit');
   });
 
-  it('fails unported admin and public operations explicitly', () => {
-    expect(() => new ClientflowCompatibilityController(scaffold).listClients())
-      .toThrow(NotImplementedException);
-    expect(() => new PublicFormCompatibilityController(scaffold).getForm())
-      .toThrow(NotImplementedException);
+  it('enforces authentication before accessing admin data and fails unconfigured public storage', async () => {
+    await expect(new ClientflowCompatibilityController(scaffold).listClients({ headers: {} } as never))
+      .rejects.toThrow(UnauthorizedException);
+    await expect(new PublicFormCompatibilityController(scaffold).getForm('form-token'))
+      .rejects.toThrow(NotImplementedException);
   });
 });

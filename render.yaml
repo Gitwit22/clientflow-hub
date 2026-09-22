@@ -8,9 +8,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: VITE_API_URL
+      - key: VITE_CLIENTFLOW_API_URL
         scope: build
-      - key: VITE_API_URL
+      - key: VITE_CLIENTFLOW_API_URL
         scope: runtime
     rootDir: .
     healthCheckPath: /

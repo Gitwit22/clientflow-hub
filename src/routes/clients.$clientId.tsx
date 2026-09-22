@@ -140,7 +140,7 @@ function submittedCoreFields(
     }));
 }
 
-// Mirrors nxt-lvl-api2's INTAKE_FIELD_KEYS/TOP_LEVEL_FIELD_KEYS so we can tell whether a
+// Mirrors the ClientFlow intake field keys so we can tell whether a
 // mapped client.intake value still corresponds to a field on the form that was actually sent.
 const INTAKE_KEY_ALIASES: Record<
   Exclude<keyof IntakeDetails, "uploadedFiles">,

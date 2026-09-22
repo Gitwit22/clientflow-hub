@@ -11,7 +11,7 @@ The repository root `render.yaml` defines the existing frontend and a separate `
 1. Connect the existing `clientflow-hub` repository in Render.
 2. Select the `clientflow-api` service from the blueprint.
 3. Keep automatic deployment disabled.
-4. Supply a dedicated non-production `DATABASE_URL`; never reuse API 2 `DATABASE_URL`.
+4. Supply a dedicated non-production `DATABASE_URL`; never reuse a legacy source `DATABASE_URL`.
 5. Generate separate access and refresh JWT secrets.
 6. Set the staging frontend origin in `CORS_ORIGIN` and API URL in `APP_URL`.
 7. Leave `EMAIL_SEND_ENABLED`, `N8N_ENABLED`, and `STORAGE_ENABLED` set to `false`.
@@ -20,11 +20,11 @@ The repository root `render.yaml` defines the existing frontend and a separate `
 
 ## Migration gate
 
-Build and start never execute Prisma migrations. After the target database is approved and backed up, review `prisma migrate status` and run `npm run prisma:deploy` as an explicit Render pre-deploy operation. Do not add that command to the blueprint until migration ownership has moved from API 2.
+Build and start never execute Prisma migrations. After the target database is approved and backed up, review `prisma migrate status` and run `npm run prisma:deploy` as an explicit Render pre-deploy operation.
 
 ## Cutover gate
 
-Do not set the production frontend `VITE_API_URL`, attach a production custom domain, enable outbound integrations, or change DNS until authentication, organization isolation, route parity, public links, lifecycle automation, storage, n8n receipts, audit, monitoring, and rollback have passed staging tests.
+Set the production frontend `VITE_CLIENTFLOW_API_URL`, attach a production custom domain, enable outbound integrations, and change DNS only after authentication, organization isolation, route parity, public links, lifecycle automation, storage, n8n receipts, audit, monitoring, and rollback have passed staging tests.
 
 ## Rollback
 

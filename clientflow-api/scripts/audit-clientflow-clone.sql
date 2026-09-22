@@ -1,4 +1,4 @@
--- Read-only clone parity audit. Run this file separately against the API 2 source
+-- Read-only clone parity audit. Run this file separately against the legacy source
 -- and the point-in-time clone, save both outputs, and diff them. It emits only
 -- row counts, deterministic ID fingerprints, and orphan counts; no PII.
 --

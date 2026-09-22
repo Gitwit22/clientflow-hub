@@ -66,9 +66,13 @@ export const PROGRAM_WELCOME_MESSAGES: Partial<Record<string, string>> = {
 
 const IDI_WELCOME_GUIDE_PATH = '/contracts and emails/IDI Member Welcome Guide.docx';
 
-export function welcomeMessageFor(programName: string, appUrl?: string): string {
-  const message = PROGRAM_WELCOME_MESSAGES[programName] ?? WELCOME_NEXT_STEP;
-  if (programName === 'The Inspired Detroit Initiative' && appUrl) {
+export function welcomeMessageFor(
+  programName: string,
+  appUrl?: string,
+  welcomeMessageOverride?: string | null,
+): string {
+  const message = welcomeMessageOverride?.trim() || PROGRAM_WELCOME_MESSAGES[programName] || WELCOME_NEXT_STEP;
+  if (programName === 'The Inspired Detroit Initiative' && appUrl && !welcomeMessageOverride?.trim()) {
     const guideUrl = `${appUrl.replace(/\/+$/, '')}${encodeURI(IDI_WELCOME_GUIDE_PATH)}`;
     return `${message} IDI Member Welcome Guide: ${guideUrl}`;
   }

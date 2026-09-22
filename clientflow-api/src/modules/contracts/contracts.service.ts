@@ -377,7 +377,11 @@ export class ContractsService {
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
-      nextStep: welcomeMessageFor(program.name, this.config.get('APP_URL', { infer: true })),
+      nextStep: welcomeMessageFor(
+        program.name,
+        this.config.get('APP_URL', { infer: true }),
+        program.welcomeMessage,
+      ),
     });
     await this.recordWelcomeDeliveryResult(
       completed.communication.id,

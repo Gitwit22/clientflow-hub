@@ -2,9 +2,8 @@
 
 ## Standalone API Scaffold
 
-The standalone NestJS service is in `clientflow-api/` and is tracked by this repository. It has
-its own package, Prisma schema, tests, and Render service root. ClientFlow Hub still uses API 2;
-the scaffold is not connected to production traffic.
+The standalone NestJS service is in `clientflow-api/` and is tracked by this repository. It owns
+ClientFlow requests, authentication, and n8n-based workflow delivery in production.
 
 ```powershell
 Set-Location clientflow-api

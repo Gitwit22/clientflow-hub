@@ -29,8 +29,8 @@ import type {
 
 export type { PublicFormResponseValue } from "@/types";
 
-const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? "https://nxt-lvl-api2.onrender.com";
+const CLIENTFLOW_API_URL =
+  (import.meta.env.VITE_CLIENTFLOW_API_URL as string | undefined) ?? "https://clientflow-vjqd.onrender.com";
 const APP_PARTITION = "clientflow";
 
 // ─── Error types ─────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ async function parseApiError(response: Response): Promise<ApiError> {
 // ─── Core request helper ─────────────────────────────────────────────────────
 
 async function sendRequest(path: string, init: RequestInit): Promise<Response> {
-  return fetch(`${API_URL}${path}`, {
+  return fetch(`${CLIENTFLOW_API_URL}${path}`, {
     ...init,
     credentials: "include",
     headers: {
@@ -200,7 +200,6 @@ export async function login(payload: LoginPayload): Promise<{ admin: AdminInfo }
   });
   recordActivity();
   setAuthSession(result.admin);
-  await loginClientflowApiSession(payload);
   return result;
 }
 
@@ -209,7 +208,6 @@ export async function logout(): Promise<void> {
   try {
     await apiRequest("/api/v1/auth/logout", { method: "POST" });
   } finally {
-    await logoutClientflowApiSession();
     clearIdleSession();
     broadcastLogout();
     clearAuthSession();
@@ -472,7 +470,7 @@ async function publicRequest<T = unknown>(
   for (let attempt = 0; ; attempt += 1) {
     let response: Response;
     try {
-      response = await fetch(`${API_URL}${path}`, {
+      response = await fetch(`${CLIENTFLOW_API_URL}${path}`, {
         ...init,
         cache: init.cache ?? "no-store",
         headers: {
@@ -854,52 +852,7 @@ export async function cfRemoveDemo(payload: { currentPassword: string; confirmat
   });
 }
 
-// ─── Automated workflow (clientflow-api: intake → program rule → contract) ──
-// This is a separate deployed service from API_URL above; defaults to local dev.
-
-const CLIENTFLOW_API_URL =
-  (import.meta.env.VITE_CLIENTFLOW_API_URL as string | undefined) ?? "http://localhost:4001";
-
-async function clientflowApiRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${CLIENTFLOW_API_URL}${path}`, {
-    ...init,
-    // Forward-compatible: sends the clientflow-api session cookie once staff can log into that
-    // service directly (see plan notes — today's session cookie is issued by the other backend).
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init.headers,
-    },
-  });
-  if (!response.ok) throw await parseApiError(response);
-  if (response.status === 204) return undefined as unknown as T;
-  const body = (await response.json()) as T | { success: true; data: T };
-  return body && typeof body === "object" && "success" in body && "data" in body ? body.data : body;
-}
-
-/**
- * Best-effort secondary login so clientflow-api's own session cookie (separate origin, separate
- * AdminUser table) is also established. Non-fatal: if credentials weren't cloned/synced into
- * clientflow-api, this silently no-ops and automated-workflow calls fall back to bypass mode.
- */
-async function loginClientflowApiSession(payload: LoginPayload): Promise<void> {
-  try {
-    await clientflowApiRequest("/api/v1/auth/login", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  } catch (error) {
-    console.warn("Unable to establish a clientflow-api session; automated workflow actions may fall back to bypass mode.", error);
-  }
-}
-
-async function logoutClientflowApiSession(): Promise<void> {
-  try {
-    await clientflowApiRequest("/api/v1/auth/logout", { method: "POST" });
-  } catch {
-    // Non-fatal — the primary logout already clears the user-facing session.
-  }
-}
+// ─── Automated workflow (intake → program rule → contract) ─────────────────
 
 export type AutomatedClientStatus =
   | "INTAKE_SENT"
@@ -959,7 +912,7 @@ export interface CreateAutomatedClientPayload {
 
 /** POST /clients — creates a client and auto-sends (or defers) the General Intake form. */
 export async function acfCreateClient(payload: CreateAutomatedClientPayload) {
-  return clientflowApiRequest<{
+  return apiRequest<{
     client: AutomatedClient;
     assignment: { id: string; formName: string; status: string; dueDate: string | null };
     publicFormUrl: string;
@@ -970,17 +923,17 @@ export async function acfCreateClient(payload: CreateAutomatedClientPayload) {
 /** GET /clients — list clients for an organization, optionally filtered by status. */
 export async function acfListClients(organizationId: string, status?: string) {
   const params = new URLSearchParams({ organizationId, ...(status ? { status } : {}) });
-  return clientflowApiRequest<AutomatedClient[]>(`/api/v1/clients?${params.toString()}`);
+  return apiRequest<AutomatedClient[]>(`/api/v1/clients?${params.toString()}`);
 }
 
 /** GET /clients/:id — client detail with current program, contract and monitoring task. */
 export async function acfGetClient(id: string) {
-  return clientflowApiRequest<AutomatedClientDetail>(`/api/v1/clients/${encodeURIComponent(id)}`);
+  return apiRequest<AutomatedClientDetail>(`/api/v1/clients/${encodeURIComponent(id)}`);
 }
 
 /** PATCH /clients/:id/program — corrects the selected program and re-runs the contract rule engine. */
 export async function acfUpdateClientProgram(id: string, programId: string) {
-  return clientflowApiRequest<{
+  return apiRequest<{
     nextAction: "STAFF_REVIEW_REQUIRED" | "CONTRACT_SENT";
     clientStatus: string;
     program: { id: string; name: string };
@@ -992,7 +945,7 @@ export async function acfUpdateClientProgram(id: string, programId: string) {
 
 /** POST /clients/:id/intake/send — sends a previously deferred intake email. */
 export async function acfSendIntakeNow(id: string) {
-  return clientflowApiRequest<{ emailDelivery: { status: string; reason?: string } }>(
+  return apiRequest<{ emailDelivery: { status: string; reason?: string } }>(
     `/api/v1/clients/${encodeURIComponent(id)}/intake/send`,
     { method: "POST" },
   );
@@ -1003,7 +956,7 @@ export async function acfApproveReview(
   id: string,
   staffSigner: { staffSignerName: string; staffSignerId?: string },
 ) {
-  return clientflowApiRequest<{
+  return apiRequest<{
     nextAction: "CONTRACT_SENT";
     clientStatus: string;
     program: { id: string; name: string };
@@ -1018,7 +971,7 @@ export async function acfApproveReview(
 
 /** POST /clients/:id/review/decline — declines a pending-staff-review client without a contract. */
 export async function acfDeclineReview(id: string, reason?: string) {
-  return clientflowApiRequest<{ client: { id: string; status: string } }>(
+  return apiRequest<{ client: { id: string; status: string } }>(
     `/api/v1/clients/${encodeURIComponent(id)}/review/decline`,
     { method: "POST", body: JSON.stringify({ reason }) },
   );
@@ -1032,7 +985,7 @@ export interface AutomatedPublicIntakeData {
 
 /** GET /public/forms/:token — load the automated General Intake form (no auth). */
 export async function acfGetPublicIntakeForm(token: string) {
-  return clientflowApiRequest<AutomatedPublicIntakeData>(
+  return apiRequest<AutomatedPublicIntakeData>(
     `/api/v1/public/forms/${encodeURIComponent(token)}`,
   );
 }
@@ -1042,7 +995,7 @@ export async function acfSubmitPublicIntakeForm(
   token: string,
   answers: Record<string, PublicFormResponseValue>,
 ) {
-  return clientflowApiRequest<{
+  return apiRequest<{
     success: boolean;
     status: string;
     selectedProgram: string | null;
@@ -1062,7 +1015,7 @@ export interface AutomatedPublicContractData {
 
 /** GET /public/contracts/:token — load the generated contract for signature (no auth). */
 export async function acfGetPublicContract(token: string) {
-  return clientflowApiRequest<AutomatedPublicContractData>(
+  return apiRequest<AutomatedPublicContractData>(
     `/api/v1/public/contracts/${encodeURIComponent(token)}`,
   );
 }
@@ -1072,11 +1025,49 @@ export async function acfAcceptPublicContract(
   token: string,
   payload: { signedName: string; signedEmail: string; agreedToTerms: true; signatureNote?: string },
 ) {
-  return clientflowApiRequest<{
+  return apiRequest<{
     contract: { id: string; status: string; completedAt: string };
     client: { id: string; status: string };
   }>(`/api/v1/public/contracts/${encodeURIComponent(token)}`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export interface AutomatedContractSummary {
+  id: string;
+  organizationId: string;
+  clientId: string;
+  programId: string;
+  contractTemplateId: string;
+  contractName: string;
+  status: string;
+  secureTokenExpiresAt: string | null;
+  sentAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** POST /clients/:id/contracts/generate — manually draft a contract for the client's selected program. */
+export async function acfGenerateContract(
+  clientId: string,
+  staffSigner: { staffSignerName?: string; staffSignerId?: string } = {},
+) {
+  return apiRequest<{ contract: AutomatedContractSummary; publicContractUrl: string }>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/contracts/generate`,
+    { method: "POST", body: JSON.stringify(staffSigner) },
+  );
+}
+
+/** POST /clients/:id/contracts/send — issue and send an existing draft contract. */
+export async function acfSendContract(clientId: string, contractId: string) {
+  return apiRequest<{
+    contract: AutomatedContractSummary;
+    publicContractUrl: string;
+    emailDelivery: { status: string; reason?: string };
+  }>(`/api/v1/clients/${encodeURIComponent(clientId)}/contracts/send`, {
+    method: "POST",
+    body: JSON.stringify({ contractId }),
   });
 }

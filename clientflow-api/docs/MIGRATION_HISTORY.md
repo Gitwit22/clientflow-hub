@@ -1,16 +1,16 @@
-# Migration From API 2
+# ClientFlow Migration History
 
 ## Ownership
 
-ClientFlow API will own ClientFlow identity, organizations, clients, programs, enrollments, forms, public tokens, terms, contracts, monitoring, documents, communications, reports, archive, notifications, audit, email, n8n, and storage. API 2 retains non-ClientFlow applications and copies no ClientFlow runtime dependencies.
+ClientFlow API owns ClientFlow identity, organizations, clients, programs, enrollments, forms, public tokens, terms, contracts, monitoring, documents, communications, reports, archive, notifications, audit, email, n8n, and storage. The former service retains non-ClientFlow applications and copies no ClientFlow runtime dependencies.
 
-The Prisma schema and 15 migrations were copied from `nxt-lvl-api2/prisma/clientflow`. Field names remain camelCase. Migrations are not executed by build or startup.
+The Prisma schema and migrations were copied from the legacy ClientFlow data path. Field names remain camelCase. Migrations are not executed by build or startup.
 
 ## Existing data preservation
 
-API 2 remains authoritative. Create a full point-in-time Neon branch/database clone so schema, rows, indexes, constraints, and `_prisma_migrations` are preserved together. Do not rebuild the target by replaying historical migrations and do not run seed, demo-removal, normalization, or cleanup scripts against either database.
+Create a full point-in-time Neon branch/database clone so schema, rows, indexes, constraints, and `_prisma_migrations` are preserved together. Do not rebuild the target by replaying historical migrations and do not run seed, demo-removal, normalization, or cleanup scripts against either database.
 
-Run `scripts/audit-clientflow-clone.sql` separately against source and clone, save the PII-free output, and require an exact diff. The audit compares row counts, deterministic ID fingerprints, migration history, and core ClientFlow orphan counts. Any API 2 writes after the branch point require a fresh clone or a reviewed delta synchronization before cutover.
+Run `scripts/audit-clientflow-clone.sql` separately against source and clone, save the PII-free output, and require an exact diff. The audit compares row counts, deterministic ID fingerprints, migration history, and core ClientFlow orphan counts. Any legacy writes after the branch point require a fresh clone or a reviewed delta synchronization before cutover.
 
 Rotate all database and n8n credentials exposed during planning before cloning, smoke testing, or deployment. Supply credentials outside committed files and shell history.
 
@@ -42,16 +42,16 @@ Migration `20260922120000_add_contract_acceptance_and_onboarding` is also additi
 
 ## Migration order
 
-1. Keep API 2 authoritative and freeze new ClientFlow features there.
+1. Freeze legacy ClientFlow writes before switching production traffic.
 2. Port authentication and organization isolation.
 3. Create a point-in-time clone and require a clean parity audit before any staging write.
 4. Port services domain by domain with parity tests.
 5. Configure staging-only email, n8n, and R2 credentials.
 6. Verify public form and contract links, lifecycle automation, audit, and archive restore.
-7. Switch `VITE_API_URL` only after cookie, CORS, and route compatibility tests pass.
-8. Observe production, then disable API 2 ClientFlow routes.
-9. Remove API 2 ClientFlow code and environment variables in a separate reviewed change.
+7. Set `VITE_CLIENTFLOW_API_URL` only after cookie, CORS, and route compatibility tests pass.
+8. Observe production, then disable legacy ClientFlow routes.
+9. Remove legacy ClientFlow code and environment variables in a separate reviewed change.
 
 ## Rollback
 
-Keep API 2 routes and its ClientFlow database path available through the verification window. If cutover fails, pause writes, restore the frontend API URL, disable the new service’s outbound flags, and verify login plus a controlled read before resuming traffic. Never copy data back without a reviewed reconciliation plan.
+Keep the legacy routes and ClientFlow database path available through the verification window. If cutover fails, pause writes, restore the frontend ClientFlow API URL, disable the new service’s outbound flags, and verify login plus a controlled read before resuming traffic. Never copy data back without a reviewed reconciliation plan.

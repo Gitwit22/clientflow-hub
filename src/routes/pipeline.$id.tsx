@@ -1,11 +1,29 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { acfGetClient, ApiError, type AutomatedClientDetail } from "@/lib/apiClient";
+import {
+  acfGenerateContract,
+  acfGetClient,
+  acfSendContract,
+  ApiError,
+  type AutomatedClientDetail,
+} from "@/lib/apiClient";
+import { useAppState } from "@/lib/store";
 
 export const Route = createFileRoute("/pipeline/$id")({
   head: () => ({
@@ -27,20 +45,62 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 function PipelineClientDetailPage() {
   const { id } = Route.useParams();
+  const { authenticatedAdmin } = useAppState();
+  const staffSignerName =
+    [authenticatedAdmin?.firstName, authenticatedAdmin?.lastName].filter(Boolean).join(" ") ||
+    authenticatedAdmin?.email ||
+    "";
   const [client, setClient] = useState<AutomatedClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmingGenerate, setConfirmingGenerate] = useState(false);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
-    acfGetClient(id)
+    return acfGetClient(id)
       .then(setClient)
       .catch((err: unknown) => {
         setError(err instanceof ApiError ? err.message : "Unable to load this client.");
       })
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function handleGenerateAndSend() {
+    setBusy(true);
+    try {
+      const generated = await acfGenerateContract(id, {
+        staffSignerName,
+        staffSignerId: authenticatedAdmin?.id,
+      });
+      await acfSendContract(id, generated.contract.id);
+      toast.success("Contract signed and sent to the client.");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Unable to generate or send this contract.");
+    } finally {
+      setBusy(false);
+      setConfirmingGenerate(false);
+    }
+  }
+
+  async function handleSendExisting(contractId: string) {
+    setBusy(true);
+    try {
+      await acfSendContract(id, contractId);
+      toast.success("Contract sent to the client.");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Unable to send this contract.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -134,6 +194,26 @@ function PipelineClientDetailPage() {
                     </a>
                   </Button>
                 )}
+                {!client.contract && client.program && client.status !== "PENDING_STAFF_REVIEW" && (
+                  <Button
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => setConfirmingGenerate(true)}
+                    disabled={busy}
+                  >
+                    Generate & send contract
+                  </Button>
+                )}
+                {client.contract?.status === "DRAFT" && (
+                  <Button
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => void handleSendExisting(client.contract!.id)}
+                    disabled={busy}
+                  >
+                    Send draft contract
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -152,8 +232,28 @@ function PipelineClientDetailPage() {
               </Card>
             )}
           </div>
+
+          <AlertDialog open={confirmingGenerate} onOpenChange={(open) => !open && setConfirmingGenerate(false)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Sign and send this contract?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You are electronically signing this agreement for the organization as{" "}
+                  <strong>{staffSignerName || "your account"}</strong>. The client will then receive it
+                  to review and sign.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => void handleGenerateAndSend()} disabled={!staffSignerName || busy}>
+                  Sign & send
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
     </div>
   );
 }
+

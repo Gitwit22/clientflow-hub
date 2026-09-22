@@ -3,7 +3,7 @@
 ## Frontend Configuration
 ```
 NODE_ENV=production
-VITE_API_URL=https://nxt-lvl-api2.onrender.com
+VITE_CLIENTFLOW_API_URL=https://clientflow-vjqd.onrender.com
 ```
 
 `VITE_*` values are public. Never store credentials in them.
@@ -17,9 +17,9 @@ account_id = "your-account-id"
 ## Where to Find These Values
 | Variable | Source |
 |----------|--------|
-| `VITE_API_URL` | Your backend server URL |
+| `VITE_CLIENTFLOW_API_URL` | EA Management API URL |
 
-Email, JWT, database, storage, and CORS secrets belong to `nxt-lvl-api2` on Render.
+Email, JWT, database, storage, and CORS secrets belong to the EA Management API service on Render.
 
 ## Deploy Commands
 ```bash

@@ -283,6 +283,7 @@ model CfProgram {
   defaultWorkflow            Json     @default("[]")
   requiredDocuments          Json     @default("[]")
   statusPipeline             Json     @default("[]")
+  welcomeMessage             String?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 

@@ -39,9 +39,9 @@ Implemented routes:
 - `GET /api/v1/public/contracts/:token`
 - `POST /api/v1/public/contracts/:token`
 
-All compatibility routes still return HTTP 501 until their business services are ported and verified. See `docs/API_ROUTES.md`, `docs/CONTRACT_LIFECYCLE.md`, `docs/MIGRATION_FROM_API2.md`, and `docs/RENDER_DEPLOYMENT.md`.
+See `docs/API_ROUTES.md`, `docs/CONTRACT_LIFECYCLE.md`, `docs/MIGRATION_HISTORY.md`, and `docs/RENDER_DEPLOYMENT.md` for route coverage and deployment guidance.
 
-Do not run Prisma migrations against API 2 or production. After credential rotation and explicit approval, apply the reviewed migration only to a fresh validated clone.
+Do not run Prisma migrations against a legacy source or production. After credential rotation and explicit approval, apply the reviewed migration only to a fresh validated clone.
 
 ## Contract smoke checks
 
@@ -80,4 +80,4 @@ Invoke-RestMethod -Method Post `
 	-Body $acceptance
 ```
 
-Expected results are a safe generated contract response, `SENT` plus skipped contract delivery, `OPENED` after the public GET, and `COMPLETED` with client status `ONBOARDING`, one pending `Initial Follow-Up`, and skipped welcome delivery after POST. Never run these commands against API 2 or production.
+Expected results are a safe generated contract response, `SENT` plus skipped contract delivery, `OPENED` after the public GET, and `COMPLETED` with client status `ONBOARDING`, one pending `Initial Follow-Up`, and skipped welcome delivery after POST. Never run these commands against a legacy source or production.
