@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -125,7 +124,6 @@ export class ContractsService {
   }
 
   async generateForStaff(clientId: string, staffSigner: StaffSigner) {
-    this.assertStaffManagementEnabled();
     const { client, program } = await this.resolveClientProgram(clientId);
     const template = await this.resolveTemplate(program);
     const generated = await this.generateInternal(client, program, template, staffSigner);
@@ -136,7 +134,6 @@ export class ContractsService {
   }
 
   async sendForStaff(clientId: string, contractId: string) {
-    this.assertStaffManagementEnabled();
     const client = await this.prisma.cfClient.findFirst({
       where: { id: clientId, isArchived: false },
     });
@@ -166,7 +163,6 @@ export class ContractsService {
   }
 
   async approveReview(clientId: string, staffSigner: StaffSigner) {
-    this.assertStaffManagementEnabled();
     if (!staffSigner.name.trim()) {
       throw new BadRequestException('A staff signer name is required to approve and sign this contract.');
     }
@@ -196,7 +192,6 @@ export class ContractsService {
   }
 
   async declineReview(clientId: string, reason?: string) {
-    this.assertStaffManagementEnabled();
     const client = await this.prisma.cfClient.findFirst({
       where: { id: clientId, isArchived: false },
     });
@@ -746,13 +741,5 @@ export class ContractsService {
   private publicContractUrl(rawToken: string): string {
     const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/$/, '');
     return `${appUrl}/agreements/${rawToken}`;
-  }
-
-  private assertStaffManagementEnabled(): void {
-    if (this.config.get('ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT', { infer: true }) !== 'true') {
-      throw new ForbiddenException(
-        'Contract management is disabled until standalone authentication is available.',
-      );
-    }
   }
 }

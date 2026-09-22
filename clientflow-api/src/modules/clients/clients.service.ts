@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import { N8nService } from '../../integrations/n8n/n8n.service';
@@ -28,17 +28,7 @@ export class ClientsService {
     private readonly contracts: ContractsService,
   ) {}
 
-  private assertClientAccessEnabled(): void {
-    if (this.config.get('ALLOW_UNAUTHENTICATED_CLIENT_CREATION', { infer: true }) !== 'true') {
-      throw new ForbiddenException('Client management is disabled until standalone authentication is available.');
-    }
-  }
-
   async create(dto: CreateClientDto) {
-    if (this.config.get('ALLOW_UNAUTHENTICATED_CLIENT_CREATION', { infer: true }) !== 'true') {
-      throw new ForbiddenException('Client creation is disabled until standalone authentication is available.');
-    }
-
     const organization = await this.prisma.organization.findFirst({
       where: { id: dto.organizationId, status: 'active' },
       select: { id: true },
@@ -225,7 +215,6 @@ export class ClientsService {
   }
 
   async list(organizationId: string, status?: string) {
-    this.assertClientAccessEnabled();
     const clients = await this.prisma.cfClient.findMany({
       where: { organizationId, isArchived: false, ...(status ? { status } : {}) },
       orderBy: { createdAt: 'desc' },
@@ -234,7 +223,6 @@ export class ClientsService {
   }
 
   async getOne(id: string) {
-    this.assertClientAccessEnabled();
     const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
     if (!client) throw new NotFoundException('Client not found.');
 
@@ -289,7 +277,6 @@ export class ClientsService {
   }
 
   async updateProgram(id: string, programId: string) {
-    this.assertClientAccessEnabled();
     const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
     if (!client) throw new NotFoundException('Client not found.');
 
@@ -319,7 +306,6 @@ export class ClientsService {
   }
 
   async sendIntakeNow(id: string) {
-    this.assertClientAccessEnabled();
     const assignment = await this.prisma.cfFormAssignment.findFirst({
       where: { clientId: id, cancelledAt: null },
       orderBy: { createdAt: 'desc' },
