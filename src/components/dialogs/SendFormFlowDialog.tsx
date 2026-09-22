@@ -115,6 +115,7 @@ export function SendFormFlowDialog({
       candidate.id === template?.programId || candidate.defaultFormTemplateId === template?.id,
   );
   const availableForms = getAvailableSendForms(formTemplates, programs);
+  const visibleClientResults = searched ? searchResults : clients;
 
   const emailBody = useMemo(
     () =>
@@ -147,13 +148,15 @@ export function SendFormFlowDialog({
   function handleSearch() {
     const q = searchQuery.toLowerCase().trim();
     if (!q) {
-      toast.error("Enter a name, email, phone, or business to search");
+      setSearchResults(clients);
+      setSearched(true);
       return;
     }
+    const phoneQuery = q.replace(/\D/g, "");
     const results = clients.filter(
       (c) =>
         c.email.toLowerCase().includes(q) ||
-        c.phone.replace(/\D/g, "").includes(q.replace(/\D/g, "")) ||
+        (phoneQuery.length > 0 && c.phone.replace(/\D/g, "").includes(phoneQuery)) ||
         c.businessName.toLowerCase().includes(q) ||
         c.primaryContactName.toLowerCase().includes(q),
     );
@@ -325,12 +328,11 @@ export function SendFormFlowDialog({
                 </Button>
               </div>
 
-              {searched && (
-                <div className="max-h-52 space-y-2 overflow-y-auto">
-                  {searchResults.length === 0 ? (
+              <div className="max-h-52 space-y-2 overflow-y-auto">
+                  {visibleClientResults.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No matching profiles found.</p>
                   ) : (
-                    searchResults.map((c) => (
+                    visibleClientResults.map((c) => (
                       <div
                         key={c.id}
                         className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
@@ -350,8 +352,7 @@ export function SendFormFlowDialog({
                       </div>
                     ))
                   )}
-                </div>
-              )}
+              </div>
             </div>
 
             {/* Divider */}
