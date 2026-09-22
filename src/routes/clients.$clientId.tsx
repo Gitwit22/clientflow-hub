@@ -44,7 +44,7 @@ import {
   updateContract,
   uploadDocument,
 } from "@/lib/api";
-import { ARCHIVE_DECISIONS, type FormAssignment } from "@/types";
+import { ARCHIVE_DECISIONS, type FormAssignment, type IntakeDetails } from "@/types";
 
 const MONITORING_TYPES = [
   "Payment check",
@@ -98,6 +98,22 @@ function displayAnswer(value: unknown): string {
   if (typeof value === "number") return String(value);
   return typeof value === "string" ? value : "";
 }
+
+// Mirrors nxt-lvl-api2's INTAKE_FIELD_KEYS/TOP_LEVEL_FIELD_KEYS so we can tell whether a
+// mapped client.intake value still corresponds to a field on the form that was actually sent.
+const INTAKE_KEY_ALIASES: Record<
+  Exclude<keyof IntakeDetails, "uploadedFiles">,
+  string[]
+> = {
+  businessDescription: ["businessdescription", "description"],
+  businessType: ["businesstype", "biztype", "industry"],
+  assistanceRequested: ["assistancerequested", "assistance"],
+  programOfInterest: ["programofinterest", "program"],
+  budgetNeed: ["budgetneed", "budget"],
+  preferredContact: ["preferredcontact", "contact_pref", "contact"],
+  heardAboutUs: ["heardaboutus", "heard"],
+  additionalComments: ["additionalcomments", "comments"],
+};
 
 function ClientProfile() {
   const { clientId } = Route.useParams();
@@ -180,6 +196,22 @@ function ClientProfile() {
     (submission) => submission.clientId === client.id,
   );
   const templateName = (id: string) => s.formTemplates.find((t) => t.id === id)?.name ?? id;
+  // Most recent submission that carries a core-section snapshot, i.e. what was actually asked.
+  const latestCoreSubmission = intakeSubmissions.find((submission) =>
+    submission.snapshot?.renderedSections.some((section) => section.kind === "core"),
+  );
+  const latestCoreFieldTokens = latestCoreSubmission
+    ? new Set(
+        (
+          latestCoreSubmission.snapshot?.renderedSections.find(
+            (section) => section.kind === "core",
+          )?.fields ?? []
+        ).flatMap((field) => [field.id.toLowerCase(), field.prefillKey?.toLowerCase() ?? ""]),
+      )
+    : null;
+  // No submission on record (e.g. manually created client) — keep showing whatever is on file.
+  const hasActiveIntakeField = (key: Exclude<keyof IntakeDetails, "uploadedFiles">) =>
+    !latestCoreFieldTokens || INTAKE_KEY_ALIASES[key].some((alias) => latestCoreFieldTokens.has(alias));
   const selectedEnrollment = selectedProgramId
     ? enrollments.find((enrollment) => enrollment.programId === selectedProgramId)
     : undefined;
@@ -636,19 +668,35 @@ function ClientProfile() {
                 <Row label="Phone" value={client.phone} />
                 <Row label="Website" value={client.website} />
                 <Row label="Social media links" value={client.socialLinks?.join(", ")} />
-                <Row label="Business description" value={client.intake.businessDescription} />
-                <Row label="Business type" value={client.intake.businessType} />
+                {hasActiveIntakeField("businessDescription") && (
+                  <Row label="Business description" value={client.intake.businessDescription} />
+                )}
+                {hasActiveIntakeField("businessType") && (
+                  <Row label="Business type" value={client.intake.businessType} />
+                )}
               </dl>
               <dl>
-                <Row
-                  label="Type of assistance requested"
-                  value={client.intake.assistanceRequested}
-                />
-                <Row label="Program of interest" value={client.intake.programOfInterest} />
-                <Row label="Budget or funding need" value={client.intake.budgetNeed} />
-                <Row label="Preferred contact method" value={client.intake.preferredContact} />
-                <Row label="How they heard about us" value={client.intake.heardAboutUs} />
-                <Row label="Additional comments" value={client.intake.additionalComments} />
+                {hasActiveIntakeField("assistanceRequested") && (
+                  <Row
+                    label="Type of assistance requested"
+                    value={client.intake.assistanceRequested}
+                  />
+                )}
+                {hasActiveIntakeField("programOfInterest") && (
+                  <Row label="Program of interest" value={client.intake.programOfInterest} />
+                )}
+                {hasActiveIntakeField("budgetNeed") && (
+                  <Row label="Budget or funding need" value={client.intake.budgetNeed} />
+                )}
+                {hasActiveIntakeField("preferredContact") && (
+                  <Row label="Preferred contact method" value={client.intake.preferredContact} />
+                )}
+                {hasActiveIntakeField("heardAboutUs") && (
+                  <Row label="How they heard about us" value={client.intake.heardAboutUs} />
+                )}
+                {hasActiveIntakeField("additionalComments") && (
+                  <Row label="Additional comments" value={client.intake.additionalComments} />
+                )}
                 <Row label="Uploaded files" value={client.intake.uploadedFiles.join(", ")} />
               </dl>
             </CardContent>
