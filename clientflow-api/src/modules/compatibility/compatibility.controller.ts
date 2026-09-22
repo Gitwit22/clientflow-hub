@@ -598,6 +598,38 @@ export class PublicFormCompatibilityController {
       description: template.description,
       fields,
     };
+
+    const programs = await this.requirePrisma().cfProgram.findMany({
+      where: { organizationId: formAssignment.organizationId, isActive: true },
+      select: { id: true, name: true, defaultFormTemplateId: true },
+      orderBy: { name: 'asc' },
+    });
+    const sectionTemplates = await this.requirePrisma().cfFormTemplate.findMany({
+      where: {
+        organizationId: formAssignment.organizationId,
+        isActive: true,
+        OR: [{ scope: 'program_section' }, { scope: 'legacy', programId: { not: null } }],
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+    });
+    const programSections = programs.map((activeProgram) => {
+      const matchingSections = sectionTemplates.filter((candidate) => candidate.programId === activeProgram.id);
+      const section = matchingSections.find((candidate) => candidate.id === activeProgram.defaultFormTemplateId)
+        ?? matchingSections.find((candidate) => candidate.scope === 'program_section')
+        ?? matchingSections[0];
+      return {
+        id: section ? `program:${activeProgram.id}:${section.id}:${section.version}` : `program:${activeProgram.id}:empty`,
+        kind: 'program' as const,
+        templateId: section?.id ?? '',
+        templateVersion: section?.version ?? 0,
+        programId: activeProgram.id,
+        title: section?.name ?? activeProgram.name,
+        description: section?.description ?? '',
+        fields: section ? normalizePublicFields(section.fields) : [],
+      };
+    });
+    const renderedSections = [coreSection, ...programSections];
+
     const configurationToken = randomBytes(32).toString('hex');
     await this.requirePrisma().cfIntakeRenderSession.create({
       data: {
@@ -606,15 +638,9 @@ export class PublicFormCompatibilityController {
         configurationToken,
         coreTemplateId: template.id,
         coreTemplateVersion: template.version,
-        renderedSections: [coreSection] as unknown as object,
+        renderedSections: renderedSections as unknown as object,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
-    });
-
-    const programs = await this.requirePrisma().cfProgram.findMany({
-      where: { organizationId: formAssignment.organizationId, isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
     });
 
     return {
@@ -623,7 +649,11 @@ export class PublicFormCompatibilityController {
       program: { name: 'EA Management Program' },
       contact: { name: client?.primaryContactName ?? formAssignment.recipientEmail ?? 'Client' },
       prefill: resolvePublicPrefill(fields, client),
-      intakeConfiguration: { configurationToken, programs, sections: [coreSection] },
+      intakeConfiguration: {
+        configurationToken,
+        programs: programs.map(({ id, name }) => ({ id, name })),
+        sections: renderedSections,
+      },
     };
   }
 
