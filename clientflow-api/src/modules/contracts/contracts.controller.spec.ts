@@ -12,10 +12,13 @@ describe('contract controllers', () => {
     };
     const controller = new ContractsController(service as unknown as ContractsService);
 
-    await controller.generate('client-1');
+    await controller.generate('client-1', { staffSignerName: 'Jordan Staff' });
     await controller.send('client-1', { contractId: 'contract-1' });
 
-    expect(service.generateForStaff).toHaveBeenCalledWith('client-1');
+    expect(service.generateForStaff).toHaveBeenCalledWith('client-1', {
+      id: null,
+      name: 'Jordan Staff',
+    });
     expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1');
   });
 

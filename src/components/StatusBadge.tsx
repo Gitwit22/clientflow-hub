@@ -31,6 +31,15 @@ const map: Record<string, Tone> = {
   Archived: "neutral",
   "Closed Early": "neutral",
   Defaulted: "danger",
+  // automated workflow client statuses (clientflow-api)
+  INTAKE_SENT: "info",
+  INTAKE_SUBMITTED: "info",
+  PROGRAM_SELECTED: "primary",
+  PENDING_STAFF_REVIEW: "warning",
+  REVIEW_DECLINED: "danger",
+  CONTRACT_SENT: "plum",
+  CONTRACT_OPENED: "primary",
+  ONBOARDING: "success",
   // form assignment statuses (lowercase snake_case)
   draft: "neutral",
   sent: "info",

@@ -11,6 +11,7 @@ export const CONTRACT_STATUS = {
 
 export const CONTRACT_CLIENT_STATUS = {
   pendingStaffReview: 'PENDING_STAFF_REVIEW',
+  reviewDeclined: 'REVIEW_DECLINED',
   contractSent: 'CONTRACT_SENT',
   contractOpened: 'CONTRACT_OPENED',
   onboarding: 'ONBOARDING',
@@ -102,6 +103,8 @@ export function renderContractSnapshot(input: {
   programId: string;
   programName: string;
   generatedAt: Date;
+  staffSignerName: string;
+  staffSignedAt: Date;
 }): string {
   return [
     input.templateContent,
@@ -113,6 +116,10 @@ export function renderContractSnapshot(input: {
     `Program: ${input.programName}`,
     `Program ID: ${input.programId}`,
     `Generated at: ${input.generatedAt.toISOString()}`,
+    '',
+    'SIGNED FOR THE ORGANIZATION',
+    `Signed by: ${input.staffSignerName}`,
+    `Signed at: ${input.staffSignedAt.toISOString()}`,
     '',
     LEGAL_TEMPLATE_DISCLAIMER,
   ].join('\n');

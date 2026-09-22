@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateClientDto {
   @ApiProperty({ example: 'org_ea_management' })
@@ -35,4 +35,9 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   assignedStaffId?: string;
+
+  @ApiPropertyOptional({ example: true, default: true, description: 'Send the intake email immediately. Set false to defer sending until POST /clients/:id/intake/send.' })
+  @IsOptional()
+  @IsBoolean()
+  sendIntakeImmediately?: boolean;
 }

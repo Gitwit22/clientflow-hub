@@ -32,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { useAppState } from "@/lib/store";
 import { archiveClient, deleteClient } from "@/lib/api";
@@ -68,6 +69,7 @@ function ClientsPage() {
   const [sendTo, setSendTo] = useState<Client | null>(null);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [addClientOpen, setAddClientOpen] = useState(false);
   const canDelete = authenticatedAdmin?.role === "org_admin"
     || authenticatedAdmin?.role === "super_admin";
 
@@ -118,11 +120,16 @@ function ClientsPage() {
         title="Clients"
         description="One master profile per client, across every program they touch."
         actions={
-          <Button asChild>
-            <Link to="/intake">New intake</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setAddClientOpen(true)}>Add client</Button>
+            <Button variant="outline" asChild>
+              <Link to="/intake">New intake</Link>
+            </Button>
+          </div>
         }
       />
+
+      <AddClientDialog open={addClientOpen} onOpenChange={setAddClientOpen} />
 
       <Card className="space-y-4 p-4 shadow-card">
         {/* Relationship filter tabs */}

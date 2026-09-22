@@ -8,6 +8,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ContractsService } from './contracts.service';
+import { GenerateContractDto } from './dto/generate-contract.dto';
 import { SendContractDto } from './dto/send-contract.dto';
 
 @ApiTags('contracts')
@@ -29,15 +30,18 @@ export class ContractsController {
           status: 'DRAFT',
           secureTokenExpiresAt: '2026-09-28T12:00:00.000Z',
         },
-        publicContractUrl: 'https://clientflow.nxtlvltechnology.com/contracts/one-time-token',
+        publicContractUrl: 'https://clientflow.nxtlvltechnology.com/agreements/one-time-token',
       },
     },
   })
   @ApiForbiddenResponse({ description: 'Standalone staff contract management is disabled.' })
   @ApiNotFoundResponse({ description: 'Client or selected program was not found.' })
   @ApiBadRequestResponse({ description: 'The selected program has no usable contract template.' })
-  generate(@Param('id') clientId: string) {
-    return this.contracts.generateForStaff(clientId);
+  generate(@Param('id') clientId: string, @Body() dto: GenerateContractDto) {
+    return this.contracts.generateForStaff(clientId, {
+      id: dto.staffSignerId ?? null,
+      name: dto.staffSignerName,
+    });
   }
 
   @Post('send')
@@ -47,7 +51,7 @@ export class ContractsController {
     schema: {
       example: {
         contract: { id: 'contract_123', status: 'SENT' },
-        publicContractUrl: 'https://clientflow.nxtlvltechnology.com/contracts/rotated-token',
+        publicContractUrl: 'https://clientflow.nxtlvltechnology.com/agreements/rotated-token',
         emailDelivery: { status: 'skipped', reason: 'disabled' },
       },
     },

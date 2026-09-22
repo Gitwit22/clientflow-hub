@@ -20,7 +20,10 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as MonitoringRouteImport } from './routes/monitoring'
 import { Route as ProgramsRouteImport } from './routes/programs'
 import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as ReviewRouteImport } from './routes/review'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as AgreementsTokenRouteImport } from './routes/agreements.$token'
+import { Route as ApplyTokenRouteImport } from './routes/apply.$token'
 import { Route as ClientsIndexRouteImport } from './routes/clients.index'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
 import { Route as ProgramsIndexRouteImport } from './routes/programs.index'
@@ -82,9 +85,24 @@ const ReportsRoute = ReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReviewRoute = ReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgreementsTokenRoute = AgreementsTokenRouteImport.update({
+  id: '/agreements/$token',
+  path: '/agreements/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApplyTokenRoute = ApplyTokenRouteImport.update({
+  id: '/apply/$token',
+  path: '/apply/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientsIndexRoute = ClientsIndexRouteImport.update({
@@ -125,7 +143,10 @@ export interface FileRoutesByFullPath {
   '/monitoring': typeof MonitoringRoute
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
+  '/review': typeof ReviewRoute
   '/settings': typeof SettingsRoute
+  '/agreements/$token': typeof AgreementsTokenRoute
+  '/apply/$token': typeof ApplyTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
@@ -142,7 +163,10 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
   '/reports': typeof ReportsRoute
+  '/review': typeof ReviewRoute
   '/settings': typeof SettingsRoute
+  '/agreements/$token': typeof AgreementsTokenRoute
+  '/apply/$token': typeof ApplyTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
@@ -162,7 +186,10 @@ export interface FileRoutesById {
   '/monitoring': typeof MonitoringRoute
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
+  '/review': typeof ReviewRoute
   '/settings': typeof SettingsRoute
+  '/agreements/$token': typeof AgreementsTokenRoute
+  '/apply/$token': typeof ApplyTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
@@ -183,7 +210,10 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/programs'
     | '/reports'
+    | '/review'
     | '/settings'
+    | '/agreements/$token'
+    | '/apply/$token'
     | '/clients/$clientId'
     | '/programs/$programId'
     | '/s/$token'
@@ -200,7 +230,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/monitoring'
     | '/reports'
+    | '/review'
     | '/settings'
+    | '/agreements/$token'
+    | '/apply/$token'
     | '/clients/$clientId'
     | '/programs/$programId'
     | '/s/$token'
@@ -219,7 +252,10 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/programs'
     | '/reports'
+    | '/review'
     | '/settings'
+    | '/agreements/$token'
+    | '/apply/$token'
     | '/clients/$clientId'
     | '/programs/$programId'
     | '/s/$token'
@@ -239,7 +275,10 @@ export interface RootRouteChildren {
   MonitoringRoute: typeof MonitoringRoute
   ProgramsRoute: typeof ProgramsRouteWithChildren
   ReportsRoute: typeof ReportsRoute
+  ReviewRoute: typeof ReviewRoute
   SettingsRoute: typeof SettingsRoute
+  AgreementsTokenRoute: typeof AgreementsTokenRoute
+  ApplyTokenRoute: typeof ApplyTokenRoute
   STokenRoute: typeof STokenRoute
 }
 
@@ -322,11 +361,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/review': {
+      id: '/review'
+      path: '/review'
+      fullPath: '/review'
+      preLoaderRoute: typeof ReviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agreements/$token': {
+      id: '/agreements/$token'
+      path: '/agreements/$token'
+      fullPath: '/agreements/$token'
+      preLoaderRoute: typeof AgreementsTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/apply/$token': {
+      id: '/apply/$token'
+      path: '/apply/$token'
+      fullPath: '/apply/$token'
+      preLoaderRoute: typeof ApplyTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/clients/': {
@@ -406,7 +466,10 @@ const rootRouteChildren: RootRouteChildren = {
   MonitoringRoute: MonitoringRoute,
   ProgramsRoute: ProgramsRouteWithChildren,
   ReportsRoute: ReportsRoute,
+  ReviewRoute: ReviewRoute,
   SettingsRoute: SettingsRoute,
+  AgreementsTokenRoute: AgreementsTokenRoute,
+  ApplyTokenRoute: ApplyTokenRoute,
   STokenRoute: STokenRoute,
 }
 export const routeTree = rootRouteImport

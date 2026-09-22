@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import type { N8nService } from '../../integrations/n8n/n8n.service';
+import type { StorageService } from '../../integrations/storage/storage.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   PROGRAM_CONTRACT_RULES,
@@ -211,11 +212,39 @@ describe('ContractsService', () => {
       n8nDisabled() as unknown as N8nService,
     );
 
-    const result = await service.generateForStaff('client-1');
+    const result = await service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' });
 
-    expect(result.publicContractUrl).toMatch(/^https:\/\/clientflow\.example\.com\/contracts\/[A-Za-z0-9_-]{43}$/);
+    expect(result.publicContractUrl).toMatch(/^https:\/\/clientflow\.example\.com\/agreements\/[A-Za-z0-9_-]{43}$/);
     expect(result.contract).toEqual(expect.objectContaining({ id: 'contract-1', status: 'DRAFT' }));
     expect(JSON.stringify(result)).not.toContain('secureTokenHash');
+  });
+
+  it('stamps the staff signer and signature block onto a newly generated contract', async () => {
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfContractTemplate: { findMany: jest.fn().mockResolvedValue([template]) },
+      cfContract: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(draftContract),
+      },
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    await service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' });
+
+    expect(prisma.cfContract.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        staffSignedByUserId: 'staff-1',
+        staffSignedByName: 'Jordan Staff',
+        staffSignedAt: expect.any(Date),
+        generatedContent: expect.stringContaining('Signed by: Jordan Staff'),
+      }),
+    }));
   });
 
   it('returns a safe error when the default contract template is missing', async () => {
@@ -230,7 +259,7 @@ describe('ContractsService', () => {
       n8nDisabled() as unknown as N8nService,
     );
 
-    await expect(service.generateForStaff('client-1')).rejects.toEqual(
+    await expect(service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' })).rejects.toEqual(
       new BadRequestException('The selected program does not have an active contract template.'),
     );
   });
@@ -422,6 +451,118 @@ describe('ContractsService', () => {
     }));
   });
 
+  it('archives the fully executed contract to storage and files it on the client record', async () => {
+    const monitoringTask = {
+      id: 'monitoring-1',
+      type: 'Initial Follow-Up',
+      status: 'PENDING',
+      dueDate: new Date('2030-01-31T00:00:00.000Z'),
+      assignedStaffId: null,
+    };
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
+      cfMonitoringTask: { create: jest.fn().mockResolvedValue(monitoringTask) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
+      },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: {
+        findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }),
+      },
+      cfDocument: { create: jest.fn().mockResolvedValue({ id: 'document-1' }) },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const storage = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      uploadText: jest.fn().mockResolvedValue({
+        bucket: 'eamanagement',
+        objectKey: 'contracts/org-1/client-1/contract-1-executed.txt',
+        byteSize: 42,
+        url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
+      }),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+      storage as unknown as StorageService,
+    );
+
+    await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(storage.uploadText).toHaveBeenCalledWith(
+      'contracts/org-1/client-1/contract-1-executed.txt',
+      expect.stringContaining('CLIENT ACCEPTANCE'),
+      'text/plain',
+    );
+    expect(prisma.cfDocument.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: 'org-1',
+        clientId: 'client-1',
+        type: 'contract',
+        url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
+        objectKey: 'contracts/org-1/client-1/contract-1-executed.txt',
+        bucket: 'eamanagement',
+      }),
+    }));
+  });
+
+  it('does not fail contract completion when storage archival throws', async () => {
+    const monitoringTask = {
+      id: 'monitoring-1',
+      type: 'Initial Follow-Up',
+      status: 'PENDING',
+      dueDate: new Date('2030-01-31T00:00:00.000Z'),
+      assignedStaffId: null,
+    };
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
+      cfMonitoringTask: { create: jest.fn().mockResolvedValue(monitoringTask) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
+      },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: {
+        findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }),
+      },
+      cfDocument: { create: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const storage = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      uploadText: jest.fn().mockRejectedValue(new Error('R2 unavailable')),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+      storage as unknown as StorageService,
+    );
+
+    const result = await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(result.contract.status).toBe('COMPLETED');
+    expect(prisma.cfDocument.create).not.toHaveBeenCalled();
+  });
+
   it('rejects a repeated public completion before creating onboarding records', async () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -448,5 +589,101 @@ describe('ContractsService', () => {
       signedEmail: 'client@example.com',
       agreedToTerms: true,
     }, { signerIp: null, userAgent: null })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('approves a pending-review client and issues a contract', async () => {
+    const pendingClient = { ...client, status: 'PENDING_STAFF_REVIEW', programId: 'program-1' };
+    const transaction = {
+      cfContract: { update: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...pendingClient, status: 'CONTRACT_SENT' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'skipped' }),
+      },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(pendingClient) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(reviewProgram) },
+      cfContractTemplate: { findMany: jest.fn().mockResolvedValue([{ ...template, name: 'Grant Agreement' }]) },
+      cfContract: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ ...draftContract, contractType: 'Grant Agreement' }),
+      },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    const result = await service.approveReview('client-1', { id: 'staff-1', name: 'Jordan Staff' });
+
+    expect(prisma.cfContract.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        staffSignedByUserId: 'staff-1',
+        staffSignedByName: 'Jordan Staff',
+      }),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      nextAction: 'CONTRACT_SENT',
+      clientStatus: 'CONTRACT_SENT',
+      program: { id: 'program-1', name: 'Grant' },
+    }));
+  });
+
+  it('rejects approval for a client that is not pending staff review', async () => {
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    await expect(
+      service.approveReview('client-1', { id: 'staff-1', name: 'Jordan Staff' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects approval when no staff signer name is provided', async () => {
+    const service = new ContractsService(
+      {} as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    await expect(service.approveReview('client-1', { id: null, name: '  ' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('declines a pending-review client without creating a contract', async () => {
+    const pendingClient = { ...client, status: 'PENDING_STAFF_REVIEW' };
+    const transaction = {
+      cfClient: { update: jest.fn().mockResolvedValue({ ...pendingClient, status: 'REVIEW_DECLINED' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(pendingClient) },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    const result = await service.declineReview('client-1', 'No longer eligible');
+
+    expect(transaction.cfClient.update).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: { status: 'REVIEW_DECLINED' },
+    });
+    expect(transaction.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ description: 'Staff review declined: No longer eligible' }),
+    }));
+    expect(result).toEqual({ client: { id: 'client-1', status: 'REVIEW_DECLINED' } });
   });
 });

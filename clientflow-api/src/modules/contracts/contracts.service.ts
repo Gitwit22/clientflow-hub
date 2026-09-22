@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -11,6 +12,7 @@ import type {
   WelcomeEmailDeliveryResult,
 } from '../../integrations/n8n/n8n.types';
 import { N8nService } from '../../integrations/n8n/n8n.service';
+import { StorageService } from '../../integrations/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CONTRACT_CLIENT_STATUS,
@@ -33,12 +35,20 @@ const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contra
 const SAFE_PUBLIC_CONTRACT_ERROR = 'The contract link is invalid or unavailable.';
 const CONTRACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
+export interface StaffSigner {
+  id: string | null;
+  name: string;
+}
+
 @Injectable()
 export class ContractsService {
+  private readonly logger = new Logger(ContractsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
     private readonly n8n: N8nService,
+    private readonly storage: StorageService = { isEnabled: () => false } as unknown as StorageService,
   ) {}
 
   async prepareProgramSelection(organizationId: string, programName: string) {
@@ -98,7 +108,13 @@ export class ContractsService {
     }
 
     const template = await this.resolveTemplate(program);
-    const generated = await this.generateInternal(client, program, template);
+    const defaultSigner: StaffSigner = {
+      id: client.assignedUserId,
+      name: client.assignedStaff && client.assignedStaff !== 'Unassigned'
+        ? client.assignedStaff
+        : 'EA Management Team',
+    };
+    const generated = await this.generateInternal(client, program, template, defaultSigner);
     const issued = await this.issueContract(client, program, template, generated.contract.id);
     return {
       nextAction: 'CONTRACT_SENT' as const,
@@ -108,11 +124,11 @@ export class ContractsService {
     };
   }
 
-  async generateForStaff(clientId: string) {
+  async generateForStaff(clientId: string, staffSigner: StaffSigner) {
     this.assertStaffManagementEnabled();
     const { client, program } = await this.resolveClientProgram(clientId);
     const template = await this.resolveTemplate(program);
-    const generated = await this.generateInternal(client, program, template);
+    const generated = await this.generateInternal(client, program, template, staffSigner);
     return {
       contract: this.safeContract(generated.contract, template.name),
       publicContractUrl: this.publicContractUrl(generated.rawToken),
@@ -147,6 +163,67 @@ export class ContractsService {
     });
     if (!template) throw new BadRequestException(SAFE_TEMPLATE_ERROR);
     return this.issueContract(client, program, template, contract.id);
+  }
+
+  async approveReview(clientId: string, staffSigner: StaffSigner) {
+    this.assertStaffManagementEnabled();
+    if (!staffSigner.name.trim()) {
+      throw new BadRequestException('A staff signer name is required to approve and sign this contract.');
+    }
+    const client = await this.prisma.cfClient.findFirst({
+      where: { id: clientId, isArchived: false },
+    });
+    if (!client) throw new NotFoundException('Client not found.');
+    if (client.status !== CONTRACT_CLIENT_STATUS.pendingStaffReview) {
+      throw new BadRequestException('Client is not pending staff review.');
+    }
+    if (!client.programId) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+
+    const program = await this.prisma.cfProgram.findFirst({
+      where: { id: client.programId, organizationId: client.organizationId, isActive: true },
+    });
+    if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+
+    const template = await this.resolveTemplate(program);
+    const generated = await this.generateInternal(client, program, template, staffSigner);
+    const issued = await this.issueContract(client, program, template, generated.contract.id);
+    return {
+      nextAction: 'CONTRACT_SENT' as const,
+      clientStatus: CONTRACT_CLIENT_STATUS.contractSent,
+      program: { id: program.id, name: program.name },
+      ...issued,
+    };
+  }
+
+  async declineReview(clientId: string, reason?: string) {
+    this.assertStaffManagementEnabled();
+    const client = await this.prisma.cfClient.findFirst({
+      where: { id: clientId, isArchived: false },
+    });
+    if (!client) throw new NotFoundException('Client not found.');
+    if (client.status !== CONTRACT_CLIENT_STATUS.pendingStaffReview) {
+      throw new BadRequestException('Client is not pending staff review.');
+    }
+
+    const updated = await this.prisma.$transaction(async (transaction) => {
+      const result = await transaction.cfClient.update({
+        where: { id: client.id },
+        data: { status: CONTRACT_CLIENT_STATUS.reviewDeclined },
+      });
+      await transaction.cfActivityLog.create({
+        data: {
+          organizationId: client.organizationId,
+          clientId: client.id,
+          actorUserId: client.assignedUserId,
+          action: 'REVIEW_DECLINED',
+          description: reason ? `Staff review declined: ${reason}` : 'Staff review declined.',
+          user: 'staff',
+        },
+      });
+      return result;
+    });
+
+    return { client: { id: updated.id, status: updated.status } };
   }
 
   async openPublicContract(rawToken: string) {
@@ -308,6 +385,8 @@ export class ContractsService {
       welcomeDelivery,
     );
 
+    await this.archiveExecutedContract(client, contract, acceptance, now);
+
     return {
       contract: { id: contract.id, status: CONTRACT_STATUS.completed, completedAt: now },
       client: { id: client.id, status: CONTRACT_CLIENT_STATUS.onboarding },
@@ -320,6 +399,48 @@ export class ContractsService {
       },
       welcomeDelivery,
     };
+  }
+
+  /** Uploads the fully signed document to R2 and files it on the client's record. Non-fatal on failure. */
+  private async archiveExecutedContract(
+    client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
+    contract: Awaited<ReturnType<PrismaService['cfContract']['findUnique']>> & {},
+    acceptance: SubmitPublicContractDto,
+    signedAt: Date,
+  ): Promise<void> {
+    if (!this.storage.isEnabled()) return;
+    try {
+      const executedContent = [
+        contract.generatedContent,
+        '',
+        'CLIENT ACCEPTANCE',
+        `Signed by: ${acceptance.signedName.trim()}`,
+        `Signed email: ${acceptance.signedEmail.trim().toLowerCase()}`,
+        `Signed at: ${signedAt.toISOString()}`,
+        acceptance.signatureNote?.trim() ? `Note: ${acceptance.signatureNote.trim()}` : null,
+      ].filter((line): line is string => line !== null).join('\n');
+
+      const objectKey = `contracts/${client.organizationId}/${client.id}/${contract.id}-executed.txt`;
+      const uploaded = await this.storage.uploadText(objectKey, executedContent, 'text/plain');
+
+      await this.prisma.cfDocument.create({
+        data: {
+          organizationId: client.organizationId,
+          clientId: client.id,
+          name: `${contract.contractType} — Executed`,
+          type: 'contract',
+          url: uploaded.url,
+          objectKey: uploaded.objectKey,
+          bucket: uploaded.bucket,
+          byteSize: uploaded.byteSize,
+          uploadStatus: 'ready',
+          uploadedBy: 'system',
+          isDemo: client.isDemo,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`Unable to archive executed contract ${contract.id} to storage: ${(error as Error).message}`);
+    }
   }
 
   private async resolveClientProgram(clientId: string) {
@@ -395,6 +516,7 @@ export class ContractsService {
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
     template: Awaited<ReturnType<PrismaService['cfContractTemplate']['findFirst']>> & {},
+    staffSigner: StaffSigner,
   ) {
     const now = new Date();
     const rawToken = generateContractToken();
@@ -412,7 +534,15 @@ export class ContractsService {
     if (existing) {
       const contract = await this.prisma.cfContract.update({
         where: { id: existing.id },
-        data: { secureTokenHash, secureTokenExpiresAt },
+        data: {
+          secureTokenHash,
+          secureTokenExpiresAt,
+          ...(existing.staffSignedAt ? {} : {
+            staffSignedByUserId: staffSigner.id,
+            staffSignedByName: staffSigner.name,
+            staffSignedAt: now,
+          }),
+        },
       });
       return { contract, rawToken };
     }
@@ -427,6 +557,9 @@ export class ContractsService {
         status: CONTRACT_STATUS.draft,
         secureTokenHash,
         secureTokenExpiresAt,
+        staffSignedByUserId: staffSigner.id,
+        staffSignedByName: staffSigner.name,
+        staffSignedAt: now,
         generatedContent: renderContractSnapshot({
           templateName: template.name,
           templateContent: template.content,
@@ -435,6 +568,8 @@ export class ContractsService {
           programId: program.id,
           programName: program.name,
           generatedAt: now,
+          staffSignerName: staffSigner.name,
+          staffSignedAt: now,
         }),
         isDemo: client.isDemo,
       },
@@ -606,7 +741,7 @@ export class ContractsService {
 
   private publicContractUrl(rawToken: string): string {
     const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/$/, '');
-    return `${appUrl}/contracts/${rawToken}`;
+    return `${appUrl}/agreements/${rawToken}`;
   }
 
   private assertStaffManagementEnabled(): void {

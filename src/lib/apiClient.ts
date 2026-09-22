@@ -851,3 +851,209 @@ export async function cfRemoveDemo(payload: { currentPassword: string; confirmat
     body: JSON.stringify(payload),
   });
 }
+
+// ─── Automated workflow (clientflow-api: intake → program rule → contract) ──
+// This is a separate deployed service from API_URL above; defaults to local dev.
+
+const CLIENTFLOW_API_URL =
+  (import.meta.env.VITE_CLIENTFLOW_API_URL as string | undefined) ?? "http://localhost:4001";
+
+async function clientflowApiRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${CLIENTFLOW_API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init.headers,
+    },
+  });
+  if (!response.ok) throw await parseApiError(response);
+  if (response.status === 204) return undefined as unknown as T;
+  const body = (await response.json()) as T | { success: true; data: T };
+  return body && typeof body === "object" && "success" in body && "data" in body ? body.data : body;
+}
+
+export type AutomatedClientStatus =
+  | "INTAKE_SENT"
+  | "INTAKE_SUBMITTED"
+  | "PROGRAM_SELECTED"
+  | "PENDING_STAFF_REVIEW"
+  | "REVIEW_DECLINED"
+  | "CONTRACT_SENT"
+  | "CONTRACT_OPENED"
+  | "ONBOARDING";
+
+export interface AutomatedClient {
+  id: string;
+  organizationId: string;
+  contactName: string;
+  businessName: string;
+  email: string;
+  phone: string;
+  programId: string | null;
+  status: AutomatedClientStatus | string;
+  assignedStaff: string;
+  assignedUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AutomatedClientDetail extends AutomatedClient {
+  program: { id: string; name: string } | null;
+  contract: {
+    id: string;
+    status: string;
+    contractType: string;
+    sentAt: string | null;
+    completedAt: string | null;
+    staffSignedByName: string | null;
+    staffSignedAt: string | null;
+    signedName: string | null;
+    signedEmail: string | null;
+    /** The fully executed document (both signatures) once the client has signed. */
+    content: string | null;
+  } | null;
+  monitoringTask: { id: string; type: string; status: string; dueDate: string } | null;
+}
+
+export interface CreateAutomatedClientPayload {
+  organizationId: string;
+  contactName: string;
+  businessName?: string;
+  email: string;
+  phone?: string;
+  intakeSource?: string;
+  assignedStaffId?: string;
+  sendIntakeImmediately?: boolean;
+}
+
+/** POST /clients — creates a client and auto-sends (or defers) the General Intake form. */
+export async function acfCreateClient(payload: CreateAutomatedClientPayload) {
+  return clientflowApiRequest<{
+    client: AutomatedClient;
+    assignment: { id: string; formName: string; status: string; dueDate: string | null };
+    publicFormUrl: string;
+    emailDelivery: { status: string; reason?: string; sentAt?: string };
+  }>("/api/v1/clients", { method: "POST", body: JSON.stringify(payload) });
+}
+
+/** GET /clients — list clients for an organization, optionally filtered by status. */
+export async function acfListClients(organizationId: string, status?: string) {
+  const params = new URLSearchParams({ organizationId, ...(status ? { status } : {}) });
+  return clientflowApiRequest<AutomatedClient[]>(`/api/v1/clients?${params.toString()}`);
+}
+
+/** GET /clients/:id — client detail with current program, contract and monitoring task. */
+export async function acfGetClient(id: string) {
+  return clientflowApiRequest<AutomatedClientDetail>(`/api/v1/clients/${encodeURIComponent(id)}`);
+}
+
+/** PATCH /clients/:id/program — corrects the selected program and re-runs the contract rule engine. */
+export async function acfUpdateClientProgram(id: string, programId: string) {
+  return clientflowApiRequest<{
+    nextAction: "STAFF_REVIEW_REQUIRED" | "CONTRACT_SENT";
+    clientStatus: string;
+    program: { id: string; name: string };
+  }>(`/api/v1/clients/${encodeURIComponent(id)}/program`, {
+    method: "PATCH",
+    body: JSON.stringify({ programId }),
+  });
+}
+
+/** POST /clients/:id/intake/send — sends a previously deferred intake email. */
+export async function acfSendIntakeNow(id: string) {
+  return clientflowApiRequest<{ emailDelivery: { status: string; reason?: string } }>(
+    `/api/v1/clients/${encodeURIComponent(id)}/intake/send`,
+    { method: "POST" },
+  );
+}
+
+/** POST /clients/:id/review/approve — signs for the org and issues the contract for a pending-staff-review client. */
+export async function acfApproveReview(
+  id: string,
+  staffSigner: { staffSignerName: string; staffSignerId?: string },
+) {
+  return clientflowApiRequest<{
+    nextAction: "CONTRACT_SENT";
+    clientStatus: string;
+    program: { id: string; name: string };
+    contract: { id: string; status: string; contractName: string };
+    publicContractUrl: string;
+    emailDelivery: { status: string; reason?: string };
+  }>(`/api/v1/clients/${encodeURIComponent(id)}/review/approve`, {
+    method: "POST",
+    body: JSON.stringify(staffSigner),
+  });
+}
+
+/** POST /clients/:id/review/decline — declines a pending-staff-review client without a contract. */
+export async function acfDeclineReview(id: string, reason?: string) {
+  return clientflowApiRequest<{ client: { id: string; status: string } }>(
+    `/api/v1/clients/${encodeURIComponent(id)}/review/decline`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+export interface AutomatedPublicIntakeField {
+  id: string;
+  label: string;
+  type: "text" | "email" | "phone" | "select";
+  required: boolean;
+  options?: string[];
+}
+
+export interface AutomatedPublicIntakeData {
+  client: { contactName: string; businessName: string; email: string; phone: string };
+  form: { id: string; name: string; description: string; fields: AutomatedPublicIntakeField[] };
+  assignment: { status: string; dueDate: string | null };
+}
+
+/** GET /public/forms/:token — load the automated General Intake form (no auth). */
+export async function acfGetPublicIntakeForm(token: string) {
+  return clientflowApiRequest<AutomatedPublicIntakeData>(
+    `/api/v1/public/forms/${encodeURIComponent(token)}`,
+  );
+}
+
+/** POST /public/forms/:token/submit — submit the automated General Intake form (no auth). */
+export async function acfSubmitPublicIntakeForm(
+  token: string,
+  answers: Record<string, string>,
+) {
+  return clientflowApiRequest<{
+    success: boolean;
+    status: string;
+    selectedProgram: string | null;
+    program: { id: string; name: string } | null;
+    nextAction: "STAFF_REVIEW_REQUIRED" | "CONTRACT_SENT" | null;
+  }>(`/api/v1/public/forms/${encodeURIComponent(token)}/submit`, {
+    method: "POST",
+    body: JSON.stringify({ answers }),
+  });
+}
+
+export interface AutomatedPublicContractData {
+  contract: { id: string; status: string; contractName: string; content: string; expiresAt: string | null };
+  client: { name: string };
+  program: { id: string; name: string };
+}
+
+/** GET /public/contracts/:token — load the generated contract for signature (no auth). */
+export async function acfGetPublicContract(token: string) {
+  return clientflowApiRequest<AutomatedPublicContractData>(
+    `/api/v1/public/contracts/${encodeURIComponent(token)}`,
+  );
+}
+
+/** POST /public/contracts/:token — accept and sign the contract (no auth). */
+export async function acfAcceptPublicContract(
+  token: string,
+  payload: { signedName: string; signedEmail: string; agreedToTerms: true; signatureNote?: string },
+) {
+  return clientflowApiRequest<{
+    contract: { id: string; status: string; completedAt: string };
+    client: { id: string; status: string };
+  }>(`/api/v1/public/contracts/${encodeURIComponent(token)}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

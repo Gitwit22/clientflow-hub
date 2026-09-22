@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { FilePlus2, FileSignature, Send, UserPlus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { acfListClients, type AutomatedClientStatus } from "@/lib/apiClient";
 import { useAppState } from "@/lib/store";
 
 export const Route = createFileRoute("/")({
@@ -46,7 +48,8 @@ function clientStatusColor(status: string): string {
 }
 
 function Dashboard() {
-  const { clients, formAssignments, monitoring, contracts, activity, programs } = useAppState();
+  const { clients, formAssignments, monitoring, contracts, activity, programs, authenticatedAdmin } =
+    useAppState();
   const today = new Date();
   const todayLabel = today.toLocaleDateString("en-US", {
     weekday: "short",
@@ -54,6 +57,36 @@ function Dashboard() {
     day: "numeric",
     year: "numeric",
   });
+
+  const [automatedCounts, setAutomatedCounts] = useState<Record<AutomatedClientStatus, number> | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const organizationId = authenticatedAdmin?.organizationId;
+    if (!organizationId) return;
+    acfListClients(organizationId)
+      .then((automatedClients) => {
+        const counts = automatedClients.reduce(
+          (acc, client) => {
+            acc[client.status as AutomatedClientStatus] =
+              (acc[client.status as AutomatedClientStatus] ?? 0) + 1;
+            return acc;
+          },
+          {} as Record<AutomatedClientStatus, number>,
+        );
+        setAutomatedCounts(counts);
+      })
+      .catch(() => setAutomatedCounts(null));
+  }, [authenticatedAdmin?.organizationId]);
+
+  const automatedStats: { label: string; status: AutomatedClientStatus; color: string }[] = [
+    { label: "Intake Sent", status: "INTAKE_SENT", color: "#2F6F62" },
+    { label: "Program Selected", status: "PROGRAM_SELECTED", color: "#6C5A8C" },
+    { label: "Pending Review", status: "PENDING_STAFF_REVIEW", color: "#BE5138" },
+    { label: "Contract Sent", status: "CONTRACT_SENT", color: "#6C5A8C" },
+    { label: "Onboarding", status: "ONBOARDING", color: "#3F7A4C" },
+  ];
 
   const stats = [
     {
@@ -188,6 +221,29 @@ function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* Automated intake → contract workflow */}
+      {automatedCounts && (
+        <div>
+          <p className="mb-2.5 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+            Automated intake workflow
+          </p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {automatedStats.map((s) => (
+              <div
+                key={s.status}
+                className="rounded-lg border border-border bg-card p-4"
+                style={{ borderLeftWidth: "3px", borderLeftColor: s.color }}
+              >
+                <span className="text-xs text-muted-foreground">{s.label}</span>
+                <p className="mt-2.5 font-display text-[30px] font-semibold leading-none text-foreground">
+                  {automatedCounts[s.status] ?? 0}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Panels row */}
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">

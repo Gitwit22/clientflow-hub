@@ -403,6 +403,9 @@ model CfContract {
   secureTokenHash      String?   @unique
   secureTokenExpiresAt DateTime?
   generatedContent     String    @map("content") @db.Text
+  staffSignedByUserId  String?
+  staffSignedByName    String?
+  staffSignedAt        DateTime?
   sentAt               DateTime?
   signedAt             DateTime?
   signedName           String?
@@ -424,6 +427,7 @@ model CfContract {
   @@index([organizationId, status])
   @@index([enrollmentId])
 }
+
 
 model CfMonitoringTask {
   id              String   @id @default(cuid())

@@ -3,6 +3,7 @@ import {
   Archive,
   BarChart3,
   Briefcase,
+  ClipboardCheck,
   ClipboardList,
   FileSignature,
   LayoutDashboard,
@@ -24,6 +25,7 @@ const mainItems: NavItem[] = [
   { title: "New Intake", url: "/intake", icon: UserPlus },
   { title: "Programs", url: "/programs", icon: Briefcase },
   { title: "Forms", url: "/forms", icon: ClipboardList },
+  { title: "Review", url: "/review", icon: ClipboardCheck },
   { title: "Monitoring", url: "/monitoring", icon: Timer },
   { title: "Contracts", url: "/contracts", icon: FileSignature },
 ];

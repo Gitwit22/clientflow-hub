@@ -193,9 +193,7 @@ function ClientProfile() {
   const [uploading, setUploading] = useState(false);
 
   // Communications
-  const [commType, setCommType] = useState<"Note" | "Email" | "Call" | "Meeting" | "Snapchat">(
-    "Note",
-  );
+  const [commType, setCommType] = useState<"Note" | "Email" | "Call" | "Meeting">("Note");
   const [commSubject, setCommSubject] = useState("");
   const [commDirection, setCommDirection] = useState<"Inbound" | "Outbound" | "Internal">(
     "Internal",
@@ -401,7 +399,6 @@ function ClientProfile() {
             "overview",
             "intake",
             "forms",
-            "terms",
             "monitoring",
             "documents",
             "communications",
@@ -666,38 +663,6 @@ function ClientProfile() {
                   );
                 })
               )}
-            </CardContent>
-          </Card>
-          <Card className="shadow-card lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Snapchat communication</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <dl>
-                <Row label="Snapchat username" value={client.snapchat?.username} />
-                <Row
-                  label="Last Snapchat contact"
-                  value={
-                    client.snapchat?.lastContactDate
-                      ? new Date(client.snapchat.lastContactDate).toLocaleDateString()
-                      : undefined
-                  }
-                />
-                <Row label="Communication summary" value={client.snapchat?.summary} />
-                <Row
-                  label="Follow-up needed"
-                  value={client.snapchat?.followUpNeeded ? "Yes" : "No"}
-                />
-                <Row label="Staff member" value={client.snapchat?.staffMember} />
-              </dl>
-              <div className="flex items-start">
-                <Button
-                  variant="outline"
-                  onClick={() => window.open("https://web.snapchat.com", "_blank", "noopener")}
-                >
-                  Open Snapchat Web
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1016,38 +981,6 @@ function ClientProfile() {
           </Button>
         </TabsContent>
 
-        <TabsContent value="terms" className="mt-4 space-y-3">
-          {terms.map((t) => (
-            <Card key={t.id} className="shadow-card">
-              <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
-                <dl>
-                  <Row label="Support type" value={t.supportType} />
-                  <Row label="Funding amount" value={`$${t.fundingAmount.toLocaleString()}`} />
-                  <Row
-                    label="Grant / Loan / Forgivable"
-                    value={`$${t.grantAmount.toLocaleString()} / $${t.loanAmount.toLocaleString()} / $${t.forgivableAmount.toLocaleString()}`}
-                  />
-                  <Row label="Repayment required" value={t.repaymentRequired ? "Yes" : "No"} />
-                  <Row label="Repayment schedule" value={t.repaymentSchedule} />
-                  <Row label="Interest" value={t.interestDescription} />
-                </dl>
-                <dl>
-                  <Row label="Milestones" value={t.milestones} />
-                  <Row label="Reporting requirements" value={t.reportingRequirements} />
-                  <Row
-                    label="Term"
-                    value={`${t.startDate.slice(0, 10)} → ${t.endDate.slice(0, 10)}`}
-                  />
-                  <Row label="Monitoring frequency" value={t.monitoringFrequency} />
-                  <Row label="Special conditions" value={t.specialConditions} />
-                  <Row label="Internal approval" value={t.approvalStatus} />
-                </dl>
-              </CardContent>
-            </Card>
-          ))}
-          <Button onClick={() => setTermsOpen(true)}>Create terms</Button>
-        </TabsContent>
-
         <TabsContent value="monitoring" className="mt-4 space-y-3">
           {monitoring.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1154,7 +1087,7 @@ function ClientProfile() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(["Note", "Email", "Call", "Meeting", "Snapchat"] as const).map((t) => (
+                      {(["Note", "Email", "Call", "Meeting"] as const).map((t) => (
                         <SelectItem key={t} value={t}>
                           {t}
                         </SelectItem>
