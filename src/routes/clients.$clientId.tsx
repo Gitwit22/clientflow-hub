@@ -44,7 +44,12 @@ import {
   updateContract,
   uploadDocument,
 } from "@/lib/api";
-import { ARCHIVE_DECISIONS, type FormAssignment, type IntakeDetails } from "@/types";
+import {
+  ARCHIVE_DECISIONS,
+  type FormAssignment,
+  type IntakeDetails,
+  type IntakeSubmission,
+} from "@/types";
 
 const MONITORING_TYPES = [
   "Payment check",
@@ -97,6 +102,42 @@ function displayAnswer(value: unknown): string {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") return String(value);
   return typeof value === "string" ? value : "";
+}
+
+const PROFILE_FIELD_IDS = new Set([
+  "name",
+  "primaryContactName",
+  "fullName",
+  "applicant",
+  "business",
+  "businessName",
+  "email",
+  "phone",
+  "website",
+  "socialLinks",
+  "facebookUrl",
+  "instagramUrl",
+  "linkedinUrl",
+  "tiktokUrl",
+  "youtubeUrl",
+]);
+
+function submittedCoreFields(
+  submission: IntakeSubmission | undefined,
+) {
+  const coreSection = submission?.snapshot?.renderedSections.find(
+    (section) => section.kind === "core",
+  );
+  if (!coreSection) return null;
+
+  return coreSection.fields
+    .filter(
+      (field) => !PROFILE_FIELD_IDS.has(field.id) && !PROFILE_FIELD_IDS.has(field.prefillKey ?? ""),
+    )
+    .map((field) => ({
+      field,
+      value: displayAnswer(submission.responsePayload[field.id]),
+    }));
 }
 
 // Mirrors nxt-lvl-api2's INTAKE_FIELD_KEYS/TOP_LEVEL_FIELD_KEYS so we can tell whether a
@@ -197,9 +238,12 @@ function ClientProfile() {
   );
   const templateName = (id: string) => s.formTemplates.find((t) => t.id === id)?.name ?? id;
   // Most recent submission that carries a core-section snapshot, i.e. what was actually asked.
-  const latestCoreSubmission = intakeSubmissions.find((submission) =>
-    submission.snapshot?.renderedSections.some((section) => section.kind === "core"),
-  );
+  const latestCoreSubmission = [...intakeSubmissions]
+    .filter((submission) =>
+      submission.snapshot?.renderedSections.some((section) => section.kind === "core"),
+    )
+    .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0];
+  const submittedFields = submittedCoreFields(latestCoreSubmission);
   const latestCoreFieldTokens = latestCoreSubmission
     ? new Set(
         (
@@ -668,36 +712,48 @@ function ClientProfile() {
                 <Row label="Phone" value={client.phone} />
                 <Row label="Website" value={client.website} />
                 <Row label="Social media links" value={client.socialLinks?.join(", ")} />
-                {hasActiveIntakeField("businessDescription") && (
-                  <Row label="Business description" value={client.intake.businessDescription} />
-                )}
-                {hasActiveIntakeField("businessType") && (
-                  <Row label="Business type" value={client.intake.businessType} />
+                {!submittedFields && (
+                  <>
+                    {hasActiveIntakeField("businessDescription") && (
+                      <Row label="Business description" value={client.intake.businessDescription} />
+                    )}
+                    {hasActiveIntakeField("businessType") && (
+                      <Row label="Business type" value={client.intake.businessType} />
+                    )}
+                  </>
                 )}
               </dl>
               <dl>
-                {hasActiveIntakeField("assistanceRequested") && (
-                  <Row
-                    label="Type of assistance requested"
-                    value={client.intake.assistanceRequested}
-                  />
+                {submittedFields ? (
+                  submittedFields.map(({ field, value }) => (
+                    <Row key={field.id} label={field.label} value={value} />
+                  ))
+                ) : (
+                  <>
+                    {hasActiveIntakeField("assistanceRequested") && (
+                      <Row
+                        label="Type of assistance requested"
+                        value={client.intake.assistanceRequested}
+                      />
+                    )}
+                    {hasActiveIntakeField("programOfInterest") && (
+                      <Row label="Program of interest" value={client.intake.programOfInterest} />
+                    )}
+                    {hasActiveIntakeField("budgetNeed") && (
+                      <Row label="Budget or funding need" value={client.intake.budgetNeed} />
+                    )}
+                    {hasActiveIntakeField("preferredContact") && (
+                      <Row label="Preferred contact method" value={client.intake.preferredContact} />
+                    )}
+                    {hasActiveIntakeField("heardAboutUs") && (
+                      <Row label="How they heard about us" value={client.intake.heardAboutUs} />
+                    )}
+                    {hasActiveIntakeField("additionalComments") && (
+                      <Row label="Additional comments" value={client.intake.additionalComments} />
+                    )}
+                    <Row label="Uploaded files" value={client.intake.uploadedFiles.join(", ")} />
+                  </>
                 )}
-                {hasActiveIntakeField("programOfInterest") && (
-                  <Row label="Program of interest" value={client.intake.programOfInterest} />
-                )}
-                {hasActiveIntakeField("budgetNeed") && (
-                  <Row label="Budget or funding need" value={client.intake.budgetNeed} />
-                )}
-                {hasActiveIntakeField("preferredContact") && (
-                  <Row label="Preferred contact method" value={client.intake.preferredContact} />
-                )}
-                {hasActiveIntakeField("heardAboutUs") && (
-                  <Row label="How they heard about us" value={client.intake.heardAboutUs} />
-                )}
-                {hasActiveIntakeField("additionalComments") && (
-                  <Row label="Additional comments" value={client.intake.additionalComments} />
-                )}
-                <Row label="Uploaded files" value={client.intake.uploadedFiles.join(", ")} />
               </dl>
             </CardContent>
           </Card>
