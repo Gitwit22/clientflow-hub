@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ScaffoldService } from '../../common/services/scaffold.service';
+import { IntegrationsModule } from '../../integrations/integrations.module';
 import {
   AuthCompatibilityController,
   ClientflowCompatibilityController,
@@ -9,6 +10,7 @@ import {
 } from './compatibility.controller';
 
 @Module({
+  imports: [IntegrationsModule],
   controllers: [
     AuthCompatibilityController,
     ClientflowCompatibilityController,
