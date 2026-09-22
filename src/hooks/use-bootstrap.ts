@@ -63,9 +63,9 @@ export function useBootstrap() {
           loadRequired("Intake submissions", api.cfListIntakeSubmissions()),
           loadRequired("Terms", api.cfListAllTerms()),
           loadRequired("Monitoring", api.cfListAllMonitoring()),
-          loadRequired("Contracts", api.cfListAllContracts()),
+          loadOptional("Contracts", api.cfListAllContracts(), []),
           loadRequired("Documents", api.cfListAllDocuments()),
-          loadRequired("Communications", api.cfListAllCommunications()),
+          loadOptional("Communications", api.cfListAllCommunications(), []),
           loadRequired("Final reports", api.cfListAllFinalReports()),
           loadOptional("Activity", api.cfListActivity(), []),
         ]);
