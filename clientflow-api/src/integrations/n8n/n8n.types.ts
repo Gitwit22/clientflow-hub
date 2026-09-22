@@ -12,6 +12,7 @@ export interface ClientflowLifecyclePayload {
   eventType: ClientflowLifecycleEventType;
   organizationId: string;
   clientId: string;
+  formId?: string;
   recipientEmail?: string;
   clientName?: string;
   programName?: string;
@@ -20,6 +21,9 @@ export interface ClientflowLifecyclePayload {
   contractName?: string;
   contractUrl?: string;
   dueDate?: string;
+  expiresAt?: string | null;
+  sentByUserId?: string;
+  personalMessage?: string;
   nextStep?: string;
   occurredAt: string;
 }

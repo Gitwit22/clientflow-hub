@@ -248,8 +248,8 @@ export class ClientflowCompatibilityController {
     const appUrl = process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev';
     return this.requirePrisma().cfFormAssignment.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), formId: String(body.formId ?? ''), assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null, completionMethod: body.completionMethod ? String(body.completionMethod) : null, deliveryMethod: body.deliveryMethod ? String(body.deliveryMethod) : null, recipientEmail: body.recipientEmail ? String(body.recipientEmail) : null, recipientPhone: body.recipientPhone ? String(body.recipientPhone) : null, status: String(body.status ?? 'draft'), dueAt: body.dueDate ? new Date(String(body.dueDate)) : null, dueDate: body.dueDate ? String(body.dueDate) : null, expiresAt: body.dueDate ? new Date(String(body.dueDate)) : null, sentAt: body.sentAt ? new Date(String(body.sentAt)) : null, secureLink: `${appUrl}/s/${rawToken}`, secureLinkToken: tokenHash, createdByUserId: body.assignedUserId ? String(body.assignedUserId) : null } });
   }
-  @Post('form-assignments/:id/send') async sendFormAssignment(@Req() request: Request, @Param('id') id: string) {
-    const { orgId } = await this.requireOrgFromRequest(request);
+  @Post('form-assignments/:id/send') async sendFormAssignment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
     const assignment = await this.requirePrisma().cfFormAssignment.findFirst({ where: { id, organizationId: orgId } });
     if (!assignment) throw new NotFoundException('Form assignment not found.');
     if (!assignment.recipientEmail) throw new BadRequestException('A recipient email is required before sending.');
@@ -264,7 +264,7 @@ export class ClientflowCompatibilityController {
     const client = await this.requirePrisma().cfClient.findFirst({ where: { id: assignment.clientId, organizationId: orgId }, select: { primaryContactName: true } });
     const form = await this.requirePrisma().cfFormTemplate.findFirst({ where: { id: assignment.formId, organizationId: orgId }, select: { name: true } });
     if (!client || !form) throw new NotFoundException('Form assignment details not found.');
-    const receipt = await this.n8n.deliver({ eventId: `form.send:${assignment.id}`, eventType: 'form.send', organizationId: orgId, clientId: assignment.clientId, recipientEmail: assignment.recipientEmail, clientName: client.primaryContactName, formName: form.name, formUrl, dueDate: assignment.dueDate ?? assignment.expiresAt?.toISOString() ?? new Date().toISOString(), occurredAt: new Date().toISOString() });
+    const receipt = await this.n8n.deliver({ eventId: `form.send:${assignment.id}`, eventType: 'form.send', organizationId: orgId, clientId: assignment.clientId, formId: assignment.formId, recipientEmail: assignment.recipientEmail, clientName: client.primaryContactName, formName: form.name, formUrl, expiresAt: assignment.expiresAt?.toISOString() ?? null, sentByUserId: admin.id, dueDate: assignment.dueDate ?? assignment.expiresAt?.toISOString() ?? new Date().toISOString(), ...(typeof body.personalMessage === 'string' && body.personalMessage.trim() ? { personalMessage: body.personalMessage.trim() } : {}), occurredAt: new Date().toISOString() });
     const sentAt = new Date(receipt.sentAt);
     const updatedAssignment = await this.requirePrisma().cfFormAssignment.update({ where: { id: assignment.id }, data: { status: 'sent', sentAt } });
     return { success: true, status: receipt.status, message: 'Email accepted for delivery', provider: 'N8N_GMAIL', formId: assignment.formId, recipientEmail: assignment.recipientEmail, sentAt: receipt.sentAt, assignment: updatedAssignment };

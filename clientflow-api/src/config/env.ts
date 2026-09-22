@@ -30,6 +30,9 @@ export const environmentSchema = z.object({
   N8N_EMAIL_WEBHOOK_URL: z.string().url().optional(),
   CLIENTFLOW_N8N_SECRET: z.string().optional(),
   N8N_EMAIL_BEARER_TOKEN: z.string().optional(),
+  CLIENTFLOW_N8N_CLIENTFLOW_SECRET: z.string().optional(),
+  CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN: z.string().optional(),
+  CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL: z.string().url().optional(),
   N8N_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 }).superRefine((environment, context) => {
   if (environment.NODE_ENV === 'production') {
@@ -39,12 +42,15 @@ export const environmentSchema = z.object({
       }
     }
   }
-  if (environment.N8N_ENABLED === 'true') {
-    for (const key of ['N8N_EMAIL_WEBHOOK_URL', 'CLIENTFLOW_N8N_SECRET'] as const) {
-      if (!environment[key]) {
-        context.addIssue({ code: 'custom', path: [key], message: `${key} is required when N8N_ENABLED is true.` });
-      }
-    }
+  if (environment.N8N_ENABLED === 'true' && !(
+    environment.N8N_EMAIL_WEBHOOK_URL ?? environment.CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL
+  )) {
+    context.addIssue({ code: 'custom', path: ['N8N_EMAIL_WEBHOOK_URL'], message: 'N8N_EMAIL_WEBHOOK_URL is required when N8N_ENABLED is true.' });
+  }
+  if (environment.N8N_ENABLED === 'true' && !(
+    environment.CLIENTFLOW_N8N_SECRET ?? environment.CLIENTFLOW_N8N_CLIENTFLOW_SECRET
+  )) {
+    context.addIssue({ code: 'custom', path: ['CLIENTFLOW_N8N_SECRET'], message: 'CLIENTFLOW_N8N_SECRET is required when N8N_ENABLED is true.' });
   }
   if (environment.NODE_ENV === 'production' && environment.ALLOW_UNAUTHENTICATED_CLIENT_CREATION === 'true') {
     context.addIssue({

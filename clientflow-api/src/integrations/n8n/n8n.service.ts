@@ -153,9 +153,12 @@ export class N8nService {
     if (this.config.get('N8N_ENABLED', { infer: true }) !== 'true') {
       throw new ServiceUnavailableException('n8n delivery is disabled.');
     }
-    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true });
-    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true });
-    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true });
+    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })
+      ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL', { infer: true });
+    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })
+      ?? this.config.get('CLIENTFLOW_N8N_CLIENTFLOW_SECRET', { infer: true });
+    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true })
+      ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true });
     const timeoutMs = this.config.get('N8N_TIMEOUT_MS', { infer: true });
     if (!webhookUrl || !secret) throw new ServiceUnavailableException('n8n is not configured.');
 

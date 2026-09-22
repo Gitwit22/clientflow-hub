@@ -20,7 +20,7 @@ services:
     runtime: node
     plan: starter
     rootDir: clientflow-api
-    autoDeploy: false
+    autoDeploy: true
     buildCommand: npm ci && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /api/v1/health/live
@@ -68,7 +68,7 @@ services:
       - key: EMAIL_REPLY_TO
         sync: false
       - key: N8N_ENABLED
-        value: "false"
+        value: "true"
       - key: N8N_EMAIL_WEBHOOK_URL
         sync: false
       - key: CLIENTFLOW_N8N_SECRET
