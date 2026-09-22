@@ -18,6 +18,7 @@ import { Route as FormsRouteImport } from './routes/forms'
 import { Route as IntakeRouteImport } from './routes/intake'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MonitoringRouteImport } from './routes/monitoring'
+import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProgramsRouteImport } from './routes/programs'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as ReviewRouteImport } from './routes/review'
@@ -26,6 +27,8 @@ import { Route as AgreementsTokenRouteImport } from './routes/agreements.$token'
 import { Route as ApplyTokenRouteImport } from './routes/apply.$token'
 import { Route as ClientsIndexRouteImport } from './routes/clients.index'
 import { Route as ClientsClientIdRouteImport } from './routes/clients.$clientId'
+import { Route as PipelineIndexRouteImport } from './routes/pipeline.index'
+import { Route as PipelineIdRouteImport } from './routes/pipeline.$id'
 import { Route as ProgramsIndexRouteImport } from './routes/programs.index'
 import { Route as ProgramsProgramIdRouteImport } from './routes/programs.$programId'
 import { Route as STokenRouteImport } from './routes/s.$token'
@@ -75,6 +78,11 @@ const MonitoringRoute = MonitoringRouteImport.update({
   path: '/monitoring',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PipelineRoute = PipelineRouteImport.update({
+  id: '/pipeline',
+  path: '/pipeline',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProgramsRoute = ProgramsRouteImport.update({
   id: '/programs',
   path: '/programs',
@@ -115,6 +123,16 @@ const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
   path: '/$clientId',
   getParentRoute: () => ClientsRoute,
 } as any)
+const PipelineIndexRoute = PipelineIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PipelineRoute,
+} as any)
+const PipelineIdRoute = PipelineIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => PipelineRoute,
+} as any)
 const ProgramsIndexRoute = ProgramsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -141,6 +159,7 @@ export interface FileRoutesByFullPath {
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/pipeline': typeof PipelineRouteWithChildren
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
   '/review': typeof ReviewRoute
@@ -148,9 +167,11 @@ export interface FileRoutesByFullPath {
   '/agreements/$token': typeof AgreementsTokenRoute
   '/apply/$token': typeof ApplyTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/pipeline/$id': typeof PipelineIdRoute
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
   '/clients/': typeof ClientsIndexRoute
+  '/pipeline/': typeof PipelineIndexRoute
   '/programs/': typeof ProgramsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -168,9 +189,11 @@ export interface FileRoutesByTo {
   '/agreements/$token': typeof AgreementsTokenRoute
   '/apply/$token': typeof ApplyTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/pipeline/$id': typeof PipelineIdRoute
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
   '/clients': typeof ClientsIndexRoute
+  '/pipeline': typeof PipelineIndexRoute
   '/programs': typeof ProgramsIndexRoute
 }
 export interface FileRoutesById {
@@ -184,6 +207,7 @@ export interface FileRoutesById {
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/pipeline': typeof PipelineRouteWithChildren
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
   '/review': typeof ReviewRoute
@@ -191,9 +215,11 @@ export interface FileRoutesById {
   '/agreements/$token': typeof AgreementsTokenRoute
   '/apply/$token': typeof ApplyTokenRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/pipeline/$id': typeof PipelineIdRoute
   '/programs/$programId': typeof ProgramsProgramIdRoute
   '/s/$token': typeof STokenRoute
   '/clients/': typeof ClientsIndexRoute
+  '/pipeline/': typeof PipelineIndexRoute
   '/programs/': typeof ProgramsIndexRoute
 }
 export interface FileRouteTypes {
@@ -208,6 +234,7 @@ export interface FileRouteTypes {
     | '/intake'
     | '/login'
     | '/monitoring'
+    | '/pipeline'
     | '/programs'
     | '/reports'
     | '/review'
@@ -215,9 +242,11 @@ export interface FileRouteTypes {
     | '/agreements/$token'
     | '/apply/$token'
     | '/clients/$clientId'
+    | '/pipeline/$id'
     | '/programs/$programId'
     | '/s/$token'
     | '/clients/'
+    | '/pipeline/'
     | '/programs/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -235,9 +264,11 @@ export interface FileRouteTypes {
     | '/agreements/$token'
     | '/apply/$token'
     | '/clients/$clientId'
+    | '/pipeline/$id'
     | '/programs/$programId'
     | '/s/$token'
     | '/clients'
+    | '/pipeline'
     | '/programs'
   id:
     | '__root__'
@@ -250,6 +281,7 @@ export interface FileRouteTypes {
     | '/intake'
     | '/login'
     | '/monitoring'
+    | '/pipeline'
     | '/programs'
     | '/reports'
     | '/review'
@@ -257,9 +289,11 @@ export interface FileRouteTypes {
     | '/agreements/$token'
     | '/apply/$token'
     | '/clients/$clientId'
+    | '/pipeline/$id'
     | '/programs/$programId'
     | '/s/$token'
     | '/clients/'
+    | '/pipeline/'
     | '/programs/'
   fileRoutesById: FileRoutesById
 }
@@ -273,6 +307,7 @@ export interface RootRouteChildren {
   IntakeRoute: typeof IntakeRoute
   LoginRoute: typeof LoginRoute
   MonitoringRoute: typeof MonitoringRoute
+  PipelineRoute: typeof PipelineRouteWithChildren
   ProgramsRoute: typeof ProgramsRouteWithChildren
   ReportsRoute: typeof ReportsRoute
   ReviewRoute: typeof ReviewRoute
@@ -347,6 +382,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MonitoringRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pipeline': {
+      id: '/pipeline'
+      path: '/pipeline'
+      fullPath: '/pipeline'
+      preLoaderRoute: typeof PipelineRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/programs': {
       id: '/programs'
       path: '/programs'
@@ -403,6 +445,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientsClientIdRouteImport
       parentRoute: typeof ClientsRoute
     }
+    '/pipeline/': {
+      id: '/pipeline/'
+      path: '/'
+      fullPath: '/pipeline/'
+      preLoaderRoute: typeof PipelineIndexRouteImport
+      parentRoute: typeof PipelineRoute
+    }
+    '/pipeline/$id': {
+      id: '/pipeline/$id'
+      path: '/$id'
+      fullPath: '/pipeline/$id'
+      preLoaderRoute: typeof PipelineIdRouteImport
+      parentRoute: typeof PipelineRoute
+    }
     '/programs/': {
       id: '/programs/'
       path: '/'
@@ -440,6 +496,20 @@ const ClientsRouteChildren: ClientsRouteChildren = {
 const ClientsRouteWithChildren =
   ClientsRoute._addFileChildren(ClientsRouteChildren)
 
+interface PipelineRouteChildren {
+  PipelineIdRoute: typeof PipelineIdRoute
+  PipelineIndexRoute: typeof PipelineIndexRoute
+}
+
+const PipelineRouteChildren: PipelineRouteChildren = {
+  PipelineIdRoute: PipelineIdRoute,
+  PipelineIndexRoute: PipelineIndexRoute,
+}
+
+const PipelineRouteWithChildren = PipelineRoute._addFileChildren(
+  PipelineRouteChildren,
+)
+
 interface ProgramsRouteChildren {
   ProgramsProgramIdRoute: typeof ProgramsProgramIdRoute
   ProgramsIndexRoute: typeof ProgramsIndexRoute
@@ -464,6 +534,7 @@ const rootRouteChildren: RootRouteChildren = {
   IntakeRoute: IntakeRoute,
   LoginRoute: LoginRoute,
   MonitoringRoute: MonitoringRoute,
+  PipelineRoute: PipelineRouteWithChildren,
   ProgramsRoute: ProgramsRouteWithChildren,
   ReportsRoute: ReportsRoute,
   ReviewRoute: ReviewRoute,

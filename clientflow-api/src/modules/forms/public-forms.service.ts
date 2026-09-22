@@ -66,7 +66,12 @@ export class PublicFormsService {
 
     for (const field of fields) {
       const value = dto.answers[field.id];
-      if (field.required && (value === undefined || value === null || value === '')) {
+      const isMissing = field.required && (
+        value === undefined || value === null || value === ''
+        || (Array.isArray(value) && value.length === 0)
+        || (field.type === 'checkbox' && value !== true)
+      );
+      if (isMissing) {
         throw new BadRequestException(`Please complete: ${field.label}.`);
       }
       this.validateAnswer(field.id, field.type, field.options, value);
@@ -161,6 +166,23 @@ export class PublicFormsService {
     value: PublicAnswer | undefined,
   ): void {
     if (value === undefined || value === null || value === '') return;
+    if (type === 'social_links') {
+      if (!Array.isArray(value) || value.length > 10) {
+        throw new BadRequestException(`Answer for ${fieldId} is invalid.`);
+      }
+      for (const link of value) {
+        if (typeof link !== 'string' || !link.trim()) {
+          throw new BadRequestException(`Answer for ${fieldId} is invalid.`);
+        }
+        try {
+          const url = new URL(link.trim());
+          if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('bad protocol');
+        } catch {
+          throw new BadRequestException(`Answer for ${fieldId} contains an invalid link.`);
+        }
+      }
+      return;
+    }
     if (!['string', 'number', 'boolean'].includes(typeof value)) {
       throw new BadRequestException(`Answer for ${fieldId} is invalid.`);
     }

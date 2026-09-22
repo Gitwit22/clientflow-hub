@@ -1,5 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  type AuthenticatedRequest,
+  ClientflowAdminOnlyGuard,
+  ClientflowAuthGuard,
+} from '../../common/guards/clientflow-auth.guard';
 import { ContractsService } from '../contracts/contracts.service';
 import { ApproveReviewDto } from '../contracts/dto/approve-review.dto';
 import { DeclineReviewDto } from '../contracts/dto/decline-review.dto';
@@ -9,6 +14,7 @@ import { UpdateClientProgramDto } from './dto/update-client-program.dto';
 
 @ApiTags('clients')
 @Controller('clients')
+@UseGuards(ClientflowAuthGuard)
 export class ClientsController {
   constructor(
     private readonly clients: ClientsService,
@@ -53,10 +59,18 @@ export class ClientsController {
   }
 
   @Post(':id/review/approve')
+  @UseGuards(ClientflowAdminOnlyGuard)
   @ApiOperation({ summary: 'Approve a staff-review client, sign for the organization, and issue its contract' })
   @ApiOkResponse({ description: 'Contract issue metadata and non-fatal email delivery result.' })
-  approveReview(@Param('id') id: string, @Body() dto: ApproveReviewDto) {
-    return this.contracts.approveReview(id, { id: dto.staffSignerId ?? null, name: dto.staffSignerName });
+  approveReview(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: ApproveReviewDto,
+  ) {
+    const signer = request.adminUser
+      ? { id: request.adminUser.id, name: request.adminUser.displayName }
+      : { id: dto.staffSignerId ?? null, name: dto.staffSignerName ?? '' };
+    return this.contracts.approveReview(id, signer);
   }
 
   @Post(':id/review/decline')

@@ -5,13 +5,13 @@ import {
   Briefcase,
   ClipboardCheck,
   ClipboardList,
-  FileSignature,
   LayoutDashboard,
   LogOut,
   Settings,
   Timer,
   UserPlus,
   Users,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/lib/apiClient";
@@ -25,9 +25,9 @@ const mainItems: NavItem[] = [
   { title: "New Intake", url: "/intake", icon: UserPlus },
   { title: "Programs", url: "/programs", icon: Briefcase },
   { title: "Forms", url: "/forms", icon: ClipboardList },
+  { title: "Pipeline", url: "/pipeline", icon: Workflow },
   { title: "Review", url: "/review", icon: ClipboardCheck },
   { title: "Monitoring", url: "/monitoring", icon: Timer },
-  { title: "Contracts", url: "/contracts", icon: FileSignature },
 ];
 
 const insightItems: NavItem[] = [

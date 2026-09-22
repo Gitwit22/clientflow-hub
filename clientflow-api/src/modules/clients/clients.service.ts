@@ -238,7 +238,7 @@ export class ClientsService {
     const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
     if (!client) throw new NotFoundException('Client not found.');
 
-    const [program, contract, monitoringTask] = await Promise.all([
+    const [program, contract, monitoringTask, executedDocument] = await Promise.all([
       client.programId
         ? this.prisma.cfProgram.findFirst({
             where: { id: client.programId, organizationId: client.organizationId },
@@ -250,6 +250,10 @@ export class ClientsService {
       }),
       this.prisma.cfMonitoringTask.findFirst({
         where: { clientId: client.id, organizationId: client.organizationId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.cfDocument.findFirst({
+        where: { clientId: client.id, organizationId: client.organizationId, type: 'contract' },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
@@ -270,6 +274,7 @@ export class ClientsService {
             signedEmail: contract.signedEmail,
             // The fully executed document (both signatures) — this client's permanent record.
             content: contract.completedAt ? contract.generatedContent : null,
+            documentUrl: executedDocument?.url ?? null,
           }
         : null,
       monitoringTask: monitoringTask

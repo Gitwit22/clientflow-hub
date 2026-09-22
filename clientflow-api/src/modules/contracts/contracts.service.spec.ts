@@ -8,6 +8,7 @@ import {
   PROGRAM_CONTRACT_RULES,
   contractRuleFor,
   monitoringDueDate,
+  welcomeMessageFor,
 } from './contract-lifecycle';
 import { ContractsService } from './contracts.service';
 
@@ -82,9 +83,10 @@ function n8nDisabled() {
 
 describe('contract lifecycle rules', () => {
   it('classifies both auto-contract and all staff-review programs', () => {
-    expect(Object.keys(PROGRAM_CONTRACT_RULES)).toHaveLength(8);
+    expect(Object.keys(PROGRAM_CONTRACT_RULES)).toHaveLength(9);
     expect(contractRuleFor('Brand Awareness Subscription')).toBe('auto_contract');
     expect(contractRuleFor('30-Day Premier Workshop Subscription')).toBe('auto_contract');
+    expect(contractRuleFor('The Inspired Detroit Initiative')).toBe('auto_contract');
     for (const programName of [
       'Event Planning',
       'Commercial Property',
@@ -101,6 +103,13 @@ describe('contract lifecycle rules', () => {
     expect(monitoringDueDate(now, 'Weekly')).toEqual(new Date('2030-01-08T00:00:00.000Z'));
     expect(monitoringDueDate(now, 'Monthly')).toEqual(new Date('2030-01-31T00:00:00.000Z'));
     expect(monitoringDueDate(now, 'Custom')).toEqual(new Date('2030-01-08T00:00:00.000Z'));
+  });
+
+  it('uses the IDI-specific welcome message and falls back to the generic one otherwise', () => {
+    expect(welcomeMessageFor('The Inspired Detroit Initiative')).toContain('Inspired Detroit Initiative');
+    expect(welcomeMessageFor('Brand Awareness Subscription')).toBe(
+      'Your onboarding has started. A team member will follow up with you soon.',
+    );
   });
 });
 

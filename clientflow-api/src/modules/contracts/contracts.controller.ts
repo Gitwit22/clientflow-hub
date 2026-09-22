@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiForbiddenResponse,
@@ -7,12 +7,18 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import {
+  type AuthenticatedRequest,
+  ClientflowAdminOnlyGuard,
+  ClientflowAuthGuard,
+} from '../../common/guards/clientflow-auth.guard';
 import { ContractsService } from './contracts.service';
 import { GenerateContractDto } from './dto/generate-contract.dto';
 import { SendContractDto } from './dto/send-contract.dto';
 
 @ApiTags('contracts')
 @Controller('clients/:id/contracts')
+@UseGuards(ClientflowAuthGuard, ClientflowAdminOnlyGuard)
 export class ContractsController {
   constructor(private readonly contracts: ContractsService) {}
 
@@ -37,11 +43,11 @@ export class ContractsController {
   @ApiForbiddenResponse({ description: 'Standalone staff contract management is disabled.' })
   @ApiNotFoundResponse({ description: 'Client or selected program was not found.' })
   @ApiBadRequestResponse({ description: 'The selected program has no usable contract template.' })
-  generate(@Param('id') clientId: string, @Body() dto: GenerateContractDto) {
-    return this.contracts.generateForStaff(clientId, {
-      id: dto.staffSignerId ?? null,
-      name: dto.staffSignerName,
-    });
+  generate(@Req() request: AuthenticatedRequest, @Param('id') clientId: string, @Body() dto: GenerateContractDto) {
+    const signer = request.adminUser
+      ? { id: request.adminUser.id, name: request.adminUser.displayName }
+      : { id: dto.staffSignerId ?? null, name: dto.staffSignerName ?? '' };
+    return this.contracts.generateForStaff(clientId, signer);
   }
 
   @Post('send')

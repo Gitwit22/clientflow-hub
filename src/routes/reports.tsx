@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppState } from "@/lib/store";
 
@@ -87,8 +88,11 @@ function ReportsPage() {
           </CardContent>
         </Card>
         <Card className="shadow-card">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="font-display text-base">Contract status report</CardTitle>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/contracts">Contract queue</Link>
+            </Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {contractStatus.map((c) => (

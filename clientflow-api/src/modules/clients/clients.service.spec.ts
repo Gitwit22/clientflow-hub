@@ -187,6 +187,54 @@ describe('ClientsService', () => {
     await expect(service.getOne('missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('returns the executed document URL alongside the contract once archived', async () => {
+    const client = {
+      id: 'client-1',
+      organizationId: 'org-1',
+      primaryContactName: 'Alicia Owner',
+      businessName: 'Alicia Studio',
+      email: 'alicia@example.com',
+      phone: '',
+      programId: 'program-1',
+      status: 'ONBOARDING',
+      assignedStaff: 'Unassigned',
+      assignedUserId: null,
+      createdAt: new Date('2030-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2030-01-01T00:00:00.000Z'),
+    };
+    const contract = {
+      id: 'contract-1',
+      status: 'COMPLETED',
+      contractType: 'Grant Agreement',
+      sentAt: new Date('2030-01-01T00:00:00.000Z'),
+      completedAt: new Date('2030-01-02T00:00:00.000Z'),
+      staffSignedByName: 'Jordan Staff',
+      staffSignedAt: new Date('2030-01-01T00:00:00.000Z'),
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      generatedContent: 'Full executed contract text.',
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1', name: 'Grant' }) },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(contract) },
+      cfMonitoringTask: { findFirst: jest.fn().mockResolvedValue(null) },
+      cfDocument: {
+        findFirst: jest.fn().mockResolvedValue({
+          url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
+        }),
+      },
+    } as unknown as PrismaService;
+    const service = new ClientsService(prisma, configService(), {} as N8nService, contractsServiceMock());
+
+    const result = await service.getOne('client-1');
+
+    expect(result.contract).toEqual(expect.objectContaining({
+      documentUrl: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
+      content: 'Full executed contract text.',
+    }));
+  });
+
   it('updates a client program and re-runs the contract rule engine', async () => {
     const client = {
       id: 'client-1',

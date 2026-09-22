@@ -40,6 +40,7 @@ export const PROGRAM_CONTRACT_RULES = {
   Sponsorship: 'staff_review',
   Interest: 'staff_review',
   'Other / Unsure': 'staff_review',
+  'The Inspired Detroit Initiative': 'auto_contract',
 } as const;
 
 export const PROGRAM_CONTRACT_TEMPLATES = {
@@ -51,7 +52,28 @@ export const PROGRAM_CONTRACT_TEMPLATES = {
   Sponsorship: 'Sponsorship Agreement',
   Interest: 'General Services Agreement',
   'Other / Unsure': 'General Services Agreement',
+  'The Inspired Detroit Initiative': 'IDI Membership Agreement',
 } as const;
+
+/** Per-program welcome email copy; programs not listed fall back to WELCOME_NEXT_STEP. */
+export const PROGRAM_WELCOME_MESSAGES: Partial<Record<string, string>> = {
+  'The Inspired Detroit Initiative':
+    'Welcome to the Inspired Detroit Initiative! We have received your membership payment and completed your onboarding. '
+    + 'Your IDI Member Welcome Guide explains what your membership includes and what to expect each month. '
+    + 'The program begins Thursday, October 1, 2026 at Rivertown Market (1475 E. Jefferson Ave, Detroit, MI 48207), 6:00-7:00 PM. '
+    + 'We will review how the program works, answer questions, and award a grant.',
+};
+
+const IDI_WELCOME_GUIDE_PATH = '/contracts and emails/IDI Member Welcome Guide.docx';
+
+export function welcomeMessageFor(programName: string, appUrl?: string): string {
+  const message = PROGRAM_WELCOME_MESSAGES[programName] ?? WELCOME_NEXT_STEP;
+  if (programName === 'The Inspired Detroit Initiative' && appUrl) {
+    const guideUrl = `${appUrl.replace(/\/+$/, '')}${encodeURI(IDI_WELCOME_GUIDE_PATH)}`;
+    return `${message} IDI Member Welcome Guide: ${guideUrl}`;
+  }
+  return message;
+}
 
 export type ContractProgramName = keyof typeof PROGRAM_CONTRACT_RULES;
 export type ContractRule = typeof PROGRAM_CONTRACT_RULES[ContractProgramName];

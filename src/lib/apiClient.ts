@@ -200,6 +200,7 @@ export async function login(payload: LoginPayload): Promise<{ admin: AdminInfo }
   });
   recordActivity();
   setAuthSession(result.admin);
+  await loginClientflowApiSession(payload);
   return result;
 }
 
@@ -208,6 +209,7 @@ export async function logout(): Promise<void> {
   try {
     await apiRequest("/api/v1/auth/logout", { method: "POST" });
   } finally {
+    await logoutClientflowApiSession();
     clearIdleSession();
     broadcastLogout();
     clearAuthSession();
@@ -861,6 +863,9 @@ const CLIENTFLOW_API_URL =
 async function clientflowApiRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${CLIENTFLOW_API_URL}${path}`, {
     ...init,
+    // Forward-compatible: sends the clientflow-api session cookie once staff can log into that
+    // service directly (see plan notes — today's session cookie is issued by the other backend).
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...init.headers,
@@ -870,6 +875,30 @@ async function clientflowApiRequest<T = unknown>(path: string, init: RequestInit
   if (response.status === 204) return undefined as unknown as T;
   const body = (await response.json()) as T | { success: true; data: T };
   return body && typeof body === "object" && "success" in body && "data" in body ? body.data : body;
+}
+
+/**
+ * Best-effort secondary login so clientflow-api's own session cookie (separate origin, separate
+ * AdminUser table) is also established. Non-fatal: if credentials weren't cloned/synced into
+ * clientflow-api, this silently no-ops and automated-workflow calls fall back to bypass mode.
+ */
+async function loginClientflowApiSession(payload: LoginPayload): Promise<void> {
+  try {
+    await clientflowApiRequest("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    console.warn("Unable to establish a clientflow-api session; automated workflow actions may fall back to bypass mode.", error);
+  }
+}
+
+async function logoutClientflowApiSession(): Promise<void> {
+  try {
+    await clientflowApiRequest("/api/v1/auth/logout", { method: "POST" });
+  } catch {
+    // Non-fatal — the primary logout already clears the user-facing session.
+  }
 }
 
 export type AutomatedClientStatus =
@@ -911,6 +940,8 @@ export interface AutomatedClientDetail extends AutomatedClient {
     signedEmail: string | null;
     /** The fully executed document (both signatures) once the client has signed. */
     content: string | null;
+    /** R2-hosted download link for the archived executed document, once storage archival succeeds. */
+    documentUrl: string | null;
   } | null;
   monitoringTask: { id: string; type: string; status: string; dueDate: string } | null;
 }
@@ -993,17 +1024,9 @@ export async function acfDeclineReview(id: string, reason?: string) {
   );
 }
 
-export interface AutomatedPublicIntakeField {
-  id: string;
-  label: string;
-  type: "text" | "email" | "phone" | "select";
-  required: boolean;
-  options?: string[];
-}
-
 export interface AutomatedPublicIntakeData {
   client: { contactName: string; businessName: string; email: string; phone: string };
-  form: { id: string; name: string; description: string; fields: AutomatedPublicIntakeField[] };
+  form: { id: string; name: string; description: string; fields: PublicFormField[] };
   assignment: { status: string; dueDate: string | null };
 }
 
@@ -1017,7 +1040,7 @@ export async function acfGetPublicIntakeForm(token: string) {
 /** POST /public/forms/:token/submit — submit the automated General Intake form (no auth). */
 export async function acfSubmitPublicIntakeForm(
   token: string,
-  answers: Record<string, string>,
+  answers: Record<string, PublicFormResponseValue>,
 ) {
   return clientflowApiRequest<{
     success: boolean;

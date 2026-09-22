@@ -19,7 +19,6 @@ import {
   CONTRACT_STATUS,
   INITIAL_FOLLOW_UP_TYPE,
   MONITORING_TASK_STATUS,
-  WELCOME_NEXT_STEP,
   contractRuleFor,
   contractTemplateNameFor,
   contractTokenExpiry,
@@ -27,6 +26,7 @@ import {
   hashContractToken,
   monitoringDueDate,
   renderContractSnapshot,
+  welcomeMessageFor,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 
@@ -377,7 +377,7 @@ export class ContractsService {
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
-      nextStep: WELCOME_NEXT_STEP,
+      nextStep: welcomeMessageFor(program.name, this.config.get('APP_URL', { infer: true })),
     });
     await this.recordWelcomeDeliveryResult(
       completed.communication.id,

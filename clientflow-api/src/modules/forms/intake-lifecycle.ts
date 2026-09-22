@@ -20,6 +20,7 @@ export const PROGRAM_OPTIONS = [
   'Interest',
   'Sponsorship',
   'Other / Unsure',
+  'The Inspired Detroit Initiative',
 ] as const;
 
 export type ProgramOption = typeof PROGRAM_OPTIONS[number];
@@ -27,7 +28,8 @@ export type ProgramOption = typeof PROGRAM_OPTIONS[number];
 export interface PublicFormField {
   id: string;
   label: string;
-  type: 'text' | 'email' | 'phone' | 'select';
+  /** Not restricted to the fields this system creates — orgs may reuse a richer existing template. */
+  type: string;
   required: boolean;
   options?: readonly string[];
 }

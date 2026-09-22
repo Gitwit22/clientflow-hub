@@ -230,16 +230,18 @@ function Dashboard() {
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {automatedStats.map((s) => (
-              <div
+              <Link
                 key={s.status}
-                className="rounded-lg border border-border bg-card p-4"
+                to="/pipeline"
+                search={{ status: s.status }}
+                className="rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/40"
                 style={{ borderLeftWidth: "3px", borderLeftColor: s.color }}
               >
                 <span className="text-xs text-muted-foreground">{s.label}</span>
                 <p className="mt-2.5 font-display text-[30px] font-semibold leading-none text-foreground">
                   {automatedCounts[s.status] ?? 0}
                 </p>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

@@ -11,8 +11,9 @@ describe('contract controllers', () => {
       sendForStaff: jest.fn().mockResolvedValue({ contract: { id: 'contract-1', status: 'SENT' } }),
     };
     const controller = new ContractsController(service as unknown as ContractsService);
+    const request = {} as never;
 
-    await controller.generate('client-1', { staffSignerName: 'Jordan Staff' });
+    await controller.generate(request, 'client-1', { staffSignerName: 'Jordan Staff' });
     await controller.send('client-1', { contractId: 'contract-1' });
 
     expect(service.generateForStaff).toHaveBeenCalledWith('client-1', {
@@ -20,6 +21,23 @@ describe('contract controllers', () => {
       name: 'Jordan Staff',
     });
     expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1');
+  });
+
+  it('derives the staff signer from the authenticated session instead of trusting the request body', async () => {
+    const service = {
+      generateForStaff: jest.fn().mockResolvedValue({ contract: { id: 'contract-1' } }),
+    };
+    const controller = new ContractsController(service as unknown as ContractsService);
+    const request = {
+      adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin' },
+    } as never;
+
+    await controller.generate(request, 'client-1', { staffSignerName: 'Someone Else' });
+
+    expect(service.generateForStaff).toHaveBeenCalledWith('client-1', {
+      id: 'admin-1',
+      name: 'Jordan Real',
+    });
   });
 
   it('delegates public contract opening and completion with request metadata', async () => {

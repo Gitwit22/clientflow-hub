@@ -1,11 +1,14 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
 
 export class ApproveReviewDto {
-  @ApiProperty({ example: 'Jordan Staff', description: 'Typed electronic signature of the approving staff member.' })
+  @ApiPropertyOptional({
+    example: 'Jordan Staff',
+    description: 'Typed electronic signature of the approving staff member. Only used when there is no authenticated session.',
+  })
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  staffSignerName!: string;
+  staffSignerName?: string;
 
   @ApiPropertyOptional({ example: 'admin-user-id' })
   @IsOptional()

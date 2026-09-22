@@ -139,4 +139,62 @@ describe('PublicFormsService', () => {
     expect(contracts.prepareProgramSelection).toHaveBeenCalledWith('org-1', 'Grant');
     expect(contracts.handlePostIntakeProgramSelection).toHaveBeenCalledWith('client-1', 'program-1');
   });
+
+  it('accepts a valid social_links array answer on a richer legacy-style template', async () => {
+    const richTemplate = {
+      ...template,
+      fields: [
+        ...template.fields,
+        { id: 'socialLinks', label: 'Primary Social media', type: 'social_links', required: false },
+      ],
+    };
+    const transaction = {
+      cfFormAssignment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+    };
+    const prisma = {
+      ...readPrisma(),
+      cfFormTemplate: { findFirst: jest.fn().mockResolvedValue(richTemplate) },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new PublicFormsService(
+      prisma as unknown as PrismaService,
+      contractsService() as unknown as ContractsService,
+    );
+
+    await expect(service.submit(rawToken, {
+      answers: {
+        contactName: 'Alicia Owner',
+        email: 'alicia@example.com',
+        socialLinks: ['https://instagram.com/alicia', 'https://facebook.com/alicia'],
+      },
+    })).resolves.toEqual(expect.objectContaining({ success: true }));
+  });
+
+  it('rejects a social_links answer containing a non-http(s) link', async () => {
+    const richTemplate = {
+      ...template,
+      fields: [
+        ...template.fields,
+        { id: 'socialLinks', label: 'Primary Social media', type: 'social_links', required: false },
+      ],
+    };
+    const prisma = {
+      ...readPrisma(),
+      cfFormTemplate: { findFirst: jest.fn().mockResolvedValue(richTemplate) },
+    };
+    const service = new PublicFormsService(
+      prisma as unknown as PrismaService,
+      contractsService() as unknown as ContractsService,
+    );
+
+    await expect(service.submit(rawToken, {
+      answers: {
+        contactName: 'Alicia Owner',
+        email: 'alicia@example.com',
+        socialLinks: ['javascript:alert(1)'],
+      },
+    })).rejects.toThrow('Answer for socialLinks contains an invalid link.');
+  });
 });

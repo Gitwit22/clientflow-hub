@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsObject } from 'class-validator';
 
-export type PublicAnswer = string | number | boolean | null;
+export type PublicAnswer = string | number | boolean | string[] | null;
 
 export class SubmitPublicFormDto {
   @ApiProperty({

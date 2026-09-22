@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  isPublicFieldRequired,
+  isRequiredResponseComplete,
+  PublicFieldInput,
+  publicFieldLabel,
+} from "@/components/PublicFieldInput";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   acfGetPublicIntakeForm,
   acfSubmitPublicIntakeForm,
   ApiError,
   type AutomatedPublicIntakeData,
+  type PublicFormResponseValue,
 } from "@/lib/apiClient";
 
 export const Route = createFileRoute("/apply/$token")({
@@ -38,19 +38,22 @@ function PublicIntakePage() {
   const { token } = Route.useParams();
   const [status, setStatus] = useState<PageStatus>("loading");
   const [formData, setFormData] = useState<AutomatedPublicIntakeData | null>(null);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, PublicFormResponseValue>>({});
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     acfGetPublicIntakeForm(token)
       .then((data) => {
         setFormData(data);
-        setAnswers({
-          contactName: data.client.contactName ?? "",
-          businessName: data.client.businessName ?? "",
-          email: data.client.email ?? "",
-          phone: data.client.phone ?? "",
-        });
+        const initial: Record<string, PublicFormResponseValue> = {};
+        for (const field of data.form.fields) {
+          if (field.id === "contactName") initial[field.id] = data.client.contactName ?? "";
+          else if (field.id === "businessName") initial[field.id] = data.client.businessName ?? "";
+          else if (field.id === "email") initial[field.id] = data.client.email ?? "";
+          else if (field.id === "phone") initial[field.id] = data.client.phone ?? "";
+          else initial[field.id] = field.type === "social_links" ? [] : "";
+        }
+        setAnswers(initial);
         setStatus(data.assignment.status === "submitted" ? "already_submitted" : "ready");
       })
       .catch((error: unknown) => {
@@ -63,15 +66,15 @@ function PublicIntakePage() {
       });
   }, [token]);
 
-  function setAnswer(fieldId: string, value: string) {
+  function setAnswer(fieldId: string, value: PublicFormResponseValue) {
     setAnswers((current) => ({ ...current, [fieldId]: value }));
   }
 
   async function handleSubmit() {
     if (!formData) return;
     const missing = formData.form.fields
-      .filter((field) => field.required && !answers[field.id]?.trim())
-      .map((field) => field.label);
+      .filter((field) => !isRequiredResponseComplete(field, answers[field.id]))
+      .map(publicFieldLabel);
     if (missing.length > 0) {
       toast.error(`Please complete: ${missing.join(", ")}`);
       return;
@@ -149,9 +152,16 @@ function PublicIntakePage() {
 
   if (!formData) return null;
 
+  const requiredFields = formData.form.fields.filter(isPublicFieldRequired);
+  const completed = formData.form.fields.filter((field) =>
+    isRequiredResponseComplete(field, answers[field.id]),
+  ).length;
+  const progressPct =
+    requiredFields.length > 0 ? Math.round((completed / requiredFields.length) * 100) : 100;
+
   return (
     <div className="min-h-screen bg-background px-4 py-12">
-      <div className="mx-auto max-w-xl space-y-8">
+      <div className="mx-auto max-w-2xl space-y-8">
         <div className="space-y-1">
           <h1 className="font-display text-2xl font-semibold">{formData.form.name}</h1>
           {formData.form.description && (
@@ -159,46 +169,43 @@ function PublicIntakePage() {
           )}
         </div>
 
+        {requiredFields.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>
+                {completed} of {requiredFields.length} required fields completed
+              </span>
+              <span>{progressPct}%</span>
+            </div>
+            <Progress value={progressPct} className="h-1.5" />
+          </div>
+        )}
+
         <div className="space-y-5">
           {formData.form.fields.map((field) => (
             <div key={field.id} className="space-y-1.5">
-              <Label htmlFor={`field-${field.id}`}>
-                {field.label}
-                {field.required && <span className="ml-1 text-destructive">*</span>}
-              </Label>
-              {field.type === "select" ? (
-                <Select
-                  value={answers[field.id] ?? ""}
-                  onValueChange={(value) => setAnswer(field.id, value)}
-                  disabled={status === "submitting"}
-                >
-                  <SelectTrigger id={`field-${field.id}`}>
-                    <SelectValue placeholder="Select a program" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(field.options ?? []).map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  id={`field-${field.id}`}
-                  type={field.type === "email" ? "email" : field.type === "phone" ? "tel" : "text"}
-                  value={answers[field.id] ?? ""}
-                  onChange={(event) => setAnswer(field.id, event.target.value)}
-                  disabled={status === "submitting"}
-                />
+              {field.type !== "checkbox" && (
+                <Label htmlFor={`field-${field.id}`}>
+                  {publicFieldLabel(field)}
+                  {isPublicFieldRequired(field) && <span className="ml-1 text-destructive">*</span>}
+                </Label>
               )}
+              <PublicFieldInput
+                field={field}
+                inputId={`field-${field.id}`}
+                value={answers[field.id] ?? (field.type === "social_links" ? [] : "")}
+                onChange={(value) => setAnswer(field.id, value)}
+                disabled={status === "submitting"}
+              />
             </div>
           ))}
         </div>
 
-        <Button className="w-full" onClick={handleSubmit} disabled={status === "submitting"}>
-          {status === "submitting" ? "Submitting…" : "Submit"}
-        </Button>
+        <div className="flex justify-end border-t border-border pt-6">
+          <Button onClick={handleSubmit} disabled={status === "submitting"} size="lg">
+            {status === "submitting" ? "Submitting…" : "Submit"}
+          </Button>
+        </div>
       </div>
     </div>
   );
