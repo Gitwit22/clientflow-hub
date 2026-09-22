@@ -25,7 +25,7 @@ async function bootstrap(): Promise<void> {
     origin: environment.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean),
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-App-Partition'],
     exposedHeaders: ['X-Request-Id'],
   });
   app.setGlobalPrefix('api/v1');
