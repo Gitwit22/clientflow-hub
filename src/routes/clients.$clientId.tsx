@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Pencil } from "lucide-react";
+import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -160,7 +160,13 @@ function ClientProfile() {
   const { clientId } = Route.useParams();
   const { programId: selectedProgramId, tab } = Route.useSearch();
   const s = useAppState();
-  const client = s.clients.find((c) => c.id === clientId);
+  const globalClient = s.clients.find((c) => c.id === clientId);
+  const [fetchedClient, setFetchedClient] = useState<typeof globalClient | null>(null);
+  const [loadingClient, setLoadingClient] = useState(!globalClient);
+  const [clientError, setClientError] = useState<string | null>(null);
+
+  const client = globalClient || fetchedClient;
+
   const [editOpen, setEditOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTemplateId, setSendTemplateId] = useState<string | null>(null);
@@ -199,19 +205,55 @@ function ClientProfile() {
     "Internal",
   );
 
+  // Fetch client on-demand if not in global state (fallback for program detail navigation)
+  useEffect(() => {
+    if (globalClient) {
+      setFetchedClient(null);
+      setLoadingClient(false);
+      setClientError(null);
+      return;
+    }
+
+    setLoadingClient(true);
+    setClientError(null);
+    void (async () => {
+      try {
+        const data = await refreshClientProfile(clientId);
+        setFetchedClient(data);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load client.";
+        setClientError(message);
+      } finally {
+        setLoadingClient(false);
+      }
+    })();
+  }, [clientId, globalClient]);
+
   useEffect(() => {
     const refresh = () => {
       void refreshClientProfile(clientId).catch(() => undefined);
     };
-    refresh();
+    if (globalClient) {
+      refresh();
+    }
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, [clientId]);
+  }, [clientId, globalClient]);
 
-  if (!client)
+  if (loadingClient)
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/clients"><ArrowLeft className="mr-2 h-4 w-4" />Clients</Link>
+        </Button>
+        <Card className="shadow-card"><CardContent className="py-12 text-center text-sm text-muted-foreground">Loading client profile...</CardContent></Card>
+      </div>
+    );
+
+  if (!client || clientError)
     return (
       <p className="text-sm text-muted-foreground">
-        Client not found.{" "}
+        {clientError || "Client not found."}{" "}
         <Link to="/clients" className="text-primary">
           Back to clients
         </Link>
