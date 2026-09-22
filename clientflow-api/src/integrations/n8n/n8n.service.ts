@@ -161,9 +161,10 @@ export class N8nService {
     const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })
       ?? this.config.get('CLIENTFLOW_N8N_CLIENTFLOW_SECRET', { infer: true })
       ?? this.config.get('N8N_CLIENTFLOW_SECRET', { infer: true });
-    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true })
+    const rawBearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true })
       ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true })
       ?? this.config.get('N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true });
+    const bearerToken = rawBearerToken?.replace(/^Bearer\s+/i, '');
     const timeoutMs = this.config.get('N8N_FORM_EMAIL_TIMEOUT_MS', { infer: true })
       ?? this.config.get('N8N_TIMEOUT_MS', { infer: true });
     if (!webhookUrl || !secret) throw new ServiceUnavailableException('n8n is not configured.');
@@ -186,7 +187,12 @@ export class N8nService {
         body: JSON.stringify(outboundPayload),
         signal: controller.signal,
       });
-      if (!response.ok) throw new ServiceUnavailableException('n8n rejected the event.');
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        // Logged without secrets so a rejected delivery can be diagnosed from server logs.
+        console.error(`[n8n.deliver] rejected eventId=${payload.eventId} status=${response.status} body=${body.slice(0, 500)}`);
+        throw new ServiceUnavailableException('n8n rejected the event.');
+      }
       const receipt = await response.json() as Partial<N8nDeliveryReceipt>;
       if (receipt.success !== true || receipt.eventId !== payload.eventId || !receipt.sentAt) {
         throw new ServiceUnavailableException('n8n returned an invalid receipt.');
