@@ -422,6 +422,73 @@ export class ClientflowCompatibilityController {
   }
 }
 
+const PUBLIC_FIELD_ALIASES: Record<string, 'primaryContactName' | 'businessName' | 'email' | 'phone' | 'website'> = {
+  name: 'primaryContactName',
+  contact: 'primaryContactName',
+  fullName: 'primaryContactName',
+  primaryContactName: 'primaryContactName',
+  business: 'businessName',
+  businessName: 'businessName',
+  bizName: 'businessName',
+  email: 'email',
+  phone: 'phone',
+  website: 'website',
+};
+
+interface NormalizedPublicField {
+  id: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: string[];
+  helpText?: string;
+}
+
+const FALLBACK_PUBLIC_FIELDS: NormalizedPublicField[] = [
+  { id: 'name', label: 'Name', type: 'text', required: true },
+  { id: 'business', label: 'Business / Organization Name', type: 'text', required: true },
+  { id: 'email', label: 'Email', type: 'email', required: true },
+  { id: 'phone', label: 'Phone', type: 'phone', required: true },
+  { id: 'description', label: 'Brief business description', type: 'textarea', required: false },
+  { id: 'assistance', label: 'Type of assistance needed', type: 'textarea', required: false },
+];
+
+function humanizeFieldId(id: string): string {
+  return id.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ').trim();
+}
+
+// Legacy templates store loosely-shaped field JSON; normalize to what the public form UI requires.
+function normalizePublicFields(rawFields: unknown): NormalizedPublicField[] {
+  if (!Array.isArray(rawFields)) return FALLBACK_PUBLIC_FIELDS;
+  const normalized: NormalizedPublicField[] = [];
+  rawFields.forEach((entry, index) => {
+    if (!isRecord(entry)) return;
+    const id = String(entry.id ?? entry.name ?? entry.key ?? `field_${index}`);
+    const label = String(entry.label ?? entry.name ?? humanizeFieldId(id) ?? id);
+    const type = typeof entry.type === 'string' ? entry.type : 'text';
+    const required = entry.required === true;
+    const options = Array.isArray(entry.options) ? entry.options.map(String) : undefined;
+    const helpText = typeof entry.helpText === 'string' ? entry.helpText : (typeof entry.description === 'string' ? entry.description : undefined);
+    normalized.push({ id, label, type, required, ...(options?.length ? { options } : {}), ...(helpText ? { helpText } : {}) });
+  });
+  return normalized.length ? normalized : FALLBACK_PUBLIC_FIELDS;
+}
+
+function resolvePublicPrefill(
+  fields: NormalizedPublicField[],
+  client: { primaryContactName: string; businessName: string; email: string; phone: string; website: string | null } | null,
+): Record<string, string> {
+  if (!client) return {};
+  const prefill: Record<string, string> = {};
+  for (const field of fields) {
+    const mappedKey = PUBLIC_FIELD_ALIASES[field.id];
+    if (!mappedKey) continue;
+    const value = client[mappedKey];
+    if (value) prefill[field.id] = value;
+  }
+  return prefill;
+}
+
 @Controller('public/form')
 export class PublicFormCompatibilityController {
   constructor(private readonly scaffold: ScaffoldService, private readonly prisma?: PrismaService) {}
@@ -439,7 +506,43 @@ export class PublicFormCompatibilityController {
     const client = await this.requirePrisma().cfClient.findUnique({ where: { id: formAssignment.clientId } });
     const template = await this.requirePrisma().cfFormTemplate.findFirst({ where: { id: formAssignment.formId, organizationId: formAssignment.organizationId, isActive: true } });
     if (!template) throw new NotFoundException('This form link is invalid or unavailable.');
-    return { assignment: { id: formAssignment.id, status: formAssignment.status, dueDate: formAssignment.dueDate, sentAt: formAssignment.sentAt, submittedAt: formAssignment.submittedAt }, form: { id: template.id, name: template.name, description: template.description, fields: template.fields as unknown[] }, prefill: { contactName: client?.primaryContactName ?? '', businessName: client?.businessName ?? '', email: client?.email ?? '', phone: client?.phone ?? '' } };
+
+    if (formAssignment.status === 'sent' || formAssignment.status === 'delivered') {
+      await this.requirePrisma().cfFormAssignment.update({ where: { id: formAssignment.id }, data: { status: 'opened', openedAt: new Date() } });
+    }
+
+    const fields = normalizePublicFields(template.fields);
+    const coreSection = {
+      id: `core:${template.id}:${template.version}`,
+      kind: 'core' as const,
+      templateId: template.id,
+      templateVersion: template.version,
+      programId: null,
+      title: template.name,
+      description: template.description,
+      fields,
+    };
+    const configurationToken = randomBytes(32).toString('hex');
+    await this.requirePrisma().cfIntakeRenderSession.create({
+      data: {
+        organizationId: formAssignment.organizationId,
+        formAssignmentId: formAssignment.id,
+        configurationToken,
+        coreTemplateId: template.id,
+        coreTemplateVersion: template.version,
+        renderedSections: [coreSection] as unknown as object,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    return {
+      assignment: { id: formAssignment.id, status: formAssignment.status, dueDate: formAssignment.dueDate },
+      form: { id: template.id, name: template.name, description: template.description, fields },
+      program: { name: 'EA Management Program' },
+      contact: { name: client?.primaryContactName ?? formAssignment.recipientEmail ?? 'Client' },
+      prefill: resolvePublicPrefill(fields, client),
+      intakeConfiguration: { configurationToken, programs: [] as Array<{ id: string; name: string }>, sections: [coreSection] },
+    };
   }
 
   @Post(':token/submit') async submitForm(@Param('token') token: string, @Body() body: Record<string, unknown>) {
@@ -447,8 +550,18 @@ export class PublicFormCompatibilityController {
       where: { secureLinkToken: createHash('sha256').update(token).digest('hex') },
     });
     if (!formAssignment) throw new NotFoundException('This form link is invalid or unavailable.');
-    await this.requirePrisma().cfFormAssignment.update({ where: { id: formAssignment.id }, data: { status: 'Submitted', submittedAt: new Date(), responses: body.answers ?? body } });
-    return { success: true, assignmentId: formAssignment.id };
+    const configurationToken = typeof body.configurationToken === 'string' ? body.configurationToken : undefined;
+    if (configurationToken) {
+      const session = await this.requirePrisma().cfIntakeRenderSession.findUnique({ where: { configurationToken } });
+      if (!session || session.formAssignmentId !== formAssignment.id || session.expiresAt <= new Date()) {
+        throw new ConflictException('This form has changed. Reload the form to use the latest version.');
+      }
+    }
+    const responses = isRecord(body.coreResponses) || isRecord(body.programResponses)
+      ? { core: body.coreResponses ?? {}, programs: body.programResponses ?? {}, selectedProgramIds: Array.isArray(body.selectedProgramIds) ? body.selectedProgramIds : [] }
+      : body;
+    await this.requirePrisma().cfFormAssignment.update({ where: { id: formAssignment.id }, data: { status: 'submitted', submittedAt: new Date(), responses: responses as unknown as object } });
+    return { success: true, enrollmentIds: [] as string[] };
   }
 }
 
