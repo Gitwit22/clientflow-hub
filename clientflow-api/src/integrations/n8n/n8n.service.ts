@@ -54,7 +54,11 @@ export class N8nService {
           'Idempotency-Key': eventId,
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
         },
-        body: JSON.stringify(payload),
+        // n8n's org-validation node expects the same normalized id used by deliver().
+        body: JSON.stringify({
+          ...payload,
+          organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
+        }),
         signal: controller.signal,
       });
       if (!response.ok) return { status: 'failed', reason: 'rejected' };
@@ -94,7 +98,11 @@ export class N8nService {
           'Idempotency-Key': eventId,
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
         },
-        body: JSON.stringify(payload),
+        // n8n's org-validation node expects the same normalized id used by deliver().
+        body: JSON.stringify({
+          ...payload,
+          organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
+        }),
         signal: controller.signal,
       });
       if (!response.ok) return { status: 'failed', reason: 'rejected' };
@@ -134,7 +142,11 @@ export class N8nService {
           'Idempotency-Key': eventId,
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
         },
-        body: JSON.stringify(payload),
+        // n8n's org-validation node expects the same normalized id used by deliver().
+        body: JSON.stringify({
+          ...payload,
+          organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
+        }),
         signal: controller.signal,
       });
       if (!response.ok) return { status: 'failed', reason: 'rejected' };

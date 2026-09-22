@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppState } from "@/lib/store";
 import { updateProgram } from "@/lib/api";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
@@ -63,6 +64,75 @@ export function ProgramsPage() {
   }
 
   const editingProgram = programs.find((program) => program.id === editingProgramId);
+  const activePrograms = programs.filter((program) => program.isActive);
+  const inactivePrograms = programs.filter((program) => !program.isActive);
+
+  const ProgramGrid = ({ items }: { items: typeof programs }) => (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {items.map((p) => (
+        <ProgramCard key={p.id} program={p} />
+      ))}
+      {items.length === 0 && (
+        <Card className="shadow-card lg:col-span-2">
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No programs in this view.
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+
+  const ProgramCard = ({ program: p }: { program: (typeof programs)[number] }) => (
+    <Card className="shadow-card">
+      <CardContent className="space-y-3 p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="font-display text-lg font-semibold">
+              <Link to="/programs/$programId" params={{ programId: p.id }} className="hover:text-primary">
+                {p.name}
+              </Link>
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p.id)} aria-label="Edit program">
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Switch checked={p.isActive} disabled={updatingProgramId === p.id} onCheckedChange={(isActive) => void toggleProgram(p.id, isActive)} aria-label={`${p.isActive ? "Deactivate" : "Activate"} ${p.name}`} />
+          </div>
+        </div>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          <div><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Default form</dt><dd>{formTemplates.find((f) => f.id === p.defaultFormTemplateId)?.name ?? "None"}</dd></div>
+          <div><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Contract template</dt><dd>{p.defaultContractTemplateId}</dd></div>
+          <div><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Monitoring</dt><dd>{p.defaultMonitoringFrequency}</dd></div>
+          <div><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Required documents</dt><dd>{p.requiredDocuments.join(", ") || "None"}</dd></div>
+          <div className="sm:col-span-2"><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Default workflow</dt><dd>{p.defaultWorkflow.join(" → ")}</dd></div>
+          <div className="sm:col-span-2"><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Status pipeline</dt><dd>{p.statusPipeline.join(" → ")}</dd></div>
+        </dl>
+        {(() => {
+          const active = enrollments
+            .filter((enrollment) => enrollment.programId === p.id && !enrollment.isArchived && !["completed", "declined", "withdrawn"].includes(enrollment.status))
+            .map((enrollment) => ({ enrollment, client: clients.find((client) => client.id === enrollment.clientId) }))
+            .filter((item) => item.client && !item.client.isArchived);
+          return active.length > 0 ? (
+            <div className="border-t border-border pt-3">
+              <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Active clients ({active.length})</p>
+              <ul className="space-y-1">
+                {active.slice(0, 4).map(({ client, enrollment }) => (
+                  <li key={enrollment.id} className="flex items-center justify-between text-sm">
+                    <Link to="/clients/$clientId" params={{ clientId: client!.id }} search={{ programId: p.id, tab: "program" }} className="font-medium hover:text-primary">{client!.businessName}</Link>
+                    <span className="text-xs capitalize text-muted-foreground">{enrollment.status.replace(/_/g, " ")}</span>
+                  </li>
+                ))}
+                {active.length > 4 && <li className="pt-1 text-xs text-muted-foreground">+{active.length - 4} more members</li>}
+              </ul>
+            </div>
+          ) : <p className="border-t border-border pt-3 text-xs text-muted-foreground">No active clients</p>;
+        })()}
+        <Button type="button" variant="outline" size="sm" onClick={() => void navigate({ to: "/programs/$programId", params: { programId: p.id } })}>View program</Button>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-6">
@@ -76,129 +146,14 @@ export function ProgramsPage() {
           </Button>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        {programs.map((p) => (
-          <Card key={p.id} className="shadow-card">
-            <CardContent className="space-y-3 p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <h2 className="font-display text-lg font-semibold">
-                    <Link
-                      to="/programs/$programId"
-                      params={{ programId: p.id }}
-                      className="hover:text-primary"
-                    >
-                      {p.name}
-                    </Link>
-                  </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => openEdit(p.id)}
-                    aria-label="Edit program"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Switch
-                    checked={p.isActive}
-                    disabled={updatingProgramId === p.id}
-                    onCheckedChange={(isActive) => void toggleProgram(p.id, isActive)}
-                    aria-label={`${p.isActive ? "Deactivate" : "Activate"} ${p.name}`}
-                  />
-                </div>
-              </div>
-              <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Default form</dt>
-                  <dd>
-                    {formTemplates.find((f) => f.id === p.defaultFormTemplateId)?.name ?? "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Contract template</dt>
-                  <dd>{p.defaultContractTemplateId}</dd>
-                </div>
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Monitoring</dt>
-                  <dd>{p.defaultMonitoringFrequency}</dd>
-                </div>
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Required documents</dt>
-                  <dd>{p.requiredDocuments.join(", ") || "None"}</dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Default workflow</dt>
-                  <dd>{p.defaultWorkflow.join(" → ")}</dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Status pipeline</dt>
-                  <dd>{p.statusPipeline.join(" → ")}</dd>
-                </div>
-              </dl>
-              {(() => {
-                const active = enrollments
-                  .filter(
-                    (enrollment) =>
-                      enrollment.programId === p.id &&
-                      !enrollment.isArchived &&
-                      !["completed", "declined", "withdrawn"].includes(enrollment.status),
-                  )
-                  .map((enrollment) => ({
-                    enrollment,
-                    client: clients.find((client) => client.id === enrollment.clientId),
-                  }))
-                  .filter((item) => item.client && !item.client.isArchived);
-                return active.length > 0 ? (
-                  <div className="border-t border-border pt-3">
-                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-                      Active clients ({active.length})
-                    </p>
-                    <ul className="space-y-1">
-                      {active.slice(0, 4).map(({ client, enrollment }) => (
-                        <li key={enrollment.id} className="flex items-center justify-between text-sm">
-                          <Link
-                            to="/clients/$clientId"
-                            params={{ clientId: client!.id }}
-                            search={{ programId: p.id, tab: "program" }}
-                            className="font-medium hover:text-primary"
-                          >
-                            {client!.businessName}
-                          </Link>
-                          <span className="text-xs capitalize text-muted-foreground">
-                            {enrollment.status.replace(/_/g, " ")}
-                          </span>
-                        </li>
-                      ))}
-                      {active.length > 4 && (
-                        <li className="pt-1 text-xs text-muted-foreground">
-                          +{active.length - 4} more members
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground border-t border-border pt-3">No active clients</p>
-                );
-              })()}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void navigate({
-                  to: "/programs/$programId",
-                  params: { programId: p.id },
-                })}
-              >
-                View program
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Tabs defaultValue="active">
+        <TabsList>
+          <TabsTrigger value="active">Active ({activePrograms.length})</TabsTrigger>
+          <TabsTrigger value="inactive">Inactive ({inactivePrograms.length})</TabsTrigger>
+        </TabsList>
+        <TabsContent value="active" className="mt-4"><ProgramGrid items={activePrograms} /></TabsContent>
+        <TabsContent value="inactive" className="mt-4"><ProgramGrid items={inactivePrograms} /></TabsContent>
+      </Tabs>
 
       <AddEditProgramDialog
         program={editingProgram}

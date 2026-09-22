@@ -184,9 +184,85 @@ export class ClientflowCompatibilityController {
   }
   @Get('programs/:id/detail') async getProgramDetail(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const program = await this.requirePrisma().cfProgram.findFirst({ where: { id, organizationId: orgId } });
+    const prisma = this.requirePrisma();
+    const program = await prisma.cfProgram.findFirst({ where: { id, organizationId: orgId } });
     if (!program) throw new NotFoundException('Program not found.');
-    return { program, template: null, enrollments: [], metrics: {} };
+    const enrollments = await prisma.cfProgramEnrollment.findMany({
+      where: { organizationId: orgId, programId: id, isArchived: false },
+      orderBy: { createdAt: 'desc' },
+    });
+    const clientIds = enrollments.map((enrollment) => enrollment.clientId);
+    const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+    const [clients, formAssignments, formTemplates, terms, contracts, monitoring, statusHistory] = await Promise.all([
+      prisma.cfClient.findMany({
+        where: { organizationId: orgId, id: { in: clientIds }, isArchived: false },
+        select: { id: true, businessName: true, primaryContactName: true, email: true, phone: true },
+      }),
+      prisma.cfFormAssignment.findMany({
+        where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
+        select: { id: true, formId: true, enrollmentId: true, status: true, dueAt: true, dueDate: true, sentAt: true, openedAt: true, submittedAt: true, responses: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.cfFormTemplate.findMany({
+        where: { organizationId: orgId },
+        select: { id: true, name: true },
+      }),
+      prisma.cfTerms.findMany({
+        where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.cfContract.findMany({
+        where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.cfEnrollmentMonitoring.findMany({
+        where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.cfEnrollmentStatusHistory.findMany({
+        where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const participants = enrollments.flatMap((enrollment) => {
+      const client = clients.find((item) => item.id === enrollment.clientId);
+      if (!client) return [];
+      const enrollmentForms = formAssignments.filter((item) => item.enrollmentId === enrollment.id);
+      return [{
+        client,
+        enrollment,
+        coreIntake: [],
+        programIntake: [],
+        forms: enrollmentForms.map((item) => {
+          const template = formTemplates.find((t) => t.id === item.formId);
+          return {
+            id: item.id,
+            formId: item.formId,
+            templateName: template?.name ?? 'Unknown form',
+            status: item.status,
+            dueAt: item.dueAt,
+            dueDate: item.dueDate,
+            sentAt: item.sentAt,
+            openedAt: item.openedAt,
+            submittedAt: item.submittedAt,
+            answers: Array.isArray(item.responses) ? item.responses : [],
+          };
+        }),
+        terms: terms.filter((item) => item.enrollmentId === enrollment.id),
+        contracts: contracts.filter((item) => item.enrollmentId === enrollment.id),
+        monitoring: monitoring.filter((item) => item.enrollmentId === enrollment.id),
+        statusHistory: statusHistory.filter((item) => item.enrollmentId === enrollment.id),
+      }];
+    });
+    return {
+      program,
+      summary: {
+        current: participants.filter(({ enrollment }) => !['completed', 'declined', 'withdrawn'].includes(enrollment.status)).length,
+        completed: participants.filter(({ enrollment }) => enrollment.status === 'completed').length,
+        closed: participants.filter(({ enrollment }) => ['declined', 'withdrawn'].includes(enrollment.status)).length,
+      },
+      participants,
+    };
   }
   @Post('programs') async createProgram(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -535,13 +611,19 @@ export class PublicFormCompatibilityController {
       },
     });
 
+    const programs = await this.requirePrisma().cfProgram.findMany({
+      where: { organizationId: formAssignment.organizationId, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
     return {
       assignment: { id: formAssignment.id, status: formAssignment.status, dueDate: formAssignment.dueDate },
       form: { id: template.id, name: template.name, description: template.description, fields },
       program: { name: 'EA Management Program' },
       contact: { name: client?.primaryContactName ?? formAssignment.recipientEmail ?? 'Client' },
       prefill: resolvePublicPrefill(fields, client),
-      intakeConfiguration: { configurationToken, programs: [] as Array<{ id: string; name: string }>, sections: [coreSection] },
+      intakeConfiguration: { configurationToken, programs, sections: [coreSection] },
     };
   }
 

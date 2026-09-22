@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { acfCreateClient } from "@/lib/apiClient";
+import { refreshClientProfile } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 
 export function AddClientDialog({
@@ -62,12 +63,21 @@ export function AddClientDialog({
         phone: phone.trim() || undefined,
         sendIntakeImmediately,
       });
-      toast.success(
-        sendIntakeImmediately
-          ? "Client added. General Intake email is on its way."
-          : "Client added. Intake email is saved as deferred — send it when ready.",
-      );
-      void result;
+      try {
+        await refreshClientProfile(result.client.id);
+      } catch (refreshError) {
+        console.warn("Client was created but the client list could not be refreshed.", refreshError);
+      }
+      const { emailDelivery } = result;
+      if (emailDelivery.status === "sent") {
+        toast.success("Client added. General Intake email sent.");
+      } else if (emailDelivery.status === "deferred") {
+        toast.success("Client added. Intake email is saved as deferred — send it when ready.");
+      } else {
+        toast.error(
+          `Client added, but the intake email was not sent (${emailDelivery.reason ?? emailDelivery.status}). You can resend it from the client profile.`,
+        );
+      }
       reset();
       onOpenChange(false);
       onCreated?.();
