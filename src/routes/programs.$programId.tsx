@@ -126,6 +126,11 @@ function ProgramDetailPage() {
     ({ enrollment }) => !PAST_STATUSES.has(enrollment.status),
   );
   const pastParticipants = participants.filter(({ enrollment }) => PAST_STATUSES.has(enrollment.status));
+  const summary = {
+    current: detail?.summary?.current ?? currentParticipants.length,
+    completed: detail?.summary?.completed ?? 0,
+    closed: detail?.summary?.closed ?? 0,
+  };
   const programTemplates = state.formTemplates.filter(
     (template) => template.programId === program.id,
   );
@@ -224,17 +229,17 @@ function ProgramDetailPage() {
       <div className="flex flex-wrap items-center gap-3">
         <StatusBadge status={program.isActive ? "Active" : "Inactive"} />
         <span className="font-mono text-xs text-muted-foreground">
-          {detail?.summary.current ?? currentParticipants.length} current member{(detail?.summary.current ?? currentParticipants.length) === 1 ? "" : "s"}
+          {summary.current} current member{summary.current === 1 ? "" : "s"}
         </span>
         <span className="font-mono text-xs text-muted-foreground">
-          {(detail?.summary.completed ?? 0) + (detail?.summary.closed ?? 0)} past member{((detail?.summary.completed ?? 0) + (detail?.summary.closed ?? 0)) === 1 ? "" : "s"}
+          {summary.completed + summary.closed} past member{(summary.completed + summary.closed) === 1 ? "" : "s"}
         </span>
       </div>
 
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="members">Members ({detail?.summary.current ?? currentParticipants.length})</TabsTrigger>
+          <TabsTrigger value="members">Members ({summary.current})</TabsTrigger>
           <TabsTrigger value="questions">Program questions</TabsTrigger>
         </TabsList>
 
@@ -268,18 +273,18 @@ function ProgramDetailPage() {
             </CardHeader>
             <CardContent className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <p className="font-display text-2xl font-semibold">{detail?.summary.current ?? currentParticipants.length}</p>
+                <p className="font-display text-2xl font-semibold">{summary.current}</p>
                 <p className="text-xs text-muted-foreground">Current</p>
               </div>
               <div>
                 <p className="font-display text-2xl font-semibold">
-                  {detail?.summary.completed ?? 0}
+                  {summary.completed}
                 </p>
                 <p className="text-xs text-muted-foreground">Completed</p>
               </div>
               <div>
                 <p className="font-display text-2xl font-semibold">
-                  {detail?.summary.closed ?? 0}
+                  {summary.closed}
                 </p>
                 <p className="text-xs text-muted-foreground">Closed</p>
               </div>
