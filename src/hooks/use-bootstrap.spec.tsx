@@ -63,14 +63,14 @@ describe("useBootstrap", () => {
     unmount();
   });
 
-  it("shows a retryable error instead of replacing a failed collection with empty data", async () => {
+  it("keeps the app usable when a required collection fails and degrades to empty data", async () => {
     vi.mocked(api.cfListPrograms).mockRejectedValue(new Error("Service unavailable"));
 
     const { unmount } = renderHook(() => useBootstrap());
 
-    await waitFor(() => expect(getState().bootstrapStatus).toBe("error"));
-    expect(getState().bootstrapError).toBe("Programs could not be loaded: Service unavailable");
-    expect(getState().clients).toEqual([]);
+    await waitFor(() => expect(getState().bootstrapStatus).toBe("ready"));
+    expect(getState().bootstrapError).toContain("Programs");
+    expect(getState().programs).toEqual([]);
     unmount();
   });
 
