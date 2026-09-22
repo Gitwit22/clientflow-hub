@@ -24,6 +24,7 @@ import type { Request, Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
+import { ContractsService } from '../contracts/contracts.service';
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
@@ -349,15 +350,44 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfFormAssignment.update({ where: { id, organizationId: orgId }, data: body });
   }
-  @Get('intake-submissions') async listIntakeSubmissions(@Req() request: Request) {
+  @Get('intake-submissions') async listIntakeSubmissions(@Req() request: Request, @Query('clientId') clientId?: string, @Query('programId') programId?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfIntakeSubmission.findMany({ where: { organizationId: orgId }, orderBy: { submittedAt: 'desc' } });
+    const prisma = this.requirePrisma();
+    const submissionIds = programId
+      ? (await prisma.cfIntakeSubmissionProgram.findMany({ where: { organizationId: orgId, programId }, select: { intakeSubmissionId: true } })).map((link) => link.intakeSubmissionId)
+      : undefined;
+    if (programId && submissionIds!.length === 0) return [];
+    const submissions = await prisma.cfIntakeSubmission.findMany({
+      where: { organizationId: orgId, ...(clientId ? { clientId } : {}), ...(programId ? { id: { in: submissionIds } } : {}) },
+      orderBy: { submittedAt: 'desc' },
+    });
+    const ids = submissions.map((submission) => submission.id);
+    const clientIds = [...new Set(submissions.map((submission) => submission.clientId))];
+    const [clients, links, snapshots] = await Promise.all([
+      prisma.cfClient.findMany({ where: { organizationId: orgId, id: { in: clientIds } }, select: { id: true, businessName: true, primaryContactName: true, email: true } }),
+      prisma.cfIntakeSubmissionProgram.findMany({ where: { organizationId: orgId, intakeSubmissionId: { in: ids } } }),
+      prisma.cfIntakeSubmissionSnapshot.findMany({ where: { organizationId: orgId, intakeSubmissionId: { in: ids } } }),
+    ]);
+    const clientById = new Map(clients.map((client) => [client.id, client]));
+    return submissions.map((submission) => ({
+      ...submission,
+      client: clientById.get(submission.clientId) ?? null,
+      programs: links.filter((link) => link.intakeSubmissionId === submission.id),
+      snapshot: snapshots.find((snapshot) => snapshot.intakeSubmissionId === submission.id) ?? null,
+    }));
   }
   @Get('intake-submissions/:id') async getIntakeSubmission(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const submission = await this.requirePrisma().cfIntakeSubmission.findFirst({ where: { id, organizationId: orgId } });
+    const prisma = this.requirePrisma();
+    const submission = await prisma.cfIntakeSubmission.findFirst({ where: { id, organizationId: orgId } });
     if (!submission) throw new NotFoundException('Intake submission not found.');
-    return submission;
+    const [client, assignment, snapshot, programs] = await Promise.all([
+      prisma.cfClient.findFirst({ where: { id: submission.clientId, organizationId: orgId } }),
+      prisma.cfFormAssignment.findFirst({ where: { id: submission.formAssignmentId, organizationId: orgId } }),
+      prisma.cfIntakeSubmissionSnapshot.findFirst({ where: { intakeSubmissionId: id, organizationId: orgId } }),
+      prisma.cfIntakeSubmissionProgram.findMany({ where: { intakeSubmissionId: id, organizationId: orgId } }),
+    ]);
+    return { ...submission, client: client ?? null, assignment: assignment ?? null, snapshot: snapshot ?? null, programs };
   }
 
   @Get('notifications') async listNotifications(@Req() request: Request) {
@@ -567,7 +597,11 @@ function resolvePublicPrefill(
 
 @Controller('public/form')
 export class PublicFormCompatibilityController {
-  constructor(private readonly scaffold: ScaffoldService, private readonly prisma?: PrismaService) {}
+  constructor(
+    private readonly scaffold: ScaffoldService,
+    private readonly prisma?: PrismaService,
+    private readonly contracts?: ContractsService,
+  ) {}
 
   private requirePrisma(): PrismaService {
     if (!this.prisma) throw this.scaffold.notImplemented('Public forms');
@@ -658,22 +692,129 @@ export class PublicFormCompatibilityController {
   }
 
   @Post(':token/submit') async submitForm(@Param('token') token: string, @Body() body: Record<string, unknown>) {
-    const formAssignment = await this.requirePrisma().cfFormAssignment.findUnique({
+    const prisma = this.requirePrisma();
+    const formAssignment = await prisma.cfFormAssignment.findUnique({
       where: { secureLinkToken: createHash('sha256').update(token).digest('hex') },
     });
     if (!formAssignment) throw new NotFoundException('This form link is invalid or unavailable.');
     const configurationToken = typeof body.configurationToken === 'string' ? body.configurationToken : undefined;
+    let renderSession: Awaited<ReturnType<typeof prisma.cfIntakeRenderSession.findUnique>> = null;
     if (configurationToken) {
-      const session = await this.requirePrisma().cfIntakeRenderSession.findUnique({ where: { configurationToken } });
-      if (!session || session.formAssignmentId !== formAssignment.id || session.expiresAt <= new Date()) {
+      renderSession = await prisma.cfIntakeRenderSession.findUnique({ where: { configurationToken } });
+      if (!renderSession || renderSession.formAssignmentId !== formAssignment.id || renderSession.expiresAt <= new Date()) {
         throw new ConflictException('This form has changed. Reload the form to use the latest version.');
       }
     }
-    const responses = isRecord(body.coreResponses) || isRecord(body.programResponses)
-      ? { core: body.coreResponses ?? {}, programs: body.programResponses ?? {}, selectedProgramIds: Array.isArray(body.selectedProgramIds) ? body.selectedProgramIds : [] }
-      : body;
-    await this.requirePrisma().cfFormAssignment.update({ where: { id: formAssignment.id }, data: { status: 'submitted', submittedAt: new Date(), responses: responses as unknown as object } });
-    return { success: true, enrollmentIds: [] as string[] };
+
+    const coreResponses = isRecord(body.coreResponses) ? body.coreResponses : {};
+    const programResponses = isRecord(body.programResponses) ? body.programResponses as Record<string, Record<string, unknown>> : {};
+    const selectedProgramIds = Array.isArray(body.selectedProgramIds)
+      ? body.selectedProgramIds.filter((id): id is string => typeof id === 'string')
+      : [];
+
+    const client = await prisma.cfClient.findFirst({ where: { id: formAssignment.clientId, organizationId: formAssignment.organizationId } });
+
+    // Ensure (or reuse) an enrollment per selected program so the client shows up on the program's member list.
+    const enrollmentIds: string[] = [];
+    for (const programId of selectedProgramIds) {
+      const existingEnrollment = await prisma.cfProgramEnrollment.findFirst({ where: { organizationId: formAssignment.organizationId, clientId: formAssignment.clientId, programId } });
+      const enrollment = existingEnrollment ?? await prisma.cfProgramEnrollment.create({
+        data: {
+          organizationId: formAssignment.organizationId,
+          clientId: formAssignment.clientId,
+          programId,
+          status: 'interested',
+          assignedUserId: client?.assignedUserId ?? null,
+          assignedStaff: client?.assignedStaff ?? null,
+          lastModifiedByDisplayName: 'Client submission',
+          isDemo: client?.isDemo ?? false,
+        },
+      });
+      if (!existingEnrollment) {
+        await prisma.cfEnrollmentStatusHistory.create({
+          data: {
+            organizationId: formAssignment.organizationId,
+            enrollmentId: enrollment.id,
+            newStatus: 'interested',
+            reason: 'Created from master intake submission.',
+            changedByDisplayName: 'Client submission',
+          },
+        });
+      }
+      enrollmentIds.push(enrollment.id);
+    }
+
+    const submission = await prisma.cfIntakeSubmission.create({
+      data: {
+        organizationId: formAssignment.organizationId,
+        clientId: formAssignment.clientId,
+        formAssignmentId: formAssignment.id,
+        idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : randomBytes(16).toString('hex'),
+        requestHash: createHash('sha256').update(JSON.stringify({ coreResponses, programResponses, selectedProgramIds })).digest('hex'),
+        configurationToken: configurationToken ?? '',
+        responsePayload: coreResponses as unknown as object,
+        resultPayload: { success: true, enrollmentIds } as unknown as object,
+        source: formAssignment.deliveryMethod ?? 'secure_link',
+        submitterEmail: formAssignment.recipientEmail,
+        isDemo: client?.isDemo ?? false,
+      },
+    });
+    if (selectedProgramIds.length > 0) {
+      await prisma.cfIntakeSubmissionSnapshot.create({
+        data: {
+          organizationId: formAssignment.organizationId,
+          intakeSubmissionId: submission.id,
+          coreTemplateId: formAssignment.formId,
+          coreTemplateVersion: 1,
+          selectedProgramIds,
+          renderedSections: (renderSession?.renderedSections ?? []) as unknown as object,
+        },
+      });
+      await prisma.cfIntakeSubmissionProgram.createMany({
+        data: selectedProgramIds.map((programId, index) => ({
+          organizationId: formAssignment.organizationId,
+          intakeSubmissionId: submission.id,
+          programId,
+          enrollmentId: enrollmentIds[index],
+          responsePayload: (programResponses[programId] ?? {}) as unknown as object,
+        })),
+      });
+    }
+
+    await prisma.cfFormAssignment.update({
+      where: { id: formAssignment.id },
+      data: { status: 'submitted', submittedAt: new Date(), responses: { core: coreResponses, programs: programResponses, selectedProgramIds } as unknown as object },
+    });
+    await prisma.cfActivityLog.create({
+      data: {
+        organizationId: formAssignment.organizationId,
+        clientId: formAssignment.clientId,
+        action: 'INTAKE_SUBMITTED',
+        description: selectedProgramIds.length > 0
+          ? `Intake submitted for ${selectedProgramIds.length} program(s).`
+          : 'Intake submitted without a program selection.',
+        user: 'client',
+      },
+    });
+
+    // Auto-issue a contract (or route to staff review) for the primary selected program, mirroring CONTRACT_LIFECYCLE.md.
+    let nextAction: string | null = null;
+    let contract: unknown = null;
+    let emailDelivery: unknown = null;
+    const primaryProgramId = selectedProgramIds[0];
+    if (client && primaryProgramId && this.contracts) {
+      try {
+        await prisma.cfClient.update({ where: { id: client.id }, data: { programId: primaryProgramId } });
+        const outcome = await this.contracts.handlePostIntakeProgramSelection(client.id, primaryProgramId);
+        nextAction = outcome.nextAction;
+        contract = outcome.contract ?? null;
+        emailDelivery = outcome.emailDelivery ?? null;
+      } catch (error) {
+        // Non-fatal: the enrollment and submission are already recorded even if contract prep fails.
+      }
+    }
+
+    return { success: true, enrollmentIds, nextAction, contract, emailDelivery };
   }
 }
 
