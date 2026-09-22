@@ -30,6 +30,7 @@ export const environmentSchema = z.object({
   N8N_EMAIL_WEBHOOK_URL: z.string().url().optional(),
   CLIENTFLOW_N8N_SECRET: z.string().optional(),
   N8N_EMAIL_BEARER_TOKEN: z.string().optional(),
+  N8N_ORGANIZATION_ID: z.string().optional(),
   CLIENTFLOW_N8N_CLIENTFLOW_SECRET: z.string().optional(),
   CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN: z.string().optional(),
   CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL: z.string().url().optional(),

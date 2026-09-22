@@ -75,5 +75,7 @@ services:
         sync: false
       - key: N8N_EMAIL_BEARER_TOKEN
         sync: false
+      - key: N8N_ORGANIZATION_ID
+        value: org_ea_management
       - key: N8N_TIMEOUT_MS
         value: "15000"

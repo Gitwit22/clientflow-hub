@@ -161,6 +161,10 @@ export class N8nService {
       ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true });
     const timeoutMs = this.config.get('N8N_TIMEOUT_MS', { infer: true });
     if (!webhookUrl || !secret) throw new ServiceUnavailableException('n8n is not configured.');
+    const outboundPayload = {
+      ...payload,
+      organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
+    };
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -173,7 +177,7 @@ export class N8nService {
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
           'Idempotency-Key': payload.eventId,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(outboundPayload),
         signal: controller.signal,
       });
       if (!response.ok) throw new ServiceUnavailableException('n8n rejected the event.');
