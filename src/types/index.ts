@@ -190,6 +190,84 @@ export interface Program {
   statusPipeline: ClientStatus[];
 }
 
+export interface ProgramWorkflowConfig {
+  enabled: boolean;
+  sendContractAfterIntake: boolean;
+  sendWelcomeAfterContractSigned: boolean;
+  activeContractTemplateId?: string | null;
+  activeContractVersionId?: string | null;
+  activeWelcomeEmailTemplateId?: string | null;
+  activeWelcomeEmailVersionId?: string | null;
+}
+
+export interface ProgramWorkflowContractTemplate {
+  id: string;
+  organizationId: string;
+  programId: string;
+  name: string;
+  signatureRequired: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProgramWorkflowContractVersion {
+  id: string;
+  organizationId: string;
+  templateId: string;
+  version: number;
+  title?: string | null;
+  content: string;
+  fileUrl?: string | null;
+  fileName?: string | null;
+  signableFields: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ProgramWorkflowWelcomeTemplate {
+  id: string;
+  organizationId: string;
+  programId: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProgramWorkflowWelcomeVersion {
+  id: string;
+  organizationId: string;
+  templateId: string;
+  version: number;
+  subject: string;
+  body: string;
+  createdBy: string;
+  allowedVariables: string[];
+  createdAt: string;
+}
+
+export interface ProgramWorkflow {
+  config: ProgramWorkflowConfig;
+  contract: {
+    templates: ProgramWorkflowContractTemplate[];
+    versions: ProgramWorkflowContractVersion[];
+    activeTemplate: ProgramWorkflowContractTemplate | null;
+    activeVersion: ProgramWorkflowContractVersion | null;
+  };
+  welcomeEmail: {
+    templates: ProgramWorkflowWelcomeTemplate[];
+    versions: ProgramWorkflowWelcomeVersion[];
+    activeTemplate: ProgramWorkflowWelcomeTemplate | null;
+    activeVersion: ProgramWorkflowWelcomeVersion | null;
+  };
+  automation: {
+    enabled: boolean;
+    sendContractAfterIntake: boolean;
+    sendWelcomeAfterContractSigned: boolean;
+  };
+}
+
 export type EnrollmentStatus =
   | "interested"
   | "pending_review"
@@ -266,6 +344,7 @@ export interface ProgramParticipantDetail {
 
 export interface ProgramDetailResponse {
   program: Program;
+  workflow: ProgramWorkflow;
   summary: {
     current: number;
     completed: number;

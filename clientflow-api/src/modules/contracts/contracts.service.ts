@@ -18,14 +18,12 @@ import {
   CONTRACT_STATUS,
   INITIAL_FOLLOW_UP_TYPE,
   MONITORING_TASK_STATUS,
-  contractRuleFor,
-  contractTemplateNameFor,
   contractTokenExpiry,
   generateContractToken,
   hashContractToken,
   monitoringDueDate,
   renderContractSnapshot,
-  welcomeMessageFor,
+  WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 
@@ -33,6 +31,15 @@ const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract 
 const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contract template.';
 const SAFE_PUBLIC_CONTRACT_ERROR = 'The contract link is invalid or unavailable.';
 const CONTRACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const WELCOME_VARIABLE_PATTERN = /{{\s*([a-zA-Z0-9_.]+)\s*}}/g;
+const ALLOWED_WELCOME_VARIABLES = new Set([
+  'client.firstName',
+  'client.fullName',
+  'program.name',
+  'organization.name',
+  'enrollment.startDate',
+  'enrollment.nextAction',
+]);
 
 export interface StaffSigner {
   id: string | null;
@@ -58,9 +65,9 @@ export class ContractsService {
     if (programs.length !== 1) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
     const program = programs[0];
-    const rule = contractRuleFor(program.name);
-    if (!rule) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-    const template = rule === 'auto_contract'
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
+    const rule = workflow.sendContractAfterIntake ? 'auto_contract' : 'staff_review';
+    const template = workflow.sendContractAfterIntake
       ? await this.resolveTemplate(program)
       : null;
     return { program, rule, template };
@@ -78,9 +85,8 @@ export class ContractsService {
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
-    const rule = contractRuleFor(program.name);
-    if (!rule) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-    if (rule === 'staff_review') {
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
+    if (!workflow.sendContractAfterIntake) {
       await this.prisma.$transaction(async (transaction) => {
         await transaction.cfClient.update({
           where: { id: client.id },
@@ -138,7 +144,7 @@ export class ContractsService {
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
-    const template = await this.resolveTemplateForProgram(program);
+    const template = await this.resolveTemplate(program);
     const defaultSigner: StaffSigner = options?.staffSigner && options.staffSigner.name.trim()
       ? options.staffSigner
       : {
@@ -308,7 +314,18 @@ export class ContractsService {
     const now = new Date();
     const secureTokenHash = hashContractToken(rawToken);
     const dueDate = monitoringDueDate(now, program.defaultMonitoringFrequency);
-    const availability = this.n8n.getWelcomeAvailability();
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
+    const welcomeConfig = await this.resolveWelcomeEmailForDelivery({
+      workflow,
+      organizationId: client.organizationId,
+      client,
+      program,
+      enrollmentId: contract.enrollmentId,
+      fallbackMessage: program.welcomeMessage ?? undefined,
+    });
+    const availability = workflow.sendWelcomeAfterContractSigned
+      ? this.n8n.getWelcomeAvailability()
+      : 'disabled';
     const eventId = `welcome.send:${contract.id}`;
 
     const completed = await this.prisma.$transaction(async (transaction) => {
@@ -387,10 +404,13 @@ export class ContractsService {
           errorCode: availability === 'ready' ? null : availability,
           type: 'welcome_email',
           direction: 'outbound',
-          subject: 'Welcome to onboarding',
+          subject: welcomeConfig.subject,
           notes: availability === 'ready'
             ? 'Welcome email requested.'
             : 'Welcome email skipped by configuration.',
+          renderedSubject: welcomeConfig.subject,
+          renderedBody: welcomeConfig.body,
+          templateContext: welcomeConfig.context,
           date: now,
           staffMember: 'system',
           isDemo: client.isDemo,
@@ -406,11 +426,9 @@ export class ContractsService {
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
-      nextStep: welcomeMessageFor(
-        program.name,
-        this.config.get('APP_URL', { infer: true }),
-        program.welcomeMessage,
-      ),
+      nextStep: welcomeConfig.body,
+      emailSubject: welcomeConfig.subject,
+      emailBody: welcomeConfig.body,
       sentByUserId: client.assignedUserId ?? 'system',
     });
     await this.recordWelcomeDeliveryResult(
@@ -490,7 +508,6 @@ export class ContractsService {
       where: { id: client.programId, organizationId: client.organizationId, isActive: true },
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-    if (!contractRuleFor(program.name)) throw new BadRequestException(SAFE_PROGRAM_ERROR);
     return { client, program };
   }
 
@@ -529,52 +546,67 @@ export class ContractsService {
     name: string;
     defaultContractTemplateId: string;
   }) {
-    const mappedName = contractTemplateNameFor(program.name);
-    if (!mappedName) throw new BadRequestException(SAFE_TEMPLATE_ERROR);
-    const names = [...new Set([program.defaultContractTemplateId, mappedName])];
-    const templates = await this.prisma.cfContractTemplate.findMany({
-      where: {
-        organizationId: program.organizationId,
-        isActive: true,
-        OR: [
-          { id: program.defaultContractTemplateId },
-          { name: { in: names } },
-        ],
-      },
-    });
-    const template = templates.find((candidate) => candidate.id === program.defaultContractTemplateId)
-      ?? templates.find((candidate) => candidate.name === program.defaultContractTemplateId)
-      ?? templates.find((candidate) => candidate.name === mappedName);
-    if (!template) throw new BadRequestException(SAFE_TEMPLATE_ERROR);
-    return template;
-  }
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
+    const template = workflow.activeContractTemplateId
+      ? await this.prisma.cfContractTemplate.findFirst({
+          where: {
+            id: workflow.activeContractTemplateId,
+            organizationId: program.organizationId,
+            isActive: true,
+          },
+        })
+      : null;
+    if (template) return template;
 
-  private async resolveTemplateForProgram(program: {
-    id: string;
-    organizationId: string;
-    name: string;
-    defaultContractTemplateId: string;
-  }) {
-    const names = [program.defaultContractTemplateId];
-    const mappedName = contractTemplateNameFor(program.name);
-    if (mappedName) names.push(mappedName);
-    const templates = await this.prisma.cfContractTemplate.findMany({
+    const version = workflow.activeContractVersionId
+      ? await this.prisma.cfProgramContractVersion.findFirst({
+          where: {
+            id: workflow.activeContractVersionId,
+            organizationId: program.organizationId,
+          },
+        })
+      : null;
+    if (version) {
+      return {
+        id: version.id,
+        organizationId: version.organizationId,
+        name: version.title?.trim() || `${program.name} Agreement`,
+        content: version.content,
+        isActive: true,
+        createdAt: version.createdAt,
+        updatedAt: version.createdAt,
+      };
+    }
+
+    const fallback = await this.prisma.cfContractTemplate.findFirst({
       where: {
         organizationId: program.organizationId,
         isActive: true,
         OR: [
           { id: program.defaultContractTemplateId },
-          { name: { in: names } },
+          { name: program.defaultContractTemplateId },
         ],
       },
+      orderBy: { updatedAt: 'desc' },
     });
-    const template = templates.find((candidate) => candidate.id === program.defaultContractTemplateId)
-      ?? templates.find((candidate) => candidate.name === program.defaultContractTemplateId)
-      ?? (mappedName ? templates.find((candidate) => candidate.name === mappedName) : null)
-      ?? templates[0]
-      ?? null;
-    if (!template) throw new BadRequestException(SAFE_TEMPLATE_ERROR);
-    return template;
+    if (fallback) return fallback;
+
+    const latestProgramTemplateVersion = await this.prisma.cfProgramContractVersion.findFirst({
+      where: { organizationId: program.organizationId },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+    if (latestProgramTemplateVersion) {
+      return {
+        id: latestProgramTemplateVersion.id,
+        organizationId: latestProgramTemplateVersion.organizationId,
+        name: latestProgramTemplateVersion.title?.trim() || `${program.name} Agreement`,
+        content: latestProgramTemplateVersion.content,
+        isActive: true,
+        createdAt: latestProgramTemplateVersion.createdAt,
+        updatedAt: latestProgramTemplateVersion.createdAt,
+      };
+    }
+    throw new BadRequestException(SAFE_TEMPLATE_ERROR);
   }
 
   private async generateInternal(
@@ -728,6 +760,104 @@ export class ContractsService {
       publicContractUrl,
       emailDelivery,
     };
+  }
+
+  private async getOrCreateWorkflowConfig(organizationId: string, programId: string) {
+    const existing = await this.prisma.cfProgramWorkflowConfig.findFirst({
+      where: { organizationId, programId },
+    });
+    if (existing) return existing;
+    return this.prisma.cfProgramWorkflowConfig.create({
+      data: {
+        organizationId,
+        programId,
+      },
+    });
+  }
+
+  private async resolveWelcomeEmailForDelivery(input: {
+    workflow: Awaited<ReturnType<ContractsService['getOrCreateWorkflowConfig']>>;
+    organizationId: string;
+    client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {};
+    program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {};
+    enrollmentId: string | null;
+    fallbackMessage?: string;
+  }) {
+    const [organization, enrollment] = await Promise.all([
+      this.prisma.organization.findUnique({
+        where: { id: input.organizationId },
+        select: { name: true },
+      }),
+      input.enrollmentId
+        ? this.prisma.cfProgramEnrollment.findFirst({
+            where: { id: input.enrollmentId, organizationId: input.organizationId },
+            select: { startDate: true, nextAction: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const context = {
+      client: {
+        firstName: this.firstName(input.client.primaryContactName),
+        fullName: input.client.primaryContactName,
+      },
+      program: { name: input.program.name },
+      organization: { name: organization?.name ?? '' },
+      enrollment: {
+        startDate: enrollment?.startDate?.toISOString().slice(0, 10) ?? '',
+        nextAction: enrollment?.nextAction ?? '',
+      },
+    };
+
+    const fallbackBody = input.fallbackMessage?.trim() || WELCOME_NEXT_STEP;
+    const fallbackSubject = `Welcome to ${input.program.name}`;
+    const activeVersion = input.workflow.activeWelcomeEmailVersionId
+      ? await this.prisma.cfProgramWelcomeEmailVersion.findFirst({
+          where: {
+            id: input.workflow.activeWelcomeEmailVersionId,
+            organizationId: input.organizationId,
+          },
+        })
+      : null;
+    if (!activeVersion) {
+      return {
+        subject: fallbackSubject,
+        body: fallbackBody,
+        context,
+      };
+    }
+    return {
+      subject: this.renderWelcomeTemplate(activeVersion.subject, context),
+      body: this.renderWelcomeTemplate(activeVersion.body, context),
+      context,
+    };
+  }
+
+  private renderWelcomeTemplate(template: string, context: Record<string, unknown>): string {
+    return template.replace(WELCOME_VARIABLE_PATTERN, (_full, path: string) => {
+      if (!ALLOWED_WELCOME_VARIABLES.has(path)) return '';
+      const value = this.readTemplateValue(context, path);
+      return value === null || value === undefined ? '' : String(value);
+    });
+  }
+
+  private readTemplateValue(context: Record<string, unknown>, path: string): unknown {
+    const segments = path.split('.');
+    let cursor: unknown = context;
+    for (const segment of segments) {
+      if (!cursor || typeof cursor !== 'object' || !(segment in (cursor as Record<string, unknown>))) {
+        return '';
+      }
+      cursor = (cursor as Record<string, unknown>)[segment];
+    }
+    return cursor;
+  }
+
+  private firstName(fullName: string): string {
+    const value = fullName.trim();
+    if (!value) return '';
+    const [first] = value.split(/\s+/);
+    return first || value;
   }
 
   private async recordDeliveryResult(

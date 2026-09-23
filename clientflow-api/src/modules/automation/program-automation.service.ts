@@ -133,6 +133,50 @@ export class ProgramAutomationService {
     });
 
     const executed: string[] = [];
+    if (rules.length === 0 && context.triggerDb === CfProgramTrigger.intake_submitted) {
+      const workflow = await this.prisma.cfProgramWorkflowConfig.findFirst({
+        where: {
+          organizationId: context.organizationId,
+          programId: context.program.id,
+          enabled: true,
+          sendContractAfterIntake: true,
+        },
+      });
+      if (workflow) {
+        const idempotencyKey = `${context.idempotencySeed}:${context.program.id}:workflow:auto_send_contract`;
+        const claim = await this.claimExecution(
+          context,
+          'workflow:auto_send_contract',
+          CfProgramAction.send_contract,
+          idempotencyKey,
+        );
+        if (!claim) return ['send_contract:skipped_duplicate'];
+        try {
+          const result = await this.sendContract(context, {});
+          await this.prisma.cfProgramAutomationExecution.update({
+            where: { id: claim.id },
+            data: {
+              status: 'completed',
+              details: result,
+            },
+          });
+          return ['send_contract'];
+        } catch (error) {
+          await this.prisma.cfProgramAutomationExecution.update({
+            where: { id: claim.id },
+            data: {
+              status: 'failed',
+              details: {
+                error: (error as Error).message,
+              },
+            },
+          });
+          this.logger.warn(`Workflow auto contract failed for program ${context.program.id}: ${(error as Error).message}`);
+          return ['send_contract:failed'];
+        }
+      }
+    }
+
     for (const rule of rules) {
       if (!this.conditionsMatch(rule.conditions, context)) continue;
       const idempotencyKey = `${context.idempotencySeed}:${context.program.id}:${rule.id}`;
