@@ -120,4 +120,56 @@ describe('ProgramAutomationService', () => {
       }),
     }));
   });
+
+  it('falls back to seven days when send_form template dueInDays is null', async () => {
+    const fixedNow = new Date('2030-01-01T00:00:00.000Z');
+    jest.useFakeTimers().setSystemTime(fixedNow);
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },
+      cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
+      cfProgramAutomationRule: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'rule-3',
+            action: 'send_form',
+            actionConfig: {},
+            conditions: {},
+          },
+        ]),
+      },
+      cfProgramAutomationExecution: {
+        create: jest.fn().mockResolvedValue({ id: 'exec-3' }),
+        update: jest.fn().mockResolvedValue({ id: 'exec-3' }),
+      },
+      cfFormTemplate: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'form-1', dueInDays: null, isActive: true }),
+      },
+      cfFormAssignment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'assignment-1' }),
+      },
+    };
+
+    const service = new ProgramAutomationService(
+      prisma as unknown as PrismaService,
+      {} as ContractsService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+    );
+
+    await service.runTrigger({
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      trigger: 'intake.submitted',
+      programIds: ['program-1'],
+      enrollmentIdsByProgramId: { 'program-1': 'enroll-1' },
+      idempotencySeed: 'seed-3',
+    });
+
+    expect(prisma.cfFormAssignment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dueDate: '2030-01-08',
+      }),
+    }));
+    jest.useRealTimers();
+  });
 });

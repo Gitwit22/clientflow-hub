@@ -320,8 +320,10 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:id/automation/rules') async createProgramAutomationRule(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const trigger = parseProgramTrigger(body.trigger ?? 'intake_submitted');
-    const action = parseProgramAction(body.action ?? 'create_enrollment');
+    if (body.trigger === undefined) throw new BadRequestException('Automation trigger is required.');
+    if (body.action === undefined) throw new BadRequestException('Automation action is required.');
+    const trigger = parseProgramTrigger(body.trigger);
+    const action = parseProgramAction(body.action);
     if (!trigger) throw new BadRequestException('Invalid automation trigger.');
     if (!action) throw new BadRequestException('Invalid automation action.');
     return this.requirePrisma().cfProgramAutomationRule.create({
@@ -362,6 +364,12 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:id/documents/templates') async createProgramDocumentTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    const trigger = body.trigger === undefined || body.trigger === null || body.trigger === ''
+      ? null
+      : parseProgramTrigger(body.trigger);
+    if (body.trigger !== undefined && body.trigger !== null && body.trigger !== '' && !trigger) {
+      throw new BadRequestException('Invalid program document trigger.');
+    }
     return this.requirePrisma().cfProgramDocumentTemplate.create({
       data: {
         organizationId: orgId,
@@ -371,7 +379,7 @@ export class ClientflowCompatibilityController {
         required: body.required !== false,
         signatureRequired: body.signatureRequired === true,
         autoSend: body.autoSend === true,
-        trigger: body.trigger ? String(body.trigger) as CfProgramTrigger : null,
+        trigger,
         isActive: body.isActive !== false,
       },
     });
@@ -441,6 +449,15 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     const template = await this.requirePrisma().cfProgramDocumentTemplate.findFirst({ where: { id: templateId, organizationId: orgId, programId } });
     if (!template) throw new NotFoundException('Program document template not found.');
+    let triggerUpdate: CfProgramTrigger | null | undefined;
+    if (body.trigger !== undefined) {
+      if (body.trigger === null || body.trigger === '') {
+        triggerUpdate = null;
+      } else {
+        triggerUpdate = parseProgramTrigger(body.trigger);
+        if (!triggerUpdate) throw new BadRequestException('Invalid program document trigger.');
+      }
+    }
     return this.requirePrisma().cfProgramDocumentTemplate.update({
       where: { id: templateId },
       data: {
@@ -449,7 +466,7 @@ export class ClientflowCompatibilityController {
         ...(body.required !== undefined ? { required: Boolean(body.required) } : {}),
         ...(body.signatureRequired !== undefined ? { signatureRequired: Boolean(body.signatureRequired) } : {}),
         ...(body.autoSend !== undefined ? { autoSend: Boolean(body.autoSend) } : {}),
-        ...(body.trigger !== undefined ? { trigger: body.trigger ? String(body.trigger) as CfProgramTrigger : null } : {}),
+        ...(body.trigger !== undefined ? { trigger: triggerUpdate } : {}),
         ...(body.activeVersionId !== undefined ? { activeVersionId: body.activeVersionId ? String(body.activeVersionId) : null } : {}),
         ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive) } : {}),
       },
@@ -493,7 +510,9 @@ export class ClientflowCompatibilityController {
     const current = await prisma.cfProgramEnrollment.findFirst({ where: { id, organizationId: orgId } });
     if (!current) throw new NotFoundException('Enrollment not found.');
     const updated = await prisma.cfProgramEnrollment.update({ where: { id, organizationId: orgId }, data: body });
-    if (this.automation && current.status !== 'approved' && updated.status === 'approved') {
+    if (this.automation
+      && String(current.status).toLowerCase() !== 'approved'
+      && String(updated.status).toLowerCase() === 'approved') {
       await this.automation.runTrigger({
         organizationId: orgId,
         clientId: updated.clientId,

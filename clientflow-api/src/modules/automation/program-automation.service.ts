@@ -331,7 +331,10 @@ export class ProgramAutomationService {
     });
     if (existing) return { assignmentId: existing.id, created: false };
 
-    const dueAt = new Date(Date.now() + template.dueInDays * 86_400_000);
+    const dueInDays = typeof template.dueInDays === 'number' && Number.isFinite(template.dueInDays)
+      ? template.dueInDays
+      : 7;
+    const dueAt = new Date(Date.now() + dueInDays * 86_400_000);
     const assignment = await this.prisma.cfFormAssignment.create({
       data: {
         organizationId: context.organizationId,
