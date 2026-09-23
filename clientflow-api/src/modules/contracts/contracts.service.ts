@@ -88,7 +88,7 @@ export class ContractsService {
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
     const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
-    if (!workflow.sendContractAfterIntake) {
+    if (!workflow.enabled || !workflow.sendContractAfterIntake) {
       await this.prisma.$transaction(async (transaction) => {
         await transaction.cfClient.update({
           where: { id: client.id },
@@ -325,7 +325,7 @@ export class ContractsService {
       enrollmentId: contract.enrollmentId,
       fallbackMessage: program.welcomeMessage ?? undefined,
     });
-    const availability = workflow.sendWelcomeAfterContractSigned
+    const availability = workflow.enabled && workflow.sendWelcomeAfterContractSigned
       ? this.n8n.getWelcomeAvailability()
       : 'disabled';
     const eventId = `welcome.send:${contract.id}`;
@@ -546,36 +546,49 @@ export class ContractsService {
     name: string;
     defaultContractTemplateId: string;
   }) {
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
-    const template = workflow.activeContractTemplateId
-      ? await this.prisma.cfContractTemplate.findFirst({
-          where: {
-            id: workflow.activeContractTemplateId,
-            organizationId: program.organizationId,
-            isActive: true,
-          },
-        })
-      : null;
-    if (template) return template;
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
+    const programContractTemplateModel = (this.prisma as unknown as {
+      cfProgramContractTemplate?: {
+        findFirst: (args: unknown) => Promise<{ id: string; name: string; signatureRequired: boolean } | null>;
+        findMany: (args: unknown) => Promise<Array<{ id: string }>>;
+      };
+    }).cfProgramContractTemplate;
 
     const programContractVersionModel = (this.prisma as unknown as {
       cfProgramContractVersion?: {
         findFirst: (args: unknown) => Promise<any>;
       };
     }).cfProgramContractVersion;
-    const version = workflow.activeContractVersionId && programContractVersionModel
-      ? await programContractVersionModel.findFirst({
+    const activeProgramTemplate = workflow.activeContractTemplateId && programContractTemplateModel
+      ? await programContractTemplateModel.findFirst({
           where: {
-            id: workflow.activeContractVersionId,
+            id: workflow.activeContractTemplateId,
             organizationId: program.organizationId,
+            programId: program.id,
+            isActive: true,
           },
+        })
+      : null;
+    const version = activeProgramTemplate && programContractVersionModel
+      ? await programContractVersionModel.findFirst({
+          where: workflow.activeContractVersionId
+            ? {
+                id: workflow.activeContractVersionId,
+                organizationId: program.organizationId,
+                templateId: activeProgramTemplate.id,
+              }
+            : {
+                organizationId: program.organizationId,
+                templateId: activeProgramTemplate.id,
+              },
+          orderBy: workflow.activeContractVersionId ? undefined : [{ version: 'desc' }],
         })
       : null;
     if (version) {
       return {
         id: version.id,
         organizationId: version.organizationId,
-        name: version.title?.trim() || `${program.name} Agreement`,
+        name: version.title?.trim() || activeProgramTemplate?.name || `${program.name} Agreement`,
         content: version.content,
         isActive: true,
         createdAt: version.createdAt,
@@ -599,9 +612,22 @@ export class ContractsService {
     const fallback = fallbackTemplates[0] ?? null;
     if (fallback) return fallback;
 
-    const latestProgramTemplateVersion = programContractVersionModel
+    const programContractTemplateIds = programContractTemplateModel
+      ? await programContractTemplateModel.findMany({
+          where: {
+            organizationId: program.organizationId,
+            programId: program.id,
+            isActive: true,
+          },
+          select: { id: true },
+        })
+      : [];
+    const latestProgramTemplateVersion = programContractVersionModel && programContractTemplateIds.length > 0
       ? await programContractVersionModel.findFirst({
-          where: { organizationId: program.organizationId },
+          where: {
+            organizationId: program.organizationId,
+            templateId: { in: programContractTemplateIds.map((template) => template.id) },
+          },
           orderBy: [{ createdAt: 'desc' }],
         })
       : null;
@@ -858,13 +884,36 @@ export class ContractsService {
         findFirst: (args: unknown) => Promise<any>;
       };
     }).cfProgramWelcomeEmailVersion;
-    const activeVersion = input.workflow.activeWelcomeEmailVersionId && welcomeVersionModel
+    const activeVersionCandidate = input.workflow.activeWelcomeEmailVersionId && welcomeVersionModel
       ? await welcomeVersionModel.findFirst({
           where: {
             id: input.workflow.activeWelcomeEmailVersionId,
             organizationId: input.organizationId,
           },
         })
+      : null;
+    const activeWelcomeTemplateModel = (this.prisma as unknown as {
+      cfProgramWelcomeEmailTemplate?: {
+        findFirst: (args: unknown) => Promise<{ id: string } | null>;
+      };
+    }).cfProgramWelcomeEmailTemplate;
+    const activeWelcomeTemplate = input.workflow.activeWelcomeEmailTemplateId && activeWelcomeTemplateModel
+      ? await activeWelcomeTemplateModel.findFirst({
+          where: {
+            id: input.workflow.activeWelcomeEmailTemplateId,
+            organizationId: input.organizationId,
+            programId: input.program.id,
+            isActive: true,
+          },
+          select: { id: true },
+        })
+      : null;
+    const activeVersion = activeVersionCandidate
+      ? (
+        !activeWelcomeTemplate || activeVersionCandidate.templateId === activeWelcomeTemplate.id
+          ? activeVersionCandidate
+          : null
+      )
       : null;
     if (!activeVersion) {
       return {

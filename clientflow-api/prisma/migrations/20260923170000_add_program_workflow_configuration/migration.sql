@@ -14,7 +14,7 @@ CREATE TABLE "CfProgramWorkflowConfig" (
   CONSTRAINT "CfProgramWorkflowConfig_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "CfProgramWorkflowConfig_programId_key" ON "CfProgramWorkflowConfig"("programId");
+CREATE UNIQUE INDEX "CfProgramWorkflowConfig_organizationId_programId_key" ON "CfProgramWorkflowConfig"("organizationId", "programId");
 CREATE INDEX "CfProgramWorkflowConfig_organizationId_programId_idx" ON "CfProgramWorkflowConfig"("organizationId", "programId");
 
 CREATE TABLE "CfProgramContractTemplate" (
@@ -84,3 +84,39 @@ ALTER TABLE "CfCommunication"
   ADD COLUMN "renderedSubject" TEXT,
   ADD COLUMN "renderedBody" TEXT,
   ADD COLUMN "templateContext" JSONB;
+
+ALTER TABLE "CfProgramWorkflowConfig"
+  ADD CONSTRAINT "CfProgramWorkflowConfig_programId_fkey"
+  FOREIGN KEY ("programId") REFERENCES "CfProgram"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramWorkflowConfig"
+  ADD CONSTRAINT "CfProgramWorkflowConfig_activeContractTemplateId_fkey"
+  FOREIGN KEY ("activeContractTemplateId") REFERENCES "CfProgramContractTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramWorkflowConfig"
+  ADD CONSTRAINT "CfProgramWorkflowConfig_activeContractVersionId_fkey"
+  FOREIGN KEY ("activeContractVersionId") REFERENCES "CfProgramContractVersion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramWorkflowConfig"
+  ADD CONSTRAINT "CfProgramWorkflowConfig_activeWelcomeEmailTemplateId_fkey"
+  FOREIGN KEY ("activeWelcomeEmailTemplateId") REFERENCES "CfProgramWelcomeEmailTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramWorkflowConfig"
+  ADD CONSTRAINT "CfProgramWorkflowConfig_activeWelcomeEmailVersionId_fkey"
+  FOREIGN KEY ("activeWelcomeEmailVersionId") REFERENCES "CfProgramWelcomeEmailVersion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramContractTemplate"
+  ADD CONSTRAINT "CfProgramContractTemplate_programId_fkey"
+  FOREIGN KEY ("programId") REFERENCES "CfProgram"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramContractVersion"
+  ADD CONSTRAINT "CfProgramContractVersion_templateId_fkey"
+  FOREIGN KEY ("templateId") REFERENCES "CfProgramContractTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramWelcomeEmailTemplate"
+  ADD CONSTRAINT "CfProgramWelcomeEmailTemplate_programId_fkey"
+  FOREIGN KEY ("programId") REFERENCES "CfProgram"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "CfProgramWelcomeEmailVersion"
+  ADD CONSTRAINT "CfProgramWelcomeEmailVersion_templateId_fkey"
+  FOREIGN KEY ("templateId") REFERENCES "CfProgramWelcomeEmailTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;

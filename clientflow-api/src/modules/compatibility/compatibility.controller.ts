@@ -236,6 +236,22 @@ export class ClientflowCompatibilityController {
           })
         : Promise.resolve([]),
     ]);
+    const activeContractTemplate = config?.activeContractTemplateId
+      ? contractTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
+      : contractTemplates[0] ?? null;
+    const activeWelcomeTemplate = config?.activeWelcomeEmailTemplateId
+      ? welcomeTemplates.find((template) => template.id === config.activeWelcomeEmailTemplateId) ?? null
+      : welcomeTemplates[0] ?? null;
+    const activeContractVersion = config?.activeContractVersionId
+      ? contractVersions.find((version) => version.id === config.activeContractVersionId) ?? null
+      : activeContractTemplate
+        ? contractVersions.find((version) => version.templateId === activeContractTemplate.id) ?? null
+        : contractVersions[0] ?? null;
+    const activeWelcomeVersion = config?.activeWelcomeEmailVersionId
+      ? welcomeVersions.find((version) => version.id === config.activeWelcomeEmailVersionId) ?? null
+      : activeWelcomeTemplate
+        ? welcomeVersions.find((version) => version.templateId === activeWelcomeTemplate.id) ?? null
+        : welcomeVersions[0] ?? null;
     return {
       config: config ?? {
         enabled: true,
@@ -249,22 +265,14 @@ export class ClientflowCompatibilityController {
       contract: {
         templates: contractTemplates,
         versions: contractVersions,
-        activeTemplate: config?.activeContractTemplateId
-          ? contractTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
-          : null,
-        activeVersion: config?.activeContractVersionId
-          ? contractVersions.find((version) => version.id === config.activeContractVersionId) ?? null
-          : null,
+        activeTemplate: activeContractTemplate,
+        activeVersion: activeContractVersion,
       },
       welcomeEmail: {
         templates: welcomeTemplates,
         versions: welcomeVersions,
-        activeTemplate: config?.activeWelcomeEmailTemplateId
-          ? welcomeTemplates.find((template) => template.id === config.activeWelcomeEmailTemplateId) ?? null
-          : null,
-        activeVersion: config?.activeWelcomeEmailVersionId
-          ? welcomeVersions.find((version) => version.id === config.activeWelcomeEmailVersionId) ?? null
-          : null,
+        activeTemplate: activeWelcomeTemplate,
+        activeVersion: activeWelcomeVersion,
       },
       automation: {
         enabled: config?.enabled ?? true,
@@ -435,6 +443,76 @@ export class ClientflowCompatibilityController {
         ? (body.activeWelcomeEmailVersionId ? String(body.activeWelcomeEmailVersionId) : null)
         : undefined,
     };
+    if (data.activeContractTemplateId) {
+      const contractTemplate = await this.requirePrisma().cfProgramContractTemplate.findFirst({
+        where: {
+          id: data.activeContractTemplateId,
+          organizationId: orgId,
+          programId: id,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!contractTemplate) throw new BadRequestException('Invalid active contract template for this program.');
+    }
+    if (data.activeContractVersionId) {
+      const contractVersion = await this.requirePrisma().cfProgramContractVersion.findFirst({
+        where: {
+          id: data.activeContractVersionId,
+          organizationId: orgId,
+        },
+        select: { id: true, templateId: true },
+      });
+      const owningTemplate = contractVersion
+        ? await this.requirePrisma().cfProgramContractTemplate.findFirst({
+            where: {
+              id: contractVersion.templateId,
+              organizationId: orgId,
+              programId: id,
+              isActive: true,
+            },
+            select: { id: true },
+          })
+        : null;
+      if (!contractVersion || !owningTemplate) {
+        throw new BadRequestException('Invalid active contract version for this program.');
+      }
+    }
+    if (data.activeWelcomeEmailTemplateId) {
+      const welcomeTemplate = await this.requirePrisma().cfProgramWelcomeEmailTemplate.findFirst({
+        where: {
+          id: data.activeWelcomeEmailTemplateId,
+          organizationId: orgId,
+          programId: id,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!welcomeTemplate) throw new BadRequestException('Invalid active welcome template for this program.');
+    }
+    if (data.activeWelcomeEmailVersionId) {
+      const welcomeVersion = await this.requirePrisma().cfProgramWelcomeEmailVersion.findFirst({
+        where: {
+          id: data.activeWelcomeEmailVersionId,
+          organizationId: orgId,
+        },
+        select: { id: true, templateId: true },
+      });
+      const owningTemplate = welcomeVersion
+        ? await this.requirePrisma().cfProgramWelcomeEmailTemplate.findFirst({
+            where: {
+              id: welcomeVersion.templateId,
+              organizationId: orgId,
+              programId: id,
+              isActive: true,
+            },
+            select: { id: true },
+          })
+        : null;
+      if (!welcomeVersion || !owningTemplate) {
+        throw new BadRequestException('Invalid active welcome version for this program.');
+      }
+    }
     if (existing) {
       await this.requirePrisma().cfProgramWorkflowConfig.update({
         where: { id: existing.id },
@@ -487,6 +565,11 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:programId/workflow/contracts/templates/:templateId/versions') async createProgramWorkflowContractVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const template = await this.requirePrisma().cfProgramContractTemplate.findFirst({
+      where: { id: templateId, organizationId: orgId, programId },
+      select: { id: true },
+    });
+    if (!template) throw new NotFoundException('Program workflow contract template not found.');
     const latest = await this.requirePrisma().cfProgramContractVersion.findFirst({
       where: { organizationId: orgId, templateId },
       orderBy: { version: 'desc' },
@@ -537,6 +620,11 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:programId/workflow/emails/templates/:templateId/versions') async createProgramWorkflowWelcomeVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const template = await this.requirePrisma().cfProgramWelcomeEmailTemplate.findFirst({
+      where: { id: templateId, organizationId: orgId, programId },
+      select: { id: true },
+    });
+    if (!template) throw new NotFoundException('Program workflow welcome template not found.');
     const latest = await this.requirePrisma().cfProgramWelcomeEmailVersion.findFirst({
       where: { organizationId: orgId, templateId },
       orderBy: { version: 'desc' },

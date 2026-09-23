@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { CfEnrollmentStatus, CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-lifecycle';
+import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS, contractRuleFor } from '../contracts/contract-lifecycle';
 import { ContractsService } from '../contracts/contracts.service';
 
 type AutomationTrigger =
@@ -138,11 +138,15 @@ export class ProgramAutomationService {
         where: {
           organizationId: context.organizationId,
           programId: context.program.id,
-          enabled: true,
-          sendContractAfterIntake: true,
         },
       });
-      if (workflow) {
+      const legacyRule = contractRuleFor(context.program.name);
+      const shouldSendContract = workflow
+        ? workflow.enabled && workflow.sendContractAfterIntake
+        : legacyRule
+          ? legacyRule === 'auto_contract'
+          : true;
+      if (shouldSendContract) {
         const idempotencyKey = `${context.idempotencySeed}:${context.program.id}:workflow:auto_send_contract`;
         const claim = await this.claimExecution(
           context,
