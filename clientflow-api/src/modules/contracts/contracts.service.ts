@@ -106,40 +106,6 @@ export class ContractsService {
       };
     }
 
-    async issueContractForProgram(
-      clientId: string,
-      programId: string,
-      options?: { enrollmentId?: string | null; staffSigner?: StaffSigner },
-    ) {
-      const client = await this.prisma.cfClient.findFirst({
-        where: { id: clientId, isArchived: false },
-      });
-      if (!client) throw new NotFoundException('Client not found.');
-
-      const program = await this.prisma.cfProgram.findFirst({
-        where: { id: programId, organizationId: client.organizationId, isActive: true },
-      });
-      if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-
-      const template = await this.resolveTemplateForProgram(program);
-      const defaultSigner: StaffSigner = options?.staffSigner && options.staffSigner.name.trim()
-        ? options.staffSigner
-        : {
-            id: client.assignedUserId,
-            name: client.assignedStaff && client.assignedStaff !== 'Unassigned'
-              ? client.assignedStaff
-              : 'EA Management Team',
-          };
-      const generated = await this.generateInternal(
-        client,
-        program,
-        template,
-        defaultSigner,
-        options?.enrollmentId ?? null,
-      );
-      return this.issueContract(client, program, template, generated.contract.id);
-    }
-
     const template = await this.resolveTemplate(program);
     const defaultSigner: StaffSigner = {
       id: client.assignedUserId,
@@ -155,6 +121,40 @@ export class ContractsService {
       program: { id: program.id, name: program.name },
       ...issued,
     };
+  }
+
+  async issueContractForProgram(
+    clientId: string,
+    programId: string,
+    options?: { enrollmentId?: string | null; staffSigner?: StaffSigner },
+  ) {
+    const client = await this.prisma.cfClient.findFirst({
+      where: { id: clientId, isArchived: false },
+    });
+    if (!client) throw new NotFoundException('Client not found.');
+
+    const program = await this.prisma.cfProgram.findFirst({
+      where: { id: programId, organizationId: client.organizationId, isActive: true },
+    });
+    if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+
+    const template = await this.resolveTemplateForProgram(program);
+    const defaultSigner: StaffSigner = options?.staffSigner && options.staffSigner.name.trim()
+      ? options.staffSigner
+      : {
+          id: client.assignedUserId,
+          name: client.assignedStaff && client.assignedStaff !== 'Unassigned'
+            ? client.assignedStaff
+            : 'EA Management Team',
+        };
+    const generated = await this.generateInternal(
+      client,
+      program,
+      template,
+      defaultSigner,
+      options?.enrollmentId ?? null,
+    );
+    return this.issueContract(client, program, template, generated.contract.id);
   }
 
   async generateForStaff(clientId: string, staffSigner: StaffSigner) {

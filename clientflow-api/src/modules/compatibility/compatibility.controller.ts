@@ -21,7 +21,7 @@ import { hash, compare } from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { sign, verify as jwtVerify } from 'jsonwebtoken';
 import type { Request, Response } from 'express';
-import { Prisma } from '../../generated/clientflow';
+import { CfProgramAction, CfProgramTrigger } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
@@ -300,9 +300,9 @@ export class ClientflowCompatibilityController {
       data: {
         organizationId: orgId,
         programId: id,
-        trigger: String(body.trigger ?? 'intake_submitted') as Prisma.CfProgramTrigger,
+        trigger: String(body.trigger ?? 'intake_submitted') as CfProgramTrigger,
         conditions: isRecord(body.conditions) ? body.conditions as any : {},
-        action: String(body.action ?? 'create_enrollment') as Prisma.CfProgramAction,
+        action: String(body.action ?? 'create_enrollment') as CfProgramAction,
         actionConfig: isRecord(body.actionConfig) ? body.actionConfig as any : {},
         enabled: body.enabled !== false,
         sortOrder: Number(body.sortOrder ?? 0),
@@ -311,11 +311,16 @@ export class ClientflowCompatibilityController {
   }
   @Patch('programs/:programId/automation/rules/:ruleId') async updateProgramAutomationRule(@Req() request: Request, @Param('programId') programId: string, @Param('ruleId') ruleId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    const existing = await this.requirePrisma().cfProgramAutomationRule.findFirst({
+      where: { id: ruleId, organizationId: orgId, programId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Program automation rule not found.');
     return this.requirePrisma().cfProgramAutomationRule.update({
       where: { id: ruleId },
       data: {
-        ...(body.trigger ? { trigger: String(body.trigger) as Prisma.CfProgramTrigger } : {}),
-        ...(body.action ? { action: String(body.action) as Prisma.CfProgramAction } : {}),
+        ...(body.trigger ? { trigger: String(body.trigger) as CfProgramTrigger } : {}),
+        ...(body.action ? { action: String(body.action) as CfProgramAction } : {}),
         ...(body.conditions && isRecord(body.conditions) ? { conditions: body.conditions as any } : {}),
         ...(body.actionConfig && isRecord(body.actionConfig) ? { actionConfig: body.actionConfig as any } : {}),
         ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
@@ -334,7 +339,7 @@ export class ClientflowCompatibilityController {
         required: body.required !== false,
         signatureRequired: body.signatureRequired === true,
         autoSend: body.autoSend === true,
-        trigger: body.trigger ? String(body.trigger) as Prisma.CfProgramTrigger : null,
+        trigger: body.trigger ? String(body.trigger) as CfProgramTrigger : null,
         isActive: body.isActive !== false,
       },
     });
@@ -383,7 +388,7 @@ export class ClientflowCompatibilityController {
         ...(body.required !== undefined ? { required: Boolean(body.required) } : {}),
         ...(body.signatureRequired !== undefined ? { signatureRequired: Boolean(body.signatureRequired) } : {}),
         ...(body.autoSend !== undefined ? { autoSend: Boolean(body.autoSend) } : {}),
-        ...(body.trigger !== undefined ? { trigger: body.trigger ? String(body.trigger) as Prisma.CfProgramTrigger : null } : {}),
+        ...(body.trigger !== undefined ? { trigger: body.trigger ? String(body.trigger) as CfProgramTrigger : null } : {}),
         ...(body.activeVersionId !== undefined ? { activeVersionId: body.activeVersionId ? String(body.activeVersionId) : null } : {}),
         ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive) } : {}),
       },

@@ -3,6 +3,7 @@ import type { ContractsService } from './contracts.service';
 import { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 import { PublicContractsController } from './public-contracts.controller';
 import { validate } from 'class-validator';
+import type { ProgramAutomationService } from '../automation/program-automation.service';
 
 describe('contract controllers', () => {
   it('delegates generate and send endpoints using the requested client and contract IDs', async () => {
@@ -45,7 +46,8 @@ describe('contract controllers', () => {
       openPublicContract: jest.fn().mockResolvedValue({ contract: { status: 'OPENED' } }),
       completePublicContract: jest.fn().mockResolvedValue({ contract: { status: 'COMPLETED' } }),
     };
-    const controller = new PublicContractsController(service as unknown as ContractsService);
+    const automation = { runTrigger: jest.fn() } as unknown as ProgramAutomationService;
+    const controller = new PublicContractsController(service as unknown as ContractsService, automation);
     const request = {
       ip: '127.0.0.1',
       socket: {},

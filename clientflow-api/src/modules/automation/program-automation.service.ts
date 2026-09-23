@@ -1,5 +1,5 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '../../generated/clientflow';
+import { CfEnrollmentStatus, CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-lifecycle';
@@ -29,7 +29,7 @@ interface TriggerRequest {
 interface ProgramExecutionContext {
   organizationId: string;
   trigger: AutomationTrigger;
-  triggerDb: Prisma.CfProgramTrigger;
+  triggerDb: CfProgramTrigger;
   client: {
     id: string;
     email: string;
@@ -50,14 +50,14 @@ interface ProgramExecutionContext {
   idempotencySeed: string;
 }
 
-const TRIGGER_MAP: Record<AutomationTrigger, Prisma.CfProgramTrigger> = {
-  'intake.submitted': Prisma.CfProgramTrigger.intake_submitted,
-  'enrollment.created': Prisma.CfProgramTrigger.enrollment_created,
-  'enrollment.approved': Prisma.CfProgramTrigger.enrollment_approved,
-  'contract.signed': Prisma.CfProgramTrigger.contract_signed,
-  'form.completed': Prisma.CfProgramTrigger.form_completed,
-  'document.uploaded': Prisma.CfProgramTrigger.document_uploaded,
-  'program.completed': Prisma.CfProgramTrigger.program_completed,
+const TRIGGER_MAP: Record<AutomationTrigger, CfProgramTrigger> = {
+  'intake.submitted': CfProgramTrigger.intake_submitted,
+  'enrollment.created': CfProgramTrigger.enrollment_created,
+  'enrollment.approved': CfProgramTrigger.enrollment_approved,
+  'contract.signed': CfProgramTrigger.contract_signed,
+  'form.completed': CfProgramTrigger.form_completed,
+  'document.uploaded': CfProgramTrigger.document_uploaded,
+  'program.completed': CfProgramTrigger.program_completed,
 };
 
 @Injectable()
@@ -188,26 +188,26 @@ export class ProgramAutomationService {
   }
 
   private async executeAction(
-    action: Prisma.CfProgramAction,
+    action: CfProgramAction,
     actionConfig: Record<string, unknown>,
     context: ProgramExecutionContext,
   ): Promise<Prisma.JsonObject> {
     switch (action) {
-      case Prisma.CfProgramAction.create_enrollment:
+      case CfProgramAction.create_enrollment:
         return this.ensureEnrollment(context);
-      case Prisma.CfProgramAction.assign_document:
+      case CfProgramAction.assign_document:
         return this.assignDocuments(context, actionConfig);
-      case Prisma.CfProgramAction.send_form:
+      case CfProgramAction.send_form:
         return this.sendForm(context, actionConfig);
-      case Prisma.CfProgramAction.send_contract:
+      case CfProgramAction.send_contract:
         return this.sendContract(context, actionConfig);
-      case Prisma.CfProgramAction.send_email:
+      case CfProgramAction.send_email:
         return this.sendEmail(context, actionConfig);
-      case Prisma.CfProgramAction.create_task:
+      case CfProgramAction.create_task:
         return this.createTask(context, actionConfig);
-      case Prisma.CfProgramAction.change_status:
+      case CfProgramAction.change_status:
         return this.changeStatus(context, actionConfig);
-      case Prisma.CfProgramAction.notify_staff:
+      case CfProgramAction.notify_staff:
         return this.notifyStaff(context, actionConfig);
       default:
         return { skipped: true };
@@ -534,7 +534,7 @@ export class ProgramAutomationService {
     const updated = await this.prisma.cfProgramEnrollment.update({
       where: { id: context.enrollmentId },
       data: {
-        status: nextStatus as Prisma.CfEnrollmentStatus,
+        status: nextStatus as CfEnrollmentStatus,
         lastModifiedByUserId: context.actorUserId,
         lastModifiedByDisplayName: context.actorDisplayName,
       },
@@ -590,7 +590,7 @@ export class ProgramAutomationService {
     const includes = this.jsonObject(conditions.includes as Prisma.JsonValue);
     for (const [field, expected] of Object.entries(includes)) {
       const actual = this.contextValue(field, context);
-      if (!Array.isArray(expected) || !expected.includes(actual as never)) return false;
+      if (!Array.isArray(expected) || !expected.includes(actual)) return false;
     }
 
     return true;
@@ -606,8 +606,8 @@ export class ProgramAutomationService {
   }
 
   private jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
+    return isRecord(value)
+      ? value
       : {};
   }
 }
@@ -615,4 +615,8 @@ export class ProgramAutomationService {
 function randomTokenHash(): string {
   const token = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
   return token.slice(0, 64).padEnd(64, '0');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
