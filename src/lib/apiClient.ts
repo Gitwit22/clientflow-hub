@@ -22,6 +22,7 @@ import type {
   OrgSettings,
   Program,
   ProgramDetailResponse,
+  ProgramWorkflow,
   ProgramEnrollment,
   PublicFormResponseValue,
   Terms,
@@ -550,6 +551,53 @@ export async function cfCreateProgram(data: Record<string, unknown>) {
 export async function cfUpdateProgram(id: string, data: Record<string, unknown>) {
   return apiRequest<Program>(`${CF}/programs/${id}`, {
     method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+export async function cfGetProgramWorkflow(id: string) {
+  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(id)}/workflow`);
+}
+export async function cfUpdateProgramWorkflow(id: string, data: Record<string, unknown>) {
+  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(id)}/workflow`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+export async function cfCreateProgramWorkflowContractTemplate(
+  programId: string,
+  data: Record<string, unknown>,
+) {
+  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+export async function cfCreateProgramWorkflowContractVersion(
+  programId: string,
+  templateId: string,
+  data: Record<string, unknown>,
+) {
+  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates/${encodeURIComponent(templateId)}/versions`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+export async function cfCreateProgramWorkflowWelcomeTemplate(
+  programId: string,
+  data: Record<string, unknown>,
+) {
+  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/emails/templates`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+export async function cfCreateProgramWorkflowWelcomeVersion(
+  programId: string,
+  templateId: string,
+  data: Record<string, unknown>,
+) {
+  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/emails/templates/${encodeURIComponent(templateId)}/versions`, {
+    method: "POST",
     body: JSON.stringify(data),
   });
 }

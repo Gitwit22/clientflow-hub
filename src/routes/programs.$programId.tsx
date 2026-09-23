@@ -19,10 +19,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { resolveMemberName, useOrganizationMembers } from "@/hooks/use-organization-members";
-import { getProgramDetail, withdrawEnrollment } from "@/lib/api";
+import { getProgramDetail, updateProgramWorkflow, withdrawEnrollment } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { toast } from "sonner";
 import type { ProgramDetailResponse, ProgramEnrollment } from "@/types";
@@ -54,6 +55,7 @@ function ProgramDetailPage() {
   const [withdrawing, setWithdrawing] = useState<ProgramEnrollment | null>(null);
   const [withdrawReason, setWithdrawReason] = useState("");
   const [savingWithdrawal, setSavingWithdrawal] = useState(false);
+  const [savingWorkflow, setSavingWorkflow] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +136,7 @@ function ProgramDetailPage() {
   const programTemplates = state.formTemplates.filter(
     (template) => template.programId === program.id,
   );
+  const workflow = detail?.workflow;
 
   const MemberList = ({ past = false }: { past?: boolean }) => {
     const normalizedQuery = memberQuery.trim().toLowerCase();
@@ -292,16 +295,67 @@ function ProgramDetailPage() {
           </Card>
           <Card className="shadow-card lg:col-span-2">
             <CardHeader>
-              <CardTitle className="font-display text-base">Workflow</CardTitle>
+              <CardTitle className="font-display text-base">Program workflow</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
-              <div>
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">Default workflow</p>
-                <p>{program.defaultWorkflow.join(" → ") || "No workflow configured"}</p>
+              <div className="space-y-1">
+                <p className="font-mono text-[10px] uppercase text-muted-foreground">1. Intake</p>
+                <p>{state.formTemplates.find((item) => item.id === program.defaultFormTemplateId)?.name ?? "No intake form configured"}</p>
               </div>
-              <div>
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">Status pipeline</p>
-                <p>{program.statusPipeline.join(" → ") || "No status pipeline configured"}</p>
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <p className="font-mono text-[10px] uppercase text-muted-foreground">2. Contract</p>
+                <p>
+                  {workflow?.contract.activeVersion?.title
+                    ?? workflow?.contract.activeTemplate?.name
+                    ?? "No active contract template"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Signature required: {workflow?.contract.activeTemplate?.signatureRequired ? "Yes" : "No"}
+                </p>
+              </div>
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <p className="font-mono text-[10px] uppercase text-muted-foreground">3. Welcome email</p>
+                <p>{workflow?.welcomeEmail.activeVersion?.subject || "No active welcome email template"}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2">
+                  {workflow?.welcomeEmail.activeVersion?.body || "Add a welcome email version to enable post-signature messaging."}
+                </p>
+              </div>
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <p className="font-mono text-[10px] uppercase text-muted-foreground">4. Automation</p>
+                <div className="flex items-center justify-between gap-2">
+                  <span>Send contract after intake submission</span>
+                  <Switch
+                    checked={workflow?.automation.sendContractAfterIntake ?? false}
+                    disabled={savingWorkflow || !workflow}
+                    onCheckedChange={(checked) => {
+                      if (!workflow) return;
+                      setSavingWorkflow(true);
+                      void updateProgramWorkflow(program.id, { sendContractAfterIntake: checked })
+                        .then(() => setRefreshVersion((value) => value + 1))
+                        .catch((error: unknown) => {
+                          toast.error(error instanceof Error ? error.message : "Unable to update workflow.");
+                        })
+                        .finally(() => setSavingWorkflow(false));
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span>Send welcome email after contract signing</span>
+                  <Switch
+                    checked={workflow?.automation.sendWelcomeAfterContractSigned ?? false}
+                    disabled={savingWorkflow || !workflow}
+                    onCheckedChange={(checked) => {
+                      if (!workflow) return;
+                      setSavingWorkflow(true);
+                      void updateProgramWorkflow(program.id, { sendWelcomeAfterContractSigned: checked })
+                        .then(() => setRefreshVersion((value) => value + 1))
+                        .catch((error: unknown) => {
+                          toast.error(error instanceof Error ? error.message : "Unable to update workflow.");
+                        })
+                        .finally(() => setSavingWorkflow(false));
+                    }}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

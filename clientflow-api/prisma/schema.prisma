@@ -311,6 +311,83 @@ model CfProgram {
   @@index([organizationId])
 }
 
+model CfProgramWorkflowConfig {
+  id                               String   @id @default(cuid())
+  organizationId                   String
+  programId                        String
+  enabled                          Boolean  @default(true)
+  sendContractAfterIntake          Boolean  @default(false)
+  sendWelcomeAfterContractSigned   Boolean  @default(false)
+  activeContractTemplateId         String?
+  activeContractVersionId          String?
+  activeWelcomeEmailTemplateId     String?
+  activeWelcomeEmailVersionId      String?
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
+
+  @@unique([organizationId, programId])
+  @@index([organizationId, programId])
+}
+
+model CfProgramContractTemplate {
+  id                String   @id @default(cuid())
+  organizationId    String
+  programId         String
+  name              String
+  signatureRequired Boolean  @default(true)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([organizationId, programId, name])
+  @@index([organizationId, programId, isActive])
+}
+
+model CfProgramContractVersion {
+  id             String   @id @default(cuid())
+  organizationId String
+  templateId     String
+  version        Int
+  title          String?
+  content        String   @db.Text
+  fileUrl        String?
+  fileName       String?
+  signableFields Json     @default("[]")
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  @@unique([templateId, version])
+  @@index([organizationId, templateId, createdAt])
+}
+
+model CfProgramWelcomeEmailTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  programId      String
+  name           String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, programId, name])
+  @@index([organizationId, programId, isActive])
+}
+
+model CfProgramWelcomeEmailVersion {
+  id               String   @id @default(cuid())
+  organizationId   String
+  templateId       String
+  version          Int
+  subject          String
+  body             String   @db.Text
+  createdBy        String
+  allowedVariables Json     @default("[]")
+  createdAt        DateTime @default(now())
+
+  @@unique([templateId, version])
+  @@index([organizationId, templateId, createdAt])
+}
+
 model CfProgramAutomationRule {
   id             String           @id @default(cuid())
   organizationId String
@@ -596,6 +673,9 @@ model CfCommunication {
   direction          String
   subject            String
   notes              String    @default("")
+  renderedSubject    String?
+  renderedBody       String?
+  templateContext    Json?
   date               DateTime
   staffMember        String
   isDemo             Boolean   @default(false)

@@ -20,6 +20,12 @@ import {
   cfCreateProgram,
   cfGetProgramDetail,
   cfUpdateProgram,
+  cfGetProgramWorkflow,
+  cfUpdateProgramWorkflow,
+  cfCreateProgramWorkflowContractTemplate,
+  cfCreateProgramWorkflowContractVersion,
+  cfCreateProgramWorkflowWelcomeTemplate,
+  cfCreateProgramWorkflowWelcomeVersion,
   cfCreateEnrollment,
   cfListEnrollments,
   cfUpdateEnrollment,
@@ -206,6 +212,23 @@ export async function restoreClient(id: string) {
 export const getPrograms = async () => delay(getState().programs);
 
 export const getProgramDetail = (id: string) => cfGetProgramDetail(id);
+export const getProgramWorkflow = (id: string) => cfGetProgramWorkflow(id);
+export const updateProgramWorkflow = (id: string, data: Record<string, unknown>) =>
+  cfUpdateProgramWorkflow(id, data);
+export const createProgramWorkflowContractTemplate = (programId: string, data: Record<string, unknown>) =>
+  cfCreateProgramWorkflowContractTemplate(programId, data);
+export const createProgramWorkflowContractVersion = (
+  programId: string,
+  templateId: string,
+  data: Record<string, unknown>,
+) => cfCreateProgramWorkflowContractVersion(programId, templateId, data);
+export const createProgramWorkflowWelcomeTemplate = (programId: string, data: Record<string, unknown>) =>
+  cfCreateProgramWorkflowWelcomeTemplate(programId, data);
+export const createProgramWorkflowWelcomeVersion = (
+  programId: string,
+  templateId: string,
+  data: Record<string, unknown>,
+) => cfCreateProgramWorkflowWelcomeVersion(programId, templateId, data);
 
 export async function createProgram(data: Omit<Program, "id">) {
   const program = await cfCreateProgram(data as Record<string, unknown>);

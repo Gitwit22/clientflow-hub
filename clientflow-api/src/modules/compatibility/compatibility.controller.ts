@@ -181,6 +181,107 @@ export class ClientflowCompatibilityController {
     return { liveMode: !!org?.liveMode, demoRemovedAt: org?.demoRemovedAt ?? null, principalAdminId: org?.principalAdminId ?? null };
   }
 
+  private async upsertProgramWorkflowConfig(
+    organizationId: string,
+    programId: string,
+    data: Record<string, unknown>,
+  ) {
+    const existing = await this.requirePrisma().cfProgramWorkflowConfig.findFirst({
+      where: { organizationId, programId },
+      select: { id: true },
+    });
+    if (existing) {
+      return this.requirePrisma().cfProgramWorkflowConfig.update({
+        where: { id: existing.id },
+        data,
+      });
+    }
+    return this.requirePrisma().cfProgramWorkflowConfig.create({
+      data: {
+        organizationId,
+        programId,
+        ...data,
+      },
+    });
+  }
+
+  private async getProgramWorkflow(organizationId: string, programId: string) {
+    const prisma = this.requirePrisma();
+    const [config, contractTemplates, welcomeTemplates] = await Promise.all([
+      prisma.cfProgramWorkflowConfig.findFirst({
+        where: { organizationId, programId },
+      }),
+      prisma.cfProgramContractTemplate.findMany({
+        where: { organizationId, programId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.cfProgramWelcomeEmailTemplate.findMany({
+        where: { organizationId, programId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    const contractTemplateIds = contractTemplates.map((template) => template.id);
+    const welcomeTemplateIds = welcomeTemplates.map((template) => template.id);
+    const [contractVersions, welcomeVersions] = await Promise.all([
+      contractTemplateIds.length
+        ? prisma.cfProgramContractVersion.findMany({
+            where: { organizationId, templateId: { in: contractTemplateIds } },
+            orderBy: [{ templateId: 'asc' }, { version: 'desc' }],
+          })
+        : Promise.resolve([]),
+      welcomeTemplateIds.length
+        ? prisma.cfProgramWelcomeEmailVersion.findMany({
+            where: { organizationId, templateId: { in: welcomeTemplateIds } },
+            orderBy: [{ templateId: 'asc' }, { version: 'desc' }],
+          })
+        : Promise.resolve([]),
+    ]);
+    const activeContractTemplate = config?.activeContractTemplateId
+      ? contractTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
+      : contractTemplates[0] ?? null;
+    const activeWelcomeTemplate = config?.activeWelcomeEmailTemplateId
+      ? welcomeTemplates.find((template) => template.id === config.activeWelcomeEmailTemplateId) ?? null
+      : welcomeTemplates[0] ?? null;
+    const activeContractVersion = config?.activeContractVersionId
+      ? contractVersions.find((version) => version.id === config.activeContractVersionId) ?? null
+      : activeContractTemplate
+        ? contractVersions.find((version) => version.templateId === activeContractTemplate.id) ?? null
+        : contractVersions[0] ?? null;
+    const activeWelcomeVersion = config?.activeWelcomeEmailVersionId
+      ? welcomeVersions.find((version) => version.id === config.activeWelcomeEmailVersionId) ?? null
+      : activeWelcomeTemplate
+        ? welcomeVersions.find((version) => version.templateId === activeWelcomeTemplate.id) ?? null
+        : welcomeVersions[0] ?? null;
+    return {
+      config: config ?? {
+        enabled: true,
+        sendContractAfterIntake: false,
+        sendWelcomeAfterContractSigned: false,
+        activeContractTemplateId: null,
+        activeContractVersionId: null,
+        activeWelcomeEmailTemplateId: null,
+        activeWelcomeEmailVersionId: null,
+      },
+      contract: {
+        templates: contractTemplates,
+        versions: contractVersions,
+        activeTemplate: activeContractTemplate,
+        activeVersion: activeContractVersion,
+      },
+      welcomeEmail: {
+        templates: welcomeTemplates,
+        versions: welcomeVersions,
+        activeTemplate: activeWelcomeTemplate,
+        activeVersion: activeWelcomeVersion,
+      },
+      automation: {
+        enabled: config?.enabled ?? true,
+        sendContractAfterIntake: config?.sendContractAfterIntake ?? false,
+        sendWelcomeAfterContractSigned: config?.sendWelcomeAfterContractSigned ?? false,
+      },
+    };
+  }
+
   @Get('clients') async listClients(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfClient.findMany({ where: { organizationId: orgId, isArchived: false }, orderBy: { createdAt: 'desc' } });
@@ -281,8 +382,10 @@ export class ClientflowCompatibilityController {
         statusHistory: statusHistory.filter((item) => item.enrollmentId === enrollment.id),
       }];
     });
+    const workflow = await this.getProgramWorkflow(orgId, id);
     return {
       program,
+      workflow,
       summary: {
         current: participants.filter(({ enrollment }) => !['completed', 'declined', 'withdrawn'].includes(enrollment.status)).length,
         completed: participants.filter(({ enrollment }) => enrollment.status === 'completed').length,
@@ -293,11 +396,255 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs') async createProgram(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [] } });
+    const program = await this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [] } });
+    await this.requirePrisma().cfProgramWorkflowConfig.create({
+      data: {
+        organizationId: orgId,
+        programId: program.id,
+        enabled: true,
+        sendContractAfterIntake: body.sendContractAfterIntake === true,
+        sendWelcomeAfterContractSigned: body.sendWelcomeAfterContractSigned === true,
+      },
+    });
+    return program;
   }
   @Patch('programs/:id') async updateProgram(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfProgram.update({ where: { id, organizationId: orgId }, data: body });
+  }
+  @Get('programs/:id/workflow') async getProgramWorkflowConfig(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.getProgramWorkflow(orgId, id);
+  }
+  @Patch('programs/:id/workflow') async updateProgramWorkflowConfig(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    await this.requirePrisma().cfProgram.findFirstOrThrow({
+      where: { id, organizationId: orgId },
+      select: { id: true },
+    });
+    const existing = await this.requirePrisma().cfProgramWorkflowConfig.findFirst({
+      where: { organizationId: orgId, programId: id },
+      select: { id: true },
+    });
+    const data = {
+      enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
+      sendContractAfterIntake: body.sendContractAfterIntake !== undefined ? Boolean(body.sendContractAfterIntake) : undefined,
+      sendWelcomeAfterContractSigned: body.sendWelcomeAfterContractSigned !== undefined ? Boolean(body.sendWelcomeAfterContractSigned) : undefined,
+      activeContractTemplateId: body.activeContractTemplateId !== undefined
+        ? (body.activeContractTemplateId ? String(body.activeContractTemplateId) : null)
+        : undefined,
+      activeContractVersionId: body.activeContractVersionId !== undefined
+        ? (body.activeContractVersionId ? String(body.activeContractVersionId) : null)
+        : undefined,
+      activeWelcomeEmailTemplateId: body.activeWelcomeEmailTemplateId !== undefined
+        ? (body.activeWelcomeEmailTemplateId ? String(body.activeWelcomeEmailTemplateId) : null)
+        : undefined,
+      activeWelcomeEmailVersionId: body.activeWelcomeEmailVersionId !== undefined
+        ? (body.activeWelcomeEmailVersionId ? String(body.activeWelcomeEmailVersionId) : null)
+        : undefined,
+    };
+    if (data.activeContractTemplateId) {
+      const contractTemplate = await this.requirePrisma().cfProgramContractTemplate.findFirst({
+        where: {
+          id: data.activeContractTemplateId,
+          organizationId: orgId,
+          programId: id,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!contractTemplate) throw new BadRequestException('Invalid active contract template for this program.');
+    }
+    if (data.activeContractVersionId) {
+      const contractVersion = await this.requirePrisma().cfProgramContractVersion.findFirst({
+        where: {
+          id: data.activeContractVersionId,
+          organizationId: orgId,
+        },
+        select: { id: true, templateId: true },
+      });
+      const owningTemplate = contractVersion
+        ? await this.requirePrisma().cfProgramContractTemplate.findFirst({
+            where: {
+              id: contractVersion.templateId,
+              organizationId: orgId,
+              programId: id,
+              isActive: true,
+            },
+            select: { id: true },
+          })
+        : null;
+      if (!contractVersion || !owningTemplate) {
+        throw new BadRequestException('Invalid active contract version for this program.');
+      }
+    }
+    if (data.activeWelcomeEmailTemplateId) {
+      const welcomeTemplate = await this.requirePrisma().cfProgramWelcomeEmailTemplate.findFirst({
+        where: {
+          id: data.activeWelcomeEmailTemplateId,
+          organizationId: orgId,
+          programId: id,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!welcomeTemplate) throw new BadRequestException('Invalid active welcome template for this program.');
+    }
+    if (data.activeWelcomeEmailVersionId) {
+      const welcomeVersion = await this.requirePrisma().cfProgramWelcomeEmailVersion.findFirst({
+        where: {
+          id: data.activeWelcomeEmailVersionId,
+          organizationId: orgId,
+        },
+        select: { id: true, templateId: true },
+      });
+      const owningTemplate = welcomeVersion
+        ? await this.requirePrisma().cfProgramWelcomeEmailTemplate.findFirst({
+            where: {
+              id: welcomeVersion.templateId,
+              organizationId: orgId,
+              programId: id,
+              isActive: true,
+            },
+            select: { id: true },
+          })
+        : null;
+      if (!welcomeVersion || !owningTemplate) {
+        throw new BadRequestException('Invalid active welcome version for this program.');
+      }
+    }
+    if (existing) {
+      await this.requirePrisma().cfProgramWorkflowConfig.update({
+        where: { id: existing.id },
+        data,
+      });
+    } else {
+      await this.requirePrisma().cfProgramWorkflowConfig.create({
+        data: {
+          organizationId: orgId,
+          programId: id,
+          enabled: data.enabled ?? true,
+          sendContractAfterIntake: data.sendContractAfterIntake ?? false,
+          sendWelcomeAfterContractSigned: data.sendWelcomeAfterContractSigned ?? false,
+          activeContractTemplateId: data.activeContractTemplateId ?? null,
+          activeContractVersionId: data.activeContractVersionId ?? null,
+          activeWelcomeEmailTemplateId: data.activeWelcomeEmailTemplateId ?? null,
+          activeWelcomeEmailVersionId: data.activeWelcomeEmailVersionId ?? null,
+        },
+      });
+    }
+    return this.getProgramWorkflow(orgId, id);
+  }
+  @Post('programs/:id/workflow/contracts/templates') async createProgramWorkflowContractTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const template = await this.requirePrisma().cfProgramContractTemplate.create({
+      data: {
+        organizationId: orgId,
+        programId: id,
+        name: String(body.name ?? 'Program Contract'),
+        signatureRequired: body.signatureRequired !== false,
+        isActive: body.isActive !== false,
+      },
+    });
+    if (body.content || body.fileUrl || body.fileName) {
+      await this.requirePrisma().cfProgramContractVersion.create({
+        data: {
+          organizationId: orgId,
+          templateId: template.id,
+          version: 1,
+          title: body.title ? String(body.title) : null,
+          content: String(body.content ?? ''),
+          fileUrl: body.fileUrl ? String(body.fileUrl) : null,
+          fileName: body.fileName ? String(body.fileName) : null,
+          signableFields: Array.isArray(body.signableFields) ? body.signableFields : [],
+          createdBy: admin.email,
+        },
+      });
+    }
+    return this.getProgramWorkflow(orgId, id);
+  }
+  @Post('programs/:programId/workflow/contracts/templates/:templateId/versions') async createProgramWorkflowContractVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const template = await this.requirePrisma().cfProgramContractTemplate.findFirst({
+      where: { id: templateId, organizationId: orgId, programId },
+      select: { id: true },
+    });
+    if (!template) throw new NotFoundException('Program workflow contract template not found.');
+    const latest = await this.requirePrisma().cfProgramContractVersion.findFirst({
+      where: { organizationId: orgId, templateId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const version = await this.requirePrisma().cfProgramContractVersion.create({
+      data: {
+        organizationId: orgId,
+        templateId,
+        version: Number(body.version ?? ((latest?.version ?? 0) + 1)),
+        title: body.title ? String(body.title) : null,
+        content: String(body.content ?? ''),
+        fileUrl: body.fileUrl ? String(body.fileUrl) : null,
+        fileName: body.fileName ? String(body.fileName) : null,
+        signableFields: Array.isArray(body.signableFields) ? body.signableFields : [],
+        createdBy: admin.email,
+      },
+    });
+    if (body.makeActive !== false) {
+      await this.upsertProgramWorkflowConfig(orgId, programId, { activeContractVersionId: version.id, activeContractTemplateId: templateId });
+    }
+    return this.getProgramWorkflow(orgId, programId);
+  }
+  @Post('programs/:id/workflow/emails/templates') async createProgramWorkflowWelcomeTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const template = await this.requirePrisma().cfProgramWelcomeEmailTemplate.create({
+      data: {
+        organizationId: orgId,
+        programId: id,
+        name: String(body.name ?? 'Welcome Email'),
+        isActive: body.isActive !== false,
+      },
+    });
+    if (body.subject || body.body) {
+      await this.requirePrisma().cfProgramWelcomeEmailVersion.create({
+        data: {
+          organizationId: orgId,
+          templateId: template.id,
+          version: 1,
+          subject: String(body.subject ?? `Welcome to ${body.programName ?? 'the program'}`),
+          body: String(body.body ?? ''),
+          createdBy: admin.email,
+          allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],
+        },
+      });
+    }
+    return this.getProgramWorkflow(orgId, id);
+  }
+  @Post('programs/:programId/workflow/emails/templates/:templateId/versions') async createProgramWorkflowWelcomeVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const template = await this.requirePrisma().cfProgramWelcomeEmailTemplate.findFirst({
+      where: { id: templateId, organizationId: orgId, programId },
+      select: { id: true },
+    });
+    if (!template) throw new NotFoundException('Program workflow welcome template not found.');
+    const latest = await this.requirePrisma().cfProgramWelcomeEmailVersion.findFirst({
+      where: { organizationId: orgId, templateId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const version = await this.requirePrisma().cfProgramWelcomeEmailVersion.create({
+      data: {
+        organizationId: orgId,
+        templateId,
+        version: Number(body.version ?? ((latest?.version ?? 0) + 1)),
+        subject: String(body.subject ?? `Welcome to ${body.programName ?? 'the program'}`),
+        body: String(body.body ?? ''),
+        createdBy: admin.email,
+        allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],
+      },
+    });
+    if (body.makeActive !== false) {
+      await this.upsertProgramWorkflowConfig(orgId, programId, { activeWelcomeEmailVersionId: version.id, activeWelcomeEmailTemplateId: templateId });
+    }
+    return this.getProgramWorkflow(orgId, programId);
   }
   @Get('programs/:id/automation') async getProgramAutomation(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);

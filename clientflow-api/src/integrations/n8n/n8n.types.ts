@@ -78,6 +78,8 @@ export interface WelcomeEmailPayload {
   clientName: string;
   programName: string;
   nextStep: string;
+  emailSubject?: string;
+  emailBody?: string;
   sentByUserId: string;
 }
 
