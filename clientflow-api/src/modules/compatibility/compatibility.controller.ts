@@ -21,10 +21,11 @@ import { hash, compare } from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { sign, verify as jwtVerify } from 'jsonwebtoken';
 import type { Request, Response } from 'express';
+import { Prisma } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
-import { ContractsService } from '../contracts/contracts.service';
+import { ProgramAutomationService } from '../automation/program-automation.service';
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
@@ -125,6 +126,7 @@ export class ClientflowCompatibilityController {
     private readonly scaffold: ScaffoldService,
     private readonly prisma?: PrismaService,
     private readonly n8n?: N8nService,
+    private readonly automation?: ProgramAutomationService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -273,6 +275,120 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfProgram.update({ where: { id, organizationId: orgId }, data: body });
   }
+  @Get('programs/:id/automation') async getProgramAutomation(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const prisma = this.requirePrisma();
+    const [rules, templates, versions] = await Promise.all([
+      prisma.cfProgramAutomationRule.findMany({
+        where: { organizationId: orgId, programId: id },
+        orderBy: [{ trigger: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.cfProgramDocumentTemplate.findMany({
+        where: { organizationId: orgId, programId: id },
+        orderBy: [{ createdAt: 'asc' }],
+      }),
+      prisma.cfProgramDocumentVersion.findMany({
+        where: { organizationId: orgId, templateId: { in: (await prisma.cfProgramDocumentTemplate.findMany({ where: { organizationId: orgId, programId: id }, select: { id: true } })).map((template) => template.id) } },
+        orderBy: [{ templateId: 'asc' }, { version: 'desc' }],
+      }),
+    ]);
+    return { rules, templates, versions };
+  }
+  @Post('programs/:id/automation/rules') async createProgramAutomationRule(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgramAutomationRule.create({
+      data: {
+        organizationId: orgId,
+        programId: id,
+        trigger: String(body.trigger ?? 'intake_submitted') as Prisma.CfProgramTrigger,
+        conditions: isRecord(body.conditions) ? body.conditions as any : {},
+        action: String(body.action ?? 'create_enrollment') as Prisma.CfProgramAction,
+        actionConfig: isRecord(body.actionConfig) ? body.actionConfig as any : {},
+        enabled: body.enabled !== false,
+        sortOrder: Number(body.sortOrder ?? 0),
+      },
+    });
+  }
+  @Patch('programs/:programId/automation/rules/:ruleId') async updateProgramAutomationRule(@Req() request: Request, @Param('programId') programId: string, @Param('ruleId') ruleId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgramAutomationRule.update({
+      where: { id: ruleId },
+      data: {
+        ...(body.trigger ? { trigger: String(body.trigger) as Prisma.CfProgramTrigger } : {}),
+        ...(body.action ? { action: String(body.action) as Prisma.CfProgramAction } : {}),
+        ...(body.conditions && isRecord(body.conditions) ? { conditions: body.conditions as any } : {}),
+        ...(body.actionConfig && isRecord(body.actionConfig) ? { actionConfig: body.actionConfig as any } : {}),
+        ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: Number(body.sortOrder) } : {}),
+      },
+    });
+  }
+  @Post('programs/:id/documents/templates') async createProgramDocumentTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().cfProgramDocumentTemplate.create({
+      data: {
+        organizationId: orgId,
+        programId: id,
+        name: String(body.name ?? 'Untitled Document'),
+        type: String(body.type ?? 'document'),
+        required: body.required !== false,
+        signatureRequired: body.signatureRequired === true,
+        autoSend: body.autoSend === true,
+        trigger: body.trigger ? String(body.trigger) as Prisma.CfProgramTrigger : null,
+        isActive: body.isActive !== false,
+      },
+    });
+  }
+  @Post('programs/:programId/documents/templates/:templateId/versions') async createProgramDocumentVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const prisma = this.requirePrisma();
+    const template = await prisma.cfProgramDocumentTemplate.findFirst({ where: { id: templateId, organizationId: orgId, programId } });
+    if (!template) throw new NotFoundException('Program document template not found.');
+    const latest = await prisma.cfProgramDocumentVersion.findFirst({
+      where: { organizationId: orgId, templateId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const version = await prisma.cfProgramDocumentVersion.create({
+      data: {
+        organizationId: orgId,
+        templateId,
+        version: Number(body.version ?? ((latest?.version ?? 0) + 1)),
+        fileUrl: String(body.fileUrl ?? ''),
+        fileName: body.fileName ? String(body.fileName) : null,
+        objectKey: body.objectKey ? String(body.objectKey) : null,
+        bucket: body.bucket ? String(body.bucket) : null,
+        byteSize: body.byteSize !== undefined ? Number(body.byteSize) : null,
+        checksum: body.checksum ? String(body.checksum) : null,
+        createdBy: admin.email,
+      },
+    });
+    if (body.makeActive !== false) {
+      await prisma.cfProgramDocumentTemplate.update({
+        where: { id: templateId },
+        data: { activeVersionId: version.id },
+      });
+    }
+    return version;
+  }
+  @Patch('programs/:programId/documents/templates/:templateId') async updateProgramDocumentTemplate(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const template = await this.requirePrisma().cfProgramDocumentTemplate.findFirst({ where: { id: templateId, organizationId: orgId, programId } });
+    if (!template) throw new NotFoundException('Program document template not found.');
+    return this.requirePrisma().cfProgramDocumentTemplate.update({
+      where: { id: templateId },
+      data: {
+        ...(body.name ? { name: String(body.name) } : {}),
+        ...(body.type ? { type: String(body.type) } : {}),
+        ...(body.required !== undefined ? { required: Boolean(body.required) } : {}),
+        ...(body.signatureRequired !== undefined ? { signatureRequired: Boolean(body.signatureRequired) } : {}),
+        ...(body.autoSend !== undefined ? { autoSend: Boolean(body.autoSend) } : {}),
+        ...(body.trigger !== undefined ? { trigger: body.trigger ? String(body.trigger) as Prisma.CfProgramTrigger : null } : {}),
+        ...(body.activeVersionId !== undefined ? { activeVersionId: body.activeVersionId ? String(body.activeVersionId) : null } : {}),
+        ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive) } : {}),
+      },
+    });
+  }
 
   @Get('enrollments') async listEnrollments(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -289,12 +405,42 @@ export class ClientflowCompatibilityController {
     return this.requirePrisma().cfEnrollmentStatusHistory.findMany({ where: { organizationId: orgId, enrollmentId: id }, orderBy: { createdAt: 'desc' } });
   }
   @Post('enrollments') async createEnrollment(@Req() request: Request, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfProgramEnrollment.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), programId: String(body.programId ?? ''), status: String(body.status ?? 'interested') as any, assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null, assignedStaff: body.assignedStaff ? String(body.assignedStaff) : null, lastModifiedByUserId: body.lastModifiedByUserId ? String(body.lastModifiedByUserId) : null, lastModifiedByDisplayName: body.lastModifiedByDisplayName ? String(body.lastModifiedByDisplayName) : null, startDate: body.startDate ? new Date(String(body.startDate)) : null, nextAction: body.nextAction ? String(body.nextAction) : null, nextActionDate: body.nextActionDate ? new Date(String(body.nextActionDate)) : null, progressPercentage: Number(body.progressPercentage ?? 0), currentGoalId: body.currentGoalId ? String(body.currentGoalId) : null, lastProgressUpdate: body.lastProgressUpdate ? new Date(String(body.lastProgressUpdate)) : null, clientResponsiveness: String(body.clientResponsiveness ?? 'unknown') as any, currentBlockers: body.currentBlockers ? String(body.currentBlockers) : null, riskLevel: String(body.riskLevel ?? 'low') as any, staffProgressNotes: body.staffProgressNotes ? String(body.staffProgressNotes) : null, meetingsAttended: Number(body.meetingsAttended ?? 0), outcomeAchieved: String(body.outcomeAchieved ?? 'pending') as any, finalOutcomeSummary: body.finalOutcomeSummary ? String(body.finalOutcomeSummary) : null, completedAt: body.completedAt ? new Date(String(body.completedAt)) : null, withdrawnAt: body.withdrawnAt ? new Date(String(body.withdrawnAt)) : null, onHoldReason: body.onHoldReason ? String(body.onHoldReason) : null } });
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const enrollment = await this.requirePrisma().cfProgramEnrollment.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), programId: String(body.programId ?? ''), status: String(body.status ?? 'interested') as any, assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null, assignedStaff: body.assignedStaff ? String(body.assignedStaff) : null, lastModifiedByUserId: body.lastModifiedByUserId ? String(body.lastModifiedByUserId) : null, lastModifiedByDisplayName: body.lastModifiedByDisplayName ? String(body.lastModifiedByDisplayName) : null, startDate: body.startDate ? new Date(String(body.startDate)) : null, nextAction: body.nextAction ? String(body.nextAction) : null, nextActionDate: body.nextActionDate ? new Date(String(body.nextActionDate)) : null, progressPercentage: Number(body.progressPercentage ?? 0), currentGoalId: body.currentGoalId ? String(body.currentGoalId) : null, lastProgressUpdate: body.lastProgressUpdate ? new Date(String(body.lastProgressUpdate)) : null, clientResponsiveness: String(body.clientResponsiveness ?? 'unknown') as any, currentBlockers: body.currentBlockers ? String(body.currentBlockers) : null, riskLevel: String(body.riskLevel ?? 'low') as any, staffProgressNotes: body.staffProgressNotes ? String(body.staffProgressNotes) : null, meetingsAttended: Number(body.meetingsAttended ?? 0), outcomeAchieved: String(body.outcomeAchieved ?? 'pending') as any, finalOutcomeSummary: body.finalOutcomeSummary ? String(body.finalOutcomeSummary) : null, completedAt: body.completedAt ? new Date(String(body.completedAt)) : null, withdrawnAt: body.withdrawnAt ? new Date(String(body.withdrawnAt)) : null, onHoldReason: body.onHoldReason ? String(body.onHoldReason) : null } });
+    if (this.automation) {
+      await this.automation.runTrigger({
+        organizationId: orgId,
+        clientId: enrollment.clientId,
+        trigger: 'enrollment.created',
+        programIds: [enrollment.programId],
+        enrollmentIdsByProgramId: { [enrollment.programId]: enrollment.id },
+        actorUserId: admin.id,
+        actorDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
+        idempotencySeed: `compat.enrollment.created:${enrollment.id}`,
+      });
+    }
+    return enrollment;
   }
   @Patch('enrollments/:id') async updateEnrollment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfProgramEnrollment.update({ where: { id, organizationId: orgId }, data: body });
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const prisma = this.requirePrisma();
+    const current = await prisma.cfProgramEnrollment.findFirst({ where: { id, organizationId: orgId } });
+    if (!current) throw new NotFoundException('Enrollment not found.');
+    const updated = await prisma.cfProgramEnrollment.update({ where: { id, organizationId: orgId }, data: body });
+    if (this.automation && current.status !== 'approved' && updated.status === 'approved') {
+      await this.automation.runTrigger({
+        organizationId: orgId,
+        clientId: updated.clientId,
+        trigger: 'enrollment.approved',
+        programIds: [updated.programId],
+        enrollmentIdsByProgramId: { [updated.programId]: updated.id },
+        actorUserId: admin.id,
+        actorDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
+        idempotencySeed: `compat.enrollment.approved:${updated.id}:${updated.updatedAt.toISOString()}`,
+        payload: { enrollmentStatus: updated.status },
+      });
+    }
+    return updated;
   }
 
   @Get('form-templates') async listFormTemplates(@Req() request: Request) {
@@ -604,7 +750,7 @@ export class PublicFormCompatibilityController {
   constructor(
     private readonly scaffold: ScaffoldService,
     private readonly prisma?: PrismaService,
-    private readonly contracts?: ContractsService,
+    private readonly automation?: ProgramAutomationService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -720,6 +866,7 @@ export class PublicFormCompatibilityController {
 
     // Ensure (or reuse) an enrollment per selected program so the client shows up on the program's member list.
     const enrollmentIds: string[] = [];
+    const enrollmentIdsByProgramId: Record<string, string> = {};
     for (const programId of selectedProgramIds) {
       const existingEnrollment = await prisma.cfProgramEnrollment.findFirst({ where: { organizationId: formAssignment.organizationId, clientId: formAssignment.clientId, programId } });
       const enrollment = existingEnrollment ?? await prisma.cfProgramEnrollment.create({
@@ -746,6 +893,7 @@ export class PublicFormCompatibilityController {
         });
       }
       enrollmentIds.push(enrollment.id);
+      enrollmentIdsByProgramId[programId] = enrollment.id;
     }
 
     const submission = await prisma.cfIntakeSubmission.create({
@@ -801,24 +949,30 @@ export class PublicFormCompatibilityController {
       },
     });
 
-    // Auto-issue a contract (or route to staff review) for the primary selected program, mirroring CONTRACT_LIFECYCLE.md.
-    let nextAction: string | null = null;
-    let contract: unknown = null;
-    let emailDelivery: unknown = null;
     const primaryProgramId = selectedProgramIds[0];
-    if (client && primaryProgramId && this.contracts) {
+    if (client && primaryProgramId) {
+      await prisma.cfClient.update({ where: { id: client.id }, data: { programId: primaryProgramId } });
+    }
+
+    let automation = null;
+    if (client && selectedProgramIds.length > 0 && this.automation) {
       try {
-        await prisma.cfClient.update({ where: { id: client.id }, data: { programId: primaryProgramId } });
-        const outcome = await this.contracts.handlePostIntakeProgramSelection(client.id, primaryProgramId);
-        nextAction = outcome.nextAction;
-        contract = outcome.contract ?? null;
-        emailDelivery = outcome.emailDelivery ?? null;
-      } catch (error) {
-        // Non-fatal: the enrollment and submission are already recorded even if contract prep fails.
+        automation = await this.automation.runTrigger({
+          organizationId: formAssignment.organizationId,
+          clientId: client.id,
+          trigger: 'intake.submitted',
+          programIds: selectedProgramIds,
+          enrollmentIdsByProgramId,
+          actorDisplayName: 'Client submission',
+          idempotencySeed: `compat.intake.submitted:${submission.id}`,
+          payload: { selectedProgramIds },
+        });
+      } catch {
+        automation = null;
       }
     }
 
-    return { success: true, enrollmentIds, nextAction, contract, emailDelivery };
+    return { success: true, enrollmentIds, automation };
   }
 }
 

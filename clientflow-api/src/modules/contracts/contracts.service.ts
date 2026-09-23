@@ -106,6 +106,40 @@ export class ContractsService {
       };
     }
 
+    async issueContractForProgram(
+      clientId: string,
+      programId: string,
+      options?: { enrollmentId?: string | null; staffSigner?: StaffSigner },
+    ) {
+      const client = await this.prisma.cfClient.findFirst({
+        where: { id: clientId, isArchived: false },
+      });
+      if (!client) throw new NotFoundException('Client not found.');
+
+      const program = await this.prisma.cfProgram.findFirst({
+        where: { id: programId, organizationId: client.organizationId, isActive: true },
+      });
+      if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+
+      const template = await this.resolveTemplateForProgram(program);
+      const defaultSigner: StaffSigner = options?.staffSigner && options.staffSigner.name.trim()
+        ? options.staffSigner
+        : {
+            id: client.assignedUserId,
+            name: client.assignedStaff && client.assignedStaff !== 'Unassigned'
+              ? client.assignedStaff
+              : 'EA Management Team',
+          };
+      const generated = await this.generateInternal(
+        client,
+        program,
+        template,
+        defaultSigner,
+        options?.enrollmentId ?? null,
+      );
+      return this.issueContract(client, program, template, generated.contract.id);
+    }
+
     const template = await this.resolveTemplate(program);
     const defaultSigner: StaffSigner = {
       id: client.assignedUserId,
@@ -388,6 +422,9 @@ export class ContractsService {
     await this.archiveExecutedContract(client, contract, acceptance, now);
 
     return {
+      organizationId: client.organizationId,
+      programId: program.id,
+      enrollmentId: contract.enrollmentId,
       contract: { id: contract.id, status: CONTRACT_STATUS.completed, completedAt: now },
       client: { id: client.id, status: CONTRACT_CLIENT_STATUS.onboarding },
       monitoringTask: {
@@ -512,11 +549,40 @@ export class ContractsService {
     return template;
   }
 
+  private async resolveTemplateForProgram(program: {
+    id: string;
+    organizationId: string;
+    name: string;
+    defaultContractTemplateId: string;
+  }) {
+    const names = [program.defaultContractTemplateId];
+    const mappedName = contractTemplateNameFor(program.name);
+    if (mappedName) names.push(mappedName);
+    const templates = await this.prisma.cfContractTemplate.findMany({
+      where: {
+        organizationId: program.organizationId,
+        isActive: true,
+        OR: [
+          { id: program.defaultContractTemplateId },
+          { name: { in: names } },
+        ],
+      },
+    });
+    const template = templates.find((candidate) => candidate.id === program.defaultContractTemplateId)
+      ?? templates.find((candidate) => candidate.name === program.defaultContractTemplateId)
+      ?? (mappedName ? templates.find((candidate) => candidate.name === mappedName) : null)
+      ?? templates[0]
+      ?? null;
+    if (!template) throw new BadRequestException(SAFE_TEMPLATE_ERROR);
+    return template;
+  }
+
   private async generateInternal(
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
     template: Awaited<ReturnType<PrismaService['cfContractTemplate']['findFirst']>> & {},
     staffSigner: StaffSigner,
+    enrollmentId: string | null = null,
   ) {
     const now = new Date();
     const rawToken = generateContractToken();
@@ -537,6 +603,7 @@ export class ContractsService {
         data: {
           secureTokenHash,
           secureTokenExpiresAt,
+          enrollmentId: existing.enrollmentId ?? enrollmentId,
           ...(existing.staffSignedAt ? {} : {
             staffSignedByUserId: staffSigner.id,
             staffSignedByName: staffSigner.name,
@@ -552,6 +619,7 @@ export class ContractsService {
         organizationId: client.organizationId,
         clientId: client.id,
         programId: program.id,
+        enrollmentId,
         contractTemplateId: template.id,
         contractType: template.name,
         status: CONTRACT_STATUS.draft,

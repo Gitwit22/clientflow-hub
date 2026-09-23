@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { IntegrationsModule } from '../../integrations/integrations.module';
-import { ContractsModule } from '../contracts/contracts.module';
+import { AutomationModule } from '../automation/automation.module';
 import {
   AuthCompatibilityController,
   ClientflowCompatibilityController,
@@ -11,7 +11,7 @@ import {
 } from './compatibility.controller';
 
 @Module({
-  imports: [IntegrationsModule, ContractsModule],
+  imports: [IntegrationsModule, AutomationModule],
   controllers: [
     AuthCompatibilityController,
     ClientflowCompatibilityController,

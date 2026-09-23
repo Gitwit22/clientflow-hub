@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { ContractsModule } from '../contracts/contracts.module';
+import { AutomationModule } from '../automation/automation.module';
 import { PublicFormsController } from './public-forms.controller';
 import { PublicFormsService } from './public-forms.service';
 
 @Module({
-  imports: [ContractsModule],
+  imports: [AutomationModule],
   controllers: [PublicFormsController],
   providers: [PublicFormsService],
 })
