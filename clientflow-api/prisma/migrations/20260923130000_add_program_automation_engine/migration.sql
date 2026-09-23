@@ -78,6 +78,7 @@ CREATE TABLE "CfDocumentAssignment" (
   "programId" TEXT NOT NULL,
   "templateId" TEXT NOT NULL,
   "templateVersionId" TEXT NOT NULL,
+  "assignmentScope" TEXT NOT NULL DEFAULT 'client',
   "status" TEXT NOT NULL DEFAULT 'pending',
   "required" BOOLEAN NOT NULL DEFAULT true,
   "signatureRequired" BOOLEAN NOT NULL DEFAULT false,
@@ -121,8 +122,8 @@ CREATE UNIQUE INDEX "CfProgramDocumentVersion_templateId_version_key"
 CREATE INDEX "CfProgramDocumentVersion_organizationId_templateId_uploadedAt_idx"
   ON "CfProgramDocumentVersion"("organizationId", "templateId", "uploadedAt");
 
-CREATE UNIQUE INDEX "CfDocumentAssignment_enrollmentId_templateVersionId_key"
-  ON "CfDocumentAssignment"("enrollmentId", "templateVersionId");
+CREATE UNIQUE INDEX "CfDocumentAssignment_organizationId_clientId_programId_templateVersionId_assignmentScope_key"
+  ON "CfDocumentAssignment"("organizationId", "clientId", "programId", "templateVersionId", "assignmentScope");
 CREATE INDEX "CfDocumentAssignment_organizationId_programId_status_idx"
   ON "CfDocumentAssignment"("organizationId", "programId", "status");
 CREATE INDEX "CfDocumentAssignment_organizationId_clientId_idx"

@@ -558,6 +558,7 @@ model CfDocumentAssignment {
   programId         String
   templateId        String
   templateVersionId String
+  assignmentScope   String    @default("client")
   status            String    @default("pending")
   required          Boolean   @default(true)
   signatureRequired Boolean   @default(false)
@@ -568,7 +569,7 @@ model CfDocumentAssignment {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  @@unique([enrollmentId, templateVersionId])
+  @@unique([organizationId, clientId, programId, templateVersionId, assignmentScope])
   @@index([organizationId, programId, status])
   @@index([organizationId, clientId])
 }

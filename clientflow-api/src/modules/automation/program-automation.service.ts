@@ -256,6 +256,7 @@ export class ProgramAutomationService {
     });
 
     const assigned: string[] = [];
+    const assignmentScope = context.enrollmentId ? `enrollment:${context.enrollmentId}` : 'client';
     for (const template of templates) {
       if (!template.activeVersionId) continue;
       const version = await this.prisma.cfProgramDocumentVersion.findFirst({
@@ -273,7 +274,7 @@ export class ProgramAutomationService {
           clientId: context.client.id,
           programId: context.program.id,
           templateVersionId: version.id,
-          ...(context.enrollmentId ? { enrollmentId: context.enrollmentId } : {}),
+          assignmentScope,
         },
       });
       if (existing) continue;
@@ -286,6 +287,7 @@ export class ProgramAutomationService {
           programId: context.program.id,
           templateId: template.id,
           templateVersionId: version.id,
+          assignmentScope,
           status: template.autoSend ? 'sent' : 'assigned',
           sentAt: template.autoSend ? new Date() : null,
           required: template.required,
@@ -617,7 +619,7 @@ export class ProgramAutomationService {
         },
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (isPrismaUniqueViolation(error)) {
         return null;
       }
       throw error;
@@ -632,4 +634,11 @@ function randomTokenHash(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isPrismaUniqueViolation(error: unknown): boolean {
+  return !!error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
 }

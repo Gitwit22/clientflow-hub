@@ -22,7 +22,7 @@ import { hash, compare } from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { sign, verify as jwtVerify } from 'jsonwebtoken';
 import type { Request, Response } from 'express';
-import { CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
+import { CfProgramAction, CfProgramTrigger } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
@@ -133,6 +133,13 @@ function parseProgramAction(value: unknown): CfProgramAction | null {
   return Object.values(CfProgramAction).includes(value as CfProgramAction)
     ? value as CfProgramAction
     : null;
+}
+
+function isPrismaUniqueViolation(error: unknown): boolean {
+  return !!error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
 }
 
 @Controller('admin/cf')
@@ -423,7 +430,7 @@ export class ClientflowCompatibilityController {
             return created;
           });
         } catch (error) {
-          if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+          if (!isPrismaUniqueViolation(error)) throw error;
         }
       }
       if (!version) throw new ConflictException('Unable to allocate a unique document version. Please retry.');
