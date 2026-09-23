@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../generated/clientflow';
+import { ProgramAutomationService } from '../automation/program-automation.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ContractsService } from '../contracts/contracts.service';
 import type { PublicAnswer, SubmitPublicFormDto } from './dto/submit-public-form.dto';
 import {
   CLIENT_STATUS,
@@ -23,7 +23,7 @@ function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
 export class PublicFormsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly contracts: ContractsService,
+    private readonly automation: ProgramAutomationService,
   ) {}
 
   async getByToken(token: string) {
@@ -84,9 +84,13 @@ export class PublicFormsService {
     }
     const program = isProgramOption(selectedProgram) ? selectedProgram : null;
     const status = program ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted;
-    const preparedProgram = program
-      ? await this.contracts.prepareProgramSelection(assignment.organizationId, program)
+    const selectedDbProgram = program
+      ? await this.prisma.cfProgram.findFirst({
+          where: { organizationId: assignment.organizationId, name: program, isActive: true },
+          select: { id: true, name: true },
+        })
       : null;
+    if (program && !selectedDbProgram) throw new BadRequestException('Selected program is invalid.');
     const submittedAt = new Date();
 
     await this.prisma.$transaction(async (transaction) => {
@@ -100,7 +104,7 @@ export class PublicFormsService {
         where: { id: client.id },
         data: {
           status,
-          programId: preparedProgram?.program.id ?? null,
+          programId: selectedDbProgram?.id ?? null,
           intake: {
             ...jsonObject(client.intake),
             ...(program ? { programOfInterest: program } : {}),
@@ -120,20 +124,26 @@ export class PublicFormsService {
       });
     });
 
-    const postIntake = preparedProgram
-      ? await this.contracts.handlePostIntakeProgramSelection(client.id, preparedProgram.program.id)
+    const automation = selectedDbProgram
+      ? await this.automation.runTrigger({
+          organizationId: assignment.organizationId,
+          clientId: client.id,
+          trigger: 'intake.submitted',
+          programIds: [selectedDbProgram.id],
+          actorDisplayName: 'public form',
+          idempotencySeed: `public-form-intake:${assignment.id}:${submittedAt.toISOString()}`,
+          payload: { selectedProgramIds: [selectedDbProgram.id] },
+        })
       : null;
 
     return {
       success: true,
       clientId: client.id,
       assignmentId: assignment.id,
-      status: postIntake?.clientStatus ?? status,
+      status,
       selectedProgram: program,
-      program: postIntake?.program ?? null,
-      nextAction: postIntake?.nextAction ?? null,
-      contract: postIntake?.contract ?? null,
-      emailDelivery: postIntake?.emailDelivery ?? null,
+      program: selectedDbProgram ?? null,
+      automation,
     };
   }
 

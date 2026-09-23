@@ -235,6 +235,27 @@ enum CfOutcomeAchieved {
   pending
 }
 
+enum CfProgramTrigger {
+  intake_submitted
+  enrollment_created
+  enrollment_approved
+  contract_signed
+  form_completed
+  document_uploaded
+  program_completed
+}
+
+enum CfProgramAction {
+  create_enrollment
+  send_form
+  send_contract
+  send_email
+  assign_document
+  create_task
+  change_status
+  notify_staff
+}
+
 model CfClient {
   id                 String    @id @default(cuid())
   organizationId     String
@@ -288,6 +309,61 @@ model CfProgram {
   updatedAt                  DateTime @updatedAt
 
   @@index([organizationId])
+}
+
+model CfProgramAutomationRule {
+  id             String           @id @default(cuid())
+  organizationId String
+  programId      String
+  trigger        CfProgramTrigger
+  conditions     Json             @default("{}")
+  action         CfProgramAction
+  actionConfig   Json             @default("{}")
+  enabled        Boolean          @default(true)
+  sortOrder      Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organizationId, programId, trigger, enabled, sortOrder])
+  @@index([organizationId])
+}
+
+model CfProgramDocumentTemplate {
+  id                String           @id @default(cuid())
+  organizationId    String
+  programId         String
+  name              String
+  type              String
+  required          Boolean          @default(true)
+  signatureRequired Boolean          @default(false)
+  autoSend          Boolean          @default(false)
+  trigger           CfProgramTrigger?
+  activeVersionId   String?
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([organizationId, programId, name])
+  @@index([organizationId, programId, isActive])
+}
+
+model CfProgramDocumentVersion {
+  id             String   @id @default(cuid())
+  organizationId String
+  templateId     String
+  version        Int
+  fileUrl        String
+  fileName       String?
+  objectKey      String?
+  bucket         String?
+  byteSize       Int?
+  checksum       String?
+  uploadedAt     DateTime @default(now())
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  @@unique([templateId, version])
+  @@index([organizationId, templateId, uploadedAt])
 }
 
 model CfFormTemplate {
@@ -474,6 +550,30 @@ model CfDocument {
   @@index([organizationId, uploadStatus])
 }
 
+model CfDocumentAssignment {
+  id                String    @id @default(cuid())
+  organizationId    String
+  clientId          String
+  enrollmentId      String?
+  programId         String
+  templateId        String
+  templateVersionId String
+  assignmentScope   String    @default("client")
+  status            String    @default("pending")
+  required          Boolean   @default(true)
+  signatureRequired Boolean   @default(false)
+  sentAt            DateTime?
+  completedAt       DateTime?
+  createdByUserId   String?
+  isDemo            Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([organizationId, clientId, programId, templateVersionId, assignmentScope])
+  @@index([organizationId, programId, status])
+  @@index([organizationId, clientId])
+}
+
 model CfCommunication {
   id               String    @id @default(cuid())
   organizationId   String
@@ -554,6 +654,25 @@ model CfActivityLog {
   @@index([organizationId, isDemo])
   @@index([organizationId, clientId])
   @@index([enrollmentId])
+}
+
+model CfProgramAutomationExecution {
+  id             String           @id @default(cuid())
+  organizationId String
+  programId      String
+  clientId       String
+  enrollmentId   String?
+  trigger        CfProgramTrigger
+  action         CfProgramAction
+  ruleId         String?
+  status         String           @default("completed")
+  idempotencyKey String?
+  details        Json             @default("{}")
+  createdAt      DateTime         @default(now())
+
+  @@unique([organizationId, idempotencyKey, action])
+  @@index([organizationId, programId, trigger, createdAt])
+  @@index([organizationId, clientId, createdAt])
 }
 
 model CfProgramEnrollment {

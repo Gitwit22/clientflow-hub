@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { ContractsService } from '../contracts/contracts.service';
+import type { ProgramAutomationService } from '../automation/program-automation.service';
 import { hashPublicToken } from './intake-lifecycle';
 import { PublicFormsService } from './public-forms.service';
 
@@ -40,22 +40,15 @@ function readPrisma() {
     cfFormAssignment: { findUnique: jest.fn().mockResolvedValue(assignment) },
     cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
     cfFormTemplate: { findFirst: jest.fn().mockResolvedValue(template) },
+    cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1', name: 'Grant' }) },
   };
 }
 
-function contractsService() {
+function automationService() {
   return {
-    prepareProgramSelection: jest.fn().mockResolvedValue({
-      program: { id: 'program-1', name: 'Grant' },
-      rule: 'staff_review',
-      template: null,
-    }),
-    handlePostIntakeProgramSelection: jest.fn().mockResolvedValue({
-      nextAction: 'STAFF_REVIEW_REQUIRED',
-      clientStatus: 'PENDING_STAFF_REVIEW',
-      program: { id: 'program-1', name: 'Grant' },
-      contract: null,
-      emailDelivery: null,
+    runTrigger: jest.fn().mockResolvedValue({
+      trigger: 'intake.submitted',
+      programs: [{ programId: 'program-1', actions: ['create_enrollment'] }],
     }),
   };
 }
@@ -65,7 +58,7 @@ describe('PublicFormsService', () => {
     const prisma = readPrisma();
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      contractsService() as unknown as ContractsService,
+      automationService() as unknown as ProgramAutomationService,
     );
 
     const result = await service.getByToken(rawToken);
@@ -82,7 +75,7 @@ describe('PublicFormsService', () => {
   it('returns the same safe error for an invalid token', async () => {
     const service = new PublicFormsService(
       readPrisma() as unknown as PrismaService,
-      contractsService() as unknown as ContractsService,
+      automationService() as unknown as ProgramAutomationService,
     );
 
     await expect(service.getByToken('invalid')).rejects.toEqual(
@@ -100,10 +93,10 @@ describe('PublicFormsService', () => {
       ...readPrisma(),
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const contracts = contractsService();
+    const automation = automationService();
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      contracts as unknown as ContractsService,
+      automation as unknown as ProgramAutomationService,
     );
 
     const result = await service.submit(rawToken, {
@@ -131,13 +124,16 @@ describe('PublicFormsService', () => {
     }));
     expect(result).toEqual(expect.objectContaining({
       success: true,
-      status: 'PENDING_STAFF_REVIEW',
+      status: 'PROGRAM_SELECTED',
       selectedProgram: 'Grant',
-      nextAction: 'STAFF_REVIEW_REQUIRED',
-      contract: null,
+      program: { id: 'program-1', name: 'Grant' },
     }));
-    expect(contracts.prepareProgramSelection).toHaveBeenCalledWith('org-1', 'Grant');
-    expect(contracts.handlePostIntakeProgramSelection).toHaveBeenCalledWith('client-1', 'program-1');
+    expect(automation.runTrigger).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      trigger: 'intake.submitted',
+      programIds: ['program-1'],
+    }));
   });
 
   it('accepts a valid social_links array answer on a richer legacy-style template', async () => {
@@ -160,7 +156,7 @@ describe('PublicFormsService', () => {
     };
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      contractsService() as unknown as ContractsService,
+      automationService() as unknown as ProgramAutomationService,
     );
 
     await expect(service.submit(rawToken, {
@@ -186,7 +182,7 @@ describe('PublicFormsService', () => {
     };
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      contractsService() as unknown as ContractsService,
+      automationService() as unknown as ProgramAutomationService,
     );
 
     await expect(service.submit(rawToken, {

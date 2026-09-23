@@ -206,6 +206,59 @@ describe('ContractsService', () => {
     expect(JSON.stringify(result)).not.toContain('secureTokenHash');
   });
 
+  it('issues automation contracts using program default template id first, then mapped fallback name', async () => {
+    const customProgram = {
+      ...autoProgram,
+      defaultContractTemplateId: 'custom-contract-template',
+    };
+    const mappedTemplate = {
+      ...template,
+      id: 'template-mapped',
+      name: 'Brand Awareness Service Agreement',
+    };
+    const transaction = {
+      cfContract: { update: jest.fn().mockResolvedValue({ ...sentContract, contractTemplateId: 'template-mapped' }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'skipped' }),
+      },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(customProgram) },
+      cfContractTemplate: { findMany: jest.fn().mockResolvedValue([mappedTemplate]) },
+      cfContract: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ ...draftContract, contractTemplateId: 'template-mapped' }),
+      },
+      cfCommunication: { update: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    await service.issueContractForProgram('client-1', 'program-1', { enrollmentId: 'enroll-1' });
+
+    expect(prisma.cfContractTemplate.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { id: 'custom-contract-template' },
+          { name: { in: expect.arrayContaining(['custom-contract-template', 'Brand Awareness Service Agreement']) } },
+        ]),
+      }),
+    }));
+    expect(prisma.cfContract.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        enrollmentId: 'enroll-1',
+        contractTemplateId: 'template-mapped',
+      }),
+    }));
+  });
+
   it('generates a safe draft projection with a one-time URL', async () => {
     const prisma = {
       cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
