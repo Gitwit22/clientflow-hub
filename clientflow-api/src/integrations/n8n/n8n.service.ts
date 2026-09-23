@@ -70,118 +70,48 @@ export class N8nService {
     return this.getIntakeAvailability();
   }
 
-  async sendIntake(eventId: string, payload: IntakeEmailPayload): Promise<IntakeEmailDeliveryResult> {
-    const availability = this.getIntakeAvailability();
+  // sendIntake/sendContract/sendWelcome delegate to deliver() so every event type sends the same
+  // ClientflowLifecyclePayload shape (eventId + occurredAt included) that the n8n workflow actually
+  // validates against - the old duplicated fetch logic below omitted those fields and was silently
+  // rejected by n8n even once availability correctly reported 'ready'.
+  private async sendViaDeliver(
+    availability: 'ready' | 'disabled' | 'not_configured',
+    eventId: string,
+    payload: Omit<ClientflowLifecyclePayload, 'eventId' | 'occurredAt'>,
+  ): Promise<
+    | { status: 'sent'; sentAt: string }
+    | { status: 'skipped'; reason: 'disabled' | 'not_configured' }
+    | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' }
+  > {
     if (availability !== 'ready') return { status: 'skipped', reason: availability };
-
-    const { webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
     try {
-      const response = await fetch(webhookUrl!, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-clientflow-secret': secret!,
-          'Idempotency-Key': eventId,
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-        },
-        // n8n's org-validation node expects the same normalized id used by deliver().
-        body: JSON.stringify({
-          ...payload,
-          organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) return { status: 'failed', reason: 'rejected' };
-      return { status: 'sent', sentAt: new Date().toISOString() };
+      const receipt = await this.deliver({ ...payload, eventId, occurredAt: new Date().toISOString() });
+      return { status: 'sent', sentAt: receipt.sentAt };
     } catch (error) {
-      return {
-        status: 'failed',
-        reason: error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unavailable',
-      };
-    } finally {
-      clearTimeout(timeout);
+      if (error instanceof Error && error.name === 'AbortError') return { status: 'failed', reason: 'timeout' };
+      if (error instanceof ServiceUnavailableException && /rejected|invalid receipt/.test(error.message)) {
+        return { status: 'failed', reason: 'rejected' };
+      }
+      return { status: 'failed', reason: 'unavailable' };
     }
+  }
+
+  async sendIntake(eventId: string, payload: IntakeEmailPayload): Promise<IntakeEmailDeliveryResult> {
+    return this.sendViaDeliver(this.getIntakeAvailability(), eventId, payload);
   }
 
   async sendContract(
     eventId: string,
     payload: ContractEmailPayload,
   ): Promise<ContractEmailDeliveryResult> {
-    const availability = this.getContractAvailability();
-    if (availability !== 'ready') return { status: 'skipped', reason: availability };
-
-    const { webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const response = await fetch(webhookUrl!, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-clientflow-secret': secret!,
-          'Idempotency-Key': eventId,
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-        },
-        // n8n's org-validation node expects the same normalized id used by deliver().
-        body: JSON.stringify({
-          ...payload,
-          organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) return { status: 'failed', reason: 'rejected' };
-      return { status: 'sent', sentAt: new Date().toISOString() };
-    } catch (error) {
-      return {
-        status: 'failed',
-        reason: error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unavailable',
-      };
-    } finally {
-      clearTimeout(timeout);
-    }
+    return this.sendViaDeliver(this.getContractAvailability(), eventId, payload);
   }
 
   async sendWelcome(
     eventId: string,
     payload: WelcomeEmailPayload,
   ): Promise<WelcomeEmailDeliveryResult> {
-    const availability = this.getWelcomeAvailability();
-    if (availability !== 'ready') return { status: 'skipped', reason: availability };
-
-    const { webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const response = await fetch(webhookUrl!, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-clientflow-secret': secret!,
-          'Idempotency-Key': eventId,
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-        },
-        // n8n's org-validation node expects the same normalized id used by deliver().
-        body: JSON.stringify({
-          ...payload,
-          organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) return { status: 'failed', reason: 'rejected' };
-      return { status: 'sent', sentAt: new Date().toISOString() };
-    } catch (error) {
-      return {
-        status: 'failed',
-        reason: error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unavailable',
-      };
-    } finally {
-      clearTimeout(timeout);
-    }
+    return this.sendViaDeliver(this.getWelcomeAvailability(), eventId, payload);
   }
 
   async deliver(payload: ClientflowLifecyclePayload): Promise<N8nDeliveryReceipt> {

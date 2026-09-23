@@ -38,7 +38,10 @@ describe('disabled integrations', () => {
   });
 
   it('sends the intake payload with secret, bearer, and idempotency headers', async () => {
-    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const sent = JSON.parse(String((init as RequestInit).body));
+      return new Response(JSON.stringify({ success: true, status: 'ACCEPTED', eventId: sent.eventId, sentAt: '2030-01-01T00:00:00.000Z' }), { status: 202 });
+    });
     const service = new N8nService(configuredN8n());
     const payload = {
       eventType: 'intake.send' as const,
@@ -61,13 +64,17 @@ describe('disabled integrations', () => {
         'Idempotency-Key': 'intake-assignment-1',
         Authorization: 'Bearer workflow-token',
       },
-      body: JSON.stringify(payload),
     }));
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
+    expect(sentBody).toEqual({ ...payload, eventId: 'intake-assignment-1', occurredAt: expect.any(String) });
     fetchMock.mockRestore();
   });
 
   it('sends the exact contract payload with secret, bearer, and idempotency headers', async () => {
-    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const sent = JSON.parse(String((init as RequestInit).body));
+      return new Response(JSON.stringify({ success: true, status: 'ACCEPTED', eventId: sent.eventId, sentAt: '2030-01-01T00:00:00.000Z' }), { status: 202 });
+    });
     const service = new N8nService(configuredN8n());
     const payload = {
       eventType: 'contract.send' as const,
@@ -91,13 +98,17 @@ describe('disabled integrations', () => {
         'Idempotency-Key': 'contract.send:contract-1:event-1',
         Authorization: 'Bearer workflow-token',
       },
-      body: JSON.stringify(payload),
     }));
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
+    expect(sentBody).toEqual({ ...payload, eventId: 'contract.send:contract-1:event-1', occurredAt: expect.any(String) });
     fetchMock.mockRestore();
   });
 
   it('sends the exact welcome payload with secret, bearer, and idempotency headers', async () => {
-    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const sent = JSON.parse(String((init as RequestInit).body));
+      return new Response(JSON.stringify({ success: true, status: 'ACCEPTED', eventId: sent.eventId, sentAt: '2030-01-01T00:00:00.000Z' }), { status: 202 });
+    });
     const service = new N8nService(configuredN8n());
     const payload = {
       eventType: 'welcome.send' as const,
@@ -119,8 +130,9 @@ describe('disabled integrations', () => {
         'Idempotency-Key': 'welcome.send:contract-1',
         Authorization: 'Bearer workflow-token',
       },
-      body: JSON.stringify(payload),
     }));
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
+    expect(sentBody).toEqual({ ...payload, eventId: 'welcome.send:contract-1', occurredAt: expect.any(String) });
     fetchMock.mockRestore();
   });
 });
