@@ -425,7 +425,7 @@ export class ProgramAutomationService {
       : 'A program update is available in ClientFlow.';
 
     const availability = this.n8n.getWelcomeAvailability();
-    const eventId = `automation.email:${context.trigger}:${context.program.id}:${context.client.id}`;
+    const eventId = `automation.email:${context.idempotencySeed}:${context.program.id}:${context.client.id}`;
     const communication = await this.prisma.cfCommunication.create({
       data: {
         organizationId: context.organizationId,

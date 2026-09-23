@@ -38,6 +38,13 @@ function readJwtSecret(type: 'access' | 'refresh'): string {
   return process.env[key] ?? process.env.JWT_SECRET ?? 'development-clientflow-secret';
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return !!error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
+}
+
 function getSessionTokenPayload(token: string, type: 'access' | 'refresh') {
   if (!token) throw new UnauthorizedException('Missing authenticated session.');
   const secret = readJwtSecret(type);
@@ -397,18 +404,25 @@ export class ClientflowCompatibilityController {
     const makeActive = body.makeActive !== false;
     let version: Awaited<ReturnType<typeof prisma.cfProgramDocumentVersion.create>> | null = null;
     if (requestedVersion !== null) {
-      version = await prisma.$transaction(async (transaction) => {
-        const created = await transaction.cfProgramDocumentVersion.create({
-          data: { ...payload, version: requestedVersion },
-        });
-        if (makeActive) {
-          await transaction.cfProgramDocumentTemplate.update({
-            where: { id: templateId },
-            data: { activeVersionId: created.id },
+      try {
+        version = await prisma.$transaction(async (transaction) => {
+          const created = await transaction.cfProgramDocumentVersion.create({
+            data: { ...payload, version: requestedVersion },
           });
+          if (makeActive) {
+            await transaction.cfProgramDocumentTemplate.update({
+              where: { id: templateId },
+              data: { activeVersionId: created.id },
+            });
+          }
+          return created;
+        });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          throw new BadRequestException(`Document version ${requestedVersion} already exists for this template.`);
         }
-        return created;
-      });
+        throw error;
+      }
     } else {
       version = await prisma.$transaction(async (transaction) => {
         await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`cf_program_doc_version:${templateId}`}))`;
@@ -507,7 +521,7 @@ export class ClientflowCompatibilityController {
         enrollmentIdsByProgramId: { [updated.programId]: updated.id },
         actorUserId: admin.id,
         actorDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
-        idempotencySeed: `compat.enrollment.approved:${updated.id}:${updated.updatedAt.toISOString()}`,
+        idempotencySeed: `compat.enrollment.approved:${updated.id}`,
         payload: { enrollmentStatus: updated.status },
       });
     }
