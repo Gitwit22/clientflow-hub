@@ -25,9 +25,11 @@ describe('disabled integrations', () => {
     const service = new N8nService(disabledConfig());
     await expect(service.deliver({
       eventId: 'event-1',
-      eventType: 'intake.send',
+      eventType: 'form.send',
       organizationId: 'org-1',
       clientId: 'client-1',
+      formId: 'form-1',
+      sentByUserId: 'system',
       occurredAt: new Date().toISOString(),
     })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
@@ -44,14 +46,15 @@ describe('disabled integrations', () => {
     });
     const service = new N8nService(configuredN8n());
     const payload = {
-      eventType: 'intake.send' as const,
       organizationId: 'org-1',
       clientId: 'client-1',
+      formId: 'form-1',
       recipientEmail: 'client@example.com',
       clientName: 'Client Owner',
       formName: 'General Intake Form' as const,
       formUrl: 'https://clientflow.example.com/s/token',
       dueDate: '2030-01-08T00:00:00.000Z',
+      sentByUserId: 'system',
     };
 
     await expect(service.sendIntake('intake-assignment-1', payload))
@@ -66,7 +69,13 @@ describe('disabled integrations', () => {
       },
     }));
     const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
-    expect(sentBody).toEqual({ ...payload, eventId: 'intake-assignment-1', occurredAt: expect.any(String) });
+    expect(sentBody).toEqual({
+      ...payload,
+      eventId: 'intake-assignment-1',
+      eventType: 'form.send',
+      formPurpose: 'general_intake',
+      occurredAt: expect.any(String),
+    });
     fetchMock.mockRestore();
   });
 
@@ -77,15 +86,16 @@ describe('disabled integrations', () => {
     });
     const service = new N8nService(configuredN8n());
     const payload = {
-      eventType: 'contract.send' as const,
       organizationId: 'org_ea_management',
       clientId: 'client_123',
+      formId: 'contract-template-1',
       recipientEmail: 'client@example.com',
       clientName: 'Client Name',
       programName: 'Brand Awareness Subscription',
       contractName: 'Brand Awareness Service Agreement',
       contractUrl: 'https://clientflow.example.com/contracts/token',
       dueDate: '2026-09-28',
+      sentByUserId: 'system',
     };
 
     await expect(service.sendContract('contract.send:contract-1:event-1', payload))
@@ -100,7 +110,13 @@ describe('disabled integrations', () => {
       },
     }));
     const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
-    expect(sentBody).toEqual({ ...payload, eventId: 'contract.send:contract-1:event-1', occurredAt: expect.any(String) });
+    expect(sentBody).toEqual({
+      ...payload,
+      eventId: 'contract.send:contract-1:event-1',
+      eventType: 'form.send',
+      formPurpose: 'contract',
+      occurredAt: expect.any(String),
+    });
     fetchMock.mockRestore();
   });
 
@@ -111,13 +127,14 @@ describe('disabled integrations', () => {
     });
     const service = new N8nService(configuredN8n());
     const payload = {
-      eventType: 'welcome.send' as const,
       organizationId: 'org_ea_management',
       clientId: 'client_123',
+      formId: 'contract-template-1',
       recipientEmail: 'client@example.com',
       clientName: 'Client Name',
       programName: 'Brand Awareness Subscription',
       nextStep: 'Your onboarding has started. A team member will follow up with you soon.',
+      sentByUserId: 'system',
     };
 
     await expect(service.sendWelcome('welcome.send:contract-1', payload))
@@ -132,7 +149,13 @@ describe('disabled integrations', () => {
       },
     }));
     const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
-    expect(sentBody).toEqual({ ...payload, eventId: 'welcome.send:contract-1', occurredAt: expect.any(String) });
+    expect(sentBody).toEqual({
+      ...payload,
+      eventId: 'welcome.send:contract-1',
+      eventType: 'form.send',
+      formPurpose: 'welcome',
+      occurredAt: expect.any(String),
+    });
     fetchMock.mockRestore();
   });
 });

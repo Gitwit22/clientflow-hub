@@ -366,9 +366,9 @@ export class ContractsService {
     });
 
     const welcomeDelivery = await this.n8n.sendWelcome(eventId, {
-      eventType: 'welcome.send',
       organizationId: client.organizationId,
       clientId: client.id,
+      formId: contract.contractTemplateId,
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
@@ -377,6 +377,7 @@ export class ContractsService {
         this.config.get('APP_URL', { infer: true }),
         program.welcomeMessage,
       ),
+      sentByUserId: client.assignedUserId ?? 'system',
     });
     await this.recordWelcomeDeliveryResult(
       completed.communication.id,
@@ -641,15 +642,16 @@ export class ContractsService {
     });
 
     const emailDelivery = await this.n8n.sendContract(eventId, {
-      eventType: 'contract.send',
       organizationId: client.organizationId,
       clientId: client.id,
+      formId: template.id,
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
       contractName: template.name,
       contractUrl: publicContractUrl,
       dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),
+      sentByUserId: client.assignedUserId ?? 'system',
     });
     await this.recordDeliveryResult(issued.communication.id, emailDelivery);
 

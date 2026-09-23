@@ -70,14 +70,14 @@ export class N8nService {
     return this.getIntakeAvailability();
   }
 
-  // sendIntake/sendContract/sendWelcome delegate to deliver() so every event type sends the same
-  // ClientflowLifecyclePayload shape (eventId + occurredAt included) that the n8n workflow actually
-  // validates against - the old duplicated fetch logic below omitted those fields and was silently
-  // rejected by n8n even once availability correctly reported 'ready'.
+  // sendIntake/sendContract/sendWelcome delegate to deliver() so every lifecycle email goes out as
+  // a single form.send event (n8n's webhook validator only accepts that eventType and rejects
+  // anything else, including formId/sentByUserId-less payloads that the old duplicated fetch logic
+  // used to send under intake.send/contract.send/welcome.send).
   private async sendViaDeliver(
     availability: 'ready' | 'disabled' | 'not_configured',
     eventId: string,
-    payload: Omit<ClientflowLifecyclePayload, 'eventId' | 'occurredAt'>,
+    payload: Omit<ClientflowLifecyclePayload, 'eventId' | 'eventType' | 'occurredAt'>,
   ): Promise<
     | { status: 'sent'; sentAt: string }
     | { status: 'skipped'; reason: 'disabled' | 'not_configured' }
@@ -85,7 +85,12 @@ export class N8nService {
   > {
     if (availability !== 'ready') return { status: 'skipped', reason: availability };
     try {
-      const receipt = await this.deliver({ ...payload, eventId, occurredAt: new Date().toISOString() });
+      const receipt = await this.deliver({
+        ...payload,
+        eventId,
+        eventType: 'form.send',
+        occurredAt: new Date().toISOString(),
+      });
       return { status: 'sent', sentAt: receipt.sentAt };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return { status: 'failed', reason: 'timeout' };
@@ -97,21 +102,21 @@ export class N8nService {
   }
 
   async sendIntake(eventId: string, payload: IntakeEmailPayload): Promise<IntakeEmailDeliveryResult> {
-    return this.sendViaDeliver(this.getIntakeAvailability(), eventId, payload);
+    return this.sendViaDeliver(this.getIntakeAvailability(), eventId, { ...payload, formPurpose: 'general_intake' });
   }
 
   async sendContract(
     eventId: string,
     payload: ContractEmailPayload,
   ): Promise<ContractEmailDeliveryResult> {
-    return this.sendViaDeliver(this.getContractAvailability(), eventId, payload);
+    return this.sendViaDeliver(this.getContractAvailability(), eventId, { ...payload, formPurpose: 'contract' });
   }
 
   async sendWelcome(
     eventId: string,
     payload: WelcomeEmailPayload,
   ): Promise<WelcomeEmailDeliveryResult> {
-    return this.sendViaDeliver(this.getWelcomeAvailability(), eventId, payload);
+    return this.sendViaDeliver(this.getWelcomeAvailability(), eventId, { ...payload, formPurpose: 'welcome' });
   }
 
   async deliver(payload: ClientflowLifecyclePayload): Promise<N8nDeliveryReceipt> {

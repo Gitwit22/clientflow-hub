@@ -159,14 +159,16 @@ export class ClientsService {
     const emailDelivery: IntakeEmailDeliveryResult | DeferredEmailDelivery = deferred
       ? { status: 'deferred' }
       : await this.n8n.sendIntake(`intake-${created.assignment.id}`, {
-          eventType: 'intake.send',
           organizationId: organization.id,
           clientId: created.client.id,
+          formId: created.assignment.formId,
           recipientEmail: created.client.email,
           clientName: created.client.primaryContactName,
           formName: 'General Intake Form',
           formUrl: publicFormUrl,
           dueDate: created.dueAt.toISOString(),
+          expiresAt: created.assignment.expiresAt?.toISOString() ?? null,
+          sentByUserId: assignee?.id ?? 'system',
         });
 
     if (emailDelivery.status === 'deferred') {
@@ -326,14 +328,16 @@ export class ClientsService {
     const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/$/, '');
     const publicFormUrl = `${appUrl}/apply/${rawToken}`;
     const emailDelivery = await this.n8n.sendIntake(`intake-${assignment.id}-manual`, {
-      eventType: 'intake.send',
       organizationId: client.organizationId,
       clientId: client.id,
+      formId: assignment.formId,
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       formName: 'General Intake Form',
       formUrl: publicFormUrl,
       dueDate: (assignment.dueAt ?? new Date()).toISOString(),
+      expiresAt: assignment.expiresAt?.toISOString() ?? null,
+      sentByUserId: client.assignedUserId ?? 'system',
     });
     await this.prisma.cfActivityLog.create({
       data: {

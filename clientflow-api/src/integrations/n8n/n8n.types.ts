@@ -1,8 +1,5 @@
 export type ClientflowLifecycleEventType =
   | 'form.send'
-  | 'intake.send'
-  | 'contract.send'
-  | 'welcome.send'
   | 'form.submitted'
   | 'contract.completed'
   | 'email.status';
@@ -12,7 +9,7 @@ export interface ClientflowLifecyclePayload {
   eventType: ClientflowLifecycleEventType;
   organizationId: string;
   clientId: string;
-  formId?: string;
+  formId: string;
   recipientEmail?: string;
   clientName?: string;
   programName?: string;
@@ -22,9 +19,11 @@ export interface ClientflowLifecyclePayload {
   contractUrl?: string;
   dueDate?: string;
   expiresAt?: string | null;
-  sentByUserId?: string;
+  sentByUserId: string;
   personalMessage?: string;
   nextStep?: string;
+  /** Distinguishes automated form.send events (general_intake, contract, welcome) that carry no manual sender. */
+  formPurpose?: 'manual' | 'general_intake' | 'contract' | 'welcome';
   occurredAt: string;
 }
 
@@ -35,15 +34,20 @@ export interface N8nDeliveryReceipt {
   sentAt: string;
 }
 
+// n8n's webhook validator only accepts eventType 'form.send' and requires formId + sentByUserId,
+// so every lifecycle email - including the auto-generated General Intake - must be sent as a
+// form.send event; the previously separate intake.send/contract.send/welcome.send types were rejected.
 export interface IntakeEmailPayload {
-  eventType: 'intake.send';
   organizationId: string;
   clientId: string;
+  formId: string;
   recipientEmail: string;
   clientName: string;
   formName: 'General Intake Form';
   formUrl: string;
   dueDate: string;
+  expiresAt?: string | null;
+  sentByUserId: string;
 }
 
 export type IntakeEmailDeliveryResult =
@@ -52,27 +56,29 @@ export type IntakeEmailDeliveryResult =
   | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' };
 
 export interface ContractEmailPayload {
-  eventType: 'contract.send';
   organizationId: string;
   clientId: string;
+  formId: string;
   recipientEmail: string;
   clientName: string;
   programName: string;
   contractName: string;
   contractUrl: string;
   dueDate: string;
+  sentByUserId: string;
 }
 
 export type ContractEmailDeliveryResult = IntakeEmailDeliveryResult;
 
 export interface WelcomeEmailPayload {
-  eventType: 'welcome.send';
   organizationId: string;
   clientId: string;
+  formId: string;
   recipientEmail: string;
   clientName: string;
   programName: string;
   nextStep: string;
+  sentByUserId: string;
 }
 
 export type WelcomeEmailDeliveryResult = IntakeEmailDeliveryResult;

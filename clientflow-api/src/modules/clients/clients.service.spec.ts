@@ -44,10 +44,12 @@ describe('ClientsService', () => {
     };
     const assignment = {
       id: 'assignment-1',
+      formId: 'form-1',
       status: 'sent',
       dueDate: '2030-01-08',
       sentAt: new Date('2030-01-01T00:00:00.000Z'),
       submittedAt: null,
+      expiresAt: null,
     };
     const transaction = {
       cfFormTemplate: {
@@ -91,8 +93,9 @@ describe('ClientsService', () => {
     }));
     expect(transaction.cfActivityLog.create).toHaveBeenCalledTimes(2);
     expect(n8n.sendIntake).toHaveBeenCalledWith('intake-assignment-1', expect.objectContaining({
-      eventType: 'intake.send',
       clientId: 'client-1',
+      formId: 'form-1',
+      sentByUserId: 'system',
       formUrl: expect.stringMatching(/^https:\/\/clientflow\.example\.com\/apply\/[A-Za-z0-9_-]{43}$/),
     }));
     expect(result.emailDelivery).toEqual({ status: 'skipped', reason: 'disabled' });
