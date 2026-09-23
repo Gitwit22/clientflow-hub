@@ -58,13 +58,15 @@ export const PROGRAM_CONTRACT_TEMPLATES = {
 /** Per-program welcome email copy; programs not listed fall back to WELCOME_NEXT_STEP. */
 export const PROGRAM_WELCOME_MESSAGES: Partial<Record<string, string>> = {
   'The Inspired Detroit Initiative':
-    'Welcome to the Inspired Detroit Initiative! We have received your membership payment and completed your onboarding. '
-    + 'Your IDI Member Welcome Guide explains what your membership includes and what to expect each month. '
-    + 'The program begins Thursday, October 1, 2026 at Rivertown Market (1475 E. Jefferson Ave, Detroit, MI 48207), 6:00-7:00 PM. '
-    + 'We will review how the program works, answer questions, and award a grant.',
+    'Hi {{client.firstName}},\n\n'
+    + 'Welcome to The Inspired Detroit Initiative.\n\n'
+    + 'Your agreement has been received and your enrollment is now moving into onboarding.\n\n'
+    + "We've attached your Welcome Guide, which explains the program, what to expect, and your next steps.\n\n"
+    + '[View Welcome Guide]\n\n'
+    + 'EA Management',
 };
 
-const IDI_WELCOME_GUIDE_PATH = '/contracts and emails/IDI Member Welcome Guide.docx';
+const IDI_WELCOME_GUIDE_PATH = '/contracts and emails/IDI Member Welcome Guide.pdf';
 
 export function welcomeMessageFor(
   programName: string,
@@ -77,6 +79,12 @@ export function welcomeMessageFor(
     return `${message} IDI Member Welcome Guide: ${guideUrl}`;
   }
   return message;
+}
+
+/** Public URL of the program's welcome-email attachment, for n8n to fetch and attach to the send. */
+export function welcomeAttachmentUrlFor(programName: string, appUrl?: string): string | undefined {
+  if (programName !== 'The Inspired Detroit Initiative' || !appUrl) return undefined;
+  return `${appUrl.replace(/\/+$/, '')}${encodeURI(IDI_WELCOME_GUIDE_PATH)}`;
 }
 
 export type ContractProgramName = keyof typeof PROGRAM_CONTRACT_RULES;

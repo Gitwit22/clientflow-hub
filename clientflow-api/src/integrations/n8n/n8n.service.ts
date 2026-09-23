@@ -5,11 +5,14 @@ import type {
   ClientflowLifecyclePayload,
   ContractEmailDeliveryResult,
   ContractEmailPayload,
+  ContractSendLifecyclePayload,
+  FormSendLifecyclePayload,
   IntakeEmailDeliveryResult,
   IntakeEmailPayload,
   N8nDeliveryReceipt,
   WelcomeEmailDeliveryResult,
   WelcomeEmailPayload,
+  WelcomeSendLifecyclePayload,
 } from './n8n.types';
 
 @Injectable()
@@ -70,14 +73,15 @@ export class N8nService {
     return this.getIntakeAvailability();
   }
 
-  // sendIntake/sendContract/sendWelcome delegate to deliver() so every lifecycle email goes out as
-  // a single form.send event (n8n's webhook validator only accepts that eventType and rejects
-  // anything else, including formId/sentByUserId-less payloads that the old duplicated fetch logic
-  // used to send under intake.send/contract.send/welcome.send).
-  private async sendViaDeliver(
+  // sendIntake/sendContract/sendWelcome all delegate to deliver() for a single HTTP transport, but
+  // each must supply its OWN real eventType - n8n's workflow switches on eventType and validates
+  // different required fields per branch (form.send needs formName/formUrl, contract.send needs
+  // contractName/contractUrl, welcome.send needs clientName/programName/nextStep). Forcing every
+  // send through 'form.send' made contract/welcome payloads fail that branch's validation.
+  private async sendViaDeliver<T extends ClientflowLifecyclePayload>(
     availability: 'ready' | 'disabled' | 'not_configured',
     eventId: string,
-    payload: Omit<ClientflowLifecyclePayload, 'eventId' | 'eventType' | 'occurredAt'>,
+    payload: Omit<T, 'eventId' | 'occurredAt'>,
   ): Promise<
     | { status: 'sent'; sentAt: string }
     | { status: 'skipped'; reason: 'disabled' | 'not_configured' }
@@ -88,9 +92,8 @@ export class N8nService {
       const receipt = await this.deliver({
         ...payload,
         eventId,
-        eventType: 'form.send',
         occurredAt: new Date().toISOString(),
-      });
+      } as T);
       return { status: 'sent', sentAt: receipt.sentAt };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return { status: 'failed', reason: 'timeout' };
@@ -102,21 +105,31 @@ export class N8nService {
   }
 
   async sendIntake(eventId: string, payload: IntakeEmailPayload): Promise<IntakeEmailDeliveryResult> {
-    return this.sendViaDeliver(this.getIntakeAvailability(), eventId, { ...payload, formPurpose: 'general_intake' });
+    return this.sendViaDeliver<FormSendLifecyclePayload>(this.getIntakeAvailability(), eventId, {
+      ...payload,
+      eventType: 'form.send',
+      formPurpose: 'general_intake',
+    });
   }
 
   async sendContract(
     eventId: string,
     payload: ContractEmailPayload,
   ): Promise<ContractEmailDeliveryResult> {
-    return this.sendViaDeliver(this.getContractAvailability(), eventId, { ...payload, formPurpose: 'contract' });
+    return this.sendViaDeliver<ContractSendLifecyclePayload>(this.getContractAvailability(), eventId, {
+      ...payload,
+      eventType: 'contract.send',
+    });
   }
 
   async sendWelcome(
     eventId: string,
     payload: WelcomeEmailPayload,
   ): Promise<WelcomeEmailDeliveryResult> {
-    return this.sendViaDeliver(this.getWelcomeAvailability(), eventId, { ...payload, formPurpose: 'welcome' });
+    return this.sendViaDeliver<WelcomeSendLifecyclePayload>(this.getWelcomeAvailability(), eventId, {
+      ...payload,
+      eventType: 'welcome.send',
+    });
   }
 
   async deliver(payload: ClientflowLifecyclePayload): Promise<N8nDeliveryReceipt> {

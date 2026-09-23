@@ -194,7 +194,8 @@ describe('ContractsService', () => {
       data: expect.objectContaining({ status: 'skipped', errorCode: 'disabled' }),
     }));
     expect(n8n.sendContract).toHaveBeenCalledWith(expect.stringMatching(/^contract\.send:/), expect.objectContaining({
-      formId: expect.any(String),
+      contractName: expect.any(String),
+      contractUrl: expect.any(String),
       sentByUserId: expect.any(String),
       dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     }));
@@ -501,11 +502,11 @@ describe('ContractsService', () => {
     expect(n8n.sendWelcome).toHaveBeenCalledWith('welcome.send:contract-1', {
       organizationId: 'org-1',
       clientId: 'client-1',
-      formId: 'template-1',
       recipientEmail: 'client@example.com',
       clientName: 'Client Owner',
       programName: 'Brand Awareness Subscription',
       nextStep: 'Your onboarding has started. A team member will follow up with you soon.',
+      attachmentUrl: undefined,
       sentByUserId: 'system',
     });
     expect(result).toEqual(expect.objectContaining({

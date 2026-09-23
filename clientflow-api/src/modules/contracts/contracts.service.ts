@@ -24,7 +24,9 @@ import {
   generateContractToken,
   hashContractToken,
   monitoringDueDate,
+  PROGRAM_WELCOME_MESSAGES,
   renderContractSnapshot,
+  welcomeAttachmentUrlFor,
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
@@ -424,11 +426,11 @@ export class ContractsService {
     const welcomeDelivery = await this.n8n.sendWelcome(eventId, {
       organizationId: client.organizationId,
       clientId: client.id,
-      formId: contract.contractTemplateId,
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
       nextStep: welcomeConfig.body,
+      attachmentUrl: welcomeAttachmentUrlFor(program.name, this.config.get('APP_URL', { infer: true })),
       sentByUserId: client.assignedUserId ?? 'system',
     });
     await this.recordWelcomeDeliveryResult(
@@ -780,12 +782,9 @@ export class ContractsService {
     const emailDelivery = await this.n8n.sendContract(eventId, {
       organizationId: client.organizationId,
       clientId: client.id,
-      formId: template.id,
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
-      formName: template.name,
-      formUrl: publicContractUrl,
       contractName: template.name,
       contractUrl: publicContractUrl,
       dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),
@@ -879,7 +878,12 @@ export class ContractsService {
       },
     };
 
-    const fallbackBody = input.fallbackMessage?.trim() || WELCOME_NEXT_STEP;
+    // A per-program default (PROGRAM_WELCOME_MESSAGES) takes priority over the raw DB welcomeMessage
+    // field for known programs, so the maintained copy stays authoritative even if that field is stale.
+    const fallbackBody = this.renderWelcomeTemplate(
+      PROGRAM_WELCOME_MESSAGES[input.program.name] ?? input.fallbackMessage?.trim() ?? WELCOME_NEXT_STEP,
+      context,
+    );
     const fallbackSubject = `Welcome to ${input.program.name}`;
     const welcomeVersionModel = (this.prisma as unknown as {
       cfProgramWelcomeEmailVersion?: {

@@ -522,7 +522,6 @@ export class ProgramAutomationService {
       const delivery = await this.n8n.sendWelcome(eventId, {
         organizationId: context.organizationId,
         clientId: context.client.id,
-        formId: context.program.defaultFormTemplateId,
         recipientEmail: context.client.email,
         clientName: context.client.primaryContactName,
         programName: context.program.name,

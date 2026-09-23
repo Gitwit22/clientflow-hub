@@ -1,31 +1,57 @@
 export type ClientflowLifecycleEventType =
   | 'form.send'
+  | 'contract.send'
+  | 'welcome.send'
   | 'form.submitted'
   | 'contract.completed'
   | 'email.status';
 
-export interface ClientflowLifecyclePayload {
+interface LifecycleEventBase {
   eventId: string;
-  eventType: ClientflowLifecycleEventType;
+  occurredAt: string;
   organizationId: string;
   clientId: string;
+  recipientEmail: string;
+  sentByUserId: string;
+}
+
+// n8n's webhook validator switches on eventType and requires different fields per branch
+// (form.send needs formName/formUrl, contract.send needs contractName/contractUrl, welcome.send
+// needs clientName/programName/nextStep) - each payload shape below matches its branch exactly so
+// TypeScript rejects a payload built for the wrong eventType instead of n8n rejecting it at runtime.
+export interface FormSendLifecyclePayload extends LifecycleEventBase {
+  eventType: 'form.send';
   formId: string;
-  recipientEmail?: string;
+  formName: string;
+  formUrl: string;
   clientName?: string;
-  programName?: string;
-  formName?: string;
-  formUrl?: string;
-  contractName?: string;
-  contractUrl?: string;
   dueDate?: string;
   expiresAt?: string | null;
-  sentByUserId: string;
   personalMessage?: string;
-  nextStep?: string;
-  /** Distinguishes automated form.send events (general_intake, contract, welcome) that carry no manual sender. */
-  formPurpose?: 'manual' | 'general_intake' | 'contract' | 'welcome';
-  occurredAt: string;
+  formPurpose?: 'manual' | 'general_intake';
 }
+
+export interface ContractSendLifecyclePayload extends LifecycleEventBase {
+  eventType: 'contract.send';
+  clientName: string;
+  contractName: string;
+  contractUrl: string;
+  programName?: string;
+  dueDate?: string;
+}
+
+export interface WelcomeSendLifecyclePayload extends LifecycleEventBase {
+  eventType: 'welcome.send';
+  clientName: string;
+  programName: string;
+  nextStep: string;
+  attachmentUrl?: string;
+}
+
+export type ClientflowLifecyclePayload =
+  | FormSendLifecyclePayload
+  | ContractSendLifecyclePayload
+  | WelcomeSendLifecyclePayload;
 
 export interface N8nDeliveryReceipt {
   success: true;
@@ -34,10 +60,6 @@ export interface N8nDeliveryReceipt {
   sentAt: string;
 }
 
-// n8n's webhook validator only accepts eventType 'form.send' and requires formId, formName, formUrl,
-// and sentByUserId,
-// so every lifecycle email - including the auto-generated General Intake - must be sent as a
-// form.send event; the previously separate intake.send/contract.send/welcome.send types were rejected.
 export interface IntakeEmailPayload {
   organizationId: string;
   clientId: string;
@@ -59,15 +81,12 @@ export type IntakeEmailDeliveryResult =
 export interface ContractEmailPayload {
   organizationId: string;
   clientId: string;
-  formId: string;
   recipientEmail: string;
   clientName: string;
-  programName: string;
-  formName: string;
-  formUrl: string;
+  programName?: string;
   contractName: string;
   contractUrl: string;
-  dueDate: string;
+  dueDate?: string;
   sentByUserId: string;
 }
 
@@ -76,13 +95,11 @@ export type ContractEmailDeliveryResult = IntakeEmailDeliveryResult;
 export interface WelcomeEmailPayload {
   organizationId: string;
   clientId: string;
-  formId: string;
   recipientEmail: string;
   clientName: string;
   programName: string;
   nextStep: string;
-  emailSubject?: string;
-  emailBody?: string;
+  attachmentUrl?: string;
   sentByUserId: string;
 }
 
