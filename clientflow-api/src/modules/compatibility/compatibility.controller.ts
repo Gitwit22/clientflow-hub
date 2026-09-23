@@ -1011,9 +1011,22 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
   }
-  @Get('communications') async listAllCommunications(@Req() request: Request) {
+  @Get('communications') async listAllCommunications(
+    @Req() request: Request,
+    @Query('limit') limitQuery?: string,
+    @Query('offset') offsetQuery?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfCommunication.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    const parsedLimit = Number.parseInt(limitQuery ?? '100', 10);
+    const parsedOffset = Number.parseInt(offsetQuery ?? '0', 10);
+    const take = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 500) : 100;
+    const skip = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
+    return this.requirePrisma().cfCommunication.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      skip,
+    });
   }
   @Get('final-reports') async listAllFinalReports(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);

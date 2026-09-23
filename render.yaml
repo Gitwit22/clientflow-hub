@@ -23,6 +23,7 @@ services:
     autoDeploy: true
     buildCommand: npm ci && npm run build
     startCommand: npm run start:prod
+    preDeployCommand: npm run prisma:deploy
     healthCheckPath: /api/v1/health/live
     envVars:
       - key: NODE_ENV

@@ -53,6 +53,124 @@ describe('compatibility route scaffold', () => {
       expect(result).toEqual(enrollment);
     });
 
+    it('returns safe empty workflow selections when optional configuration is absent', async () => {
+      const prisma = {
+        cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(null) },
+        cfProgramContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+        cfProgramWelcomeEmailTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+
+      const result = await (controller as any).getProgramWorkflow('org-1', 'program-legacy');
+
+      expect(result.config).toEqual(expect.objectContaining({
+        enabled: true,
+        sendContractAfterIntake: false,
+        sendWelcomeAfterContractSigned: false,
+      }));
+      expect(result.contract).toEqual({
+        templates: [],
+        versions: [],
+        activeTemplate: null,
+        activeVersion: null,
+      });
+      expect(result.welcomeEmail).toEqual({
+        templates: [],
+        versions: [],
+        activeTemplate: null,
+        activeVersion: null,
+      });
+    });
+
+    it('resolves configured contract and welcome versions independently', async () => {
+      const contractTemplate = { id: 'contract-template-1', createdAt: new Date('2030-01-01') };
+      const welcomeTemplate = { id: 'welcome-template-1', createdAt: new Date('2030-01-01') };
+      const prisma = {
+        cfProgramWorkflowConfig: {
+          findFirst: jest.fn().mockResolvedValue({
+            enabled: true,
+            sendContractAfterIntake: true,
+            sendWelcomeAfterContractSigned: true,
+            activeContractTemplateId: contractTemplate.id,
+            activeContractVersionId: 'contract-version-1',
+            activeWelcomeEmailTemplateId: welcomeTemplate.id,
+            activeWelcomeEmailVersionId: 'welcome-version-1',
+          }),
+        },
+        cfProgramContractTemplate: { findMany: jest.fn().mockResolvedValue([contractTemplate]) },
+        cfProgramWelcomeEmailTemplate: { findMany: jest.fn().mockResolvedValue([welcomeTemplate]) },
+        cfProgramContractVersion: {
+          findMany: jest.fn().mockResolvedValue([{ id: 'contract-version-1', templateId: contractTemplate.id }]),
+        },
+        cfProgramWelcomeEmailVersion: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+
+      const result = await (controller as any).getProgramWorkflow('org-1', 'program-1');
+
+      expect(result.contract.activeTemplate).toEqual(contractTemplate);
+      expect(result.contract.activeVersion).toEqual({ id: 'contract-version-1', templateId: contractTemplate.id });
+      expect(result.welcomeEmail.activeTemplate).toEqual(welcomeTemplate);
+      expect(result.welcomeEmail.activeVersion).toBeNull();
+    });
+
+    it('passes bounded pagination to communications queries', async () => {
+      const prisma = { cfCommunication: { findMany: jest.fn().mockResolvedValue([]) } };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1' });
+
+      await controller.listAllCommunications({} as never, '500', '500');
+
+      expect(prisma.cfCommunication.findMany).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 500,
+        skip: 500,
+      });
+    });
+
+    it('returns program detail for a legacy program without workflow records', async () => {
+      const program = { id: 'program-legacy', organizationId: 'org-1', name: 'Legacy Program' };
+      const prisma = {
+        cfProgram: { findFirst: jest.fn().mockResolvedValue(program) },
+        cfProgramEnrollment: { findMany: jest.fn().mockResolvedValue([]) },
+        cfClient: { findMany: jest.fn().mockResolvedValue([]) },
+        cfFormAssignment: { findMany: jest.fn().mockResolvedValue([]) },
+        cfFormTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+        cfTerms: { findMany: jest.fn().mockResolvedValue([]) },
+        cfContract: { findMany: jest.fn().mockResolvedValue([]) },
+        cfEnrollmentMonitoring: { findMany: jest.fn().mockResolvedValue([]) },
+        cfEnrollmentStatusHistory: { findMany: jest.fn().mockResolvedValue([]) },
+        cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(null) },
+        cfProgramContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+        cfProgramWelcomeEmailTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1' });
+
+      const result = await controller.getProgramDetail({} as never, 'program-legacy');
+
+      expect(result.program).toEqual(program);
+      expect(result.workflow.config).toEqual(expect.objectContaining({
+        sendContractAfterIntake: false,
+        sendWelcomeAfterContractSigned: false,
+      }));
+      expect(result.participants).toEqual([]);
+    });
+
+    it('rejects a nonexistent program before querying workflow configuration', async () => {
+      const prisma = {
+        cfProgram: { findFirst: jest.fn().mockResolvedValue(null) },
+        cfProgramWorkflowConfig: { findFirst: jest.fn() },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1' });
+
+      await expect(controller.getProgramDetail({} as never, 'missing-program'))
+        .rejects.toThrow('Program not found.');
+      expect(prisma.cfProgramWorkflowConfig.findFirst).not.toHaveBeenCalled();
+    });
+
     it('allocates next document version inside a transaction lock and activates it', async () => {
       const scaffold = new ScaffoldService();
       const transaction = {

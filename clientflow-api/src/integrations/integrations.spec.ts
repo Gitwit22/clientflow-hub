@@ -92,6 +92,8 @@ describe('disabled integrations', () => {
       recipientEmail: 'client@example.com',
       clientName: 'Client Name',
       programName: 'Brand Awareness Subscription',
+      formName: 'Brand Awareness Service Agreement',
+      formUrl: 'https://clientflow.example.com/contracts/token',
       contractName: 'Brand Awareness Service Agreement',
       contractUrl: 'https://clientflow.example.com/contracts/token',
       dueDate: '2026-09-28',

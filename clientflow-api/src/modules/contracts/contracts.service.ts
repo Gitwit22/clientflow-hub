@@ -784,6 +784,8 @@ export class ContractsService {
       recipientEmail: client.email,
       clientName: client.primaryContactName,
       programName: program.name,
+      formName: template.name,
+      formUrl: publicContractUrl,
       contractName: template.name,
       contractUrl: publicContractUrl,
       dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),

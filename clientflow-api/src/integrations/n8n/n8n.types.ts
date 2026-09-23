@@ -34,7 +34,8 @@ export interface N8nDeliveryReceipt {
   sentAt: string;
 }
 
-// n8n's webhook validator only accepts eventType 'form.send' and requires formId + sentByUserId,
+// n8n's webhook validator only accepts eventType 'form.send' and requires formId, formName, formUrl,
+// and sentByUserId,
 // so every lifecycle email - including the auto-generated General Intake - must be sent as a
 // form.send event; the previously separate intake.send/contract.send/welcome.send types were rejected.
 export interface IntakeEmailPayload {
@@ -62,6 +63,8 @@ export interface ContractEmailPayload {
   recipientEmail: string;
   clientName: string;
   programName: string;
+  formName: string;
+  formUrl: string;
   contractName: string;
   contractUrl: string;
   dueDate: string;
