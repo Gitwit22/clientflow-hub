@@ -278,7 +278,7 @@ export class ClientflowCompatibilityController {
   @Get('programs/:id/automation') async getProgramAutomation(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
     const prisma = this.requirePrisma();
-    const [rules, templates, versions] = await Promise.all([
+    const [rules, templates] = await Promise.all([
       prisma.cfProgramAutomationRule.findMany({
         where: { organizationId: orgId, programId: id },
         orderBy: [{ trigger: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -287,11 +287,13 @@ export class ClientflowCompatibilityController {
         where: { organizationId: orgId, programId: id },
         orderBy: [{ createdAt: 'asc' }],
       }),
-      prisma.cfProgramDocumentVersion.findMany({
-        where: { organizationId: orgId, templateId: { in: (await prisma.cfProgramDocumentTemplate.findMany({ where: { organizationId: orgId, programId: id }, select: { id: true } })).map((template) => template.id) } },
-        orderBy: [{ templateId: 'asc' }, { version: 'desc' }],
-      }),
     ]);
+    const versions = templates.length === 0
+      ? []
+      : await prisma.cfProgramDocumentVersion.findMany({
+          where: { organizationId: orgId, templateId: { in: templates.map((template) => template.id) } },
+          orderBy: [{ templateId: 'asc' }, { version: 'desc' }],
+        });
     return { rules, templates, versions };
   }
   @Post('programs/:id/automation/rules') async createProgramAutomationRule(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {

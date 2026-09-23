@@ -123,6 +123,8 @@ CREATE INDEX "CfProgramDocumentVersion_organizationId_templateId_uploadedAt_idx"
 
 CREATE UNIQUE INDEX "CfDocumentAssignment_enrollmentId_templateVersionId_key"
   ON "CfDocumentAssignment"("enrollmentId", "templateVersionId");
+CREATE UNIQUE INDEX "CfDocumentAssignment_organizationId_clientId_programId_templateVersionId_key"
+  ON "CfDocumentAssignment"("organizationId", "clientId", "programId", "templateVersionId");
 CREATE INDEX "CfDocumentAssignment_organizationId_programId_status_idx"
   ON "CfDocumentAssignment"("organizationId", "programId", "status");
 CREATE INDEX "CfDocumentAssignment_organizationId_clientId_idx"
