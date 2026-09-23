@@ -44,6 +44,24 @@ export class N8nService {
     return webhookUrl && secret ? 'ready' : 'not_configured';
   }
 
+  /** Safe (no secrets) snapshot of which n8n env vars are resolving, for diagnosing config drift. */
+  getDiagnostics() {
+    const { enabled, webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
+    return {
+      availability: this.getIntakeAvailability(),
+      enabledFrom: this.config.get('N8N_ENABLED', { infer: true }) === 'true'
+        ? 'N8N_ENABLED'
+        : this.config.get('N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true'
+          ? 'N8N_FORM_EMAIL_ENABLED'
+          : null,
+      hasWebhookUrl: Boolean(webhookUrl),
+      hasSecret: Boolean(secret),
+      hasBearerToken: Boolean(bearerToken),
+      timeoutMs,
+      enabled,
+    };
+  }
+
   getContractAvailability(): 'ready' | 'disabled' | 'not_configured' {
     return this.getIntakeAvailability();
   }

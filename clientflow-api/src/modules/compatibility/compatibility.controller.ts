@@ -517,6 +517,10 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.getDemoStatusFor(orgId);
   }
+  @Get('system/n8n-status') async getN8nStatus(@Req() request: Request) {
+    await this.requireOrgFromRequest(request);
+    return this.n8n?.getDiagnostics() ?? { availability: 'not_configured', enabled: false };
+  }
   @Post('seed-demo') async seedDemo(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return { seeded: {}, liveMode: false };
