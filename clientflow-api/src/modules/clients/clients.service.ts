@@ -47,7 +47,8 @@ export class ClientsService {
     const tokenHash = hashPublicToken(rawToken);
     const now = new Date();
     const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/$/, '');
-    const publicFormUrl = `${appUrl}/apply/${rawToken}`;
+    // /s/:token (not /apply/:token) so the client sees program checkboxes and program-specific questions.
+    const publicFormUrl = `${appUrl}/s/${rawToken}`;
     const assignedStaff = assignee
       ? [assignee.firstName, assignee.lastName].filter(Boolean).join(' ') || assignee.email
       : 'Unassigned';
@@ -326,7 +327,7 @@ export class ClientsService {
     });
 
     const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/$/, '');
-    const publicFormUrl = `${appUrl}/apply/${rawToken}`;
+    const publicFormUrl = `${appUrl}/s/${rawToken}`;
     const emailDelivery = await this.n8n.sendIntake(`intake-${assignment.id}-manual`, {
       organizationId: client.organizationId,
       clientId: client.id,

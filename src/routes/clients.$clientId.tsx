@@ -874,15 +874,6 @@ function ClientProfile() {
                       <>
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            toast.info('Resend not yet configured — use "Assign a Form" instead')
-                          }
-                        >
-                          Resend
-                        </Button>
-                        <Button
-                          size="sm"
                           variant="ghost"
                           onClick={() => {
                             setFormReadOnly(true);

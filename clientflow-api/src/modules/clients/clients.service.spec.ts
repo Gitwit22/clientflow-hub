@@ -96,7 +96,7 @@ describe('ClientsService', () => {
       clientId: 'client-1',
       formId: 'form-1',
       sentByUserId: 'system',
-      formUrl: expect.stringMatching(/^https:\/\/clientflow\.example\.com\/apply\/[A-Za-z0-9_-]{43}$/),
+      formUrl: expect.stringMatching(/^https:\/\/clientflow\.example\.com\/s\/[A-Za-z0-9_-]{43}$/),
     }));
     expect(result.emailDelivery).toEqual({ status: 'skipped', reason: 'disabled' });
     expect(result.assignment.id).toBe('assignment-1');
@@ -302,7 +302,7 @@ describe('ClientsService', () => {
       data: { secureLinkToken: expect.stringMatching(/^[a-f0-9]{64}$/) },
     }));
     expect(n8n.sendIntake).toHaveBeenCalledWith('intake-assignment-1-manual', expect.objectContaining({
-      formUrl: expect.stringMatching(/^https:\/\/clientflow\.example\.com\/apply\/[A-Za-z0-9_-]{43}$/),
+      formUrl: expect.stringMatching(/^https:\/\/clientflow\.example\.com\/s\/[A-Za-z0-9_-]{43}$/),
     }));
   });
 });
