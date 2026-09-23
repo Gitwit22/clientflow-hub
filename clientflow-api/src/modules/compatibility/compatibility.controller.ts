@@ -144,6 +144,8 @@ function parseProgramAction(value: unknown): CfProgramAction | null {
 
 @Controller('admin/cf')
 export class ClientflowCompatibilityController {
+  private readonly logger = new Logger(ClientflowCompatibilityController.name);
+
   constructor(
     private readonly scaffold: ScaffoldService,
     private readonly prisma?: PrismaService,
@@ -519,17 +521,21 @@ export class ClientflowCompatibilityController {
     if (this.automation
       && String(current.status).toLowerCase() !== 'approved'
       && String(updated.status).toLowerCase() === 'approved') {
-      await this.automation.runTrigger({
-        organizationId: orgId,
-        clientId: updated.clientId,
-        trigger: 'enrollment.approved',
-        programIds: [updated.programId],
-        enrollmentIdsByProgramId: { [updated.programId]: updated.id },
-        actorUserId: admin.id,
-        actorDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
-        idempotencySeed: `compat.enrollment.approved:${updated.id}`,
-        payload: { enrollmentStatus: updated.status },
-      });
+      try {
+        await this.automation.runTrigger({
+          organizationId: orgId,
+          clientId: updated.clientId,
+          trigger: 'enrollment.approved',
+          programIds: [updated.programId],
+          enrollmentIdsByProgramId: { [updated.programId]: updated.id },
+          actorUserId: admin.id,
+          actorDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
+          idempotencySeed: `compat.enrollment.approved:${updated.id}`,
+          payload: { enrollmentStatus: updated.status },
+        });
+      } catch (error) {
+        this.logger.warn(`Enrollment approval automation failed for ${updated.id}: ${(error as Error).message}`);
+      }
     }
     return updated;
   }

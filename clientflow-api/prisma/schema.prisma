@@ -670,7 +670,7 @@ model CfProgramAutomationExecution {
   details        Json             @default("{}")
   createdAt      DateTime         @default(now())
 
-  @@unique([organizationId, idempotencyKey])
+  @@unique([organizationId, idempotencyKey, action])
   @@index([organizationId, programId, trigger, createdAt])
   @@index([organizationId, clientId, createdAt])
 }

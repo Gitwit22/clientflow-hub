@@ -103,6 +103,36 @@ describe('contract controllers', () => {
     });
   });
 
+  it('returns non-fatal automation failure metadata when contract automation throws', async () => {
+    const service = {
+      completePublicContract: jest.fn().mockResolvedValue({
+        organizationId: 'org-1',
+        programId: 'program-1',
+        enrollmentId: 'enroll-1',
+        contract: { id: 'contract-1', status: 'COMPLETED' },
+        client: { id: 'client-1', status: 'ONBOARDING' },
+      }),
+    };
+    const automation = {
+      runTrigger: jest.fn().mockRejectedValue(new Error('automation unavailable')),
+    } as unknown as ProgramAutomationService;
+    const controller = new PublicContractsController(service as unknown as ContractsService, automation);
+
+    const result = await controller.submitContract('public-token', {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, {
+      ip: '127.0.0.1',
+      socket: {},
+      get: jest.fn().mockReturnValue('Contract Browser'),
+    } as never);
+
+    expect(result).toEqual(expect.objectContaining({
+      automation: expect.objectContaining({ status: 'failed' }),
+    }));
+  });
+
   it('requires a valid signer identity and explicit agreement', async () => {
     const invalid = Object.assign(new SubmitPublicContractDto(), {
       signedName: '',

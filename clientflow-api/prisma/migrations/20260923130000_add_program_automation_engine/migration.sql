@@ -129,8 +129,8 @@ CREATE INDEX "CfDocumentAssignment_organizationId_programId_status_idx"
 CREATE INDEX "CfDocumentAssignment_organizationId_clientId_idx"
   ON "CfDocumentAssignment"("organizationId", "clientId");
 
-CREATE UNIQUE INDEX "CfProgramAutomationExecution_organizationId_idempotencyKey_key"
-  ON "CfProgramAutomationExecution"("organizationId", "idempotencyKey");
+CREATE UNIQUE INDEX "CfProgramAutomationExecution_organizationId_idempotencyKey_action_key"
+  ON "CfProgramAutomationExecution"("organizationId", "idempotencyKey", "action");
 CREATE INDEX "CfProgramAutomationExecution_organizationId_programId_trigger_createdAt_idx"
   ON "CfProgramAutomationExecution"("organizationId", "programId", "trigger", "createdAt");
 CREATE INDEX "CfProgramAutomationExecution_organizationId_clientId_createdAt_idx"

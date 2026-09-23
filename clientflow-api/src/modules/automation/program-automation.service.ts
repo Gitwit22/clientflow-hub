@@ -212,19 +212,35 @@ export class ProgramAutomationService {
       return { enrollmentId: existing.id, created: false };
     }
 
-    const enrollment = await this.prisma.cfProgramEnrollment.create({
-      data: {
-        organizationId: context.organizationId,
-        clientId: context.client.id,
-        programId: context.program.id,
-        status: 'interested',
-        assignedUserId: context.client.assignedUserId,
-        assignedStaff: context.client.assignedStaff,
-        lastModifiedByUserId: context.actorUserId,
-        lastModifiedByDisplayName: context.actorDisplayName,
-        isDemo: context.client.isDemo,
-      },
-    });
+    let enrollment: { id: string };
+    try {
+      enrollment = await this.prisma.cfProgramEnrollment.create({
+        data: {
+          organizationId: context.organizationId,
+          clientId: context.client.id,
+          programId: context.program.id,
+          status: 'interested',
+          assignedUserId: context.client.assignedUserId,
+          assignedStaff: context.client.assignedStaff,
+          lastModifiedByUserId: context.actorUserId,
+          lastModifiedByDisplayName: context.actorDisplayName,
+          isDemo: context.client.isDemo,
+        },
+      });
+    } catch (error) {
+      if (!isPrismaUniqueViolation(error)) throw error;
+      const concurrent = await this.prisma.cfProgramEnrollment.findFirst({
+        where: {
+          organizationId: context.organizationId,
+          clientId: context.client.id,
+          programId: context.program.id,
+        },
+        select: { id: true },
+      });
+      if (!concurrent) throw error;
+      context.enrollmentId = concurrent.id;
+      return { enrollmentId: concurrent.id, created: false };
+    }
     context.enrollmentId = enrollment.id;
 
     await this.prisma.cfEnrollmentStatusHistory.create({
@@ -281,24 +297,28 @@ export class ProgramAutomationService {
       });
       if (existing) continue;
 
-      const assignment = await this.prisma.cfDocumentAssignment.create({
-        data: {
-          organizationId: context.organizationId,
-          clientId: context.client.id,
-          enrollmentId: context.enrollmentId,
-          programId: context.program.id,
-          templateId: template.id,
-          templateVersionId: version.id,
-          assignmentScope,
-          status: template.autoSend ? 'sent' : 'assigned',
-          sentAt: template.autoSend ? new Date() : null,
-          required: template.required,
-          signatureRequired: template.signatureRequired,
-          createdByUserId: context.actorUserId,
-          isDemo: context.client.isDemo,
-        },
-      });
-      assigned.push(assignment.id);
+      try {
+        const assignment = await this.prisma.cfDocumentAssignment.create({
+          data: {
+            organizationId: context.organizationId,
+            clientId: context.client.id,
+            enrollmentId: context.enrollmentId,
+            programId: context.program.id,
+            templateId: template.id,
+            templateVersionId: version.id,
+            assignmentScope,
+            status: template.autoSend ? 'sent' : 'assigned',
+            sentAt: template.autoSend ? new Date() : null,
+            required: template.required,
+            signatureRequired: template.signatureRequired,
+            createdByUserId: context.actorUserId,
+            isDemo: context.client.isDemo,
+          },
+        });
+        assigned.push(assignment.id);
+      } catch (error) {
+        if (!isPrismaUniqueViolation(error)) throw error;
+      }
     }
 
     return { assignedIds: assigned };
