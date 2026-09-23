@@ -152,7 +152,10 @@ function RootComponent() {
   }, []);
 
   const isPublicRoute =
-    pathname === "/login" || pathname.startsWith("/accept-invite") || pathname.startsWith("/s/");
+    pathname === "/login"
+    || pathname.startsWith("/accept-invite")
+    || pathname.startsWith("/s/")
+    || pathname.startsWith("/agreements/");
 
   return (
     <QueryClientProvider client={queryClient}>
