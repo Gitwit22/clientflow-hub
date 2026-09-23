@@ -15,6 +15,7 @@ import {
   Req,
   Res,
   ServiceUnavailableException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { hash, compare } from 'bcrypt';
@@ -118,6 +119,20 @@ function signSessionToken(adminId: string, email: string, roles: string[], organ
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseProgramTrigger(value: unknown): CfProgramTrigger | null {
+  if (typeof value !== 'string') return null;
+  return Object.values(CfProgramTrigger).includes(value as CfProgramTrigger)
+    ? value as CfProgramTrigger
+    : null;
+}
+
+function parseProgramAction(value: unknown): CfProgramAction | null {
+  if (typeof value !== 'string') return null;
+  return Object.values(CfProgramAction).includes(value as CfProgramAction)
+    ? value as CfProgramAction
+    : null;
 }
 
 @Controller('admin/cf')
@@ -298,13 +313,17 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:id/automation/rules') async createProgramAutomationRule(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    const trigger = parseProgramTrigger(body.trigger ?? 'intake_submitted');
+    const action = parseProgramAction(body.action ?? 'create_enrollment');
+    if (!trigger) throw new BadRequestException('Invalid automation trigger.');
+    if (!action) throw new BadRequestException('Invalid automation action.');
     return this.requirePrisma().cfProgramAutomationRule.create({
       data: {
         organizationId: orgId,
         programId: id,
-        trigger: String(body.trigger ?? 'intake_submitted') as CfProgramTrigger,
+        trigger,
         conditions: isRecord(body.conditions) ? body.conditions as any : {},
-        action: String(body.action ?? 'create_enrollment') as CfProgramAction,
+        action,
         actionConfig: isRecord(body.actionConfig) ? body.actionConfig as any : {},
         enabled: body.enabled !== false,
         sortOrder: Number(body.sortOrder ?? 0),
@@ -318,11 +337,15 @@ export class ClientflowCompatibilityController {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException('Program automation rule not found.');
+    const trigger = body.trigger !== undefined ? parseProgramTrigger(body.trigger) : undefined;
+    const action = body.action !== undefined ? parseProgramAction(body.action) : undefined;
+    if (body.trigger !== undefined && !trigger) throw new BadRequestException('Invalid automation trigger.');
+    if (body.action !== undefined && !action) throw new BadRequestException('Invalid automation action.');
     return this.requirePrisma().cfProgramAutomationRule.update({
       where: { id: ruleId },
       data: {
-        ...(body.trigger ? { trigger: String(body.trigger) as CfProgramTrigger } : {}),
-        ...(body.action ? { action: String(body.action) as CfProgramAction } : {}),
+        ...(trigger ? { trigger } : {}),
+        ...(action ? { action } : {}),
         ...(body.conditions && isRecord(body.conditions) ? { conditions: body.conditions as any } : {}),
         ...(body.actionConfig && isRecord(body.actionConfig) ? { actionConfig: body.actionConfig as any } : {}),
         ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
@@ -363,10 +386,20 @@ export class ClientflowCompatibilityController {
       checksum: body.checksum ? String(body.checksum) : null,
       createdBy: admin.email,
     };
+    const makeActive = body.makeActive !== false;
     let version: Awaited<ReturnType<typeof prisma.cfProgramDocumentVersion.create>> | null = null;
     if (requestedVersion !== null) {
-      version = await prisma.cfProgramDocumentVersion.create({
-        data: { ...payload, version: requestedVersion },
+      version = await prisma.$transaction(async (transaction) => {
+        const created = await transaction.cfProgramDocumentVersion.create({
+          data: { ...payload, version: requestedVersion },
+        });
+        if (makeActive) {
+          await transaction.cfProgramDocumentTemplate.update({
+            where: { id: templateId },
+            data: { activeVersionId: created.id },
+          });
+        }
+        return created;
       });
     } else {
       for (let attempt = 0; attempt < 3 && !version; attempt += 1) {
@@ -377,20 +410,23 @@ export class ClientflowCompatibilityController {
         });
         const nextVersion = (latest?.version ?? 0) + 1;
         try {
-          version = await prisma.cfProgramDocumentVersion.create({
-            data: { ...payload, version: nextVersion },
+          version = await prisma.$transaction(async (transaction) => {
+            const created = await transaction.cfProgramDocumentVersion.create({
+              data: { ...payload, version: nextVersion },
+            });
+            if (makeActive) {
+              await transaction.cfProgramDocumentTemplate.update({
+                where: { id: templateId },
+                data: { activeVersionId: created.id },
+              });
+            }
+            return created;
           });
         } catch (error) {
           if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
         }
       }
       if (!version) throw new ConflictException('Unable to allocate a unique document version. Please retry.');
-    }
-    if (body.makeActive !== false) {
-      await prisma.cfProgramDocumentTemplate.update({
-        where: { id: templateId },
-        data: { activeVersionId: version.id },
-      });
     }
     return version;
   }
@@ -770,6 +806,8 @@ function resolvePublicPrefill(
 
 @Controller('public/form')
 export class PublicFormCompatibilityController {
+  private readonly logger = new Logger(PublicFormCompatibilityController.name);
+
   constructor(
     private readonly scaffold: ScaffoldService,
     private readonly prisma?: PrismaService,
@@ -990,7 +1028,8 @@ export class PublicFormCompatibilityController {
           idempotencySeed: `compat.intake.submitted:${submission.id}`,
           payload: { selectedProgramIds },
         });
-      } catch {
+      } catch (error) {
+        this.logger.warn(`Intake automation failed for submission ${submission.id}: ${(error as Error).message}`);
         automation = null;
       }
     }

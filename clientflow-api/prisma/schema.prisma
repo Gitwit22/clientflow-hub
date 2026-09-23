@@ -569,7 +569,6 @@ model CfDocumentAssignment {
   updatedAt         DateTime  @updatedAt
 
   @@unique([enrollmentId, templateVersionId])
-  @@unique([organizationId, clientId, programId, templateVersionId])
   @@index([organizationId, programId, status])
   @@index([organizationId, clientId])
 }

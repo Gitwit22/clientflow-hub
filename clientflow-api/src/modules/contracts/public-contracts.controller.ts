@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { Logger } from '@nestjs/common';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { ContractsService } from './contracts.service';
 import { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
@@ -8,6 +9,8 @@ import { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 @ApiTags('public contracts')
 @Controller('public/contracts')
 export class PublicContractsController {
+  private readonly logger = new Logger(PublicContractsController.name);
+
   constructor(
     private readonly contracts: ContractsService,
     private readonly automation: ProgramAutomationService,
@@ -35,17 +38,21 @@ export class PublicContractsController {
       userAgent: request.get('user-agent')?.slice(0, 1000) || null,
     });
     if (result.programId) {
-      await this.automation.runTrigger({
-        organizationId: result.organizationId,
-        clientId: result.client.id,
-        trigger: 'contract.signed',
-        programIds: [result.programId],
-        enrollmentIdsByProgramId: result.enrollmentId
-          ? { [result.programId]: result.enrollmentId }
-          : undefined,
-        actorDisplayName: 'public contract',
-        idempotencySeed: `public-contract-signed:${result.contract.id}`,
-      });
+      try {
+        await this.automation.runTrigger({
+          organizationId: result.organizationId,
+          clientId: result.client.id,
+          trigger: 'contract.signed',
+          programIds: [result.programId],
+          enrollmentIdsByProgramId: result.enrollmentId
+            ? { [result.programId]: result.enrollmentId }
+            : undefined,
+          actorDisplayName: 'public contract',
+          idempotencySeed: `public-contract-signed:${result.contract.id}`,
+        });
+      } catch (error) {
+        this.logger.warn(`Contract automation failed for ${result.contract.id}: ${(error as Error).message}`);
+      }
     }
     return result;
   }
