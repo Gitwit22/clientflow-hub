@@ -135,11 +135,8 @@ export class ProgramAutomationService {
     for (const rule of rules) {
       if (!this.conditionsMatch(rule.conditions, context)) continue;
       const idempotencyKey = `${context.idempotencySeed}:${context.program.id}:${rule.id}`;
-      const alreadyExecuted = await this.prisma.cfProgramAutomationExecution.findFirst({
-        where: { organizationId: context.organizationId, idempotencyKey },
-        select: { id: true },
-      });
-      if (alreadyExecuted) {
+      const claim = await this.claimExecution(context, rule.id, rule.action, idempotencyKey);
+      if (!claim) {
         executed.push(`${rule.action}:skipped_duplicate`);
         continue;
       }
@@ -147,33 +144,19 @@ export class ProgramAutomationService {
       const actionConfig = this.jsonObject(rule.actionConfig);
       try {
         const result = await this.executeAction(rule.action, actionConfig, context);
-        await this.prisma.cfProgramAutomationExecution.create({
+        await this.prisma.cfProgramAutomationExecution.update({
+          where: { id: claim.id },
           data: {
-            organizationId: context.organizationId,
-            programId: context.program.id,
-            clientId: context.client.id,
-            enrollmentId: context.enrollmentId,
-            trigger: context.triggerDb,
-            action: rule.action,
-            ruleId: rule.id,
             status: 'completed',
-            idempotencyKey,
             details: result,
           },
         });
         executed.push(String(rule.action));
       } catch (error) {
-        await this.prisma.cfProgramAutomationExecution.create({
+        await this.prisma.cfProgramAutomationExecution.update({
+          where: { id: claim.id },
           data: {
-            organizationId: context.organizationId,
-            programId: context.program.id,
-            clientId: context.client.id,
-            enrollmentId: context.enrollmentId,
-            trigger: context.triggerDb,
-            action: rule.action,
-            ruleId: rule.id,
             status: 'failed',
-            idempotencyKey,
             details: {
               error: (error as Error).message,
             },
@@ -266,6 +249,7 @@ export class ProgramAutomationService {
         organizationId: context.organizationId,
         programId: context.program.id,
         isActive: true,
+        OR: [{ trigger: null }, { trigger: context.triggerDb }],
         ...(templateFilter ? { id: templateFilter } : {}),
       },
       orderBy: [{ required: 'desc' }, { createdAt: 'asc' }],
@@ -609,6 +593,35 @@ export class ProgramAutomationService {
     return isRecord(value)
       ? value
       : {};
+  }
+
+  private async claimExecution(
+    context: ProgramExecutionContext,
+    ruleId: string,
+    action: CfProgramAction,
+    idempotencyKey: string,
+  ) {
+    try {
+      return await this.prisma.cfProgramAutomationExecution.create({
+        data: {
+          organizationId: context.organizationId,
+          programId: context.program.id,
+          clientId: context.client.id,
+          enrollmentId: context.enrollmentId,
+          trigger: context.triggerDb,
+          action,
+          ruleId,
+          status: 'processing',
+          idempotencyKey,
+          details: {},
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return null;
+      }
+      throw error;
+    }
   }
 }
 

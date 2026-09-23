@@ -21,7 +21,7 @@ import { hash, compare } from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { sign, verify as jwtVerify } from 'jsonwebtoken';
 import type { Request, Response } from 'express';
-import { CfProgramAction, CfProgramTrigger } from '../../generated/clientflow';
+import { CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
@@ -351,25 +351,41 @@ export class ClientflowCompatibilityController {
     const prisma = this.requirePrisma();
     const template = await prisma.cfProgramDocumentTemplate.findFirst({ where: { id: templateId, organizationId: orgId, programId } });
     if (!template) throw new NotFoundException('Program document template not found.');
-    const latest = await prisma.cfProgramDocumentVersion.findFirst({
-      where: { organizationId: orgId, templateId },
-      orderBy: { version: 'desc' },
-      select: { version: true },
-    });
-    const version = await prisma.cfProgramDocumentVersion.create({
-      data: {
-        organizationId: orgId,
-        templateId,
-        version: Number(body.version ?? ((latest?.version ?? 0) + 1)),
-        fileUrl: String(body.fileUrl ?? ''),
-        fileName: body.fileName ? String(body.fileName) : null,
-        objectKey: body.objectKey ? String(body.objectKey) : null,
-        bucket: body.bucket ? String(body.bucket) : null,
-        byteSize: body.byteSize !== undefined ? Number(body.byteSize) : null,
-        checksum: body.checksum ? String(body.checksum) : null,
-        createdBy: admin.email,
-      },
-    });
+    const requestedVersion = body.version !== undefined ? Number(body.version) : null;
+    const payload = {
+      organizationId: orgId,
+      templateId,
+      fileUrl: String(body.fileUrl ?? ''),
+      fileName: body.fileName ? String(body.fileName) : null,
+      objectKey: body.objectKey ? String(body.objectKey) : null,
+      bucket: body.bucket ? String(body.bucket) : null,
+      byteSize: body.byteSize !== undefined ? Number(body.byteSize) : null,
+      checksum: body.checksum ? String(body.checksum) : null,
+      createdBy: admin.email,
+    };
+    let version: Awaited<ReturnType<typeof prisma.cfProgramDocumentVersion.create>> | null = null;
+    if (requestedVersion !== null) {
+      version = await prisma.cfProgramDocumentVersion.create({
+        data: { ...payload, version: requestedVersion },
+      });
+    } else {
+      for (let attempt = 0; attempt < 3 && !version; attempt += 1) {
+        const latest = await prisma.cfProgramDocumentVersion.findFirst({
+          where: { organizationId: orgId, templateId },
+          orderBy: { version: 'desc' },
+          select: { version: true },
+        });
+        const nextVersion = (latest?.version ?? 0) + 1;
+        try {
+          version = await prisma.cfProgramDocumentVersion.create({
+            data: { ...payload, version: nextVersion },
+          });
+        } catch (error) {
+          if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+        }
+      }
+      if (!version) throw new ConflictException('Unable to allocate a unique document version. Please retry.');
+    }
     if (body.makeActive !== false) {
       await prisma.cfProgramDocumentTemplate.update({
         where: { id: templateId },
