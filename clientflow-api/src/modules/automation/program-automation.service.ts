@@ -144,7 +144,7 @@ export class ProgramAutomationService {
 
       const actionConfig = this.jsonObject(rule.actionConfig);
       try {
-        const result = await this.executeAction(rule.action, actionConfig, context);
+        const result = await this.executeAction(rule.action, actionConfig, context, rule.id);
         await this.prisma.cfProgramAutomationExecution.update({
           where: { id: claim.id },
           data: {
@@ -175,6 +175,7 @@ export class ProgramAutomationService {
     action: CfProgramAction,
     actionConfig: Record<string, unknown>,
     context: ProgramExecutionContext,
+    ruleId: string,
   ): Promise<Prisma.JsonObject> {
     switch (action) {
       case CfProgramAction.create_enrollment:
@@ -186,7 +187,7 @@ export class ProgramAutomationService {
       case CfProgramAction.send_contract:
         return this.sendContract(context, actionConfig);
       case CfProgramAction.send_email:
-        return this.sendEmail(context, actionConfig);
+        return this.sendEmail(context, actionConfig, ruleId);
       case CfProgramAction.create_task:
         return this.createTask(context, actionConfig);
       case CfProgramAction.change_status:
@@ -416,6 +417,7 @@ export class ProgramAutomationService {
   private async sendEmail(
     context: ProgramExecutionContext,
     actionConfig: Record<string, unknown>,
+    ruleId: string,
   ): Promise<Prisma.JsonObject> {
     const subject = typeof actionConfig.subject === 'string' && actionConfig.subject.trim()
       ? actionConfig.subject.trim()
@@ -425,7 +427,7 @@ export class ProgramAutomationService {
       : 'A program update is available in ClientFlow.';
 
     const availability = this.n8n.getWelcomeAvailability();
-    const eventId = `automation.email:${context.idempotencySeed}:${context.program.id}:${context.client.id}`;
+    const eventId = `automation.email:${context.idempotencySeed}:${ruleId}:${context.program.id}:${context.client.id}`;
     const communication = await this.prisma.cfCommunication.create({
       data: {
         organizationId: context.organizationId,

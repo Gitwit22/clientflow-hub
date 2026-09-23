@@ -350,13 +350,19 @@ export class ClientflowCompatibilityController {
     const action = body.action !== undefined ? parseProgramAction(body.action) : undefined;
     if (body.trigger !== undefined && !trigger) throw new BadRequestException('Invalid automation trigger.');
     if (body.action !== undefined && !action) throw new BadRequestException('Invalid automation action.');
+    if (body.conditions !== undefined && !isRecord(body.conditions)) {
+      throw new BadRequestException('Automation conditions must be an object.');
+    }
+    if (body.actionConfig !== undefined && !isRecord(body.actionConfig)) {
+      throw new BadRequestException('Automation actionConfig must be an object.');
+    }
     return this.requirePrisma().cfProgramAutomationRule.update({
       where: { id: ruleId },
       data: {
         ...(trigger ? { trigger } : {}),
         ...(action ? { action } : {}),
-        ...(body.conditions && isRecord(body.conditions) ? { conditions: body.conditions as any } : {}),
-        ...(body.actionConfig && isRecord(body.actionConfig) ? { actionConfig: body.actionConfig as any } : {}),
+        ...(body.conditions !== undefined ? { conditions: body.conditions as any } : {}),
+        ...(body.actionConfig !== undefined ? { actionConfig: body.actionConfig as any } : {}),
         ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
         ...(body.sortOrder !== undefined ? { sortOrder: Number(body.sortOrder) } : {}),
       },
@@ -461,8 +467,8 @@ export class ClientflowCompatibilityController {
     return this.requirePrisma().cfProgramDocumentTemplate.update({
       where: { id: templateId },
       data: {
-        ...(body.name ? { name: String(body.name) } : {}),
-        ...(body.type ? { type: String(body.type) } : {}),
+        ...(body.name !== undefined ? { name: String(body.name) } : {}),
+        ...(body.type !== undefined ? { type: String(body.type) } : {}),
         ...(body.required !== undefined ? { required: Boolean(body.required) } : {}),
         ...(body.signatureRequired !== undefined ? { signatureRequired: Boolean(body.signatureRequired) } : {}),
         ...(body.autoSend !== undefined ? { autoSend: Boolean(body.autoSend) } : {}),

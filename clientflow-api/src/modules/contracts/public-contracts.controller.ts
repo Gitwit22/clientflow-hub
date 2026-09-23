@@ -37,10 +37,10 @@ export class PublicContractsController {
       signerIp: request.ip || request.socket.remoteAddress || null,
       userAgent: request.get('user-agent')?.slice(0, 1000) || null,
     });
-    let automation: { status: 'skipped' | 'completed' | 'failed'; error?: string } = { status: 'skipped' };
+    let automation: { status: 'skipped' | 'completed' | 'failed'; error?: string; execution?: unknown } = { status: 'skipped' };
     if (result.programId) {
       try {
-        await this.automation.runTrigger({
+        const execution = await this.automation.runTrigger({
           organizationId: result.organizationId,
           clientId: result.client.id,
           trigger: 'contract.signed',
@@ -51,7 +51,9 @@ export class PublicContractsController {
           actorDisplayName: 'public contract',
           idempotencySeed: `public-contract-signed:${result.contract.id}`,
         });
-        automation = { status: 'completed' };
+        const executedAnyActions = Array.isArray(execution?.programs)
+          && execution.programs.some((program) => program.actions.length > 0);
+        automation = { status: executedAnyActions ? 'completed' : 'skipped', execution };
       } catch (error) {
         this.logger.warn(`Contract automation failed for ${result.contract.id}: ${(error as Error).message}`);
         automation = { status: 'failed', error: (error as Error).message };

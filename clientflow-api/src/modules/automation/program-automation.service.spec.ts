@@ -223,4 +223,55 @@ describe('ProgramAutomationService', () => {
       }),
     }));
   });
+
+  it('issues a contract when send_contract does not require staff approval', async () => {
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },
+      cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
+      cfProgramAutomationRule: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'rule-5',
+            action: 'send_contract',
+            actionConfig: {},
+            conditions: {},
+          },
+        ]),
+      },
+      cfProgramAutomationExecution: {
+        create: jest.fn().mockResolvedValue({ id: 'exec-5' }),
+        update: jest.fn().mockResolvedValue({ id: 'exec-5' }),
+      },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    const contracts = {
+      issueContractForProgram: jest.fn().mockResolvedValue({
+        contract: { id: 'contract-1', status: 'SENT' },
+        emailDelivery: { status: 'sent' },
+      }),
+    };
+
+    const service = new ProgramAutomationService(
+      prisma as unknown as PrismaService,
+      contracts as unknown as ContractsService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+    );
+
+    await service.runTrigger({
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      trigger: 'intake.submitted',
+      programIds: ['program-1'],
+      enrollmentIdsByProgramId: { 'program-1': 'enroll-1' },
+      idempotencySeed: 'seed-5',
+    });
+
+    expect(contracts.issueContractForProgram).toHaveBeenCalledWith(
+      'client-1',
+      'program-1',
+      expect.objectContaining({
+        enrollmentId: 'enroll-1',
+      }),
+    );
+  });
 });
