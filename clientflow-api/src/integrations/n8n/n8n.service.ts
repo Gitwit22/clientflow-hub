@@ -16,12 +16,32 @@ import type {
 export class N8nService {
   constructor(private readonly config: ConfigService<Environment, true>) {}
 
+  // Both the legacy clientflow-api names and the aliases shared with nxt-lvl-api2 must be honored -
+  // deliver() already resolved aliases while the send* methods below did not, so the same n8n
+  // configuration could behave as "enabled" for one code path (Forms page) and "disabled" for
+  // another (Add client) depending on which env var names were actually set.
+  private resolveN8nConfig() {
+    const enabled = this.config.get('N8N_ENABLED', { infer: true }) === 'true'
+      || this.config.get('N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true';
+    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })
+      ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL', { infer: true })
+      ?? this.config.get('N8N_FORM_EMAIL_WEBHOOK_URL', { infer: true });
+    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })
+      ?? this.config.get('CLIENTFLOW_N8N_CLIENTFLOW_SECRET', { infer: true })
+      ?? this.config.get('N8N_CLIENTFLOW_SECRET', { infer: true });
+    const rawBearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true })
+      ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true })
+      ?? this.config.get('N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true });
+    const bearerToken = rawBearerToken?.replace(/^Bearer\s+/i, '');
+    const timeoutMs = this.config.get('N8N_FORM_EMAIL_TIMEOUT_MS', { infer: true })
+      ?? this.config.get('N8N_TIMEOUT_MS', { infer: true });
+    return { enabled, webhookUrl, secret, bearerToken, timeoutMs };
+  }
+
   getIntakeAvailability(): 'ready' | 'disabled' | 'not_configured' {
-    if (this.config.get('N8N_ENABLED', { infer: true }) !== 'true') return 'disabled';
-    return this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })
-      && this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })
-      ? 'ready'
-      : 'not_configured';
+    const { enabled, webhookUrl, secret } = this.resolveN8nConfig();
+    if (!enabled) return 'disabled';
+    return webhookUrl && secret ? 'ready' : 'not_configured';
   }
 
   getContractAvailability(): 'ready' | 'disabled' | 'not_configured' {
@@ -36,23 +56,18 @@ export class N8nService {
     const availability = this.getIntakeAvailability();
     if (availability !== 'ready') return { status: 'skipped', reason: availability };
 
-    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })!;
-    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })!;
-    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true });
+    const { webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.config.get('N8N_TIMEOUT_MS', { infer: true }),
-    );
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(webhookUrl, {
+      const response = await fetch(webhookUrl!, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-clientflow-secret': secret,
+          'x-clientflow-secret': secret!,
           'Idempotency-Key': eventId,
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
         },
         // n8n's org-validation node expects the same normalized id used by deliver().
         body: JSON.stringify({
@@ -80,23 +95,18 @@ export class N8nService {
     const availability = this.getContractAvailability();
     if (availability !== 'ready') return { status: 'skipped', reason: availability };
 
-    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })!;
-    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })!;
-    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true });
+    const { webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.config.get('N8N_TIMEOUT_MS', { infer: true }),
-    );
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(webhookUrl, {
+      const response = await fetch(webhookUrl!, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-clientflow-secret': secret,
+          'x-clientflow-secret': secret!,
           'Idempotency-Key': eventId,
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
         },
         // n8n's org-validation node expects the same normalized id used by deliver().
         body: JSON.stringify({
@@ -124,23 +134,18 @@ export class N8nService {
     const availability = this.getWelcomeAvailability();
     if (availability !== 'ready') return { status: 'skipped', reason: availability };
 
-    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })!;
-    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })!;
-    const bearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true });
+    const { webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.config.get('N8N_TIMEOUT_MS', { infer: true }),
-    );
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(webhookUrl, {
+      const response = await fetch(webhookUrl!, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-clientflow-secret': secret,
+          'x-clientflow-secret': secret!,
           'Idempotency-Key': eventId,
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken.replace(/^Bearer\s+/i, '')}` } : {}),
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
         },
         // n8n's org-validation node expects the same normalized id used by deliver().
         body: JSON.stringify({
@@ -162,23 +167,10 @@ export class N8nService {
   }
 
   async deliver(payload: ClientflowLifecyclePayload): Promise<N8nDeliveryReceipt> {
-    const enabled = this.config.get('N8N_ENABLED', { infer: true }) === 'true'
-      || this.config.get('N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true';
+    const { enabled, webhookUrl, secret, bearerToken, timeoutMs } = this.resolveN8nConfig();
     if (!enabled) {
       throw new ServiceUnavailableException('n8n delivery is disabled.');
     }
-    const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })
-      ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL', { infer: true })
-      ?? this.config.get('N8N_FORM_EMAIL_WEBHOOK_URL', { infer: true });
-    const secret = this.config.get('CLIENTFLOW_N8N_SECRET', { infer: true })
-      ?? this.config.get('CLIENTFLOW_N8N_CLIENTFLOW_SECRET', { infer: true })
-      ?? this.config.get('N8N_CLIENTFLOW_SECRET', { infer: true });
-    const rawBearerToken = this.config.get('N8N_EMAIL_BEARER_TOKEN', { infer: true })
-      ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true })
-      ?? this.config.get('N8N_FORM_EMAIL_BEARER_TOKEN', { infer: true });
-    const bearerToken = rawBearerToken?.replace(/^Bearer\s+/i, '');
-    const timeoutMs = this.config.get('N8N_FORM_EMAIL_TIMEOUT_MS', { infer: true })
-      ?? this.config.get('N8N_TIMEOUT_MS', { infer: true });
     if (!webhookUrl || !secret) throw new ServiceUnavailableException('n8n is not configured.');
     const outboundPayload = {
       ...payload,
