@@ -37,6 +37,7 @@ export class PublicContractsController {
       signerIp: request.ip || request.socket.remoteAddress || null,
       userAgent: request.get('user-agent')?.slice(0, 1000) || null,
     });
+    let automation: { status: 'skipped' | 'completed' | 'failed'; error?: string } = { status: 'skipped' };
     if (result.programId) {
       try {
         await this.automation.runTrigger({
@@ -50,10 +51,12 @@ export class PublicContractsController {
           actorDisplayName: 'public contract',
           idempotencySeed: `public-contract-signed:${result.contract.id}`,
         });
+        automation = { status: 'completed' };
       } catch (error) {
         this.logger.warn(`Contract automation failed for ${result.contract.id}: ${(error as Error).message}`);
+        automation = { status: 'failed', error: (error as Error).message };
       }
     }
-    return result;
+    return { ...result, automation };
   }
 }

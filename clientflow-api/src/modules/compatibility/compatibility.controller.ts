@@ -135,13 +135,6 @@ function parseProgramAction(value: unknown): CfProgramAction | null {
     : null;
 }
 
-function isPrismaUniqueViolation(error: unknown): boolean {
-  return !!error
-    && typeof error === 'object'
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'P2002';
-}
-
 @Controller('admin/cf')
 export class ClientflowCompatibilityController {
   constructor(
@@ -417,31 +410,24 @@ export class ClientflowCompatibilityController {
         return created;
       });
     } else {
-      for (let attempt = 0; attempt < 3 && !version; attempt += 1) {
-        const latest = await prisma.cfProgramDocumentVersion.findFirst({
+      version = await prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`cf_program_doc_version:${templateId}`}))`;
+        const latest = await transaction.cfProgramDocumentVersion.findFirst({
           where: { organizationId: orgId, templateId },
           orderBy: { version: 'desc' },
           select: { version: true },
         });
-        const nextVersion = (latest?.version ?? 0) + 1;
-        try {
-          version = await prisma.$transaction(async (transaction) => {
-            const created = await transaction.cfProgramDocumentVersion.create({
-              data: { ...payload, version: nextVersion },
-            });
-            if (makeActive) {
-              await transaction.cfProgramDocumentTemplate.update({
-                where: { id: templateId },
-                data: { activeVersionId: created.id },
-              });
-            }
-            return created;
+        const created = await transaction.cfProgramDocumentVersion.create({
+          data: { ...payload, version: (latest?.version ?? 0) + 1 },
+        });
+        if (makeActive) {
+          await transaction.cfProgramDocumentTemplate.update({
+            where: { id: templateId },
+            data: { activeVersionId: created.id },
           });
-        } catch (error) {
-          if (!isPrismaUniqueViolation(error)) throw error;
         }
-      }
-      if (!version) throw new ConflictException('Unable to allocate a unique document version. Please retry.');
+        return created;
+      });
     }
     return version;
   }

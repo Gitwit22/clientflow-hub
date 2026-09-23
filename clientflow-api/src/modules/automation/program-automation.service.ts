@@ -1,4 +1,5 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { CfEnrollmentStatus, CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -520,27 +521,28 @@ export class ProgramAutomationService {
     });
     if (!current) return { skipped: true, reason: 'enrollment_missing' };
 
-    const updated = await this.prisma.cfProgramEnrollment.update({
-      where: { id: context.enrollmentId },
+    const updateResult = await this.prisma.cfProgramEnrollment.updateMany({
+      where: { id: context.enrollmentId, organizationId: context.organizationId },
       data: {
         status: nextStatus as CfEnrollmentStatus,
         lastModifiedByUserId: context.actorUserId,
         lastModifiedByDisplayName: context.actorDisplayName,
       },
     });
+    if (updateResult.count !== 1) return { skipped: true, reason: 'enrollment_not_updated' };
     await this.prisma.cfEnrollmentStatusHistory.create({
       data: {
         organizationId: context.organizationId,
         enrollmentId: context.enrollmentId,
         previousStatus: current.status,
-        newStatus: updated.status,
+        newStatus: nextStatus as CfEnrollmentStatus,
         changedByUserId: context.actorUserId,
         changedByDisplayName: context.actorDisplayName,
         reason: 'Updated by program automation.',
       },
     });
 
-    return { enrollmentId: context.enrollmentId, status: updated.status };
+    return { enrollmentId: context.enrollmentId, status: nextStatus };
   }
 
   private async notifyStaff(
@@ -631,8 +633,7 @@ export class ProgramAutomationService {
 }
 
 function randomTokenHash(): string {
-  const token = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
-  return token.slice(0, 64).padEnd(64, '0');
+  return randomBytes(32).toString('hex');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,4 +1,4 @@
-import { ConflictException, NotImplementedException, UnauthorizedException } from '@nestjs/common';
+import { NotImplementedException, UnauthorizedException } from '@nestjs/common';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import type { ProgramAutomationService } from '../automation/program-automation.service';
 import { ClientflowCompatibilityController, PublicFormCompatibilityController } from './compatibility.controller';
@@ -53,18 +53,18 @@ describe('compatibility route scaffold', () => {
       expect(result).toEqual(enrollment);
     });
 
-    it('retries document version allocation on unique conflicts and succeeds', async () => {
+    it('allocates next document version inside a transaction lock and activates it', async () => {
       const scaffold = new ScaffoldService();
-      const createVersion = jest.fn()
-        .mockRejectedValueOnce({ code: 'P2002' })
-        .mockResolvedValueOnce({ id: 'version-2', version: 2 });
       const transaction = {
-        cfProgramDocumentVersion: { create: createVersion },
+        $queryRaw: jest.fn().mockResolvedValue([{ pg_advisory_xact_lock: null }]),
+        cfProgramDocumentVersion: {
+          findFirst: jest.fn().mockResolvedValue({ version: 1 }),
+          create: jest.fn().mockResolvedValue({ id: 'version-2', version: 2 }),
+        },
         cfProgramDocumentTemplate: { update: jest.fn().mockResolvedValue({ id: 'template-1' }) },
       };
       const prisma = {
         cfProgramDocumentTemplate: { findFirst: jest.fn().mockResolvedValue({ id: 'template-1' }) },
-        cfProgramDocumentVersion: { findFirst: jest.fn().mockResolvedValue({ version: 1 }) },
         $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
       };
       const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
@@ -80,33 +80,13 @@ describe('compatibility route scaffold', () => {
         { fileUrl: 'https://example.com/doc.pdf' },
       );
 
-      expect(createVersion).toHaveBeenCalledTimes(2);
-      expect(result).toEqual(expect.objectContaining({ id: 'version-2' }));
-    });
-
-    it('returns conflict when document version allocation exceeds retry budget', async () => {
-      const scaffold = new ScaffoldService();
-      const transaction = {
-        cfProgramDocumentVersion: { create: jest.fn().mockRejectedValue({ code: 'P2002' }) },
-        cfProgramDocumentTemplate: { update: jest.fn() },
-      };
-      const prisma = {
-        cfProgramDocumentTemplate: { findFirst: jest.fn().mockResolvedValue({ id: 'template-1' }) },
-        cfProgramDocumentVersion: { findFirst: jest.fn().mockResolvedValue({ version: 1 }) },
-        $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
-      };
-      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
-      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
-        orgId: 'org-1',
-        admin: { id: 'admin-1', email: 'admin@example.com' },
+      expect(transaction.$queryRaw).toHaveBeenCalled();
+      expect(transaction.cfProgramDocumentVersion.findFirst).toHaveBeenCalled();
+      expect(transaction.cfProgramDocumentTemplate.update).toHaveBeenCalledWith({
+        where: { id: 'template-1' },
+        data: { activeVersionId: 'version-2' },
       });
-
-      await expect(controller.createProgramDocumentVersion(
-        {} as never,
-        'program-1',
-        'template-1',
-        { fileUrl: 'https://example.com/doc.pdf' },
-      )).rejects.toBeInstanceOf(ConflictException);
+      expect(result).toEqual(expect.objectContaining({ id: 'version-2' }));
     });
   });
 

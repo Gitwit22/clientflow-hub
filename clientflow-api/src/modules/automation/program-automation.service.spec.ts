@@ -87,7 +87,7 @@ describe('ProgramAutomationService', () => {
       },
       cfProgramEnrollment: {
         findFirst: jest.fn().mockResolvedValue({ status: 'approved' }),
-        update: jest.fn().mockResolvedValue({ id: 'enroll-1', status: 'onboarding' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
     };
@@ -108,8 +108,8 @@ describe('ProgramAutomationService', () => {
       payload: { enrollmentStatus: 'approved' },
     });
 
-    expect(prisma.cfProgramEnrollment.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'enroll-1' },
+    expect(prisma.cfProgramEnrollment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'enroll-1', organizationId: 'org-1' },
       data: expect.objectContaining({ status: 'onboarding' }),
     }));
     expect(prisma.cfEnrollmentStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -171,5 +171,53 @@ describe('ProgramAutomationService', () => {
       }),
     }));
     jest.useRealTimers();
+  });
+
+  it('sets pending staff review and logs activity for send_contract rules requiring approval', async () => {
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient), update: jest.fn().mockResolvedValue({}) },
+      cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
+      cfProgramAutomationRule: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'rule-4',
+            action: 'send_contract',
+            actionConfig: { requireStaffApproval: true },
+            conditions: {},
+          },
+        ]),
+      },
+      cfProgramAutomationExecution: {
+        create: jest.fn().mockResolvedValue({ id: 'exec-4' }),
+        update: jest.fn().mockResolvedValue({ id: 'exec-4' }),
+      },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'log-1' }) },
+    };
+
+    const service = new ProgramAutomationService(
+      prisma as unknown as PrismaService,
+      {} as ContractsService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+    );
+
+    await service.runTrigger({
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      trigger: 'intake.submitted',
+      programIds: ['program-1'],
+      enrollmentIdsByProgramId: { 'program-1': 'enroll-1' },
+      idempotencySeed: 'seed-4',
+    });
+
+    expect(prisma.cfClient.update).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: { status: 'PENDING_STAFF_REVIEW' },
+    });
+    expect(prisma.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        action: 'PENDING_STAFF_REVIEW',
+        enrollmentId: 'enroll-1',
+      }),
+    }));
   });
 });
