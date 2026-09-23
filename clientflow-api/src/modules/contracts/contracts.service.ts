@@ -18,6 +18,8 @@ import {
   CONTRACT_STATUS,
   INITIAL_FOLLOW_UP_TYPE,
   MONITORING_TASK_STATUS,
+  contractRuleFor,
+  contractTemplateNameFor,
   contractTokenExpiry,
   generateContractToken,
   hashContractToken,
@@ -65,7 +67,7 @@ export class ContractsService {
     if (programs.length !== 1) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
     const program = programs[0];
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
     const rule = workflow.sendContractAfterIntake ? 'auto_contract' : 'staff_review';
     const template = workflow.sendContractAfterIntake
       ? await this.resolveTemplate(program)
@@ -85,7 +87,7 @@ export class ContractsService {
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
     if (!workflow.sendContractAfterIntake) {
       await this.prisma.$transaction(async (transaction) => {
         await transaction.cfClient.update({
@@ -314,7 +316,7 @@ export class ContractsService {
     const now = new Date();
     const secureTokenHash = hashContractToken(rawToken);
     const dueDate = monitoringDueDate(now, program.defaultMonitoringFrequency);
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id);
+    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
     const welcomeConfig = await this.resolveWelcomeEmailForDelivery({
       workflow,
       organizationId: client.organizationId,
@@ -427,8 +429,6 @@ export class ContractsService {
       clientName: client.primaryContactName,
       programName: program.name,
       nextStep: welcomeConfig.body,
-      emailSubject: welcomeConfig.subject,
-      emailBody: welcomeConfig.body,
       sentByUserId: client.assignedUserId ?? 'system',
     });
     await this.recordWelcomeDeliveryResult(
@@ -558,8 +558,13 @@ export class ContractsService {
       : null;
     if (template) return template;
 
-    const version = workflow.activeContractVersionId
-      ? await this.prisma.cfProgramContractVersion.findFirst({
+    const programContractVersionModel = (this.prisma as unknown as {
+      cfProgramContractVersion?: {
+        findFirst: (args: unknown) => Promise<any>;
+      };
+    }).cfProgramContractVersion;
+    const version = workflow.activeContractVersionId && programContractVersionModel
+      ? await programContractVersionModel.findFirst({
           where: {
             id: workflow.activeContractVersionId,
             organizationId: program.organizationId,
@@ -578,23 +583,28 @@ export class ContractsService {
       };
     }
 
-    const fallback = await this.prisma.cfContractTemplate.findFirst({
+    const mappedName = contractTemplateNameFor(program.name);
+    const names = [...new Set([program.defaultContractTemplateId, ...(mappedName ? [mappedName] : [])])];
+    const fallbackTemplates = await this.prisma.cfContractTemplate.findMany({
       where: {
         organizationId: program.organizationId,
         isActive: true,
         OR: [
           { id: program.defaultContractTemplateId },
-          { name: program.defaultContractTemplateId },
+          { name: { in: names } },
         ],
       },
       orderBy: { updatedAt: 'desc' },
     });
+    const fallback = fallbackTemplates[0] ?? null;
     if (fallback) return fallback;
 
-    const latestProgramTemplateVersion = await this.prisma.cfProgramContractVersion.findFirst({
-      where: { organizationId: program.organizationId },
-      orderBy: [{ createdAt: 'desc' }],
-    });
+    const latestProgramTemplateVersion = programContractVersionModel
+      ? await programContractVersionModel.findFirst({
+          where: { organizationId: program.organizationId },
+          orderBy: [{ createdAt: 'desc' }],
+        })
+      : null;
     if (latestProgramTemplateVersion) {
       return {
         id: latestProgramTemplateVersion.id,
@@ -762,15 +772,39 @@ export class ContractsService {
     };
   }
 
-  private async getOrCreateWorkflowConfig(organizationId: string, programId: string) {
-    const existing = await this.prisma.cfProgramWorkflowConfig.findFirst({
+  private async getOrCreateWorkflowConfig(organizationId: string, programId: string, programName?: string) {
+    const workflowModel = (this.prisma as unknown as {
+      cfProgramWorkflowConfig?: {
+        findFirst: (args: unknown) => Promise<any>;
+        create: (args: unknown) => Promise<any>;
+      };
+    }).cfProgramWorkflowConfig;
+    const legacyRule = programName ? contractRuleFor(programName) : null;
+    const fallbackConfig = {
+      id: 'legacy-workflow-config',
+      organizationId,
+      programId,
+      enabled: true,
+      sendContractAfterIntake: legacyRule ? legacyRule === 'auto_contract' : true,
+      sendWelcomeAfterContractSigned: true,
+      activeContractTemplateId: null,
+      activeContractVersionId: null,
+      activeWelcomeEmailTemplateId: null,
+      activeWelcomeEmailVersionId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (!workflowModel) return fallbackConfig;
+    const existing = await workflowModel.findFirst({
       where: { organizationId, programId },
     });
     if (existing) return existing;
-    return this.prisma.cfProgramWorkflowConfig.create({
+    return workflowModel.create({
       data: {
         organizationId,
         programId,
+        sendContractAfterIntake: fallbackConfig.sendContractAfterIntake,
+        sendWelcomeAfterContractSigned: fallbackConfig.sendWelcomeAfterContractSigned,
       },
     });
   }
@@ -783,13 +817,21 @@ export class ContractsService {
     enrollmentId: string | null;
     fallbackMessage?: string;
   }) {
+    const organizationModel = (this.prisma as unknown as {
+      organization?: { findUnique: (args: unknown) => Promise<{ name: string } | null> };
+    }).organization;
+    const enrollmentModel = (this.prisma as unknown as {
+      cfProgramEnrollment?: { findFirst: (args: unknown) => Promise<{ startDate: Date | null; nextAction: string | null } | null> };
+    }).cfProgramEnrollment;
     const [organization, enrollment] = await Promise.all([
-      this.prisma.organization.findUnique({
-        where: { id: input.organizationId },
-        select: { name: true },
-      }),
-      input.enrollmentId
-        ? this.prisma.cfProgramEnrollment.findFirst({
+      organizationModel
+        ? organizationModel.findUnique({
+            where: { id: input.organizationId },
+            select: { name: true },
+          })
+        : Promise.resolve(null),
+      input.enrollmentId && enrollmentModel
+        ? enrollmentModel.findFirst({
             where: { id: input.enrollmentId, organizationId: input.organizationId },
             select: { startDate: true, nextAction: true },
           })
@@ -811,8 +853,13 @@ export class ContractsService {
 
     const fallbackBody = input.fallbackMessage?.trim() || WELCOME_NEXT_STEP;
     const fallbackSubject = `Welcome to ${input.program.name}`;
-    const activeVersion = input.workflow.activeWelcomeEmailVersionId
-      ? await this.prisma.cfProgramWelcomeEmailVersion.findFirst({
+    const welcomeVersionModel = (this.prisma as unknown as {
+      cfProgramWelcomeEmailVersion?: {
+        findFirst: (args: unknown) => Promise<any>;
+      };
+    }).cfProgramWelcomeEmailVersion;
+    const activeVersion = input.workflow.activeWelcomeEmailVersionId && welcomeVersionModel
+      ? await welcomeVersionModel.findFirst({
           where: {
             id: input.workflow.activeWelcomeEmailVersionId,
             organizationId: input.organizationId,
