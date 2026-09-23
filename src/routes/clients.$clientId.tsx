@@ -29,7 +29,7 @@ import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
 import { MergeResponsesDialog } from "@/components/dialogs/MergeResponsesDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
-import { useAppState } from "@/lib/store";
+import { getState, useAppState } from "@/lib/store";
 import {
   addCommunication,
   archiveClient,
@@ -231,14 +231,14 @@ function ClientProfile() {
 
   useEffect(() => {
     const refresh = () => {
-      void refreshClientProfile(clientId).catch(() => undefined);
+      if (getState().clients.some((candidate) => candidate.id === clientId)) {
+        void refreshClientProfile(clientId).catch(() => undefined);
+      }
     };
-    if (globalClient) {
-      refresh();
-    }
+    refresh();
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, [clientId, globalClient]);
+  }, [clientId]);
 
   if (loadingClient)
     return (

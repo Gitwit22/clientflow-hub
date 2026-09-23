@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { retryBootstrap, useAppState } from "@/lib/store";
 import { restoreSession } from "@/lib/apiClient";
+import { isPublicRoute } from "@/lib/public-routes";
 import { useBootstrap } from "@/hooks/use-bootstrap";
 import { useIdleLogout } from "@/hooks/use-idle-logout";
 
@@ -151,15 +152,9 @@ function RootComponent() {
     void restoreSession();
   }, []);
 
-  const isPublicRoute =
-    pathname === "/login"
-    || pathname.startsWith("/accept-invite")
-    || pathname.startsWith("/s/")
-    || pathname.startsWith("/agreements/");
-
   return (
     <QueryClientProvider client={queryClient}>
-      {isPublicRoute ? (
+      {isPublicRoute(pathname) ? (
         <Outlet />
       ) : !hydrated || authStatus === "checking" ? (
         <AccessCheck />
