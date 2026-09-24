@@ -25,7 +25,8 @@ export class N8nService {
   // another (Add client) depending on which env var names were actually set.
   private resolveN8nConfig() {
     const enabled = this.config.get('N8N_ENABLED', { infer: true }) === 'true'
-      || this.config.get('N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true';
+      || this.config.get('N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true'
+      || this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true';
     const webhookUrl = this.config.get('N8N_EMAIL_WEBHOOK_URL', { infer: true })
       ?? this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL', { infer: true })
       ?? this.config.get('N8N_FORM_EMAIL_WEBHOOK_URL', { infer: true });
@@ -56,7 +57,9 @@ export class N8nService {
         ? 'N8N_ENABLED'
         : this.config.get('N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true'
           ? 'N8N_FORM_EMAIL_ENABLED'
-          : null,
+          : this.config.get('CLIENTFLOW_N8N_FORM_EMAIL_ENABLED', { infer: true }) === 'true'
+            ? 'CLIENTFLOW_N8N_FORM_EMAIL_ENABLED'
+            : null,
       hasWebhookUrl: Boolean(webhookUrl),
       hasSecret: Boolean(secret),
       hasBearerToken: Boolean(bearerToken),

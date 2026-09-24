@@ -67,6 +67,60 @@ describe('ProgramAutomationService', () => {
     }));
   });
 
+  it('creates an enrollment and logs ENROLLMENT_CREATED activity for create_enrollment rules', async () => {
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },
+      cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
+      cfProgramAutomationRule: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'rule-enroll',
+            action: 'create_enrollment',
+            actionConfig: {},
+            conditions: {},
+          },
+        ]),
+      },
+      cfProgramAutomationExecution: {
+        create: jest.fn().mockResolvedValue({ id: 'exec-enroll' }),
+        update: jest.fn().mockResolvedValue({ id: 'exec-enroll' }),
+      },
+      cfProgramEnrollment: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'enroll-new' }),
+      },
+      cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-new' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-new' }) },
+    };
+
+    const service = new ProgramAutomationService(
+      prisma as unknown as PrismaService,
+      {} as ContractsService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+    );
+
+    await service.runTrigger({
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      trigger: 'intake.submitted',
+      programIds: ['program-1'],
+      idempotencySeed: 'seed-enroll',
+    });
+
+    expect(prisma.cfProgramEnrollment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ organizationId: 'org-1', clientId: 'client-1', programId: 'program-1' }),
+    }));
+    expect(prisma.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: 'org-1',
+        clientId: 'client-1',
+        enrollmentId: 'enroll-new',
+        action: 'ENROLLMENT_CREATED',
+        description: 'Enrolled in Program One.',
+      }),
+    }));
+  });
+
   it('changes enrollment status and writes status history for change_status rules', async () => {
     const prisma = {
       cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },

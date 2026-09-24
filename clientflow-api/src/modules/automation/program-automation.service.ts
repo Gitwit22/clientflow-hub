@@ -302,6 +302,19 @@ export class ProgramAutomationService {
       },
     });
 
+    await this.prisma.cfActivityLog.create({
+      data: {
+        organizationId: context.organizationId,
+        clientId: context.client.id,
+        enrollmentId: enrollment.id,
+        actorUserId: context.actorUserId,
+        action: 'ENROLLMENT_CREATED',
+        description: `Enrolled in ${context.program.name}.`,
+        user: context.actorDisplayName,
+        isDemo: context.client.isDemo,
+      },
+    });
+
     return { enrollmentId: enrollment.id, created: true };
   }
 

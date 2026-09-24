@@ -34,6 +34,7 @@ export const environmentSchema = z.object({
   CLIENTFLOW_N8N_CLIENTFLOW_SECRET: z.string().optional(),
   CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN: z.string().optional(),
   CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL: z.string().url().optional(),
+  CLIENTFLOW_N8N_FORM_EMAIL_ENABLED: z.enum(['true', 'false']).optional(),
   N8N_FORM_EMAIL_ENABLED: z.enum(['true', 'false']).optional(),
   N8N_FORM_EMAIL_WEBHOOK_URL: z.string().url().optional(),
   N8N_CLIENTFLOW_SECRET: z.string().optional(),
@@ -48,7 +49,9 @@ export const environmentSchema = z.object({
       }
     }
   }
-  const n8nEnabled = environment.N8N_ENABLED === 'true' || environment.N8N_FORM_EMAIL_ENABLED === 'true';
+  const n8nEnabled = environment.N8N_ENABLED === 'true'
+    || environment.N8N_FORM_EMAIL_ENABLED === 'true'
+    || environment.CLIENTFLOW_N8N_FORM_EMAIL_ENABLED === 'true';
   if (n8nEnabled && !(
     environment.N8N_EMAIL_WEBHOOK_URL ?? environment.CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL ?? environment.N8N_FORM_EMAIL_WEBHOOK_URL
   )) {
