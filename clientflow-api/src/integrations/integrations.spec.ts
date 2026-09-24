@@ -20,6 +20,19 @@ function configuredN8n(): ConfigService<Environment, true> {
   return { get: jest.fn((key: string) => values[key]) } as unknown as ConfigService<Environment, true>;
 }
 
+// N8N_ENABLED and N8N_FORM_EMAIL_ENABLED are deliberately absent here - only the
+// CLIENTFLOW_N8N_FORM_EMAIL_ENABLED alias should be enough to flip availability to 'ready'.
+function configuredViaClientflowAliasOnly(): ConfigService<Environment, true> {
+  const values: Record<string, string | number> = {
+    CLIENTFLOW_N8N_FORM_EMAIL_ENABLED: 'true',
+    CLIENTFLOW_N8N_FORM_EMAIL_WEBHOOK_URL: 'https://n8n.example.com/webhook/clientflow/send-form-email',
+    CLIENTFLOW_N8N_CLIENTFLOW_SECRET: 'webhook-secret',
+    CLIENTFLOW_N8N_FORM_EMAIL_BEARER_TOKEN: 'Bearer workflow-token',
+    CLIENTFLOW_N8N_FORM_EMAIL_TIMEOUT_MS: 5000,
+  };
+  return { get: jest.fn((key: string) => values[key]) } as unknown as ConfigService<Environment, true>;
+}
+
 describe('disabled integrations', () => {
   it('does not send n8n events', async () => {
     const service = new N8nService(disabledConfig());
@@ -188,5 +201,12 @@ describe('disabled integrations', () => {
     const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
     expect(sentBody.eventType).toBe('welcome.send');
     fetchMock.mockRestore();
+  });
+
+  it('treats CLIENTFLOW_N8N_FORM_EMAIL_ENABLED alone as enabling n8n, matching N8N_ENABLED/N8N_FORM_EMAIL_ENABLED', () => {
+    const service = new N8nService(configuredViaClientflowAliasOnly());
+    expect(service.getIntakeAvailability()).toBe('ready');
+    expect(service.getContractAvailability()).toBe('ready');
+    expect(service.getWelcomeAvailability()).toBe('ready');
   });
 });

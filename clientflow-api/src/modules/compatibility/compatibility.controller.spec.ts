@@ -53,6 +53,39 @@ describe('compatibility route scaffold', () => {
       expect(result).toEqual(enrollment);
     });
 
+    it('rejects direct client status mutation through the generic update endpoint', async () => {
+      const prisma = {
+        cfClient: { update: jest.fn() },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com' },
+      });
+
+      await expect(controller.updateClient({} as never, 'client-1', { status: 'ONBOARDING' }))
+        .rejects.toThrow('Client workflow statuses cannot be changed through the generic update endpoint.');
+      expect(prisma.cfClient.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects direct enrollment status mutation through the generic update endpoint', async () => {
+      const prisma = {
+        cfProgramEnrollment: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'enroll-1', organizationId: 'org-1', status: 'interested' }),
+          update: jest.fn(),
+        },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com' },
+      });
+
+      await expect(controller.updateEnrollment({} as never, 'enroll-1', { status: 'approved' }))
+        .rejects.toThrow('Enrollment status changes must use the transition endpoint.');
+      expect(prisma.cfProgramEnrollment.update).not.toHaveBeenCalled();
+    });
+
     it('returns safe empty workflow selections when optional configuration is absent', async () => {
       const prisma = {
         cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(null) },

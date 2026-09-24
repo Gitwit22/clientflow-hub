@@ -633,6 +633,118 @@ describe('ContractsService', () => {
     }));
   });
 
+  it('does not request or send a welcome email when the program workflow toggle is off, even though n8n is ready', async () => {
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
+      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+        id: 'monitoring-1',
+        type: 'Initial Follow-Up',
+        status: 'PENDING',
+        dueDate: new Date('2030-01-31T00:00:00.000Z'),
+        assignedStaffId: null,
+      }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: { create: jest.fn() },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: {
+        findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }),
+      },
+      cfProgramWorkflowConfig: {
+        findFirst: jest.fn().mockResolvedValue({ ...workflowConfig, sendWelcomeAfterContractSigned: false }),
+      },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const n8n = {
+      getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
+      sendWelcome: jest.fn(),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8n as unknown as N8nService,
+    );
+
+    const result = await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(transaction.cfCommunication.create).not.toHaveBeenCalled();
+    expect(n8n.sendWelcome).not.toHaveBeenCalled();
+    expect(result.welcomeDelivery).toEqual({ status: 'skipped', reason: 'disabled' });
+  });
+
+  it('logs WELCOME_FAILED and notifies admins when an actual welcome send attempt fails', async () => {
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
+      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+        id: 'monitoring-1',
+        type: 'Initial Follow-Up',
+        status: 'PENDING',
+        dueDate: new Date('2030-01-31T00:00:00.000Z'),
+        assignedStaffId: null,
+      }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: { create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'REQUESTED' }) },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: {
+        findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }),
+      },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
+      cfCommunication: { update: jest.fn().mockResolvedValue({}) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-failed' }) },
+      adminUser: { findMany: jest.fn().mockResolvedValue([{ id: 'admin-1' }, { id: 'admin-2' }]) },
+      cfNotification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const n8n = {
+      getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
+      sendWelcome: jest.fn().mockResolvedValue({ status: 'failed', reason: 'rejected' }),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8n as unknown as N8nService,
+    );
+
+    const result = await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(n8n.sendWelcome).toHaveBeenCalled();
+    expect(prisma.cfCommunication.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'welcome-communication' },
+      data: expect.objectContaining({ status: 'FAILED', errorCode: 'rejected' }),
+    }));
+    expect(prisma.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'WELCOME_FAILED' }),
+    }));
+    expect(prisma.cfNotification.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([
+        expect.objectContaining({ type: 'WELCOME_FAILED', recipientAdminId: 'admin-1' }),
+        expect.objectContaining({ type: 'WELCOME_FAILED', recipientAdminId: 'admin-2' }),
+      ]),
+    }));
+    // Welcome failure must not undo the completed contract or onboarding transition.
+    expect(result.contract.status).toBe('COMPLETED');
+    expect(result.client.status).toBe('ONBOARDING');
+  });
+
   it('archives the fully executed contract to storage and files it on the client record', async () => {
     const monitoringTask = {
       id: 'monitoring-1',

@@ -262,18 +262,46 @@ export class ProgramAutomationService {
 
     let enrollment: { id: string };
     try {
-      enrollment = await this.prisma.cfProgramEnrollment.create({
-        data: {
-          organizationId: context.organizationId,
-          clientId: context.client.id,
-          programId: context.program.id,
-          status: 'interested',
-          assignedUserId: context.client.assignedUserId,
-          assignedStaff: context.client.assignedStaff,
-          lastModifiedByUserId: context.actorUserId,
-          lastModifiedByDisplayName: context.actorDisplayName,
-          isDemo: context.client.isDemo,
-        },
+      enrollment = await this.prisma.$transaction(async (transaction) => {
+        const created = await transaction.cfProgramEnrollment.create({
+          data: {
+            organizationId: context.organizationId,
+            clientId: context.client.id,
+            programId: context.program.id,
+            status: 'interested',
+            assignedUserId: context.client.assignedUserId,
+            assignedStaff: context.client.assignedStaff,
+            lastModifiedByUserId: context.actorUserId,
+            lastModifiedByDisplayName: context.actorDisplayName,
+            isDemo: context.client.isDemo,
+          },
+        });
+
+        await transaction.cfEnrollmentStatusHistory.create({
+          data: {
+            organizationId: context.organizationId,
+            enrollmentId: created.id,
+            newStatus: 'interested',
+            changedByUserId: context.actorUserId,
+            changedByDisplayName: context.actorDisplayName,
+            reason: 'Created by program automation.',
+          },
+        });
+
+        await transaction.cfActivityLog.create({
+          data: {
+            organizationId: context.organizationId,
+            clientId: context.client.id,
+            enrollmentId: created.id,
+            actorUserId: context.actorUserId,
+            action: 'ENROLLMENT_CREATED',
+            description: `Enrolled in ${context.program.name}.`,
+            user: context.actorDisplayName,
+            isDemo: context.client.isDemo,
+          },
+        });
+
+        return created;
       });
     } catch (error) {
       if (!isPrismaUniqueViolation(error)) throw error;
@@ -290,30 +318,6 @@ export class ProgramAutomationService {
       return { enrollmentId: concurrent.id, created: false };
     }
     context.enrollmentId = enrollment.id;
-
-    await this.prisma.cfEnrollmentStatusHistory.create({
-      data: {
-        organizationId: context.organizationId,
-        enrollmentId: enrollment.id,
-        newStatus: 'interested',
-        changedByUserId: context.actorUserId,
-        changedByDisplayName: context.actorDisplayName,
-        reason: 'Created by program automation.',
-      },
-    });
-
-    await this.prisma.cfActivityLog.create({
-      data: {
-        organizationId: context.organizationId,
-        clientId: context.client.id,
-        enrollmentId: enrollment.id,
-        actorUserId: context.actorUserId,
-        action: 'ENROLLMENT_CREATED',
-        description: `Enrolled in ${context.program.name}.`,
-        user: context.actorDisplayName,
-        isDemo: context.client.isDemo,
-      },
-    });
 
     return { enrollmentId: enrollment.id, created: true };
   }
