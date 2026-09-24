@@ -352,7 +352,7 @@ model CfProgramContractVersion {
   content        String   @db.Text
   fileUrl        String?
   fileName       String?
-  storedFileId   String?  @unique
+  storedFileId   String?
   signableFields Json     @default("[]")
   createdBy      String
   createdAt      DateTime @default(now())
@@ -361,6 +361,7 @@ model CfProgramContractVersion {
 
   @@unique([templateId, version])
   @@index([organizationId, templateId, createdAt])
+  @@index([storedFileId])
 }
 
 model CfProgramWelcomeEmailTemplate {
@@ -383,7 +384,7 @@ model CfProgramWelcomeEmailVersion {
   version          Int
   subject          String
   body             String   @db.Text
-  guideStoredFileId String? @unique
+  guideStoredFileId String?
   createdBy        String
   allowedVariables Json     @default("[]")
   createdAt        DateTime @default(now())
@@ -392,6 +393,7 @@ model CfProgramWelcomeEmailVersion {
 
   @@unique([templateId, version])
   @@index([organizationId, templateId, createdAt])
+  @@index([guideStoredFileId])
 }
 
 model CfProgramAutomationRule {
@@ -575,7 +577,7 @@ model CfContract {
   signerIp             String?
   signerUserAgent      String?
   completedAt          DateTime?
-  executedStoredFileId String?   @unique
+  executedStoredFileId String?
   isDemo               Boolean   @default(false)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
@@ -589,6 +591,7 @@ model CfContract {
   @@index([organizationId, contractTemplateId])
   @@index([organizationId, status])
   @@index([enrollmentId])
+  @@index([executedStoredFileId])
 }
 
 
@@ -619,7 +622,7 @@ model CfDocument {
   name           String
   type           String
   url            String
-  storedFileId   String?  @unique
+  storedFileId   String?
   objectKey      String?  @unique
   bucket         String?
   byteSize       Int?
@@ -637,6 +640,7 @@ model CfDocument {
   @@index([organizationId, clientId])
   @@index([enrollmentId])
   @@index([organizationId, uploadStatus])
+  @@index([storedFileId])
 }
 
 model CfStoredFile {

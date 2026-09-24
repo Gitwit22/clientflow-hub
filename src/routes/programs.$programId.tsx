@@ -426,7 +426,7 @@ function ProgramDetailPage() {
                   />
                   <Input type="file" onChange={(event) => setContractFile(event.target.files?.[0] ?? null)} />
                   <Button
-                    disabled={savingWorkflow || (!contractContent.trim() && !contractFile)}
+                    disabled={savingWorkflow || !contractContent.trim()}
                     onClick={() => {
                       setSavingWorkflow(true);
                       void (async () => {

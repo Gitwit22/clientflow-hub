@@ -21,10 +21,10 @@ ALTER TABLE "CfProgramWelcomeEmailVersion" ADD COLUMN IF NOT EXISTS "guideStored
 ALTER TABLE "CfContract" ADD COLUMN IF NOT EXISTS "executedStoredFileId" TEXT;
 ALTER TABLE "CfDocument" ADD COLUMN IF NOT EXISTS "storedFileId" TEXT;
 
-CREATE UNIQUE INDEX IF NOT EXISTS "CfProgramContractVersion_storedFileId_key" ON "CfProgramContractVersion"("storedFileId");
-CREATE UNIQUE INDEX IF NOT EXISTS "CfProgramWelcomeEmailVersion_guideStoredFileId_key" ON "CfProgramWelcomeEmailVersion"("guideStoredFileId");
-CREATE UNIQUE INDEX IF NOT EXISTS "CfContract_executedStoredFileId_key" ON "CfContract"("executedStoredFileId");
-CREATE UNIQUE INDEX IF NOT EXISTS "CfDocument_storedFileId_key" ON "CfDocument"("storedFileId");
+CREATE INDEX IF NOT EXISTS "CfProgramContractVersion_storedFileId_idx" ON "CfProgramContractVersion"("storedFileId");
+CREATE INDEX IF NOT EXISTS "CfProgramWelcomeEmailVersion_guideStoredFileId_idx" ON "CfProgramWelcomeEmailVersion"("guideStoredFileId");
+CREATE INDEX IF NOT EXISTS "CfContract_executedStoredFileId_idx" ON "CfContract"("executedStoredFileId");
+CREATE INDEX IF NOT EXISTS "CfDocument_storedFileId_idx" ON "CfDocument"("storedFileId");
 
 ALTER TABLE "CfProgramContractVersion"
   ADD CONSTRAINT "CfProgramContractVersion_storedFileId_fkey"

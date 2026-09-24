@@ -1208,6 +1208,7 @@ export class ClientflowCompatibilityController {
     const storageKeyPrefix = body.storageKeyPrefix ? trimSlashEdges(String(body.storageKeyPrefix)) : 'uploads';
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `${storageKeyPrefix}/${orgId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
+    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
     const storedFile = await this.requirePrisma().cfStoredFile.create({
       data: {
         organizationId: orgId,
@@ -1219,7 +1220,6 @@ export class ClientflowCompatibilityController {
         uploadedByUserId: admin.id,
       },
     });
-    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
     return { storedFile, uploadUrl: upload.url, expiresInSeconds: upload.expiresInSeconds };
   }
   @Post('files/:id/complete') async completeStoredFileUpload(@Req() request: Request, @Param('id') id: string) {
@@ -1359,6 +1359,7 @@ export class ClientflowCompatibilityController {
     const sizeBytes = Number(body.byteSize ?? 0);
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `client-documents/${orgId}/${clientId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
+    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
     const storedFile = await this.requirePrisma().cfStoredFile.create({
       data: {
         organizationId: orgId,
@@ -1386,7 +1387,6 @@ export class ClientflowCompatibilityController {
         isDemo: client.isDemo,
       },
     });
-    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
     return { document, storedFile, uploadUrl: upload.url, expiresInSeconds: upload.expiresInSeconds };
   }
   @Post('documents/:id/complete-upload') async completeUpload(@Req() request: Request, @Param('id') id: string) {
