@@ -37,7 +37,7 @@ import {
   createEnrollmentMonitoring,
   createFinalReport,
   downloadDocument,
-  downloadStoredFile,
+  downloadExecutedContract,
   generateContract,
   refreshClientProfile,
   recordMonitoringResult,
@@ -1231,7 +1231,7 @@ function ClientProfile() {
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        void downloadStoredFile(c.executedStoredFileId!).catch((error: unknown) => {
+                        void downloadExecutedContract(client.id, c.id).catch((error: unknown) => {
                           toast.error(
                             error instanceof Error ? error.message : "Contract download failed.",
                           );

@@ -41,7 +41,7 @@ import {
   cfCompleteDocumentUpload,
   cfCompleteStoredFileUpload,
   cfGetDocumentDownload,
-  cfGetStoredFileDownload,
+  cfGetExecutedContractDownload,
   cfCreateCommunication,
   cfCreateFinalReport,
   cfUpdateFormAssignment,
@@ -753,8 +753,8 @@ export async function uploadStoredFile(file: File, storageKeyPrefix: string) {
   return cfCompleteStoredFileUpload(intent.storedFile.id);
 }
 
-export async function downloadStoredFile(fileId: string) {
-  const result = await cfGetStoredFileDownload(fileId);
+export async function downloadExecutedContract(clientId: string, contractId: string) {
+  const result = await cfGetExecutedContractDownload(clientId, contractId);
   window.open(result.url, "_blank", "noopener,noreferrer");
 }
 

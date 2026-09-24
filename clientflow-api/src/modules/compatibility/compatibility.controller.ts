@@ -81,26 +81,20 @@ function hashRefreshToken(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function normalizeAdminShape(admin: {
-  id: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  jobTitle: string | null;
-  role: string;
-  organizationId: string;
-  isActive: boolean;
-}) {
-  return {
-    id: admin.id,
-    email: admin.email,
-    firstName: admin.firstName ?? undefined,
-    lastName: admin.lastName ?? undefined,
-    jobTitle: admin.jobTitle ?? undefined,
-    role: admin.role,
-    organizationId: admin.organizationId,
-    active: admin.isActive,
-  };
+function trimSlashEdges(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '/') start += 1;
+  while (end > start && value[end - 1] === '/') end -= 1;
+  return value.slice(start, end);
+}
+
+function sanitizeStorageName(value: string, fallback: string): string {
+  const cleaned = Array.from(value)
+    .map((character) => /[A-Za-z0-9._-]/.test(character) ? character : '-')
+    .join('');
+  const trimmed = cleaned.replaceAll('--', '-');
+  return trimSlashEdges(trimmed).replace(/^-+/, '').replace(/-+$/, '') || fallback;
 }
 
 function getCookieValue(request: Request, name: string): string | undefined {
@@ -1211,8 +1205,8 @@ export class ClientflowCompatibilityController {
     const originalFileName = String(body.name ?? 'upload.bin');
     const mimeType = String(body.type ?? 'application/octet-stream');
     const sizeBytes = Number(body.byteSize ?? 0);
-    const storageKeyPrefix = body.storageKeyPrefix ? String(body.storageKeyPrefix).replace(/^\/+|\/+$/g, '') : 'uploads';
-    const safeName = originalFileName.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'upload.bin';
+    const storageKeyPrefix = body.storageKeyPrefix ? trimSlashEdges(String(body.storageKeyPrefix)) : 'uploads';
+    const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `${storageKeyPrefix}/${orgId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const storedFile = await this.requirePrisma().cfStoredFile.create({
       data: {
@@ -1247,6 +1241,19 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
+    const [contractVersion, welcomeVersion] = await Promise.all([
+      this.requirePrisma().cfProgramContractVersion.findFirst({
+        where: { organizationId: orgId, storedFileId: storedFile.id },
+        select: { id: true },
+      }),
+      this.requirePrisma().cfProgramWelcomeEmailVersion.findFirst({
+        where: { organizationId: orgId, guideStoredFileId: storedFile.id },
+        select: { id: true },
+      }),
+    ]);
+    if (!contractVersion && !welcomeVersion) {
+      throw new ForbiddenException('Stored file is not available through this endpoint.');
+    }
     const download = await storage.createPresignedDownloadUrl(storedFile.storageKey, 300);
     return { url: download.url, expiresInSeconds: download.expiresInSeconds };
   }
@@ -1299,6 +1306,36 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
   }
+  @Get('clients/:clientId/contracts/:contractId/download') async downloadExecutedContract(
+    @Req() request: Request,
+    @Param('clientId') clientId: string,
+    @Param('contractId') contractId: string,
+  ) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const storage = this.requireStorage();
+    storage.assertEnabled();
+    const contract = await this.requirePrisma().cfContract.findFirst({
+      where: {
+        id: contractId,
+        clientId,
+        organizationId: orgId,
+      },
+      select: {
+        executedStoredFileId: true,
+        executedStoredFile: {
+          select: {
+            id: true,
+            storageKey: true,
+          },
+        },
+      },
+    });
+    if (!contract?.executedStoredFileId || !contract.executedStoredFile) {
+      throw new NotFoundException('Executed contract artifact not found.');
+    }
+    const download = await storage.createPresignedDownloadUrl(contract.executedStoredFile.storageKey, 300);
+    return { url: download.url, expiresInSeconds: download.expiresInSeconds };
+  }
   @Post('clients/:clientId/contracts') async createContract(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfContract.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), contractTemplateId: String(body.contractTemplateId ?? ''), contractType: String(body.contractType ?? 'Service Agreement'), status: String(body.status ?? 'DRAFT'), generatedContent: String(body.generatedContent ?? ''), termsId: body.termsId ? String(body.termsId) : null } });
@@ -1320,7 +1357,7 @@ export class ClientflowCompatibilityController {
     const originalFileName = String(body.name ?? 'upload.bin');
     const mimeType = String(body.type ?? 'application/octet-stream');
     const sizeBytes = Number(body.byteSize ?? 0);
-    const safeName = originalFileName.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'upload.bin';
+    const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `client-documents/${orgId}/${clientId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const storedFile = await this.requirePrisma().cfStoredFile.create({
       data: {

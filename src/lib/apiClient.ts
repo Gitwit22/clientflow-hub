@@ -866,6 +866,11 @@ export async function cfCompleteStoredFileUpload(fileId: string) {
 export async function cfGetStoredFileDownload(fileId: string) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(`${CF}/files/${fileId}/download`);
 }
+export async function cfGetExecutedContractDownload(clientId: string, contractId: string) {
+  return apiRequest<{ url: string; expiresInSeconds: number }>(
+    `${CF}/clients/${clientId}/contracts/${contractId}/download`,
+  );
+}
 export async function cfListAllDocuments() {
   return listAllPages<ClientDocument>(`${CF}/documents`);
 }
