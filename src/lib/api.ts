@@ -28,6 +28,7 @@ import {
   cfCreateProgramWorkflowWelcomeVersion,
   cfCreateEnrollment,
   cfListEnrollments,
+  cfTransitionEnrollment,
   cfUpdateEnrollment,
   cfCreateTerms,
   cfUpdateTerms,
@@ -36,8 +37,11 @@ import {
   cfCreateEnrollmentMonitoring,
   cfRecordMonitoringResult,
   cfCreateDocumentUpload,
+  cfCreateStoredFileUpload,
   cfCompleteDocumentUpload,
+  cfCompleteStoredFileUpload,
   cfGetDocumentDownload,
+  cfGetStoredFileDownload,
   cfCreateCommunication,
   cfCreateFinalReport,
   cfUpdateFormAssignment,
@@ -282,14 +286,24 @@ export async function updateEnrollment(
 }
 
 export async function withdrawEnrollment(id: string, reason: string) {
-  return updateEnrollment(id, { status: "withdrawn", statusReason: reason });
+  const enrollment = await cfTransitionEnrollment(id, { status: "withdrawn", statusReason: reason });
+  setState((state) => ({
+    ...state,
+    enrollments: state.enrollments.map((existing) => (existing.id === id ? enrollment : existing)),
+  }));
+  return enrollment;
 }
 
 export async function reactivateEnrollment(id: string) {
-  return updateEnrollment(id, {
+  const enrollment = await cfTransitionEnrollment(id, {
     status: "active",
     statusReason: "Program membership reactivated.",
   });
+  setState((state) => ({
+    ...state,
+    enrollments: state.enrollments.map((existing) => (existing.id === id ? enrollment : existing)),
+  }));
+  return enrollment;
 }
 
 /* ----------------------------------- Forms ---------------------------------- */
@@ -386,7 +400,6 @@ export async function createFormAssignment(data: {
 export async function convertProfile(id: string, newRelationshipType: RelationshipType = "client") {
   await updateClient(id, {
     relationshipType: newRelationshipType,
-    lifecycleStatus: newRelationshipType === "client" ? "active" : undefined,
     convertedAt: nowISO(),
     status: newRelationshipType === "client" ? "Active" : undefined,
   });
@@ -720,6 +733,28 @@ export async function uploadDocument(clientId: string, file: File) {
 
 export async function downloadDocument(documentId: string) {
   const result = await cfGetDocumentDownload(documentId);
+  window.open(result.url, "_blank", "noopener,noreferrer");
+}
+
+export async function uploadStoredFile(file: File, storageKeyPrefix: string) {
+  const contentType = file.type || "application/octet-stream";
+  const intent = await cfCreateStoredFileUpload({
+    name: file.name,
+    type: contentType,
+    byteSize: file.size,
+    storageKeyPrefix,
+  });
+  const uploadResponse = await fetch(intent.uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: file,
+  });
+  if (!uploadResponse.ok) throw new Error("File bytes could not be uploaded.");
+  return cfCompleteStoredFileUpload(intent.storedFile.id);
+}
+
+export async function downloadStoredFile(fileId: string) {
+  const result = await cfGetStoredFileDownload(fileId);
   window.open(result.url, "_blank", "noopener,noreferrer");
 }
 

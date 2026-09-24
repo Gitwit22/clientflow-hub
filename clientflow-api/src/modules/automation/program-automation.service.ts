@@ -465,15 +465,47 @@ export class ProgramAutomationService {
       return { contractId: latestContract.id, skipped: true, reason: 'already_issued' };
     }
 
-    const issued = await this.contracts.issueContractForProgram(context.client.id, context.program.id, {
-      enrollmentId: context.enrollmentId,
-      staffSigner: {
-        id: context.client.assignedUserId,
-        name: context.client.assignedStaff && context.client.assignedStaff !== 'Unassigned'
-          ? context.client.assignedStaff
-          : 'EA Management Team',
-      },
-    });
+    let issued;
+    try {
+      issued = await this.contracts.issueContractForProgram(context.client.id, context.program.id, {
+        enrollmentId: context.enrollmentId,
+        staffSigner: {
+          id: context.client.assignedUserId,
+          name: context.client.assignedStaff && context.client.assignedStaff !== 'Unassigned'
+            ? context.client.assignedStaff
+            : 'EA Management Team',
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'The selected program does not have an active contract template.') {
+        await this.prisma.cfClient.update({
+          where: { id: context.client.id },
+          data: { status: CONTRACT_CLIENT_STATUS.pendingStaffReview },
+        });
+        await this.prisma.cfActivityLog.create({
+          data: {
+            organizationId: context.organizationId,
+            clientId: context.client.id,
+            enrollmentId: context.enrollmentId,
+            actorUserId: context.actorUserId,
+            action: 'CONTRACT_CONFIGURATION_MISSING',
+            description: `Automatic contract sending stopped because ${context.program.name} has no active contract version.`,
+            user: 'automation',
+            isDemo: context.client.isDemo,
+          },
+        });
+        await this.createAdminNotifications(context, {
+          sourceType: 'contract_configuration',
+          sourceId: `${context.client.id}:${context.program.id}`,
+          type: 'CONTRACT_CONFIGURATION_MISSING',
+          title: 'Contract configuration missing',
+          message: `${context.program.name} has auto-contract enabled but no active contract version.`,
+          actionUrl: `/programs/${context.program.id}`,
+        });
+        return { queuedForStaffReview: true, reason: 'contract_configuration_missing' };
+      }
+      throw error;
+    }
 
     return {
       contractId: issued.contract.id,
@@ -505,7 +537,7 @@ export class ProgramAutomationService {
         recipientEmail: context.client.email,
         channel: 'email',
         provider: 'n8n',
-        status: availability === 'ready' ? 'requested' : 'skipped',
+        status: availability === 'ready' ? 'REQUESTED' : 'FAILED',
         requestedAt: new Date(),
         errorCode: availability === 'ready' ? null : availability,
         type: 'program_email',
@@ -519,6 +551,10 @@ export class ProgramAutomationService {
     });
 
     if (availability === 'ready') {
+      await this.prisma.cfCommunication.update({
+        where: { id: communication.id },
+        data: { status: 'SENDING' },
+      });
       const delivery = await this.n8n.sendWelcome(eventId, {
         organizationId: context.organizationId,
         clientId: context.client.id,
@@ -531,12 +567,12 @@ export class ProgramAutomationService {
       if (delivery.status === 'sent') {
         await this.prisma.cfCommunication.update({
           where: { id: communication.id },
-          data: { status: 'sent', sentAt: new Date(delivery.sentAt), failedAt: null, errorCode: null },
+          data: { status: 'SENT', sentAt: new Date(delivery.sentAt), failedAt: null, errorCode: null },
         });
       } else if (delivery.status === 'failed') {
         await this.prisma.cfCommunication.update({
           where: { id: communication.id },
-          data: { status: 'failed', failedAt: new Date(), errorCode: delivery.reason },
+          data: { status: 'FAILED', failedAt: new Date(), errorCode: delivery.reason },
         });
       }
       return { communicationId: communication.id, deliveryStatus: delivery.status };
@@ -669,6 +705,44 @@ export class ProgramAutomationService {
     return isRecord(value)
       ? value
       : {};
+  }
+
+  private async createAdminNotifications(
+    context: ProgramExecutionContext,
+    payload: {
+      sourceType: string;
+      sourceId: string;
+      type: string;
+      title: string;
+      message: string;
+      actionUrl?: string;
+    },
+  ) {
+    const admins = await this.prisma.adminUser.findMany({
+      where: {
+        organizationId: context.organizationId,
+        isActive: true,
+        role: { in: ['org_admin', 'super_admin'] },
+      },
+      select: { id: true },
+    });
+    if (admins.length === 0) return;
+    await this.prisma.cfNotification.createMany({
+      data: admins.map((admin) => ({
+        organizationId: context.organizationId,
+        recipientAdminId: admin.id,
+        type: payload.type,
+        title: payload.title,
+        message: payload.message,
+        actionUrl: payload.actionUrl ?? null,
+        sourceType: payload.sourceType,
+        sourceId: payload.sourceId,
+        clientId: context.client.id,
+        submissionId: null,
+        isDemo: context.client.isDemo,
+      })),
+      skipDuplicates: true,
+    });
   }
 
   private async claimExecution(

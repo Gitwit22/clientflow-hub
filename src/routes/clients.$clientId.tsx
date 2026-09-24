@@ -37,11 +37,11 @@ import {
   createEnrollmentMonitoring,
   createFinalReport,
   downloadDocument,
+  downloadStoredFile,
   generateContract,
   refreshClientProfile,
   recordMonitoringResult,
   updateClient,
-  updateContract,
   uploadDocument,
 } from "@/lib/api";
 import {
@@ -268,9 +268,10 @@ function ClientProfile() {
   const terms = s.terms.filter((t) => t.clientId === client.id);
   const enrollmentIds = new Set(enrollments.map((enrollment) => enrollment.id));
   const monitoring = s.monitoring.filter((item) => enrollmentIds.has(item.enrollmentId));
-  const docs = s.documents.filter((d) => d.clientId === client.id);
+  const docs = s.documents.filter((d) => d.clientId === client.id && d.type !== "contract");
   const comms = s.communications.filter((c) => c.clientId === client.id);
   const contracts = s.contracts.filter((c) => c.clientId === client.id);
+  const executedContractDocs = s.documents.filter((d) => d.clientId === client.id && d.type === "contract");
   const finals = s.finalReports.filter((f) => f.clientId === client.id);
   const logs = s.activity.filter((a) => a.clientId === client.id);
   const intakeSubmissions = s.intakeSubmissions.filter(
@@ -439,12 +440,11 @@ function ClientProfile() {
           {[
             ...(selectedProgram ? ["program"] : []),
             "overview",
-            "intake",
             "forms",
-            "monitoring",
+            "contracts",
             "documents",
             "communications",
-            "contracts",
+            "monitoring",
             "final",
             "activity",
           ].map((t) => (
@@ -709,8 +709,11 @@ function ClientProfile() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="intake" className="mt-4">
+        <TabsContent value="forms" className="mt-4 space-y-3">
           <Card className="shadow-card">
+            <CardHeader>
+              <CardTitle className="font-display text-base">Intake</CardTitle>
+            </CardHeader>
             <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
               <dl>
                 <Row label="Client name" value={client.primaryContactName} />
@@ -787,9 +790,6 @@ function ClientProfile() {
               </CardContent>
             </Card>
           ))}
-        </TabsContent>
-
-        <TabsContent value="forms" className="mt-4 space-y-3">
           {assignments.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
               No forms have been assigned to this profile yet.
@@ -1196,11 +1196,13 @@ function ClientProfile() {
               <CardContent className="p-5">
                 <div className="flex justify-between gap-3">
                   <p className="font-medium">{c.subject}</p>
-                  <StatusBadge status={c.type} />
+                  <StatusBadge status={c.status ?? c.type} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{c.notes}</p>
                 <p className="mt-2 font-mono text-xs text-muted-foreground">
                   {c.direction} · {c.staffMember} · {new Date(c.date).toLocaleDateString()}
+                  {c.status ? ` · ${c.status}` : ""}
+                  {c.errorCode ? ` · ${c.errorCode}` : ""}
                 </p>
               </CardContent>
             </Card>
@@ -1224,58 +1226,25 @@ function ClientProfile() {
                   {c.content}
                 </pre>
                 <div className="flex flex-wrap gap-2">
-                  {(c.status === "Draft" || c.status === "Internal Review") && (
+                  {c.executedStoredFileId && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={async () => {
-                        await updateContract(c.id, {
-                          status: "Sent",
-                          sentAt: new Date().toISOString(),
+                      onClick={() => {
+                        void downloadStoredFile(c.executedStoredFileId!).catch((error: unknown) => {
+                          toast.error(
+                            error instanceof Error ? error.message : "Contract download failed.",
+                          );
                         });
-                        toast.success("Contract marked as sent");
                       }}
                     >
-                      Mark as Sent
+                      Download signed agreement
                     </Button>
                   )}
-                  {c.status === "Sent" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        await updateContract(c.id, {
-                          status: "Signed",
-                          signedAt: new Date().toISOString(),
-                        });
-                        toast.success("Contract marked as signed");
-                      }}
-                    >
-                      Mark as Signed
-                    </Button>
-                  )}
-                  {c.status === "Signed" && (
-                    <Button
-                      size="sm"
-                      onClick={async () => {
-                        await updateContract(c.id, { status: "Completed" });
-                        toast.success("Contract completed");
-                      }}
-                    >
-                      Mark Completed
-                    </Button>
-                  )}
-                  {(c.status === "Sent" || c.status === "Signed") && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        await updateContract(c.id, { status: "Declined" });
-                        toast.info("Contract marked declined");
-                      }}
-                    >
-                      Mark Declined
-                    </Button>
+                  {!c.executedStoredFileId && (
+                    <span className="text-xs text-muted-foreground self-center">
+                      Signed artifact not available yet.
+                    </span>
                   )}
                 </div>
               </CardContent>

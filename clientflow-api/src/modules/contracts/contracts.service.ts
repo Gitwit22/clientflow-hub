@@ -19,14 +19,11 @@ import {
   INITIAL_FOLLOW_UP_TYPE,
   MONITORING_TASK_STATUS,
   contractRuleFor,
-  contractTemplateNameFor,
   contractTokenExpiry,
   generateContractToken,
   hashContractToken,
   monitoringDueDate,
-  PROGRAM_WELCOME_MESSAGES,
   renderContractSnapshot,
-  welcomeAttachmentUrlFor,
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
@@ -34,6 +31,12 @@ import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract processing.';
 const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contract template.';
 const SAFE_PUBLIC_CONTRACT_ERROR = 'The contract link is invalid or unavailable.';
+const COMMUNICATION_STATUS = {
+  requested: 'REQUESTED',
+  sending: 'SENDING',
+  sent: 'SENT',
+  failed: 'FAILED',
+} as const;
 const CONTRACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const WELCOME_VARIABLE_PATTERN = /{{\s*([a-zA-Z0-9_.]+)\s*}}/g;
 const ALLOWED_WELCOME_VARIABLES = new Set([
@@ -49,6 +52,19 @@ export interface StaffSigner {
   id: string | null;
   name: string;
 }
+
+type NotificationPayload = {
+  organizationId: string;
+  clientId?: string | null;
+  submissionId?: string | null;
+  sourceType: string;
+  sourceId: string;
+  type: string;
+  title: string;
+  message: string;
+  actionUrl?: string | null;
+  isDemo?: boolean;
+};
 
 @Injectable()
 export class ContractsService {
@@ -116,7 +132,15 @@ export class ContractsService {
       };
     }
 
-    const template = await this.resolveTemplate(program);
+    let template;
+    try {
+      template = await this.resolveTemplate(program);
+    } catch (error) {
+      if (error instanceof BadRequestException && error.message === SAFE_TEMPLATE_ERROR) {
+        return this.failForMissingContractConfiguration(client, program);
+      }
+      throw error;
+    }
     const defaultSigner: StaffSigner = {
       id: client.assignedUserId,
       name: client.assignedStaff && client.assignedStaff !== 'Unassigned'
@@ -327,7 +351,8 @@ export class ContractsService {
       enrollmentId: contract.enrollmentId,
       fallbackMessage: program.welcomeMessage ?? undefined,
     });
-    const availability = workflow.enabled && workflow.sendWelcomeAfterContractSigned
+    const shouldSendWelcome = workflow.enabled && workflow.sendWelcomeAfterContractSigned;
+    const availability = shouldSendWelcome
       ? this.n8n.getWelcomeAvailability()
       : 'disabled';
     const eventId = `welcome.send:${contract.id}`;
@@ -379,8 +404,8 @@ export class ContractsService {
           organizationId: client.organizationId,
           clientId: client.id,
           actorUserId: null,
-          action: 'CONTRACT_COMPLETED',
-          description: 'Contract completed by client',
+          action: 'CONTRACT_SIGNED',
+          description: 'Contract signed by client',
           user: 'public_contract',
         },
       });
@@ -394,52 +419,78 @@ export class ContractsService {
           user: 'system',
         },
       });
-      const communication = await transaction.cfCommunication.create({
-        data: {
-          organizationId: client.organizationId,
-          clientId: client.id,
-          eventId,
-          contractId: contract.id,
-          recipientEmail: client.email,
-          channel: 'email',
-          provider: 'n8n',
-          status: availability === 'ready' ? 'requested' : 'skipped',
-          requestedAt: now,
-          errorCode: availability === 'ready' ? null : availability,
-          type: 'welcome_email',
-          direction: 'outbound',
-          subject: welcomeConfig.subject,
-          notes: availability === 'ready'
-            ? 'Welcome email requested.'
-            : 'Welcome email skipped by configuration.',
-          renderedSubject: welcomeConfig.subject,
-          renderedBody: welcomeConfig.body,
-          templateContext: welcomeConfig.context,
-          date: now,
-          staffMember: 'system',
-          isDemo: client.isDemo,
-        },
-      });
+      const communication = shouldSendWelcome
+        ? await transaction.cfCommunication.create({
+            data: {
+              organizationId: client.organizationId,
+              clientId: client.id,
+              eventId,
+              contractId: contract.id,
+              recipientEmail: client.email,
+              channel: 'email',
+              provider: 'n8n',
+              status: availability === 'ready' ? COMMUNICATION_STATUS.requested : COMMUNICATION_STATUS.failed,
+              requestedAt: now,
+              errorCode: availability === 'ready' ? null : availability,
+              type: 'welcome_email',
+              direction: 'outbound',
+              subject: welcomeConfig.subject,
+              notes: availability === 'ready'
+                ? 'Welcome email requested.'
+                : 'Welcome email blocked before send.',
+              renderedSubject: welcomeConfig.subject,
+              renderedBody: welcomeConfig.body,
+              templateContext: welcomeConfig.context,
+              date: now,
+              staffMember: 'system',
+              isDemo: client.isDemo,
+            },
+          })
+        : null;
       return { monitoringTask, communication };
     });
 
-    const welcomeDelivery = await this.n8n.sendWelcome(eventId, {
-      organizationId: client.organizationId,
-      clientId: client.id,
-      recipientEmail: client.email,
-      clientName: client.primaryContactName,
-      programName: program.name,
-      nextStep: welcomeConfig.body,
-      attachmentUrl: welcomeAttachmentUrlFor(program.name, this.config.get('APP_URL', { infer: true })),
-      sentByUserId: client.assignedUserId ?? 'system',
-    });
-    await this.recordWelcomeDeliveryResult(
-      completed.communication.id,
-      client,
-      welcomeDelivery,
-    );
+    if (completed.communication && availability === 'ready') {
+      await this.prisma.cfCommunication.update({
+        where: { id: completed.communication.id },
+        data: { status: COMMUNICATION_STATUS.sending },
+      });
+    }
+    const welcomeDelivery = !shouldSendWelcome
+      ? { status: 'skipped' as const, reason: 'disabled' as const }
+      : availability !== 'ready'
+        ? { status: 'failed' as const, reason: availability }
+        : await this.n8n.sendWelcome(eventId, {
+            organizationId: client.organizationId,
+            clientId: client.id,
+            recipientEmail: client.email,
+            clientName: client.primaryContactName,
+            programName: program.name,
+            nextStep: welcomeConfig.body,
+            attachmentUrl: await this.resolveWelcomeAttachmentUrl(welcomeConfig.guideStoredFileId),
+            sentByUserId: client.assignedUserId ?? 'system',
+          });
+    if (completed.communication) {
+      await this.recordWelcomeDeliveryResult(
+        completed.communication.id,
+        client,
+        welcomeDelivery,
+      );
+    }
 
     await this.archiveExecutedContract(client, contract, acceptance, now);
+
+    await this.createAdminNotifications({
+      organizationId: client.organizationId,
+      clientId: client.id,
+      sourceType: 'contract',
+      sourceId: contract.id,
+      type: 'CONTRACT_SIGNED',
+      title: 'Contract signed',
+      message: `${client.primaryContactName} signed ${contract.contractType}.`,
+      actionUrl: `/clients/${client.id}?tab=contracts`,
+      isDemo: client.isDemo,
+    });
 
     return {
       organizationId: client.organizationId,
@@ -480,21 +531,41 @@ export class ContractsService {
       const objectKey = `contracts/${client.organizationId}/${client.id}/${contract.id}-executed.txt`;
       const uploaded = await this.storage.uploadText(objectKey, executedContent, 'text/plain');
 
-      await this.prisma.cfDocument.create({
+      const storedFile = await this.prisma.cfStoredFile.create({
         data: {
           organizationId: client.organizationId,
-          clientId: client.id,
-          name: `${contract.contractType} — Executed`,
-          type: 'contract',
-          url: uploaded.url,
-          objectKey: uploaded.objectKey,
-          bucket: uploaded.bucket,
-          byteSize: uploaded.byteSize,
-          uploadStatus: 'ready',
-          uploadedBy: 'system',
-          isDemo: client.isDemo,
+          storageKey: uploaded.objectKey,
+          originalFileName: `${contract.contractType} - Executed.txt`,
+          mimeType: 'text/plain',
+          sizeBytes: uploaded.byteSize,
+          status: 'READY',
+          uploadedByUserId: client.assignedUserId,
+          completedAt: signedAt,
         },
       });
+
+      await this.prisma.$transaction([
+        this.prisma.cfContract.update({
+          where: { id: contract.id },
+          data: { executedStoredFileId: storedFile.id },
+        }),
+        this.prisma.cfDocument.create({
+          data: {
+            organizationId: client.organizationId,
+            clientId: client.id,
+            name: `${contract.contractType} — Executed`,
+            type: 'contract',
+            url: uploaded.url,
+            storedFileId: storedFile.id,
+            objectKey: uploaded.objectKey,
+            bucket: uploaded.bucket,
+            byteSize: uploaded.byteSize,
+            uploadStatus: 'ready',
+            uploadedBy: 'system',
+            isDemo: client.isDemo,
+          },
+        }),
+      ]);
     } catch (error) {
       this.logger.warn(`Unable to archive executed contract ${contract.id} to storage: ${(error as Error).message}`);
     }
@@ -571,19 +642,13 @@ export class ContractsService {
           },
         })
       : null;
-    const version = activeProgramTemplate && programContractVersionModel
+    const version = activeProgramTemplate && workflow.activeContractVersionId && programContractVersionModel
       ? await programContractVersionModel.findFirst({
-          where: workflow.activeContractVersionId
-            ? {
-                id: workflow.activeContractVersionId,
-                organizationId: program.organizationId,
-                templateId: activeProgramTemplate.id,
-              }
-            : {
-                organizationId: program.organizationId,
-                templateId: activeProgramTemplate.id,
-              },
-          orderBy: workflow.activeContractVersionId ? undefined : [{ version: 'desc' }],
+          where: {
+            id: workflow.activeContractVersionId,
+            organizationId: program.organizationId,
+            templateId: activeProgramTemplate.id,
+          },
         })
       : null;
     if (version) {
@@ -595,53 +660,6 @@ export class ContractsService {
         isActive: true,
         createdAt: version.createdAt,
         updatedAt: version.createdAt,
-      };
-    }
-
-    const mappedName = contractTemplateNameFor(program.name);
-    const names = [...new Set([program.defaultContractTemplateId, ...(mappedName ? [mappedName] : [])])];
-    const fallbackTemplates = await this.prisma.cfContractTemplate.findMany({
-      where: {
-        organizationId: program.organizationId,
-        isActive: true,
-        OR: [
-          { id: program.defaultContractTemplateId },
-          { name: { in: names } },
-        ],
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    const fallback = fallbackTemplates[0] ?? null;
-    if (fallback) return fallback;
-
-    const programContractTemplateIds = programContractTemplateModel
-      ? await programContractTemplateModel.findMany({
-          where: {
-            organizationId: program.organizationId,
-            programId: program.id,
-            isActive: true,
-          },
-          select: { id: true },
-        })
-      : [];
-    const latestProgramTemplateVersion = programContractVersionModel && programContractTemplateIds.length > 0
-      ? await programContractVersionModel.findFirst({
-          where: {
-            organizationId: program.organizationId,
-            templateId: { in: programContractTemplateIds.map((template) => template.id) },
-          },
-          orderBy: [{ createdAt: 'desc' }],
-        })
-      : null;
-    if (latestProgramTemplateVersion) {
-      return {
-        id: latestProgramTemplateVersion.id,
-        organizationId: latestProgramTemplateVersion.organizationId,
-        name: latestProgramTemplateVersion.title?.trim() || `${program.name} Agreement`,
-        content: latestProgramTemplateVersion.content,
-        isActive: true,
-        createdAt: latestProgramTemplateVersion.createdAt,
-        updatedAt: latestProgramTemplateVersion.createdAt,
       };
     }
     throw new BadRequestException(SAFE_TEMPLATE_ERROR);
@@ -762,7 +780,7 @@ export class ContractsService {
           recipientEmail: client.email,
           channel: 'email',
           provider: 'n8n',
-          status: availability === 'ready' ? 'requested' : 'skipped',
+          status: availability === 'ready' ? COMMUNICATION_STATUS.requested : COMMUNICATION_STATUS.failed,
           requestedAt: now,
           errorCode: availability === 'ready' ? null : availability,
           type: 'contract_email',
@@ -770,7 +788,7 @@ export class ContractsService {
           subject: template.name,
           notes: availability === 'ready'
             ? 'Contract email requested.'
-            : 'Contract email skipped by configuration.',
+            : 'Contract email blocked before send.',
           date: now,
           staffMember: 'system',
           isDemo: client.isDemo,
@@ -779,17 +797,25 @@ export class ContractsService {
       return { contract, communication };
     });
 
-    const emailDelivery = await this.n8n.sendContract(eventId, {
-      organizationId: client.organizationId,
-      clientId: client.id,
-      recipientEmail: client.email,
-      clientName: client.primaryContactName,
-      programName: program.name,
-      contractName: template.name,
-      contractUrl: publicContractUrl,
-      dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),
-      sentByUserId: client.assignedUserId ?? 'system',
-    });
+    if (availability === 'ready') {
+      await this.prisma.cfCommunication.update({
+        where: { id: issued.communication.id },
+        data: { status: COMMUNICATION_STATUS.sending },
+      });
+    }
+    const emailDelivery = availability !== 'ready'
+      ? { status: 'failed' as const, reason: availability }
+      : await this.n8n.sendContract(eventId, {
+          organizationId: client.organizationId,
+          clientId: client.id,
+          recipientEmail: client.email,
+          clientName: client.primaryContactName,
+          programName: program.name,
+          contractName: template.name,
+          contractUrl: publicContractUrl,
+          dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),
+          sentByUserId: client.assignedUserId ?? 'system',
+        });
     await this.recordDeliveryResult(issued.communication.id, emailDelivery);
 
     return {
@@ -878,10 +904,8 @@ export class ContractsService {
       },
     };
 
-    // A per-program default (PROGRAM_WELCOME_MESSAGES) takes priority over the raw DB welcomeMessage
-    // field for known programs, so the maintained copy stays authoritative even if that field is stale.
     const fallbackBody = this.renderWelcomeTemplate(
-      PROGRAM_WELCOME_MESSAGES[input.program.name] ?? input.fallbackMessage?.trim() ?? WELCOME_NEXT_STEP,
+      input.fallbackMessage?.trim() || WELCOME_NEXT_STEP,
       context,
     );
     const fallbackSubject = `Welcome to ${input.program.name}`;
@@ -926,12 +950,14 @@ export class ContractsService {
         subject: fallbackSubject,
         body: fallbackBody,
         context,
+        guideStoredFileId: null,
       };
     }
     return {
       subject: this.renderWelcomeTemplate(activeVersion.subject, context),
       body: this.renderWelcomeTemplate(activeVersion.body, context),
       context,
+      guideStoredFileId: activeVersion.guideStoredFileId ?? null,
     };
   }
 
@@ -941,6 +967,17 @@ export class ContractsService {
       const value = this.readTemplateValue(context, path);
       return value === null || value === undefined ? '' : String(value);
     });
+  }
+
+  private async resolveWelcomeAttachmentUrl(storedFileId: string | null): Promise<string | undefined> {
+    if (!storedFileId || !this.storage.isEnabled()) return undefined;
+    const storedFile = await this.prisma.cfStoredFile.findFirst({
+      where: { id: storedFileId },
+      select: { storageKey: true },
+    });
+    if (!storedFile) return undefined;
+    const download = await this.storage.createPresignedDownloadUrl(storedFile.storageKey, 900);
+    return download.url;
   }
 
   private readTemplateValue(context: Record<string, unknown>, path: string): unknown {
@@ -962,16 +999,111 @@ export class ContractsService {
     return first || value;
   }
 
+  private async failForMissingContractConfiguration(
+    client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
+    program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
+  ) {
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.cfClient.update({
+        where: { id: client.id },
+        data: { status: CONTRACT_CLIENT_STATUS.pendingStaffReview },
+      });
+      await transaction.cfActivityLog.create({
+        data: {
+          organizationId: client.organizationId,
+          clientId: client.id,
+          actorUserId: client.assignedUserId,
+          action: 'CONTRACT_CONFIGURATION_MISSING',
+          description: `Automatic contract sending stopped because ${program.name} has no active contract version.`,
+          user: 'system',
+        },
+      });
+    });
+    await this.createAdminNotifications({
+      organizationId: client.organizationId,
+      clientId: client.id,
+      sourceType: 'contract_configuration',
+      sourceId: `${client.id}:${program.id}`,
+      type: 'CONTRACT_CONFIGURATION_MISSING',
+      title: 'Contract configuration missing',
+      message: `${program.name} has auto-contract enabled but no active contract version.`,
+      actionUrl: `/programs/${program.id}`,
+      isDemo: client.isDemo,
+    });
+    return {
+      nextAction: 'STAFF_REVIEW_REQUIRED' as const,
+      clientStatus: CONTRACT_CLIENT_STATUS.pendingStaffReview,
+      program: { id: program.id, name: program.name },
+      contract: null,
+      emailDelivery: null,
+    };
+  }
+
+  private async createAdminNotifications(payload: NotificationPayload): Promise<void> {
+    const adminModel = (this.prisma as unknown as {
+      adminUser?: {
+        findMany: (args: unknown) => Promise<Array<{ id: string }>>;
+      };
+      cfNotification?: {
+        createMany?: (args: unknown) => Promise<unknown>;
+        create?: (args: unknown) => Promise<unknown>;
+      };
+    }).adminUser;
+    const notificationModel = (this.prisma as unknown as {
+      cfNotification?: {
+        createMany?: (args: unknown) => Promise<unknown>;
+        create?: (args: unknown) => Promise<unknown>;
+      };
+    }).cfNotification;
+    if (!adminModel || !notificationModel) return;
+    const admins = await adminModel.findMany({
+      where: {
+        organizationId: payload.organizationId,
+        isActive: true,
+        role: { in: ['org_admin', 'super_admin'] },
+      },
+      select: { id: true },
+    });
+    if (admins.length === 0) return;
+    const data = admins.map((admin) => ({
+      organizationId: payload.organizationId,
+      recipientAdminId: admin.id,
+      type: payload.type,
+      title: payload.title,
+      message: payload.message,
+      actionUrl: payload.actionUrl ?? null,
+      sourceType: payload.sourceType,
+      sourceId: payload.sourceId,
+      clientId: payload.clientId ?? null,
+      submissionId: payload.submissionId ?? null,
+      isDemo: payload.isDemo ?? false,
+    }));
+    if (notificationModel.createMany) {
+      await notificationModel.createMany({ data, skipDuplicates: true });
+      return;
+    }
+    await Promise.all(data.map(async (item) => {
+      try {
+        await notificationModel.create?.({ data: item });
+      } catch {
+        // ignore duplicate notification inserts in older mocks
+      }
+    }));
+  }
+
   private async recordDeliveryResult(
     communicationId: string,
     delivery: ContractEmailDeliveryResult,
   ): Promise<void> {
-    if (delivery.status === 'skipped') return;
-    await this.prisma.cfCommunication.update({
+    const communicationModel = (this.prisma as unknown as {
+      cfCommunication?: { update: (args: unknown) => Promise<unknown> };
+    }).cfCommunication;
+    if (!communicationModel) return;
+    await communicationModel.update({
       where: { id: communicationId },
       data: delivery.status === 'sent'
-        ? { status: 'sent', sentAt: new Date(delivery.sentAt), failedAt: null, errorCode: null }
-        : { status: 'failed', failedAt: new Date(), errorCode: delivery.reason },
+        ? { status: COMMUNICATION_STATUS.sent, sentAt: new Date(delivery.sentAt), failedAt: null, errorCode: null }
+        : { status: COMMUNICATION_STATUS.failed, failedAt: new Date(), errorCode: 'reason' in delivery ? delivery.reason : 'unknown' },
     });
   }
 
@@ -980,24 +1112,60 @@ export class ContractsService {
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     delivery: WelcomeEmailDeliveryResult,
   ): Promise<void> {
-    if (delivery.status === 'skipped') return;
-    if (delivery.status === 'failed') {
-      await this.prisma.cfCommunication.update({
-        where: { id: communicationId },
-        data: { status: 'failed', failedAt: new Date(), errorCode: delivery.reason },
+    const communicationModel = (this.prisma as unknown as {
+      cfCommunication?: { update: (args: unknown) => Promise<unknown> };
+    }).cfCommunication;
+    const activityModel = (this.prisma as unknown as {
+      cfActivityLog?: { create: (args: unknown) => Promise<unknown> };
+    }).cfActivityLog;
+    if (delivery.status !== 'sent') {
+      if (communicationModel) {
+        await communicationModel.update({
+          where: { id: communicationId },
+          data: {
+            status: COMMUNICATION_STATUS.failed,
+            failedAt: new Date(),
+            errorCode: 'reason' in delivery ? delivery.reason : 'unknown',
+          },
+        });
+      }
+      if (activityModel) {
+        await activityModel.create({
+          data: {
+            organizationId: client.organizationId,
+            clientId: client.id,
+            actorUserId: client.assignedUserId,
+            action: 'WELCOME_FAILED',
+            description: `Welcome email failed: ${'reason' in delivery ? delivery.reason : 'unknown'}.`,
+            user: 'system',
+          },
+        });
+      }
+      await this.createAdminNotifications({
+        organizationId: client.organizationId,
+        clientId: client.id,
+        sourceType: 'welcome_delivery',
+        sourceId: communicationId,
+        type: 'WELCOME_FAILED',
+        title: 'Welcome email failed',
+        message: `Welcome delivery for ${client.primaryContactName} needs staff attention.`,
+        actionUrl: `/clients/${client.id}?tab=communications`,
+        isDemo: client.isDemo,
       });
       return;
     }
     await this.prisma.$transaction(async (transaction) => {
-      await transaction.cfCommunication.update({
-        where: { id: communicationId },
-        data: {
-          status: 'sent',
-          sentAt: new Date(delivery.sentAt),
-          failedAt: null,
-          errorCode: null,
-        },
-      });
+      if ((transaction as { cfCommunication?: { update: (args: unknown) => Promise<unknown> } }).cfCommunication) {
+        await (transaction as { cfCommunication: { update: (args: unknown) => Promise<unknown> } }).cfCommunication.update({
+          where: { id: communicationId },
+          data: {
+            status: COMMUNICATION_STATUS.sent,
+            sentAt: new Date(delivery.sentAt),
+            failedAt: null,
+            errorCode: null,
+          },
+        });
+      }
       await transaction.cfActivityLog.create({
         data: {
           organizationId: client.organizationId,

@@ -44,6 +44,9 @@ function clientStatusColor(status: string): string {
   if (["Contract Pending", "Terms Proposed"].includes(status)) return "#6C5A8C";
   if (["Final Report Needed", "Monitoring"].includes(status)) return "#B8863A";
   if (["Active", "Completed"].includes(status)) return "#3F7A4C";
+  if (status === "CONTRACT_SENT") return "#6C5A8C";
+  if (status === "ONBOARDING") return "#3F7A4C";
+  if (status === "PENDING_STAFF_REVIEW") return "#BE5138";
   return "#7A7A72";
 }
 
@@ -125,7 +128,7 @@ function Dashboard() {
       label: "Contracts Pending",
       tag: "Legal",
       color: "#6C5A8C",
-      value: contracts.filter((c) => ["Draft", "Internal Review", "Sent"].includes(c.status))
+      value: contracts.filter((c) => ["DRAFT", "SENT", "OPENED"].includes(c.status))
         .length,
     },
     {

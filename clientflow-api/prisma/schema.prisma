@@ -352,9 +352,12 @@ model CfProgramContractVersion {
   content        String   @db.Text
   fileUrl        String?
   fileName       String?
+  storedFileId   String?  @unique
   signableFields Json     @default("[]")
   createdBy      String
   createdAt      DateTime @default(now())
+
+  storedFile CfStoredFile? @relation("ProgramContractVersionStoredFile", fields: [storedFileId], references: [id], onDelete: SetNull)
 
   @@unique([templateId, version])
   @@index([organizationId, templateId, createdAt])
@@ -380,9 +383,12 @@ model CfProgramWelcomeEmailVersion {
   version          Int
   subject          String
   body             String   @db.Text
+  guideStoredFileId String? @unique
   createdBy        String
   allowedVariables Json     @default("[]")
   createdAt        DateTime @default(now())
+
+  guideStoredFile CfStoredFile? @relation("ProgramWelcomeGuideStoredFile", fields: [guideStoredFileId], references: [id], onDelete: SetNull)
 
   @@unique([templateId, version])
   @@index([organizationId, templateId, createdAt])
@@ -569,9 +575,12 @@ model CfContract {
   signerIp             String?
   signerUserAgent      String?
   completedAt          DateTime?
+  executedStoredFileId String?   @unique
   isDemo               Boolean   @default(false)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+
+  executedStoredFile CfStoredFile? @relation("ExecutedContractStoredFile", fields: [executedStoredFileId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([organizationId, isDemo])
@@ -610,6 +619,7 @@ model CfDocument {
   name           String
   type           String
   url            String
+  storedFileId   String?  @unique
   objectKey      String?  @unique
   bucket         String?
   byteSize       Int?
@@ -621,10 +631,33 @@ model CfDocument {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  storedFile CfStoredFile? @relation("ClientDocumentStoredFile", fields: [storedFileId], references: [id], onDelete: SetNull)
+
   @@index([organizationId, isDemo])
   @@index([organizationId, clientId])
   @@index([enrollmentId])
   @@index([organizationId, uploadStatus])
+}
+
+model CfStoredFile {
+  id               String   @id @default(cuid())
+  organizationId   String
+  storageKey       String   @unique
+  originalFileName String
+  mimeType         String
+  sizeBytes        Int
+  status           String   @default("REQUESTED")
+  uploadedByUserId String?
+  createdAt        DateTime @default(now())
+  completedAt      DateTime?
+
+  documents            CfDocument[]                   @relation("ClientDocumentStoredFile")
+  contractVersions     CfProgramContractVersion[]     @relation("ProgramContractVersionStoredFile")
+  welcomeGuideVersions CfProgramWelcomeEmailVersion[] @relation("ProgramWelcomeGuideStoredFile")
+  executedContracts    CfContract[]                   @relation("ExecutedContractStoredFile")
+
+  @@index([organizationId])
+  @@index([organizationId, status])
 }
 
 model CfDocumentAssignment {

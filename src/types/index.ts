@@ -220,6 +220,7 @@ export interface ProgramWorkflowContractVersion {
   content: string;
   fileUrl?: string | null;
   fileName?: string | null;
+  storedFileId?: string | null;
   signableFields: string[];
   createdBy: string;
   createdAt: string;
@@ -242,6 +243,7 @@ export interface ProgramWorkflowWelcomeVersion {
   version: number;
   subject: string;
   body: string;
+  guideStoredFileId?: string | null;
   createdBy: string;
   allowedVariables: string[];
   createdAt: string;
@@ -584,6 +586,7 @@ export interface Contract {
   sentAt?: string;
   signedAt?: string;
   content: string;
+  executedStoredFileId?: string | null;
 }
 
 export interface ClientDocument {
@@ -601,6 +604,7 @@ export interface ClientDocument {
   uploadStatus?: "pending" | "ready";
   uploadedAt: string;
   uploadedBy: string;
+  storedFileId?: string | null;
 }
 
 export interface Communication {
@@ -608,12 +612,19 @@ export interface Communication {
   isDemo?: boolean;
   clientId: string;
   enrollmentId?: string | null;
-  type: "Email" | "Call" | "Meeting" | "Snapchat" | "Note";
-  direction: "Inbound" | "Outbound" | "Internal";
+  contractId?: string | null;
+  type: string;
+  direction: string;
   subject: string;
   notes: string;
   date: string;
   staffMember: string;
+  status?: "REQUESTED" | "SENDING" | "SENT" | "FAILED" | string | null;
+  recipientEmail?: string | null;
+  requestedAt?: string | null;
+  sentAt?: string | null;
+  failedAt?: string | null;
+  errorCode?: string | null;
 }
 
 export interface FinalReport {
