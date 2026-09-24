@@ -1040,55 +1040,59 @@ export class ContractsService {
   }
 
   private async createAdminNotifications(payload: NotificationPayload): Promise<void> {
-    const adminModel = (this.prisma as unknown as {
-      adminUser?: {
-        findMany: (args: unknown) => Promise<Array<{ id: string }>>;
-      };
-      cfNotification?: {
-        createMany?: (args: unknown) => Promise<unknown>;
-        create?: (args: unknown) => Promise<unknown>;
-      };
-    }).adminUser;
-    const notificationModel = (this.prisma as unknown as {
-      cfNotification?: {
-        createMany?: (args: unknown) => Promise<unknown>;
-        create?: (args: unknown) => Promise<unknown>;
-      };
-    }).cfNotification;
-    if (!adminModel || !notificationModel) return;
-    const admins = await adminModel.findMany({
-      where: {
+    try {
+      const adminModel = (this.prisma as unknown as {
+        adminUser?: {
+          findMany: (args: unknown) => Promise<Array<{ id: string }>>;
+        };
+        cfNotification?: {
+          createMany?: (args: unknown) => Promise<unknown>;
+          create?: (args: unknown) => Promise<unknown>;
+        };
+      }).adminUser;
+      const notificationModel = (this.prisma as unknown as {
+        cfNotification?: {
+          createMany?: (args: unknown) => Promise<unknown>;
+          create?: (args: unknown) => Promise<unknown>;
+        };
+      }).cfNotification;
+      if (!adminModel || !notificationModel) return;
+      const admins = await adminModel.findMany({
+        where: {
+          organizationId: payload.organizationId,
+          isActive: true,
+          role: { in: ['org_admin', 'super_admin'] },
+        },
+        select: { id: true },
+      });
+      if (admins.length === 0) return;
+      const data = admins.map((admin) => ({
         organizationId: payload.organizationId,
-        isActive: true,
-        role: { in: ['org_admin', 'super_admin'] },
-      },
-      select: { id: true },
-    });
-    if (admins.length === 0) return;
-    const data = admins.map((admin) => ({
-      organizationId: payload.organizationId,
-      recipientAdminId: admin.id,
-      type: payload.type,
-      title: payload.title,
-      message: payload.message,
-      actionUrl: payload.actionUrl ?? null,
-      sourceType: payload.sourceType,
-      sourceId: payload.sourceId,
-      clientId: payload.clientId ?? null,
-      submissionId: payload.submissionId ?? null,
-      isDemo: payload.isDemo ?? false,
-    }));
-    if (notificationModel.createMany) {
-      await notificationModel.createMany({ data, skipDuplicates: true });
-      return;
-    }
-    await Promise.all(data.map(async (item) => {
-      try {
-        await notificationModel.create?.({ data: item });
-      } catch {
-        // ignore duplicate notification inserts in older mocks
+        recipientAdminId: admin.id,
+        type: payload.type,
+        title: payload.title,
+        message: payload.message,
+        actionUrl: payload.actionUrl ?? null,
+        sourceType: payload.sourceType,
+        sourceId: payload.sourceId,
+        clientId: payload.clientId ?? null,
+        submissionId: payload.submissionId ?? null,
+        isDemo: payload.isDemo ?? false,
+      }));
+      if (notificationModel.createMany) {
+        await notificationModel.createMany({ data, skipDuplicates: true });
+        return;
       }
-    }));
+      await Promise.all(data.map(async (item) => {
+        try {
+          await notificationModel.create?.({ data: item });
+        } catch {
+          // ignore duplicate notification inserts in older mocks
+        }
+      }));
+    } catch (error) {
+      this.logger.warn(`Unable to create admin notifications for ${payload.type}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
   }
 
   private async recordDeliveryResult(

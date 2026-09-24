@@ -517,7 +517,7 @@ function ProgramDetailPage() {
                   />
                   <Input type="file" onChange={(event) => setWelcomeGuideFile(event.target.files?.[0] ?? null)} />
                   <Button
-                    disabled={savingWorkflow || (!welcomeSubject.trim() && !welcomeBody.trim())}
+                    disabled={savingWorkflow || !welcomeBody.trim()}
                     onClick={() => {
                       setSavingWorkflow(true);
                       void (async () => {

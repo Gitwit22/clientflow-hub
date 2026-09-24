@@ -299,6 +299,50 @@ describe('ContractsService', () => {
     }));
   });
 
+  it('keeps the client in staff review when contract-config notifications fail', async () => {
+    const transaction = {
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'PENDING_STAFF_REVIEW' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfProgramWorkflowConfig: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...workflowConfig,
+          activeContractTemplateId: null,
+          activeContractVersionId: null,
+        }),
+      },
+      cfProgramContractTemplate: { findFirst: jest.fn().mockResolvedValue(null) },
+      cfProgramContractVersion: { findFirst: jest.fn().mockResolvedValue(null) },
+      adminUser: { findMany: jest.fn().mockResolvedValue([{ id: 'admin-1' }]) },
+      cfNotification: { createMany: jest.fn().mockRejectedValue(new Error('notification db unavailable')) },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new ContractsService(
+      prisma as unknown as PrismaService,
+      config(),
+      n8nDisabled() as unknown as N8nService,
+    );
+
+    const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
+
+    expect(transaction.cfClient.update).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: { status: 'PENDING_STAFF_REVIEW' },
+    });
+    expect(transaction.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'CONTRACT_CONFIGURATION_MISSING' }),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      nextAction: 'STAFF_REVIEW_REQUIRED',
+      clientStatus: 'PENDING_STAFF_REVIEW',
+      contract: null,
+    }));
+  });
+
   it('rejects automation contracts when no active program contract version is configured', async () => {
     const customProgram = {
       ...autoProgram,

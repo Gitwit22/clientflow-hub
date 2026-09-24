@@ -1241,7 +1241,7 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    const [contractVersion, welcomeVersion] = await Promise.all([
+    const [contractVersion, welcomeVersion, document] = await Promise.all([
       this.requirePrisma().cfProgramContractVersion.findFirst({
         where: { organizationId: orgId, storedFileId: storedFile.id },
         select: { id: true },
@@ -1250,8 +1250,12 @@ export class ClientflowCompatibilityController {
         where: { organizationId: orgId, guideStoredFileId: storedFile.id },
         select: { id: true },
       }),
+      this.requirePrisma().cfDocument.findFirst({
+        where: { organizationId: orgId, storedFileId: storedFile.id },
+        select: { id: true },
+      }),
     ]);
-    if (!contractVersion && !welcomeVersion) {
+    if (!contractVersion && !welcomeVersion && !document) {
       throw new ForbiddenException('Stored file is not available through this endpoint.');
     }
     const download = await storage.createPresignedDownloadUrl(storedFile.storageKey, 300);
