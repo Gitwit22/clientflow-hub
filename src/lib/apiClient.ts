@@ -627,6 +627,12 @@ export async function cfUpdateEnrollment(id: string, data: Record<string, unknow
     body: JSON.stringify(data),
   });
 }
+export async function cfTransitionEnrollment(id: string, data: Record<string, unknown>) {
+  return apiRequest<ProgramEnrollment>(`${CF}/enrollments/${id}/transition`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
 
 export async function cfListFormTemplates() {
   return apiRequest<FormTemplate[]>(`${CF}/form-templates`);
@@ -810,6 +816,7 @@ export async function cfCreateDocumentUpload(
 ) {
   return apiRequest<{
     document: ClientDocument;
+    storedFile: { id: string; status: string };
     uploadUrl: string;
     expiresInSeconds: number;
   }>(`${CF}/clients/${clientId}/documents/upload-intent`, {
@@ -825,6 +832,43 @@ export async function cfCompleteDocumentUpload(documentId: string) {
 export async function cfGetDocumentDownload(documentId: string) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(
     `${CF}/documents/${documentId}/download`,
+  );
+}
+export async function cfCreateStoredFileUpload(
+  data: { name: string; type: string; byteSize: number; storageKeyPrefix?: string },
+) {
+  return apiRequest<{
+    storedFile: {
+      id: string;
+      organizationId: string;
+      storageKey: string;
+      originalFileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      status: string;
+      uploadedByUserId?: string | null;
+      createdAt: string;
+      completedAt?: string | null;
+    };
+    uploadUrl: string;
+    expiresInSeconds: number;
+  }>(`${CF}/files/upload-intent`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+export async function cfCompleteStoredFileUpload(fileId: string) {
+  return apiRequest<{ id: string; status: string; completedAt?: string | null }>(
+    `${CF}/files/${fileId}/complete`,
+    { method: "POST" },
+  );
+}
+export async function cfGetStoredFileDownload(fileId: string) {
+  return apiRequest<{ url: string; expiresInSeconds: number }>(`${CF}/files/${fileId}/download`);
+}
+export async function cfGetExecutedContractDownload(clientId: string, contractId: string) {
+  return apiRequest<{ url: string; expiresInSeconds: number }>(
+    `${CF}/clients/${clientId}/contracts/${contractId}/download`,
   );
 }
 export async function cfListAllDocuments() {

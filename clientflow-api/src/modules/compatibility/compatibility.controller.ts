@@ -26,12 +26,34 @@ import { CfProgramAction, CfProgramTrigger } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
+import { StorageService } from '../../integrations/storage/storage.service';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
 const ACCESS_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const AUTOMATED_CLIENT_STATUSES = new Set([
+  'INTAKE_SENT',
+  'INTAKE_SUBMITTED',
+  'PROGRAM_SELECTED',
+  'PENDING_STAFF_REVIEW',
+  'REVIEW_DECLINED',
+  'CONTRACT_SENT',
+  'CONTRACT_OPENED',
+  'ONBOARDING',
+]);
+const ENROLLMENT_TRANSITIONS: Record<string, string[]> = {
+  interested: ['pending_review', 'approved', 'onboarding', 'active', 'declined', 'withdrawn'],
+  pending_review: ['approved', 'declined', 'withdrawn'],
+  approved: ['onboarding', 'active', 'on_hold', 'withdrawn'],
+  onboarding: ['active', 'on_hold', 'withdrawn'],
+  active: ['on_hold', 'completed', 'withdrawn'],
+  on_hold: ['active', 'completed', 'withdrawn'],
+  completed: [],
+  declined: [],
+  withdrawn: ['active'],
+};
 
 function readJwtSecret(type: 'access' | 'refresh'): string {
   const key = type === 'access' ? 'JWT_ACCESS_SECRET' : 'JWT_REFRESH_SECRET';
@@ -59,26 +81,20 @@ function hashRefreshToken(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function normalizeAdminShape(admin: {
-  id: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  jobTitle: string | null;
-  role: string;
-  organizationId: string;
-  isActive: boolean;
-}) {
-  return {
-    id: admin.id,
-    email: admin.email,
-    firstName: admin.firstName ?? undefined,
-    lastName: admin.lastName ?? undefined,
-    jobTitle: admin.jobTitle ?? undefined,
-    role: admin.role,
-    organizationId: admin.organizationId,
-    active: admin.isActive,
-  };
+function trimSlashEdges(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '/') start += 1;
+  while (end > start && value[end - 1] === '/') end -= 1;
+  return value.slice(start, end);
+}
+
+function sanitizeStorageName(value: string, fallback: string): string {
+  const cleaned = Array.from(value)
+    .map((character) => /[A-Za-z0-9._-]/.test(character) ? character : '-')
+    .join('');
+  const trimmed = cleaned.replaceAll('--', '-');
+  return trimSlashEdges(trimmed).replace(/^-+/, '').replace(/-+$/, '') || fallback;
 }
 
 function getCookieValue(request: Request, name: string): string | undefined {
@@ -151,11 +167,35 @@ export class ClientflowCompatibilityController {
     private readonly prisma?: PrismaService,
     private readonly n8n?: N8nService,
     private readonly automation?: ProgramAutomationService,
+    private readonly storage?: StorageService,
   ) {}
 
   private requirePrisma(): PrismaService {
     if (!this.prisma) throw this.scaffold.notImplemented('ClientFlow admin compatibility');
     return this.prisma;
+  }
+
+  private requireStorage(): StorageService {
+    if (!this.storage) throw this.scaffold.notImplemented('ClientFlow storage compatibility');
+    return this.storage;
+  }
+
+  private enrollmentTransition(target: unknown): string {
+    return String(target ?? '').toLowerCase();
+  }
+
+  private progressForEnrollmentStatus(status: string): number {
+    return {
+      interested: 10,
+      pending_review: 25,
+      approved: 45,
+      onboarding: 70,
+      active: 85,
+      on_hold: 60,
+      completed: 100,
+      declined: 100,
+      withdrawn: 100,
+    }[status] ?? 0;
   }
 
   private async requireOrgFromRequest(request: Request) {
@@ -298,6 +338,12 @@ export class ClientflowCompatibilityController {
   }
   @Patch('clients/:id') async updateClient(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    if (body.status !== undefined && AUTOMATED_CLIENT_STATUSES.has(String(body.status))) {
+      throw new BadRequestException('Client workflow statuses cannot be changed through the generic update endpoint.');
+    }
+    if (body.lifecycleStatus !== undefined) {
+      throw new BadRequestException('Client lifecycle state cannot be changed through the generic update endpoint.');
+    }
     return this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data: body });
   }
   @Delete('clients/:id') async deleteClient(@Req() request: Request, @Param('id') id: string) {
@@ -556,6 +602,7 @@ export class ClientflowCompatibilityController {
           content: String(body.content ?? ''),
           fileUrl: body.fileUrl ? String(body.fileUrl) : null,
           fileName: body.fileName ? String(body.fileName) : null,
+          storedFileId: body.storedFileId ? String(body.storedFileId) : null,
           signableFields: Array.isArray(body.signableFields) ? body.signableFields : [],
           createdBy: admin.email,
         },
@@ -584,6 +631,7 @@ export class ClientflowCompatibilityController {
         content: String(body.content ?? ''),
         fileUrl: body.fileUrl ? String(body.fileUrl) : null,
         fileName: body.fileName ? String(body.fileName) : null,
+        storedFileId: body.storedFileId ? String(body.storedFileId) : null,
         signableFields: Array.isArray(body.signableFields) ? body.signableFields : [],
         createdBy: admin.email,
       },
@@ -611,6 +659,7 @@ export class ClientflowCompatibilityController {
           version: 1,
           subject: String(body.subject ?? `Welcome to ${body.programName ?? 'the program'}`),
           body: String(body.body ?? ''),
+          guideStoredFileId: body.guideStoredFileId ? String(body.guideStoredFileId) : null,
           createdBy: admin.email,
           allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],
         },
@@ -637,6 +686,7 @@ export class ClientflowCompatibilityController {
         version: Number(body.version ?? ((latest?.version ?? 0) + 1)),
         subject: String(body.subject ?? `Welcome to ${body.programName ?? 'the program'}`),
         body: String(body.body ?? ''),
+        guideStoredFileId: body.guideStoredFileId ? String(body.guideStoredFileId) : null,
         createdBy: admin.email,
         allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],
       },
@@ -844,7 +894,65 @@ export class ClientflowCompatibilityController {
   }
   @Post('enrollments') async createEnrollment(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
-    const enrollment = await this.requirePrisma().cfProgramEnrollment.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), programId: String(body.programId ?? ''), status: String(body.status ?? 'interested') as any, assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null, assignedStaff: body.assignedStaff ? String(body.assignedStaff) : null, lastModifiedByUserId: body.lastModifiedByUserId ? String(body.lastModifiedByUserId) : null, lastModifiedByDisplayName: body.lastModifiedByDisplayName ? String(body.lastModifiedByDisplayName) : null, startDate: body.startDate ? new Date(String(body.startDate)) : null, nextAction: body.nextAction ? String(body.nextAction) : null, nextActionDate: body.nextActionDate ? new Date(String(body.nextActionDate)) : null, progressPercentage: Number(body.progressPercentage ?? 0), currentGoalId: body.currentGoalId ? String(body.currentGoalId) : null, lastProgressUpdate: body.lastProgressUpdate ? new Date(String(body.lastProgressUpdate)) : null, clientResponsiveness: String(body.clientResponsiveness ?? 'unknown') as any, currentBlockers: body.currentBlockers ? String(body.currentBlockers) : null, riskLevel: String(body.riskLevel ?? 'low') as any, staffProgressNotes: body.staffProgressNotes ? String(body.staffProgressNotes) : null, meetingsAttended: Number(body.meetingsAttended ?? 0), outcomeAchieved: String(body.outcomeAchieved ?? 'pending') as any, finalOutcomeSummary: body.finalOutcomeSummary ? String(body.finalOutcomeSummary) : null, completedAt: body.completedAt ? new Date(String(body.completedAt)) : null, withdrawnAt: body.withdrawnAt ? new Date(String(body.withdrawnAt)) : null, onHoldReason: body.onHoldReason ? String(body.onHoldReason) : null } });
+    const initialStatus = this.enrollmentTransition(body.status ?? 'interested');
+    const enrollment = await this.requirePrisma().cfProgramEnrollment.create({
+      data: {
+        organizationId: orgId,
+        clientId: String(body.clientId ?? ''),
+        programId: String(body.programId ?? ''),
+        status: initialStatus as any,
+        assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null,
+        assignedStaff: body.assignedStaff ? String(body.assignedStaff) : null,
+        lastModifiedByUserId: body.lastModifiedByUserId ? String(body.lastModifiedByUserId) : admin.id,
+        lastModifiedByDisplayName: body.lastModifiedByDisplayName ? String(body.lastModifiedByDisplayName) : ([admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email),
+        startDate: body.startDate ? new Date(String(body.startDate)) : null,
+        nextAction: body.nextAction ? String(body.nextAction) : null,
+        nextActionDate: body.nextActionDate ? new Date(String(body.nextActionDate)) : null,
+        progressPercentage: Number(body.progressPercentage ?? this.progressForEnrollmentStatus(initialStatus)),
+        currentGoalId: body.currentGoalId ? String(body.currentGoalId) : null,
+        lastProgressUpdate: new Date(),
+        clientResponsiveness: String(body.clientResponsiveness ?? 'unknown') as any,
+        currentBlockers: body.currentBlockers ? String(body.currentBlockers) : null,
+        riskLevel: String(body.riskLevel ?? 'low') as any,
+        staffProgressNotes: body.staffProgressNotes ? String(body.staffProgressNotes) : null,
+        meetingsAttended: Number(body.meetingsAttended ?? 0),
+        outcomeAchieved: String(body.outcomeAchieved ?? 'pending') as any,
+        finalOutcomeSummary: body.finalOutcomeSummary ? String(body.finalOutcomeSummary) : null,
+        completedAt: body.completedAt ? new Date(String(body.completedAt)) : null,
+        withdrawnAt: body.withdrawnAt ? new Date(String(body.withdrawnAt)) : null,
+        onHoldReason: body.onHoldReason ? String(body.onHoldReason) : null,
+      } as any,
+    });
+    const compatibilityPrisma = this.requirePrisma() as typeof this.prisma & {
+      cfEnrollmentStatusHistory?: { create: (args: unknown) => Promise<unknown> };
+      cfActivityLog?: { create: (args: unknown) => Promise<unknown> };
+    };
+    if (compatibilityPrisma.cfEnrollmentStatusHistory) {
+      await compatibilityPrisma.cfEnrollmentStatusHistory.create({
+        data: {
+          organizationId: orgId,
+          enrollmentId: enrollment.id,
+          previousStatus: null,
+          newStatus: enrollment.status,
+          changedByUserId: admin.id,
+          changedByDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
+          reason: 'Enrollment created.',
+        },
+      });
+    }
+    if (compatibilityPrisma.cfActivityLog) {
+      await compatibilityPrisma.cfActivityLog.create({
+        data: {
+          organizationId: orgId,
+          clientId: enrollment.clientId,
+          enrollmentId: enrollment.id,
+          actorUserId: admin.id,
+          action: 'ENROLLMENT_CREATED',
+          description: `Enrollment created with status ${enrollment.status}.`,
+          user: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
+        },
+      });
+    }
     if (this.automation) {
       await this.automation.runTrigger({
         organizationId: orgId,
@@ -864,6 +972,9 @@ export class ClientflowCompatibilityController {
     const prisma = this.requirePrisma();
     const current = await prisma.cfProgramEnrollment.findFirst({ where: { id, organizationId: orgId } });
     if (!current) throw new NotFoundException('Enrollment not found.');
+    if (body.status !== undefined) {
+      throw new BadRequestException('Enrollment status changes must use the transition endpoint.');
+    }
     const updated = await prisma.cfProgramEnrollment.update({ where: { id, organizationId: orgId }, data: body });
     if (this.automation
       && String(current.status).toLowerCase() !== 'approved'
@@ -877,6 +988,82 @@ export class ClientflowCompatibilityController {
           enrollmentIdsByProgramId: { [updated.programId]: updated.id },
           actorUserId: admin.id,
           actorDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email,
+          idempotencySeed: `compat.enrollment.approved:${updated.id}`,
+          payload: { enrollmentStatus: updated.status },
+        });
+      } catch (error) {
+        this.logger.warn(`Enrollment approval automation failed for ${updated.id}: ${(error as Error).message}`);
+      }
+    }
+    return updated;
+  }
+  @Post('enrollments/:id/transition') async transitionEnrollment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const prisma = this.requirePrisma();
+    const current = await prisma.cfProgramEnrollment.findFirst({ where: { id, organizationId: orgId } });
+    if (!current) throw new NotFoundException('Enrollment not found.');
+    const target = this.enrollmentTransition(body.status);
+    if (!target) throw new BadRequestException('A target enrollment status is required.');
+    const allowed = ENROLLMENT_TRANSITIONS[String(current.status).toLowerCase()] ?? [];
+    if (!allowed.includes(target)) {
+      throw new BadRequestException(`Enrollment cannot transition from ${current.status} to ${target}.`);
+    }
+    const now = new Date();
+    const changedByDisplayName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
+    const updated = await prisma.$transaction(async (transaction) => {
+      const enrollment = await transaction.cfProgramEnrollment.update({
+        where: { id, organizationId: orgId },
+        data: {
+          status: target as any,
+          progressPercentage: this.progressForEnrollmentStatus(target),
+          nextAction: body.nextAction !== undefined ? (body.nextAction ? String(body.nextAction) : null) : current.nextAction,
+          nextActionDate: body.nextActionDate !== undefined
+            ? (body.nextActionDate ? new Date(String(body.nextActionDate)) : null)
+            : current.nextActionDate,
+          lastProgressUpdate: now,
+          lastModifiedByUserId: admin.id,
+          lastModifiedByDisplayName: changedByDisplayName,
+          completedAt: target === 'completed' ? now : current.completedAt,
+          withdrawnAt: target === 'withdrawn' ? now : target === 'active' ? null : current.withdrawnAt,
+          onHoldReason: body.statusReason ? String(body.statusReason) : target === 'on_hold' ? current.onHoldReason : null,
+        } as any,
+      });
+      await transaction.cfEnrollmentStatusHistory.create({
+        data: {
+          organizationId: orgId,
+          enrollmentId: id,
+          previousStatus: current.status,
+          newStatus: enrollment.status,
+          changedByUserId: admin.id,
+          changedByDisplayName,
+          reason: body.statusReason ? String(body.statusReason) : null,
+        },
+      });
+      await transaction.cfActivityLog.create({
+        data: {
+          organizationId: orgId,
+          clientId: enrollment.clientId,
+          enrollmentId: enrollment.id,
+          actorUserId: admin.id,
+          action: 'ENROLLMENT_STATUS_CHANGED',
+          description: `Enrollment status changed from ${current.status} to ${enrollment.status}.`,
+          user: changedByDisplayName,
+        },
+      });
+      return enrollment;
+    });
+    if (this.automation
+      && String(current.status).toLowerCase() !== 'approved'
+      && String(updated.status).toLowerCase() === 'approved') {
+      try {
+        await this.automation.runTrigger({
+          organizationId: orgId,
+          clientId: updated.clientId,
+          trigger: 'enrollment.approved',
+          programIds: [updated.programId],
+          enrollmentIdsByProgramId: { [updated.programId]: updated.id },
+          actorUserId: admin.id,
+          actorDisplayName: changedByDisplayName,
           idempotencySeed: `compat.enrollment.approved:${updated.id}`,
           payload: { enrollmentStatus: updated.status },
         });
@@ -1011,6 +1198,69 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
   }
+  @Post('files/upload-intent') async createStoredFileUploadIntent(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const storage = this.requireStorage();
+    storage.assertEnabled();
+    const originalFileName = String(body.name ?? 'upload.bin');
+    const mimeType = String(body.type ?? 'application/octet-stream');
+    const sizeBytes = Number(body.byteSize ?? 0);
+    const storageKeyPrefix = body.storageKeyPrefix ? trimSlashEdges(String(body.storageKeyPrefix)) : 'uploads';
+    const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
+    const storageKey = `${storageKeyPrefix}/${orgId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
+    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
+    const storedFile = await this.requirePrisma().cfStoredFile.create({
+      data: {
+        organizationId: orgId,
+        storageKey,
+        originalFileName,
+        mimeType,
+        sizeBytes,
+        status: 'REQUESTED',
+        uploadedByUserId: admin.id,
+      },
+    });
+    return { storedFile, uploadUrl: upload.url, expiresInSeconds: upload.expiresInSeconds };
+  }
+  @Post('files/:id/complete') async completeStoredFileUpload(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const storage = this.requireStorage();
+    storage.assertEnabled();
+    const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
+    if (!storedFile) throw new NotFoundException('Stored file not found.');
+    const exists = await storage.objectExists(storedFile.storageKey);
+    if (!exists) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+    return this.requirePrisma().cfStoredFile.update({
+      where: { id: storedFile.id },
+      data: { status: 'READY', completedAt: new Date() },
+    });
+  }
+  @Get('files/:id/download') async downloadStoredFile(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const storage = this.requireStorage();
+    storage.assertEnabled();
+    const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
+    if (!storedFile) throw new NotFoundException('Stored file not found.');
+    const [contractVersion, welcomeVersion, document] = await Promise.all([
+      this.requirePrisma().cfProgramContractVersion.findFirst({
+        where: { organizationId: orgId, storedFileId: storedFile.id },
+        select: { id: true },
+      }),
+      this.requirePrisma().cfProgramWelcomeEmailVersion.findFirst({
+        where: { organizationId: orgId, guideStoredFileId: storedFile.id },
+        select: { id: true },
+      }),
+      this.requirePrisma().cfDocument.findFirst({
+        where: { organizationId: orgId, storedFileId: storedFile.id },
+        select: { id: true },
+      }),
+    ]);
+    if (!contractVersion && !welcomeVersion && !document) {
+      throw new ForbiddenException('Stored file is not available through this endpoint.');
+    }
+    const download = await storage.createPresignedDownloadUrl(storedFile.storageKey, 300);
+    return { url: download.url, expiresInSeconds: download.expiresInSeconds };
+  }
   @Get('communications') async listAllCommunications(
     @Req() request: Request,
     @Query('limit') limitQuery?: string,
@@ -1060,6 +1310,36 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
   }
+  @Get('clients/:clientId/contracts/:contractId/download') async downloadExecutedContract(
+    @Req() request: Request,
+    @Param('clientId') clientId: string,
+    @Param('contractId') contractId: string,
+  ) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const storage = this.requireStorage();
+    storage.assertEnabled();
+    const contract = await this.requirePrisma().cfContract.findFirst({
+      where: {
+        id: contractId,
+        clientId,
+        organizationId: orgId,
+      },
+      select: {
+        executedStoredFileId: true,
+        executedStoredFile: {
+          select: {
+            id: true,
+            storageKey: true,
+          },
+        },
+      },
+    });
+    if (!contract?.executedStoredFileId || !contract.executedStoredFile) {
+      throw new NotFoundException('Executed contract artifact not found.');
+    }
+    const download = await storage.createPresignedDownloadUrl(contract.executedStoredFile.storageKey, 300);
+    return { url: download.url, expiresInSeconds: download.expiresInSeconds };
+  }
   @Post('clients/:clientId/contracts') async createContract(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfContract.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), contractTemplateId: String(body.contractTemplateId ?? ''), contractType: String(body.contractType ?? 'Service Agreement'), status: String(body.status ?? 'DRAFT'), generatedContent: String(body.generatedContent ?? ''), termsId: body.termsId ? String(body.termsId) : null } });
@@ -1073,20 +1353,84 @@ export class ClientflowCompatibilityController {
     return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
   }
   @Post('clients/:clientId/documents/upload-intent') async createUploadIntent(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return { document: { id: randomUUID(), organizationId: orgId, clientId, name: String(body.name ?? 'upload'), type: String(body.type ?? 'application/octet-stream'), url: '', objectKey: null, bucket: null, byteSize: Number(body.byteSize ?? 0), uploadStatus: 'ready', uploadedAt: new Date().toISOString(), uploadedBy: 'compatibility', isDemo: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, uploadUrl: '', expiresInSeconds: 0 };
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const storage = this.requireStorage();
+    storage.assertEnabled();
+    const client = await this.requirePrisma().cfClient.findFirst({ where: { id: clientId, organizationId: orgId, isArchived: false } });
+    if (!client) throw new NotFoundException('Client not found.');
+    const originalFileName = String(body.name ?? 'upload.bin');
+    const mimeType = String(body.type ?? 'application/octet-stream');
+    const sizeBytes = Number(body.byteSize ?? 0);
+    const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
+    const storageKey = `client-documents/${orgId}/${clientId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
+    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
+    const storedFile = await this.requirePrisma().cfStoredFile.create({
+      data: {
+        organizationId: orgId,
+        storageKey,
+        originalFileName,
+        mimeType,
+        sizeBytes,
+        status: 'REQUESTED',
+        uploadedByUserId: admin.id,
+      },
+    });
+    const document = await this.requirePrisma().cfDocument.create({
+      data: {
+        organizationId: orgId,
+        clientId,
+        enrollmentId: body.enrollmentId ? String(body.enrollmentId) : null,
+        name: originalFileName,
+        type: mimeType,
+        url: '',
+        storedFileId: storedFile.id,
+        objectKey: storageKey,
+        byteSize: sizeBytes,
+        uploadStatus: 'pending',
+        uploadedBy: admin.email,
+        isDemo: client.isDemo,
+      },
+    });
+    return { document, storedFile, uploadUrl: upload.url, expiresInSeconds: upload.expiresInSeconds };
   }
   @Post('documents/:id/complete-upload') async completeUpload(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
     const document = await this.requirePrisma().cfDocument.findFirst({ where: { id, organizationId: orgId } });
     if (!document) throw new NotFoundException('Document not found.');
-    return document;
+    if (!document.storedFileId) throw new BadRequestException('Document is not linked to a stored file.');
+    const storage = this.requireStorage();
+    storage.assertEnabled();
+    const storedFile = await this.requirePrisma().cfStoredFile.findFirst({
+      where: { id: document.storedFileId, organizationId: orgId },
+    });
+    if (!storedFile) throw new NotFoundException('Stored file not found.');
+    const exists = await storage.objectExists(storedFile.storageKey);
+    if (!exists) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+    await this.requirePrisma().cfStoredFile.update({
+      where: { id: storedFile.id },
+      data: { status: 'READY', completedAt: new Date() },
+    });
+    return this.requirePrisma().cfDocument.update({
+      where: { id: document.id },
+      data: {
+        url: storage.getObjectPublicUrl(storedFile.storageKey) ?? '',
+        objectKey: storedFile.storageKey,
+        byteSize: storedFile.sizeBytes,
+        uploadStatus: 'ready',
+      },
+    });
   }
   @Get('documents/:id/download') async downloadDocument(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
     const document = await this.requirePrisma().cfDocument.findFirst({ where: { id, organizationId: orgId } });
     if (!document) throw new NotFoundException('Document not found.');
-    return { url: document.url, expiresInSeconds: 300 };
+    if (!document.storedFileId) throw new BadRequestException('Document is not linked to a stored file.');
+    const storedFile = await this.requirePrisma().cfStoredFile.findFirst({
+      where: { id: document.storedFileId, organizationId: orgId },
+    });
+    if (!storedFile) throw new NotFoundException('Stored file not found.');
+    const download = await this.requireStorage().createPresignedDownloadUrl(storedFile.storageKey, 300);
+    return { url: download.url, expiresInSeconds: download.expiresInSeconds };
   }
   @Get('clients/:clientId/communications') async listCommunications(@Req() request: Request, @Param('clientId') clientId: string) {
     const { orgId } = await this.requireOrgFromRequest(request);

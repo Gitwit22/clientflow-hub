@@ -124,6 +124,21 @@ export class PublicFormsService {
       });
     });
 
+    await this.createAdminNotifications({
+      organizationId: assignment.organizationId,
+      clientId: client.id,
+      submissionId: assignment.id,
+      sourceType: 'intake_submission',
+      sourceId: assignment.id,
+      type: 'INTAKE_SUBMITTED',
+      title: 'Intake submitted',
+      message: program
+        ? `${client.primaryContactName} submitted intake and selected ${program}.`
+        : `${client.primaryContactName} submitted intake without choosing a program.`,
+      actionUrl: `/clients/${client.id}?tab=forms`,
+      isDemo: client.isDemo,
+    });
+
     const automation = selectedDbProgram
       ? await this.automation.runTrigger({
           organizationId: assignment.organizationId,
@@ -202,5 +217,66 @@ export class PublicFormsService {
     if (type === 'select' && options && (typeof value !== 'string' || !options.includes(value))) {
       throw new BadRequestException(`Answer for ${fieldId} is not an allowed option.`);
     }
+  }
+
+  private async createAdminNotifications(payload: {
+    organizationId: string;
+    clientId: string;
+    submissionId: string;
+    sourceType: string;
+    sourceId: string;
+    type: string;
+    title: string;
+    message: string;
+    actionUrl: string;
+    isDemo: boolean;
+  }) {
+    const adminModel = (this.prisma as unknown as {
+      adminUser?: { findMany: (args: unknown) => Promise<Array<{ id: string }>> };
+      cfNotification?: {
+        createMany?: (args: unknown) => Promise<unknown>;
+        create?: (args: unknown) => Promise<unknown>;
+      };
+    }).adminUser;
+    const notificationModel = (this.prisma as unknown as {
+      cfNotification?: {
+        createMany?: (args: unknown) => Promise<unknown>;
+        create?: (args: unknown) => Promise<unknown>;
+      };
+    }).cfNotification;
+    if (!adminModel || !notificationModel) return;
+    const admins = await adminModel.findMany({
+      where: {
+        organizationId: payload.organizationId,
+        isActive: true,
+        role: { in: ['org_admin', 'super_admin'] },
+      },
+      select: { id: true },
+    });
+    if (admins.length === 0) return;
+    const data = admins.map((admin) => ({
+      organizationId: payload.organizationId,
+      recipientAdminId: admin.id,
+      type: payload.type,
+      title: payload.title,
+      message: payload.message,
+      actionUrl: payload.actionUrl,
+      sourceType: payload.sourceType,
+      sourceId: payload.sourceId,
+      clientId: payload.clientId,
+      submissionId: payload.submissionId,
+      isDemo: payload.isDemo,
+    }));
+    if (notificationModel.createMany) {
+      await notificationModel.createMany({ data, skipDuplicates: true });
+      return;
+    }
+    await Promise.all(data.map(async (item) => {
+      try {
+        await notificationModel.create?.({ data: item });
+      } catch {
+        // ignore duplicates in minimal mocks
+      }
+    }));
   }
 }

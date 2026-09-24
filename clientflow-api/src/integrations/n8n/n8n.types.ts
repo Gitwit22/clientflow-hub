@@ -76,7 +76,7 @@ export interface IntakeEmailPayload {
 export type IntakeEmailDeliveryResult =
   | { status: 'sent'; sentAt: string }
   | { status: 'skipped'; reason: 'disabled' | 'not_configured' }
-  | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' };
+  | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' | 'disabled' | 'not_configured' };
 
 export interface ContractEmailPayload {
   organizationId: string;

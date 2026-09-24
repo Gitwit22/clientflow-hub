@@ -23,7 +23,16 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { resolveMemberName, useOrganizationMembers } from "@/hooks/use-organization-members";
-import { getProgramDetail, updateProgramWorkflow, withdrawEnrollment } from "@/lib/api";
+import {
+  createProgramWorkflowContractTemplate,
+  createProgramWorkflowContractVersion,
+  createProgramWorkflowWelcomeTemplate,
+  createProgramWorkflowWelcomeVersion,
+  getProgramDetail,
+  updateProgramWorkflow,
+  uploadStoredFile,
+  withdrawEnrollment,
+} from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { toast } from "sonner";
 import type { ProgramDetailResponse, ProgramEnrollment } from "@/types";
@@ -56,6 +65,12 @@ function ProgramDetailPage() {
   const [withdrawReason, setWithdrawReason] = useState("");
   const [savingWithdrawal, setSavingWithdrawal] = useState(false);
   const [savingWorkflow, setSavingWorkflow] = useState(false);
+  const [contractTitle, setContractTitle] = useState("");
+  const [contractContent, setContractContent] = useState("");
+  const [contractFile, setContractFile] = useState<File | null>(null);
+  const [welcomeSubject, setWelcomeSubject] = useState("");
+  const [welcomeBody, setWelcomeBody] = useState("");
+  const [welcomeGuideFile, setWelcomeGuideFile] = useState<File | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -355,6 +370,192 @@ function ProgramDetailPage() {
                         .finally(() => setSavingWorkflow(false));
                     }}
                   />
+                </div>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3 rounded-lg border border-border p-3">
+                  <div>
+                    <p className="font-mono text-[10px] uppercase text-muted-foreground">Contract versions</p>
+                    <p className="text-xs text-muted-foreground">
+                      Auto-contract uses the exact active version only.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {workflow?.contract.versions.filter((version) => version.templateId === workflow.contract.activeTemplate?.id).map((version) => (
+                      <div key={version.id} className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {version.title || `Version ${version.version}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            v{version.version}{version.storedFileId ? " · file attached" : ""}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={workflow?.config.activeContractVersionId === version.id ? "default" : "outline"}
+                          disabled={savingWorkflow}
+                          onClick={() => {
+                            setSavingWorkflow(true);
+                            void updateProgramWorkflow(program.id, {
+                              activeContractTemplateId: version.templateId,
+                              activeContractVersionId: version.id,
+                            })
+                              .then(() => setRefreshVersion((value) => value + 1))
+                              .catch((error: unknown) => {
+                                toast.error(error instanceof Error ? error.message : "Unable to activate contract version.");
+                              })
+                              .finally(() => setSavingWorkflow(false));
+                          }}
+                        >
+                          {workflow?.config.activeContractVersionId === version.id ? "Active" : "Activate"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <Input
+                    value={contractTitle}
+                    onChange={(event) => setContractTitle(event.target.value)}
+                    placeholder="Contract version title"
+                  />
+                  <Textarea
+                    value={contractContent}
+                    onChange={(event) => setContractContent(event.target.value)}
+                    rows={8}
+                    placeholder="Contract body"
+                  />
+                  <Input type="file" onChange={(event) => setContractFile(event.target.files?.[0] ?? null)} />
+                  <Button
+                    disabled={savingWorkflow || !contractContent.trim()}
+                    onClick={() => {
+                      setSavingWorkflow(true);
+                      void (async () => {
+                        let storedFileId: string | undefined;
+                        if (contractFile) {
+                          const storedFile = await uploadStoredFile(contractFile, "program-workflow/contracts");
+                          storedFileId = storedFile.id;
+                        }
+                        if (workflow?.contract.activeTemplate) {
+                          await createProgramWorkflowContractVersion(program.id, workflow.contract.activeTemplate.id, {
+                            title: contractTitle.trim() || undefined,
+                            content: contractContent.trim(),
+                            storedFileId,
+                            makeActive: true,
+                          });
+                        } else {
+                          await createProgramWorkflowContractTemplate(program.id, {
+                            name: `${program.name} Contract`,
+                            title: contractTitle.trim() || `${program.name} Contract`,
+                            content: contractContent.trim(),
+                            storedFileId,
+                            isActive: true,
+                          });
+                        }
+                        setContractTitle("");
+                        setContractContent("");
+                        setContractFile(null);
+                        setRefreshVersion((value) => value + 1);
+                        toast.success("Contract workflow asset saved.");
+                      })()
+                        .catch((error: unknown) => {
+                          toast.error(error instanceof Error ? error.message : "Unable to save contract workflow asset.");
+                        })
+                        .finally(() => setSavingWorkflow(false));
+                    }}
+                  >
+                    Save contract version
+                  </Button>
+                </div>
+                <div className="space-y-3 rounded-lg border border-border p-3">
+                  <div>
+                    <p className="font-mono text-[10px] uppercase text-muted-foreground">Welcome versions</p>
+                    <p className="text-xs text-muted-foreground">
+                      If no active custom version exists, ClientFlow falls back to the generic welcome body.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {workflow?.welcomeEmail.versions.filter((version) => version.templateId === workflow.welcomeEmail.activeTemplate?.id).map((version) => (
+                      <div key={version.id} className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{version.subject}</p>
+                          <p className="text-xs text-muted-foreground">
+                            v{version.version}{version.guideStoredFileId ? " · guide attached" : ""}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={workflow?.config.activeWelcomeEmailVersionId === version.id ? "default" : "outline"}
+                          disabled={savingWorkflow}
+                          onClick={() => {
+                            setSavingWorkflow(true);
+                            void updateProgramWorkflow(program.id, {
+                              activeWelcomeEmailTemplateId: version.templateId,
+                              activeWelcomeEmailVersionId: version.id,
+                            })
+                              .then(() => setRefreshVersion((value) => value + 1))
+                              .catch((error: unknown) => {
+                                toast.error(error instanceof Error ? error.message : "Unable to activate welcome version.");
+                              })
+                              .finally(() => setSavingWorkflow(false));
+                          }}
+                        >
+                          {workflow?.config.activeWelcomeEmailVersionId === version.id ? "Active" : "Activate"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <Input
+                    value={welcomeSubject}
+                    onChange={(event) => setWelcomeSubject(event.target.value)}
+                    placeholder={`Welcome to ${program.name}`}
+                  />
+                  <Textarea
+                    value={welcomeBody}
+                    onChange={(event) => setWelcomeBody(event.target.value)}
+                    rows={8}
+                    placeholder="Welcome email body"
+                  />
+                  <Input type="file" onChange={(event) => setWelcomeGuideFile(event.target.files?.[0] ?? null)} />
+                  <Button
+                    disabled={savingWorkflow || !welcomeBody.trim()}
+                    onClick={() => {
+                      setSavingWorkflow(true);
+                      void (async () => {
+                        let guideStoredFileId: string | undefined;
+                        if (welcomeGuideFile) {
+                          const storedFile = await uploadStoredFile(welcomeGuideFile, "program-workflow/welcome-guides");
+                          guideStoredFileId = storedFile.id;
+                        }
+                        if (workflow?.welcomeEmail.activeTemplate) {
+                          await createProgramWorkflowWelcomeVersion(program.id, workflow.welcomeEmail.activeTemplate.id, {
+                            subject: welcomeSubject.trim() || `Welcome to ${program.name}`,
+                            body: welcomeBody.trim(),
+                            guideStoredFileId,
+                            makeActive: true,
+                          });
+                        } else {
+                          await createProgramWorkflowWelcomeTemplate(program.id, {
+                            name: `${program.name} Welcome`,
+                            subject: welcomeSubject.trim() || `Welcome to ${program.name}`,
+                            body: welcomeBody.trim(),
+                            guideStoredFileId,
+                            isActive: true,
+                          });
+                        }
+                        setWelcomeSubject("");
+                        setWelcomeBody("");
+                        setWelcomeGuideFile(null);
+                        setRefreshVersion((value) => value + 1);
+                        toast.success("Welcome workflow asset saved.");
+                      })()
+                        .catch((error: unknown) => {
+                          toast.error(error instanceof Error ? error.message : "Unable to save welcome workflow asset.");
+                        })
+                        .finally(() => setSavingWorkflow(false));
+                    }}
+                  >
+                    Save welcome version
+                  </Button>
                 </div>
               </div>
             </CardContent>

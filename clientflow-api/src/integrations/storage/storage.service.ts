@@ -1,6 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Environment } from '../../config/env';
 
 export interface UploadTextResult {
@@ -8,6 +9,13 @@ export interface UploadTextResult {
   objectKey: string;
   byteSize: number;
   url: string;
+}
+
+export interface PresignedStorageUrl {
+  bucket: string;
+  objectKey: string;
+  url: string;
+  expiresInSeconds: number;
 }
 
 @Injectable()
@@ -56,6 +64,55 @@ export class StorageService {
     return `${publicUrl.replace(/\/+$/, '')}/${objectKey.replace(/^\/+/, '')}`;
   }
 
+  getObjectPublicUrl(objectKey: string): string | undefined {
+    return this.getPublicUrl(objectKey);
+  }
+
+  async createPresignedUploadUrl(
+    objectKey: string,
+    contentType: string,
+    expiresInSeconds = 900,
+  ): Promise<PresignedStorageUrl> {
+    const client = this.getClient();
+    const bucket = this.getBucketName();
+    if (!client || !bucket) throw new ServiceUnavailableException('R2 is not configured.');
+    const url = await getSignedUrl(client, new PutObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      ContentType: contentType,
+    }), { expiresIn: expiresInSeconds });
+    return { bucket, objectKey, url, expiresInSeconds };
+  }
+
+  async createPresignedDownloadUrl(
+    objectKey: string,
+    expiresInSeconds = 300,
+  ): Promise<PresignedStorageUrl> {
+    const client = this.getClient();
+    const bucket = this.getBucketName();
+    if (!client || !bucket) throw new ServiceUnavailableException('R2 is not configured.');
+    const url = await getSignedUrl(client, new GetObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+    }), { expiresIn: expiresInSeconds });
+    return { bucket, objectKey, url, expiresInSeconds };
+  }
+
+  async objectExists(objectKey: string): Promise<boolean> {
+    const client = this.getClient();
+    const bucket = this.getBucketName();
+    if (!client || !bucket) throw new ServiceUnavailableException('R2 is not configured.');
+    try {
+      await client.send(new HeadObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+      }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Uploads a small text document (e.g. an executed contract snapshot) and returns its storage location. */
   async uploadText(objectKey: string, content: string, contentType = 'text/plain'): Promise<UploadTextResult> {
     const client = this.getClient();
@@ -74,4 +131,3 @@ export class StorageService {
     return { bucket, objectKey, byteSize: body.byteLength, url };
   }
 }
-
