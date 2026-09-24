@@ -2,7 +2,12 @@ import { useEffect } from "react";
 import { getState, useAppState, setState } from "@/lib/store";
 import * as api from "@/lib/apiClient";
 
-async function loadRequired<T>(label: string, request: Promise<T>, fallback: T): Promise<T> {
+async function loadRequired<T>(
+  label: string,
+  request: Promise<T>,
+  fallback: T,
+  onWarning?: (message: string) => void,
+): Promise<T> {
   try {
     return await request;
   } catch (error) {
@@ -12,6 +17,7 @@ async function loadRequired<T>(label: string, request: Promise<T>, fallback: T):
       message,
       error,
     });
+    onWarning?.(`${label} could not be loaded: ${message}`);
     return fallback;
   }
 }
@@ -71,18 +77,18 @@ export function useBootstrap() {
           remoteFinalReports,
           remoteActivity,
         ] = await Promise.all([
-          loadRequired("Clients", api.cfListClients(), []),
-          loadRequired("Programs", api.cfListPrograms(), []),
+          loadRequired("Clients", api.cfListClients(), [], (message) => bootstrapWarnings.push(message)),
+          loadRequired("Programs", api.cfListPrograms(), [], (message) => bootstrapWarnings.push(message)),
           loadOptional("Enrollments", api.cfListEnrollments(), []),
-          loadRequired("Form templates", api.cfListFormTemplates(), []),
-          loadRequired("Form assignments", api.cfListFormAssignments(), []),
-          loadRequired("Intake submissions", api.cfListIntakeSubmissions(), []),
-          loadRequired("Terms", api.cfListAllTerms(), []),
-          loadRequired("Monitoring", api.cfListAllMonitoring(), []),
+          loadRequired("Form templates", api.cfListFormTemplates(), [], (message) => bootstrapWarnings.push(message)),
+          loadRequired("Form assignments", api.cfListFormAssignments(), [], (message) => bootstrapWarnings.push(message)),
+          loadRequired("Intake submissions", api.cfListIntakeSubmissions(), [], (message) => bootstrapWarnings.push(message)),
+          loadRequired("Terms", api.cfListAllTerms(), [], (message) => bootstrapWarnings.push(message)),
+          loadRequired("Monitoring", api.cfListAllMonitoring(), [], (message) => bootstrapWarnings.push(message)),
           loadOptional("Contracts", api.cfListAllContracts(), []),
-          loadRequired("Documents", api.cfListAllDocuments(), []),
+          loadRequired("Documents", api.cfListAllDocuments(), [], (message) => bootstrapWarnings.push(message)),
           loadOptional("Communications", api.cfListAllCommunications(), []),
-          loadRequired("Final reports", api.cfListAllFinalReports(), []),
+          loadRequired("Final reports", api.cfListAllFinalReports(), [], (message) => bootstrapWarnings.push(message)),
           loadOptional("Activity", api.cfListActivity(), []),
         ]);
 
