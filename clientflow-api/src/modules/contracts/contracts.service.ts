@@ -13,12 +13,12 @@ import type {
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { StorageService } from '../../integrations/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { WorkflowConfigService } from '../programs/workflow-config.service';
 import {
   CONTRACT_CLIENT_STATUS,
   CONTRACT_STATUS,
   INITIAL_FOLLOW_UP_TYPE,
   MONITORING_TASK_STATUS,
-  contractRuleFor,
   contractTokenExpiry,
   generateContractToken,
   hashContractToken,
@@ -74,6 +74,7 @@ export class ContractsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
     private readonly n8n: N8nService,
+    private readonly workflowConfig: WorkflowConfigService,
     private readonly storage: StorageService = { isEnabled: () => false } as unknown as StorageService,
   ) {}
 
@@ -85,7 +86,7 @@ export class ContractsService {
     if (programs.length !== 1) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
     const program = programs[0];
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
+    const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
     const rule = workflow.sendContractAfterIntake ? 'auto_contract' : 'staff_review';
     const template = workflow.sendContractAfterIntake
       ? await this.resolveTemplate(program)
@@ -105,7 +106,7 @@ export class ContractsService {
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
+    const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
     if (!workflow.enabled || !workflow.sendContractAfterIntake) {
       await this.prisma.$transaction(async (transaction) => {
         await transaction.cfClient.update({
@@ -342,7 +343,7 @@ export class ContractsService {
     const now = new Date();
     const secureTokenHash = hashContractToken(rawToken);
     const dueDate = monitoringDueDate(now, program.defaultMonitoringFrequency);
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
+    const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
     const welcomeConfig = await this.resolveWelcomeEmailForDelivery({
       workflow,
       organizationId: client.organizationId,
@@ -619,7 +620,7 @@ export class ContractsService {
     name: string;
     defaultContractTemplateId: string;
   }) {
-    const workflow = await this.getOrCreateWorkflowConfig(program.organizationId, program.id, program.name);
+    const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
     const programContractTemplateModel = (this.prisma as unknown as {
       cfProgramContractTemplate?: {
         findFirst: (args: unknown) => Promise<{ id: string; name: string; signatureRequired: boolean } | null>;
@@ -825,45 +826,8 @@ export class ContractsService {
     };
   }
 
-  private async getOrCreateWorkflowConfig(organizationId: string, programId: string, programName?: string) {
-    const workflowModel = (this.prisma as unknown as {
-      cfProgramWorkflowConfig?: {
-        findFirst: (args: unknown) => Promise<any>;
-        create: (args: unknown) => Promise<any>;
-      };
-    }).cfProgramWorkflowConfig;
-    const legacyRule = programName ? contractRuleFor(programName) : null;
-    const fallbackConfig = {
-      id: 'legacy-workflow-config',
-      organizationId,
-      programId,
-      enabled: true,
-      sendContractAfterIntake: legacyRule ? legacyRule === 'auto_contract' : true,
-      sendWelcomeAfterContractSigned: true,
-      activeContractTemplateId: null,
-      activeContractVersionId: null,
-      activeWelcomeEmailTemplateId: null,
-      activeWelcomeEmailVersionId: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    if (!workflowModel) return fallbackConfig;
-    const existing = await workflowModel.findFirst({
-      where: { organizationId, programId },
-    });
-    if (existing) return existing;
-    return workflowModel.create({
-      data: {
-        organizationId,
-        programId,
-        sendContractAfterIntake: fallbackConfig.sendContractAfterIntake,
-        sendWelcomeAfterContractSigned: fallbackConfig.sendWelcomeAfterContractSigned,
-      },
-    });
-  }
-
   private async resolveWelcomeEmailForDelivery(input: {
-    workflow: Awaited<ReturnType<ContractsService['getOrCreateWorkflowConfig']>>;
+    workflow: Awaited<ReturnType<WorkflowConfigService['getOrCreate']>>;
     organizationId: string;
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {};
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {};

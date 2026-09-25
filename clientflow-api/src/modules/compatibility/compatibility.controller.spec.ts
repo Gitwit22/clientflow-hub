@@ -1,6 +1,7 @@
 import { NotImplementedException, UnauthorizedException } from '@nestjs/common';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import type { ProgramAutomationService } from '../automation/program-automation.service';
+import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { ClientflowCompatibilityController, PublicFormCompatibilityController } from './compatibility.controller';
 import { COMPATIBILITY_ROUTE_GROUPS, FUTURE_ROUTE_GROUPS } from './route-inventory';
 
@@ -24,16 +25,26 @@ describe('compatibility route scaffold', () => {
         clientId: 'client-1',
         programId: 'program-1',
         organizationId: 'org-1',
+        status: 'interested',
+      };
+      const transaction = {
+        cfProgramEnrollment: { create: jest.fn().mockResolvedValue(enrollment) },
+        cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
+        cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
       };
       const prisma = {
-        cfProgramEnrollment: { create: jest.fn().mockResolvedValue(enrollment) },
+        $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
       };
       const automation = { runTrigger: jest.fn().mockResolvedValue({}) } as unknown as ProgramAutomationService;
+      const enrollments = new EnrollmentsService(prisma as never);
       const controller = new ClientflowCompatibilityController(
         scaffold,
         prisma as never,
         undefined,
         automation,
+        undefined,
+        undefined,
+        enrollments,
       );
       jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
         orgId: 'org-1',
@@ -42,7 +53,7 @@ describe('compatibility route scaffold', () => {
 
       const result = await controller.createEnrollment({} as never, { clientId: 'client-1', programId: 'program-1' });
 
-      expect(prisma.cfProgramEnrollment.create).toHaveBeenCalled();
+      expect(transaction.cfProgramEnrollment.create).toHaveBeenCalled();
       expect(automation.runTrigger).toHaveBeenCalledWith(expect.objectContaining({
         organizationId: 'org-1',
         clientId: 'client-1',

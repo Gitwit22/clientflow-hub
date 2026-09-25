@@ -13,11 +13,9 @@ import {
   CommunicationsModule,
   DocumentsModule,
   EmailModule,
-  EnrollmentsModule,
   MonitoringModule,
   NotificationsModule,
   OrganizationsModule,
-  ProgramsModule,
   ReportsModule,
   TermsModule,
   UsersModule,
@@ -27,6 +25,8 @@ import { ClientsModule } from './modules/clients/clients.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
 import { FormsModule } from './modules/forms/forms.module';
+import { ProgramsModule } from './modules/programs/programs.module';
+import { EnrollmentsModule } from './modules/enrollments/enrollments.module';
 import { HealthController } from './modules/health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 

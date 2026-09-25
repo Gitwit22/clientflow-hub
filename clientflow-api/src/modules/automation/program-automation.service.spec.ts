@@ -1,7 +1,26 @@
 import type { N8nService } from '../../integrations/n8n/n8n.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ContractsService } from '../contracts/contracts.service';
+import { WorkflowConfigService } from '../programs/workflow-config.service';
+import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { ProgramAutomationService } from './program-automation.service';
+
+// Shared test context: builds real WorkflowConfigService/EnrollmentsService instances against
+// the same mocked `prisma` each test already configures, so existing prisma mocks/assertions
+// keep working unchanged - only the canonical services now sit between automation and prisma.
+function programAutomationTestContext(
+  prisma: unknown,
+  contracts: unknown,
+  n8n: unknown,
+): ProgramAutomationService {
+  return new ProgramAutomationService(
+    prisma as unknown as PrismaService,
+    contracts as ContractsService,
+    n8n as unknown as N8nService,
+    new WorkflowConfigService(prisma as unknown as PrismaService),
+    new EnrollmentsService(prisma as unknown as PrismaService),
+  );
+}
 
 describe('ProgramAutomationService', () => {
   const baseClient = {
@@ -40,10 +59,10 @@ describe('ProgramAutomationService', () => {
       cfTask: { create: jest.fn().mockResolvedValue({ id: 'task-1' }) },
     };
 
-    const service = new ProgramAutomationService(
-      prisma as unknown as PrismaService,
+    const service = programAutomationTestContext(
+      prisma,
       {} as ContractsService,
-      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
     await service.runTrigger({
@@ -96,10 +115,10 @@ describe('ProgramAutomationService', () => {
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
 
-    const service = new ProgramAutomationService(
-      prisma as unknown as PrismaService,
+    const service = programAutomationTestContext(
+      prisma,
       {} as ContractsService,
-      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
     await service.runTrigger({
@@ -149,10 +168,10 @@ describe('ProgramAutomationService', () => {
       cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
     };
 
-    const service = new ProgramAutomationService(
-      prisma as unknown as PrismaService,
+    const service = programAutomationTestContext(
+      prisma,
       {} as ContractsService,
-      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
     await service.runTrigger({
@@ -208,10 +227,10 @@ describe('ProgramAutomationService', () => {
         },
       };
 
-      const service = new ProgramAutomationService(
-        prisma as unknown as PrismaService,
+      const service = programAutomationTestContext(
+        prisma,
         {} as ContractsService,
-        { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+        { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
       );
 
       await service.runTrigger({
@@ -254,10 +273,10 @@ describe('ProgramAutomationService', () => {
       cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'log-1' }) },
     };
 
-    const service = new ProgramAutomationService(
-      prisma as unknown as PrismaService,
+    const service = programAutomationTestContext(
+      prisma,
       {} as ContractsService,
-      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
     await service.runTrigger({
@@ -308,10 +327,10 @@ describe('ProgramAutomationService', () => {
       }),
     };
 
-    const service = new ProgramAutomationService(
-      prisma as unknown as PrismaService,
-      contracts as unknown as ContractsService,
-      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') } as unknown as N8nService,
+    const service = programAutomationTestContext(
+      prisma,
+      contracts,
+      { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
     await service.runTrigger({

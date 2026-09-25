@@ -4,6 +4,7 @@ import type { Environment } from '../../config/env';
 import type { N8nService } from '../../integrations/n8n/n8n.service';
 import type { StorageService } from '../../integrations/storage/storage.service';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { WorkflowConfigService } from '../programs/workflow-config.service';
 import {
   PROGRAM_CONTRACT_RULES,
   contractRuleFor,
@@ -117,6 +118,24 @@ function n8nDisabled() {
   };
 }
 
+// Shared test context: builds a real WorkflowConfigService against the same mocked `prisma`
+// each test already configures, so every existing cfProgramWorkflowConfig mock/assertion keeps
+// working unchanged - only the canonical service now sits between ContractsService and prisma.
+function contractsServiceTestContext(
+  prisma: unknown,
+  n8n: unknown,
+  overrides: { storage?: unknown } = {},
+): ContractsService {
+  const workflowConfig = new WorkflowConfigService(prisma as unknown as PrismaService);
+  return new ContractsService(
+    prisma as unknown as PrismaService,
+    config(),
+    n8n as unknown as N8nService,
+    workflowConfig,
+    (overrides.storage ?? { isEnabled: () => false }) as unknown as StorageService,
+  );
+}
+
 describe('contract lifecycle rules', () => {
   it('classifies both auto-contract and all staff-review programs', () => {
     expect(Object.keys(PROGRAM_CONTRACT_RULES)).toHaveLength(9);
@@ -158,14 +177,13 @@ describe('ContractsService', () => {
     const prisma = {
       cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
       cfProgram: { findFirst: jest.fn().mockResolvedValue(reviewProgram) },
+      cfProgramWorkflowConfig: {
+        findFirst: jest.fn().mockResolvedValue({ ...workflowConfig, sendContractAfterIntake: false }),
+      },
       cfContract: { create: jest.fn() },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
 
@@ -207,11 +225,7 @@ describe('ContractsService', () => {
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
     const n8n = n8nDisabled();
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8n as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8n);
 
     const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
 
@@ -262,11 +276,7 @@ describe('ContractsService', () => {
       cfContract: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
 
@@ -321,11 +331,7 @@ describe('ContractsService', () => {
       cfContract: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
 
@@ -369,11 +375,7 @@ describe('ContractsService', () => {
       cfCommunication: { update: jest.fn() },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     await expect(service.issueContractForProgram('client-1', 'program-1', { enrollmentId: 'enroll-1' }))
       .rejects.toEqual(new BadRequestException('The selected program does not have an active contract template.'));
@@ -392,11 +394,7 @@ describe('ContractsService', () => {
         create: jest.fn().mockResolvedValue(draftContract),
       },
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' });
 
@@ -417,11 +415,7 @@ describe('ContractsService', () => {
         create: jest.fn().mockResolvedValue(draftContract),
       },
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     await service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' });
 
@@ -439,13 +433,12 @@ describe('ContractsService', () => {
     const prisma = {
       cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
       cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfProgramWorkflowConfig: {
+        findFirst: jest.fn().mockResolvedValue({ ...workflowConfig, activeContractTemplateId: null, activeContractVersionId: null }),
+      },
       cfContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     await expect(service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' })).rejects.toEqual(
       new BadRequestException('The selected program does not have an active contract template.'),
@@ -469,11 +462,7 @@ describe('ContractsService', () => {
       cfCommunication: { update: jest.fn() },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.sendForStaff('client-1', 'contract-1');
 
@@ -508,11 +497,7 @@ describe('ContractsService', () => {
         sentAt: '2030-01-01T00:00:00.000Z',
       }),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8n as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8n);
 
     await service.sendForStaff('client-1', 'contract-1');
 
@@ -542,11 +527,7 @@ describe('ContractsService', () => {
       cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.openPublicContract('a'.repeat(43));
 
@@ -589,16 +570,13 @@ describe('ContractsService', () => {
           defaultMonitoringFrequency: 'Monthly',
         }),
       },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
       $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
         ? input(transaction)
         : Promise.all(input as Promise<unknown>[]))),
     };
     const n8n = n8nDisabled();
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8n as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8n);
 
     const result = await service.completePublicContract('a'.repeat(43), {
       signedName: ' Client Owner ',
@@ -664,11 +642,7 @@ describe('ContractsService', () => {
       getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
       sendWelcome: jest.fn(),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8n as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8n);
 
     const result = await service.completePublicContract('a'.repeat(43), {
       signedName: 'Client Owner',
@@ -714,11 +688,7 @@ describe('ContractsService', () => {
       getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
       sendWelcome: jest.fn().mockResolvedValue({ status: 'failed', reason: 'rejected' }),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8n as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8n);
 
     const result = await service.completePublicContract('a'.repeat(43), {
       signedName: 'Client Owner',
@@ -768,6 +738,7 @@ describe('ContractsService', () => {
       cfProgram: {
         findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }),
       },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
       cfContract: {
         findUnique: jest.fn().mockResolvedValue(sentContract),
         update: jest.fn().mockResolvedValue({ ...sentContract, executedStoredFileId: 'stored-file-1' }),
@@ -786,12 +757,7 @@ describe('ContractsService', () => {
         url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
       }),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-      storage as unknown as StorageService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled(), { storage });
 
     await service.completePublicContract('a'.repeat(43), {
       signedName: 'Client Owner',
@@ -846,6 +812,7 @@ describe('ContractsService', () => {
       cfProgram: {
         findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }),
       },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
       cfStoredFile: { create: jest.fn() },
       cfDocument: { create: jest.fn() },
       $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
@@ -856,12 +823,7 @@ describe('ContractsService', () => {
       isEnabled: jest.fn().mockReturnValue(true),
       uploadText: jest.fn().mockRejectedValue(new Error('R2 unavailable')),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-      storage as unknown as StorageService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled(), { storage });
 
     const result = await service.completePublicContract('a'.repeat(43), {
       signedName: 'Client Owner',
@@ -886,13 +848,10 @@ describe('ContractsService', () => {
           defaultMonitoringFrequency: 'Weekly',
         }),
       },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     await expect(service.completePublicContract('a'.repeat(43), {
       signedName: 'Client Owner',
@@ -923,11 +882,7 @@ describe('ContractsService', () => {
       },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.approveReview('client-1', { id: 'staff-1', name: 'Jordan Staff' });
 
@@ -948,11 +903,7 @@ describe('ContractsService', () => {
     const prisma = {
       cfClient: { findFirst: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     await expect(
       service.approveReview('client-1', { id: 'staff-1', name: 'Jordan Staff' }),
@@ -960,11 +911,7 @@ describe('ContractsService', () => {
   });
 
   it('rejects approval when no staff signer name is provided', async () => {
-    const service = new ContractsService(
-      {} as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext({}, n8nDisabled());
 
     await expect(service.approveReview('client-1', { id: null, name: '  ' })).rejects.toBeInstanceOf(
       BadRequestException,
@@ -981,11 +928,7 @@ describe('ContractsService', () => {
       cfClient: { findFirst: jest.fn().mockResolvedValue(pendingClient) },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
-    const service = new ContractsService(
-      prisma as unknown as PrismaService,
-      config(),
-      n8nDisabled() as unknown as N8nService,
-    );
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.declineReview('client-1', 'No longer eligible');
 

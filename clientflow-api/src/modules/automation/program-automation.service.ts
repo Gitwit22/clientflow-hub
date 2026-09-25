@@ -3,8 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { CfEnrollmentStatus, CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS, contractRuleFor } from '../contracts/contract-lifecycle';
+import { isPrismaUniqueViolation } from '../../common/prisma-errors';
+import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-lifecycle';
 import { ContractsService } from '../contracts/contracts.service';
+import { WorkflowConfigService } from '../programs/workflow-config.service';
+import { EnrollmentsService } from '../enrollments/enrollments.service';
 
 type AutomationTrigger =
   | 'intake.submitted'
@@ -70,6 +73,8 @@ export class ProgramAutomationService {
     @Inject(forwardRef(() => ContractsService))
     private readonly contracts: ContractsService,
     private readonly n8n: N8nService,
+    private readonly workflowConfig: WorkflowConfigService,
+    private readonly enrollments: EnrollmentsService,
   ) {}
 
   async runTrigger(request: TriggerRequest) {
@@ -134,18 +139,8 @@ export class ProgramAutomationService {
 
     const executed: string[] = [];
     if (rules.length === 0 && context.triggerDb === CfProgramTrigger.intake_submitted) {
-      const workflow = await this.prisma.cfProgramWorkflowConfig.findFirst({
-        where: {
-          organizationId: context.organizationId,
-          programId: context.program.id,
-        },
-      });
-      const legacyRule = contractRuleFor(context.program.name);
-      const shouldSendContract = workflow
-        ? workflow.enabled && workflow.sendContractAfterIntake
-        : legacyRule
-          ? legacyRule === 'auto_contract'
-          : true;
+      const workflow = await this.workflowConfig.getOrCreate(context.organizationId, context.program.id, context.program.name);
+      const shouldSendContract = workflow.enabled && workflow.sendContractAfterIntake;
       if (shouldSendContract) {
         const idempotencyKey = `${context.idempotencySeed}:${context.program.id}:workflow:auto_send_contract`;
         const claim = await this.claimExecution(
@@ -248,78 +243,19 @@ export class ProgramAutomationService {
   }
 
   private async ensureEnrollment(context: ProgramExecutionContext): Promise<Prisma.JsonObject> {
-    const existing = await this.prisma.cfProgramEnrollment.findFirst({
-      where: {
-        organizationId: context.organizationId,
-        clientId: context.client.id,
-        programId: context.program.id,
-      },
+    const result = await this.enrollments.ensureEnrollment({
+      organizationId: context.organizationId,
+      clientId: context.client.id,
+      programId: context.program.id,
+      programName: context.program.name,
+      assignedUserId: context.client.assignedUserId,
+      assignedStaff: context.client.assignedStaff,
+      actorUserId: context.actorUserId,
+      actorDisplayName: context.actorDisplayName,
+      isDemo: context.client.isDemo,
     });
-    if (existing) {
-      context.enrollmentId = existing.id;
-      return { enrollmentId: existing.id, created: false };
-    }
-
-    let enrollment: { id: string };
-    try {
-      enrollment = await this.prisma.$transaction(async (transaction) => {
-        const created = await transaction.cfProgramEnrollment.create({
-          data: {
-            organizationId: context.organizationId,
-            clientId: context.client.id,
-            programId: context.program.id,
-            status: 'interested',
-            assignedUserId: context.client.assignedUserId,
-            assignedStaff: context.client.assignedStaff,
-            lastModifiedByUserId: context.actorUserId,
-            lastModifiedByDisplayName: context.actorDisplayName,
-            isDemo: context.client.isDemo,
-          },
-        });
-
-        await transaction.cfEnrollmentStatusHistory.create({
-          data: {
-            organizationId: context.organizationId,
-            enrollmentId: created.id,
-            newStatus: 'interested',
-            changedByUserId: context.actorUserId,
-            changedByDisplayName: context.actorDisplayName,
-            reason: 'Created by program automation.',
-          },
-        });
-
-        await transaction.cfActivityLog.create({
-          data: {
-            organizationId: context.organizationId,
-            clientId: context.client.id,
-            enrollmentId: created.id,
-            actorUserId: context.actorUserId,
-            action: 'ENROLLMENT_CREATED',
-            description: `Enrolled in ${context.program.name}.`,
-            user: context.actorDisplayName,
-            isDemo: context.client.isDemo,
-          },
-        });
-
-        return created;
-      });
-    } catch (error) {
-      if (!isPrismaUniqueViolation(error)) throw error;
-      const concurrent = await this.prisma.cfProgramEnrollment.findFirst({
-        where: {
-          organizationId: context.organizationId,
-          clientId: context.client.id,
-          programId: context.program.id,
-        },
-        select: { id: true },
-      });
-      if (!concurrent) throw error;
-      context.enrollmentId = concurrent.id;
-      return { enrollmentId: concurrent.id, created: false };
-    }
-    context.enrollmentId = enrollment.id;
-
-    return { enrollmentId: enrollment.id, created: true };
+    context.enrollmentId = result.enrollmentId;
+    return { enrollmentId: result.enrollmentId, created: result.created };
   }
 
   private async assignDocuments(
@@ -798,11 +734,4 @@ function randomTokenHash(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isPrismaUniqueViolation(error: unknown): boolean {
-  return !!error
-    && typeof error === 'object'
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'P2002';
 }
