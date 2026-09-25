@@ -791,18 +791,6 @@ export async function cfGetMonitoringHistory(id: string) {
 export async function cfListContracts(clientId: string) {
   return apiRequest<Contract[]>(`${CF}/clients/${clientId}/contracts`);
 }
-export async function cfCreateContract(clientId: string, data: Record<string, unknown>) {
-  return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/contracts`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-export async function cfUpdateContract(id: string, data: Record<string, unknown>) {
-  return apiRequest<unknown>(`${CF}/contracts/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
-}
 export async function cfListAllContracts() {
   return listAllPages<Contract>(`${CF}/contracts`);
 }

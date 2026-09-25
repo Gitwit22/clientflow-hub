@@ -192,9 +192,9 @@ function Dashboard() {
               </Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link to="/contracts">
+              <Link to="/pipeline">
                 <FileSignature className="size-4" />
-                Create contract
+                Contract pipeline
               </Link>
             </Button>
           </>

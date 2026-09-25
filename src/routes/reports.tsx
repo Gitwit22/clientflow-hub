@@ -55,7 +55,7 @@ function ReportsPage() {
   });
   const maxMonth = Math.max(1, ...months.map((m) => m.value));
   const funding = terms.reduce((sum, t) => sum + t.fundingAmount, 0);
-  const contractStatus = ["Draft", "Internal Review", "Sent", "Signed", "Completed"].map((s) => ({
+  const contractStatus = ["DRAFT", "SENT", "OPENED", "COMPLETED", "CANCELLED", "EXPIRED"].map((s) => ({
     label: s,
     value: contracts.filter((c) => c.status === s).length,
   }));
@@ -91,7 +91,7 @@ function ReportsPage() {
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="font-display text-base">Contract status report</CardTitle>
             <Button variant="outline" size="sm" asChild>
-              <Link to="/contracts">Contract queue</Link>
+              <Link to="/pipeline">Contract queue</Link>
             </Button>
           </CardHeader>
           <CardContent className="space-y-3">

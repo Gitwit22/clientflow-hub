@@ -580,12 +580,15 @@ export interface Contract {
   enrollmentId?: string | null;
   programId: string;
   termsId?: string;
-  contractType: ContractType;
-  status: ContractStatus;
+  // Free-form, sourced from the program's active contract template name —
+  // not the fixed ContractType dropdown used for program defaults.
+  contractType: string;
+  // Real backend statuses: DRAFT | SENT | OPENED | COMPLETED | CANCELLED | EXPIRED.
+  status: string;
   createdAt: string;
   sentAt?: string;
   signedAt?: string;
-  content: string;
+  generatedContent: string;
   executedStoredFileId?: string | null;
 }
 

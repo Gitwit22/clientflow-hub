@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as ArchiveRouteImport } from './routes/archive'
 import { Route as ClientsRouteImport } from './routes/clients'
-import { Route as ContractsRouteImport } from './routes/contracts'
 import { Route as FormsRouteImport } from './routes/forms'
 import { Route as IntakeRouteImport } from './routes/intake'
 import { Route as LoginRouteImport } from './routes/login'
@@ -51,11 +50,6 @@ const ArchiveRoute = ArchiveRouteImport.update({
 const ClientsRoute = ClientsRouteImport.update({
   id: '/clients',
   path: '/clients',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ContractsRoute = ContractsRouteImport.update({
-  id: '/contracts',
-  path: '/contracts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FormsRoute = FormsRouteImport.update({
@@ -154,7 +148,6 @@ export interface FileRoutesByFullPath {
   '/accept-invite': typeof AcceptInviteRoute
   '/archive': typeof ArchiveRoute
   '/clients': typeof ClientsRouteWithChildren
-  '/contracts': typeof ContractsRoute
   '/forms': typeof FormsRoute
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
@@ -178,7 +171,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/accept-invite': typeof AcceptInviteRoute
   '/archive': typeof ArchiveRoute
-  '/contracts': typeof ContractsRoute
   '/forms': typeof FormsRoute
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
@@ -202,7 +194,6 @@ export interface FileRoutesById {
   '/accept-invite': typeof AcceptInviteRoute
   '/archive': typeof ArchiveRoute
   '/clients': typeof ClientsRouteWithChildren
-  '/contracts': typeof ContractsRoute
   '/forms': typeof FormsRoute
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
@@ -229,7 +220,6 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/archive'
     | '/clients'
-    | '/contracts'
     | '/forms'
     | '/intake'
     | '/login'
@@ -253,7 +243,6 @@ export interface FileRouteTypes {
     | '/'
     | '/accept-invite'
     | '/archive'
-    | '/contracts'
     | '/forms'
     | '/intake'
     | '/login'
@@ -276,7 +265,6 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/archive'
     | '/clients'
-    | '/contracts'
     | '/forms'
     | '/intake'
     | '/login'
@@ -302,7 +290,6 @@ export interface RootRouteChildren {
   AcceptInviteRoute: typeof AcceptInviteRoute
   ArchiveRoute: typeof ArchiveRoute
   ClientsRoute: typeof ClientsRouteWithChildren
-  ContractsRoute: typeof ContractsRoute
   FormsRoute: typeof FormsRoute
   IntakeRoute: typeof IntakeRoute
   LoginRoute: typeof LoginRoute
@@ -345,13 +332,6 @@ declare module '@tanstack/react-router' {
       path: '/clients'
       fullPath: '/clients'
       preLoaderRoute: typeof ClientsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/contracts': {
-      id: '/contracts'
-      path: '/contracts'
-      fullPath: '/contracts'
-      preLoaderRoute: typeof ContractsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forms': {
@@ -529,7 +509,6 @@ const rootRouteChildren: RootRouteChildren = {
   AcceptInviteRoute: AcceptInviteRoute,
   ArchiveRoute: ArchiveRoute,
   ClientsRoute: ClientsRouteWithChildren,
-  ContractsRoute: ContractsRoute,
   FormsRoute: FormsRoute,
   IntakeRoute: IntakeRoute,
   LoginRoute: LoginRoute,

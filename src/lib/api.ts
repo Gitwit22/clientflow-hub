@@ -32,8 +32,7 @@ import {
   cfUpdateEnrollment,
   cfCreateTerms,
   cfUpdateTerms,
-  cfCreateContract,
-  cfUpdateContract,
+  cfListContracts,
   cfCreateEnrollmentMonitoring,
   cfRecordMonitoringResult,
   cfCreateDocumentUpload,
@@ -574,74 +573,13 @@ export async function updateTerms(termsId: string, data: Partial<Terms>) {
 
 /* --------------------------------- Contracts -------------------------------- */
 
-export async function generateContract(clientId: string, termsId?: string) {
-  const s = getState();
-  const client = s.clients.find((c) => c.id === clientId);
-  const program = s.programs.find((p) => p.id === client?.programId);
-  const terms = s.terms.find((t) => t.id === termsId);
-  const contract: Contract = {
-    id: uid("ct"),
-    clientId,
-    programId: program?.id ?? "",
-    termsId,
-    contractType: program?.defaultContractTemplateId ?? "Service Agreement",
-    status: "Draft",
-    createdAt: nowISO(),
-    content: buildContractContent(client?.businessName ?? "", program?.name ?? "", terms),
-  };
-  const backend = await cfCreateContract(clientId, {
-    programId: program?.id ?? "",
-    termsId,
-    contractType: contract.contractType,
-    status: contract.status,
-    content: contract.content,
-  });
-  const finalContract: Contract = { ...contract, id: backend.id };
-  setState((st) => ({ ...st, contracts: [finalContract, ...st.contracts] }));
-  await log(clientId, "Contract generated", `${contract.contractType} draft created.`);
-  return delay(finalContract);
-}
-
-export function buildContractContent(business: string, programName: string, terms?: Terms) {
-  return `DRAFT AGREEMENT — NOT FINAL LEGAL LANGUAGE
-
-This agreement is entered into between EA Management ("Provider") and ${business || "{{businessName}}"} ("Client") for participation in the ${programName || "{{programName}}"} program.
-
-1. SCOPE OF SUPPORT
-Provider will deliver the services and resources described as: ${terms?.resourceDescription || "{{resourceDescription}}"}.
-Support type: ${terms?.supportType || "{{supportType}}"}.
-
-2. FUNDING AND RESOURCES
-Total commitment: $${(terms?.fundingAmount ?? 0).toLocaleString()}
-Grant: $${(terms?.grantAmount ?? 0).toLocaleString()} · Loan: $${(terms?.loanAmount ?? 0).toLocaleString()} · Forgivable: $${(terms?.forgivableAmount ?? 0).toLocaleString()} · Investment: $${(terms?.investmentAmount ?? 0).toLocaleString()}
-Repayment required: ${terms?.repaymentRequired ? "Yes" : "No"} — ${terms?.repaymentSchedule || "N/A"}
-Interest: ${terms?.interestDescription || "N/A"}
-
-3. TERM
-Start: ${terms?.startDate ? terms.startDate.slice(0, 10) : "{{startDate}}"} · End: ${terms?.endDate ? terms.endDate.slice(0, 10) : "{{endDate}}"}
-
-4. MILESTONES
-${terms?.milestones || "{{milestones}}"}
-
-5. REPORTING AND MONITORING
-${terms?.reportingRequirements || "{{reportingRequirements}}"}
-Monitoring frequency: ${terms?.monitoringFrequency || "{{monitoringFrequency}}"}
-
-6. SPECIAL CONDITIONS
-${terms?.specialConditions || "None"}
-
-7. SIGNATURES
-Client: ______________________   Date: __________
-EA Management: ______________   Date: __________`;
-}
-
-export async function updateContract(id: string, data: Partial<Contract>) {
-  await cfUpdateContract(id, data as Record<string, unknown>);
+export async function refreshClientContracts(clientId: string) {
+  const contracts = await cfListContracts(clientId);
   setState((s) => ({
     ...s,
-    contracts: s.contracts.map((c) => (c.id === id ? { ...c, ...data } : c)),
+    contracts: [...contracts, ...s.contracts.filter((c) => c.clientId !== clientId)],
   }));
-  return delay(true);
+  return contracts;
 }
 
 /* -------------------------------- Monitoring -------------------------------- */

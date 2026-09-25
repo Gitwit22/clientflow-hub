@@ -38,12 +38,13 @@ import {
   createFinalReport,
   downloadDocument,
   downloadExecutedContract,
-  generateContract,
+  refreshClientContracts,
   refreshClientProfile,
   recordMonitoringResult,
   updateClient,
   uploadDocument,
 } from "@/lib/api";
+import { acfGenerateContract, acfSendContract } from "@/lib/apiClient";
 import {
   ARCHIVE_DECISIONS,
   type FormAssignment,
@@ -370,8 +371,24 @@ function ClientProfile() {
             <Button
               variant="outline"
               onClick={async () => {
-                await generateContract(client.id, terms[0]?.id);
-                toast.success("Draft contract generated");
+                try {
+                  const staffSignerName =
+                    [s.authenticatedAdmin?.firstName, s.authenticatedAdmin?.lastName]
+                      .filter(Boolean)
+                      .join(" ") ||
+                    s.authenticatedAdmin?.email ||
+                    "";
+                  await acfGenerateContract(client.id, {
+                    staffSignerName,
+                    staffSignerId: s.authenticatedAdmin?.id,
+                  });
+                  await refreshClientContracts(client.id);
+                  toast.success("Draft contract generated");
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : "Unable to generate a contract.",
+                  );
+                }
               }}
             >
               Generate contract
@@ -1223,9 +1240,30 @@ function ClientProfile() {
                   <StatusBadge status={c.status} />
                 </div>
                 <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-4 font-sans text-xs whitespace-pre-wrap text-muted-foreground">
-                  {c.content}
+                  {c.generatedContent}
                 </pre>
                 <div className="flex flex-wrap gap-2">
+                  {(c.status === "DRAFT" || c.status === "SENT") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await acfSendContract(client.id, c.id);
+                          await refreshClientContracts(client.id);
+                          toast.success(
+                            c.status === "DRAFT" ? "Contract sent" : "Contract resent",
+                          );
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to send this contract.",
+                          );
+                        }
+                      }}
+                    >
+                      {c.status === "DRAFT" ? "Send" : "Resend"}
+                    </Button>
+                  )}
                   {c.executedStoredFileId && (
                     <Button
                       size="sm"
@@ -1241,7 +1279,7 @@ function ClientProfile() {
                       Download signed agreement
                     </Button>
                   )}
-                  {!c.executedStoredFileId && (
+                  {!c.executedStoredFileId && !(c.status === "DRAFT" || c.status === "SENT") && (
                     <span className="text-xs text-muted-foreground self-center">
                       Signed artifact not available yet.
                     </span>

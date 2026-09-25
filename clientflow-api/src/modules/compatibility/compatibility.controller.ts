@@ -1279,14 +1279,6 @@ export class ClientflowCompatibilityController {
     const download = await storage.createPresignedDownloadUrl(contract.executedStoredFile.storageKey, 300);
     return { url: download.url, expiresInSeconds: download.expiresInSeconds };
   }
-  @Post('clients/:clientId/contracts') async createContract(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), contractTemplateId: String(body.contractTemplateId ?? ''), contractType: String(body.contractType ?? 'Service Agreement'), status: String(body.status ?? 'DRAFT'), generatedContent: String(body.generatedContent ?? ''), termsId: body.termsId ? String(body.termsId) : null } });
-  }
-  @Patch('contracts/:id') async updateContract(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.update({ where: { id, organizationId: orgId }, data: body });
-  }
   @Get('clients/:clientId/documents') async listDocuments(@Req() request: Request, @Param('clientId') clientId: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });

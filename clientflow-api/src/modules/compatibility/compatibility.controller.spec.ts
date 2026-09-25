@@ -97,6 +97,13 @@ describe('compatibility route scaffold', () => {
       expect(prisma.cfProgramEnrollment.update).not.toHaveBeenCalled();
     });
 
+    it('no longer exposes direct contract mutation endpoints (createContract/updateContract removed)', () => {
+      const controller = new ClientflowCompatibilityController(scaffold, {} as never);
+
+      expect((controller as any).createContract).toBeUndefined();
+      expect((controller as any).updateContract).toBeUndefined();
+    });
+
     it('returns safe empty workflow selections when optional configuration is absent', async () => {
       const prisma = {
         cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(null) },
