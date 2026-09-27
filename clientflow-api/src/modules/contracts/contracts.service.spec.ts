@@ -436,7 +436,6 @@ describe('ContractsService', () => {
       cfProgramWorkflowConfig: {
         findFirst: jest.fn().mockResolvedValue({ ...workflowConfig, activeContractTemplateId: null, activeContractVersionId: null }),
       },
-      cfContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
@@ -458,7 +457,6 @@ describe('ContractsService', () => {
       cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
       cfContract: { findFirst: jest.fn().mockResolvedValue(draftContract) },
       cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
-      cfContractTemplate: { findFirst: jest.fn().mockResolvedValue(template) },
       cfCommunication: { update: jest.fn() },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
@@ -471,6 +469,64 @@ describe('ContractsService', () => {
     }));
     expect(result.emailDelivery).toEqual({ status: 'failed', reason: 'disabled' });
     expect(JSON.stringify(result)).not.toContain('secureTokenHash');
+  });
+
+  it('sends an already-generated contract from its own persisted data, never querying the legacy CfContractTemplate table', async () => {
+    // Regression test: contractTemplateId is a CfProgramContractVersion id under the canonical
+    // flow, not a legacy CfContractTemplate id - the prisma mock intentionally omits
+    // cfContractTemplate entirely so any re-introduced lookup against it throws immediately.
+    const canonicalContract = { ...draftContract, contractTemplateId: 'cfpcv_a1b2c3d4e5f6', contractType: 'IDI Membership Agreement' };
+    const transaction = {
+      cfContract: { update: jest.fn().mockResolvedValue({ ...canonicalContract, status: 'SENT' }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'requested' }),
+      },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(canonicalContract) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfCommunication: { update: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const n8n = {
+      getContractAvailability: jest.fn().mockReturnValue('ready'),
+      sendContract: jest.fn().mockResolvedValue({ status: 'sent', sentAt: '2030-01-01T00:00:00.000Z' }),
+    };
+    const service = contractsServiceTestContext(prisma, n8n);
+
+    const result = await service.sendForStaff('client-1', canonicalContract.id);
+
+    expect(n8n.sendContract).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      contractName: 'IDI Membership Agreement',
+    }));
+    expect(result.contract).toEqual(expect.objectContaining({ status: 'SENT' }));
+  });
+
+  it('resends an already-SENT contract the same way, from its own persisted data', async () => {
+    const canonicalSentContract = { ...sentContract, contractTemplateId: 'cfpcv_a1b2c3d4e5f6' };
+    const transaction = {
+      cfContract: { update: jest.fn().mockResolvedValue(canonicalSentContract) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'skipped' }),
+      },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(canonicalSentContract) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfCommunication: { update: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
+
+    const result = await service.sendForStaff('client-1', canonicalSentContract.id);
+
+    expect(result.emailDelivery).toEqual({ status: 'failed', reason: 'disabled' });
   });
 
   it('records an enabled accepted n8n delivery as sent', async () => {
@@ -486,7 +542,6 @@ describe('ContractsService', () => {
       cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
       cfContract: { findFirst: jest.fn().mockResolvedValue(draftContract) },
       cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
-      cfContractTemplate: { findFirst: jest.fn().mockResolvedValue(template) },
       cfCommunication: { update: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'sent' }) },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };

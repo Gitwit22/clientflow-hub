@@ -263,8 +263,8 @@ export interface ProgramWorkflow {
     activeTemplate: ProgramWorkflowWelcomeTemplate | null;
     activeVersion: ProgramWorkflowWelcomeVersion | null;
   };
+  /** @deprecated derived mirror of `config`; read `config` instead. Kept until all readers migrate. */
   automation: {
-    enabled: boolean;
     sendContractAfterIntake: boolean;
     sendWelcomeAfterContractSigned: boolean;
   };

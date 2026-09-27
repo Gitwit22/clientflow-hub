@@ -282,16 +282,17 @@ export class ClientflowCompatibilityController {
       : activeWelcomeTemplate
         ? welcomeVersions.find((version) => version.templateId === activeWelcomeTemplate.id) ?? null
         : welcomeVersions[0] ?? null;
+    const resolvedConfig = config ?? {
+      enabled: true,
+      sendContractAfterIntake: false,
+      sendWelcomeAfterContractSigned: false,
+      activeContractTemplateId: null,
+      activeContractVersionId: null,
+      activeWelcomeEmailTemplateId: null,
+      activeWelcomeEmailVersionId: null,
+    };
     return {
-      config: config ?? {
-        enabled: true,
-        sendContractAfterIntake: false,
-        sendWelcomeAfterContractSigned: false,
-        activeContractTemplateId: null,
-        activeContractVersionId: null,
-        activeWelcomeEmailTemplateId: null,
-        activeWelcomeEmailVersionId: null,
-      },
+      config: resolvedConfig,
       contract: {
         templates: contractTemplates,
         versions: contractVersions,
@@ -304,10 +305,10 @@ export class ClientflowCompatibilityController {
         activeTemplate: activeWelcomeTemplate,
         activeVersion: activeWelcomeVersion,
       },
+      // Deprecated mirror of `config` for callers not yet migrated - remove once nothing reads it.
       automation: {
-        enabled: config?.enabled ?? true,
-        sendContractAfterIntake: config?.sendContractAfterIntake ?? false,
-        sendWelcomeAfterContractSigned: config?.sendWelcomeAfterContractSigned ?? false,
+        sendContractAfterIntake: resolvedConfig.sendContractAfterIntake,
+        sendWelcomeAfterContractSigned: resolvedConfig.sendWelcomeAfterContractSigned,
       },
     };
   }

@@ -133,6 +133,32 @@ describe('compatibility route scaffold', () => {
       });
     });
 
+    it('keeps the deprecated automation mirror exactly equal to config, never independently defaulted', async () => {
+      const prisma = {
+        cfProgramWorkflowConfig: {
+          findFirst: jest.fn().mockResolvedValue({
+            enabled: false,
+            sendContractAfterIntake: true,
+            sendWelcomeAfterContractSigned: false,
+          }),
+        },
+        cfProgramContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+        cfProgramWelcomeEmailTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+
+      const result = await (controller as any).getProgramWorkflow('org-1', 'program-1');
+
+      expect(result.automation).toEqual({
+        sendContractAfterIntake: result.config.sendContractAfterIntake,
+        sendWelcomeAfterContractSigned: result.config.sendWelcomeAfterContractSigned,
+      });
+      expect(result.automation).toEqual({
+        sendContractAfterIntake: true,
+        sendWelcomeAfterContractSigned: false,
+      });
+    });
+
     it('resolves configured contract and welcome versions independently', async () => {
       const contractTemplate = { id: 'contract-template-1', createdAt: new Date('2030-01-01') };
       const welcomeTemplate = { id: 'welcome-template-1', createdAt: new Date('2030-01-01') };

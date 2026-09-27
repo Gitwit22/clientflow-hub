@@ -17,9 +17,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   acfGenerateContract,
   acfGetClient,
   acfSendContract,
+  acfUpdateClientProgram,
   ApiError,
   type AutomatedClientDetail,
 } from "@/lib/apiClient";
@@ -45,7 +53,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 function PipelineClientDetailPage() {
   const { id } = Route.useParams();
-  const { authenticatedAdmin } = useAppState();
+  const { authenticatedAdmin, programs } = useAppState();
   const staffSignerName =
     [authenticatedAdmin?.firstName, authenticatedAdmin?.lastName].filter(Boolean).join(" ") ||
     authenticatedAdmin?.email ||
@@ -55,6 +63,7 @@ function PipelineClientDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingGenerate, setConfirmingGenerate] = useState(false);
+  const [programToAssign, setProgramToAssign] = useState("");
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -102,6 +111,25 @@ function PipelineClientDetailPage() {
     }
   }
 
+  async function handleAssignProgram() {
+    if (!programToAssign) return;
+    setBusy(true);
+    try {
+      const result = await acfUpdateClientProgram(id, programToAssign);
+      toast.success(
+        result.nextAction === "CONTRACT_SENT"
+          ? `Program set to ${result.program.name}; contract generated and sent.`
+          : `Program set to ${result.program.name}; pending staff review before the contract goes out.`,
+      );
+      setProgramToAssign("");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Unable to assign a program to this client.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Button variant="ghost" size="sm" asChild>
@@ -143,6 +171,29 @@ function PipelineClientDetailPage() {
                   <Row label="Created" value={new Date(client.createdAt).toLocaleString()} />
                   <Row label="Last updated" value={new Date(client.updatedAt).toLocaleString()} />
                 </dl>
+                {!client.program && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <Select value={programToAssign} onValueChange={setProgramToAssign}>
+                      <SelectTrigger className="h-8 w-56">
+                        <SelectValue placeholder="Select a program…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {programs.map((program) => (
+                          <SelectItem key={program.id} value={program.id}>
+                            {program.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      onClick={() => void handleAssignProgram()}
+                      disabled={!programToAssign || busy}
+                    >
+                      Assign program
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

@@ -273,7 +273,7 @@ function ProgramDetailPage() {
               </div>
               <div>
                 <p className="font-mono text-[10px] uppercase text-muted-foreground">Contract</p>
-                <p>{program.defaultContractTemplateId}</p>
+                <p>{workflow?.contract.activeVersion?.title ?? workflow?.contract.activeTemplate?.name ?? "No active contract template"}</p>
               </div>
               <div>
                 <p className="font-mono text-[10px] uppercase text-muted-foreground">Monitoring</p>
@@ -340,7 +340,7 @@ function ProgramDetailPage() {
                 <div className="flex items-center justify-between gap-2">
                   <span>Send contract after intake submission</span>
                   <Switch
-                    checked={workflow?.automation.sendContractAfterIntake ?? false}
+                    checked={workflow?.config.sendContractAfterIntake ?? false}
                     disabled={savingWorkflow || !workflow}
                     onCheckedChange={(checked) => {
                       if (!workflow) return;
@@ -357,7 +357,7 @@ function ProgramDetailPage() {
                 <div className="flex items-center justify-between gap-2">
                   <span>Send welcome email after contract signing</span>
                   <Switch
-                    checked={workflow?.automation.sendWelcomeAfterContractSigned ?? false}
+                    checked={workflow?.config.sendWelcomeAfterContractSigned ?? false}
                     disabled={savingWorkflow || !workflow}
                     onCheckedChange={(checked) => {
                       if (!workflow) return;

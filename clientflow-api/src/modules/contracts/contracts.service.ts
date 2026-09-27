@@ -220,15 +220,9 @@ export class ContractsService {
       where: { id: contract.programId, organizationId: client.organizationId, isActive: true },
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-    const template = await this.prisma.cfContractTemplate.findFirst({
-      where: {
-        id: contract.contractTemplateId,
-        organizationId: client.organizationId,
-        isActive: true,
-      },
-    });
-    if (!template) throw new BadRequestException(SAFE_TEMPLATE_ERROR);
-    return this.issueContract(client, program, template, contract.id);
+    // A contract that's already been generated carries its own name/content - re-resolving a
+    // template here would require guessing which table (legacy vs. program-scoped) it came from.
+    return this.issueContract(client, program, { name: contract.contractType }, contract.id);
   }
 
   async approveReview(clientId: string, staffSigner: StaffSigner) {
@@ -669,7 +663,7 @@ export class ContractsService {
   private async generateInternal(
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
-    template: Awaited<ReturnType<PrismaService['cfContractTemplate']['findFirst']>> & {},
+    template: { id: string; name: string; content: string },
     staffSigner: StaffSigner,
     enrollmentId: string | null = null,
   ) {
@@ -737,7 +731,7 @@ export class ContractsService {
   private async issueContract(
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
-    template: Awaited<ReturnType<PrismaService['cfContractTemplate']['findFirst']>> & {},
+    template: { name: string },
     contractId: string,
   ) {
     const now = new Date();
