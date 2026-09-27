@@ -39,6 +39,12 @@ export class WorkflowConfigService {
    * Applies explicit staff-provided configuration (settings UI, program creation with an
    * explicit workflow payload). The supplied values are authoritative - never combined with
    * legacy inference. Creates the row if it doesn't exist yet.
+   *
+   * When creating for the first time, any field NOT included in `data` must still get a
+   * value (booleans can't be left "unset" on create) - default those to the same
+   * automation-on posture as getOrCreate(), so that e.g. activating a contract version
+   * before ever touching the toggles doesn't silently leave sendContractAfterIntake/
+   * sendWelcomeAfterContractSigned on the schema's `false` default.
    */
   async applyUpdate(organizationId: string, programId: string, data: Record<string, unknown>) {
     const existing = await this.prisma.cfProgramWorkflowConfig.findFirst({
@@ -48,6 +54,15 @@ export class WorkflowConfigService {
     if (existing) {
       return this.prisma.cfProgramWorkflowConfig.update({ where: { id: existing.id }, data });
     }
-    return this.prisma.cfProgramWorkflowConfig.create({ data: { organizationId, programId, ...data } });
+    return this.prisma.cfProgramWorkflowConfig.create({
+      data: {
+        organizationId,
+        programId,
+        enabled: true,
+        sendContractAfterIntake: true,
+        sendWelcomeAfterContractSigned: true,
+        ...data,
+      },
+    });
   }
 }
