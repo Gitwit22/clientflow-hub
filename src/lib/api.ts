@@ -305,6 +305,18 @@ export async function reactivateEnrollment(id: string) {
   return enrollment;
 }
 
+export async function completeEnrollment(id: string) {
+  const enrollment = await cfTransitionEnrollment(id, {
+    status: "completed",
+    statusReason: "Program marked complete by staff.",
+  });
+  setState((state) => ({
+    ...state,
+    enrollments: state.enrollments.map((existing) => (existing.id === id ? enrollment : existing)),
+  }));
+  return enrollment;
+}
+
 /* ----------------------------------- Forms ---------------------------------- */
 
 export const getFormTemplates = async () => delay(getState().formTemplates);

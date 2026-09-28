@@ -4,6 +4,7 @@ import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
+import { displayEnrollmentStatus } from "@/lib/enrollment-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -41,10 +42,16 @@ import {
   refreshClientContracts,
   refreshClientProfile,
   recordMonitoringResult,
+  restoreClient,
   updateClient,
   uploadDocument,
 } from "@/lib/api";
-import { acfGenerateContract, acfSendContract } from "@/lib/apiClient";
+import {
+  acfGenerateContract,
+  acfSendContract,
+  acfSendIntakeNow,
+  acfUpdateClientProgram,
+} from "@/lib/apiClient";
 import {
   ARCHIVE_DECISIONS,
   type FormAssignment,
@@ -185,6 +192,20 @@ function ClientProfile() {
     clientOutcome: "Program Complete",
     archiveDecision: ARCHIVE_DECISIONS[0],
   });
+
+  // Program assignment (client has no program yet)
+  const [programToAssign, setProgramToAssign] = useState("");
+  const [assigningProgram, setAssigningProgram] = useState(false);
+
+  // Resend intake email
+  const [resendingIntake, setResendingIntake] = useState(false);
+
+  // Archive dialog
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveReasonInput, setArchiveReasonInput] = useState("Archived by staff");
+  const [archiveFinalStatusInput, setArchiveFinalStatusInput] = useState("Archived");
+  const [archiving, setArchiving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   // Monitoring dialog state
   const [monitoringOpen, setMonitoringOpen] = useState(false);
@@ -406,13 +427,54 @@ function ClientProfile() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                archiveClient(client.id);
-                toast.success("Moved to archive");
+              disabled={resendingIntake}
+              onClick={async () => {
+                setResendingIntake(true);
+                try {
+                  const result = await acfSendIntakeNow(client.id);
+                  if (result.emailDelivery.status === "sent") {
+                    toast.success("Intake email resent.");
+                  } else {
+                    toast.error(
+                      `Intake email was not sent (${result.emailDelivery.reason ?? result.emailDelivery.status}).`,
+                    );
+                  }
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : "Unable to resend the intake email.",
+                  );
+                } finally {
+                  setResendingIntake(false);
+                }
               }}
             >
-              Move to archive
+              {resendingIntake ? "Resending…" : "Resend intake email"}
             </Button>
+            {client.isArchived ? (
+              <Button
+                variant="outline"
+                disabled={restoring}
+                onClick={async () => {
+                  setRestoring(true);
+                  try {
+                    await restoreClient(client.id);
+                    toast.success("Client restored to active");
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : "Unable to restore this client.",
+                    );
+                  } finally {
+                    setRestoring(false);
+                  }
+                }}
+              >
+                {restoring ? "Restoring…" : "Restore client"}
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => setArchiveOpen(true)}>
+                Move to archive
+              </Button>
+            )}
           </>
         }
       />
@@ -438,6 +500,71 @@ function ClientProfile() {
           </span>
         )}
       </div>
+
+      {client.isArchived && (
+        <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm">
+          <p className="font-medium">Archived</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Reason: {client.archiveReason ?? "—"} · Final status: {client.finalStatus ?? "—"} ·
+            Archived{" "}
+            {client.archivedAt ? new Date(client.archivedAt).toLocaleDateString() : "—"}
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mt-2"
+            disabled={finals.length === 0}
+            onClick={() => toast.info("PDF download not yet available")}
+          >
+            Download final report
+          </Button>
+        </div>
+      )}
+
+      {!client.programId && !client.isArchived && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
+          <span className="text-sm text-muted-foreground">No program assigned yet.</span>
+          <Select value={programToAssign} onValueChange={setProgramToAssign}>
+            <SelectTrigger className="h-8 w-56">
+              <SelectValue placeholder="Select a program…" />
+            </SelectTrigger>
+            <SelectContent>
+              {s.programs.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            disabled={!programToAssign || assigningProgram}
+            onClick={async () => {
+              setAssigningProgram(true);
+              try {
+                const result = await acfUpdateClientProgram(client.id, programToAssign);
+                toast.success(
+                  result.nextAction === "CONTRACT_SENT"
+                    ? `Program set to ${result.program.name}; contract generated and sent.`
+                    : `Program set to ${result.program.name}; pending staff review before the contract goes out.`,
+                );
+                setProgramToAssign("");
+                await refreshClientProfile(client.id);
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Unable to assign a program to this client.",
+                );
+              } finally {
+                setAssigningProgram(false);
+              }
+            }}
+          >
+            {assigningProgram ? "Assigning…" : "Assign program"}
+          </Button>
+        </div>
+      )}
 
       {selectedProgram && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-y border-border py-3">
@@ -482,7 +609,7 @@ function ClientProfile() {
                   <dl>
                     <Row
                       label="Enrollment status"
-                      value={selectedEnrollment.status.replace(/_/g, " ")}
+                      value={displayEnrollmentStatus(selectedEnrollment.status)}
                     />
                     <Row
                       label="Assigned staff"
@@ -519,20 +646,10 @@ function ClientProfile() {
               </Card>
               <Card className="shadow-card">
                 <CardHeader>
-                  <CardTitle className="font-display text-base">Progress</CardTitle>
+                  <CardTitle className="font-display text-base">Status</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="font-display text-4xl font-semibold">
-                    {selectedEnrollment.progressPercentage}%
-                  </p>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full bg-primary"
-                      style={{
-                        width: `${Math.min(100, Math.max(0, selectedEnrollment.progressPercentage))}%`,
-                      }}
-                    />
-                  </div>
+                  <StatusBadge status={displayEnrollmentStatus(selectedEnrollment.status)} />
                 </CardContent>
               </Card>
             </div>
@@ -690,33 +807,19 @@ function ClientProfile() {
                   return (
                     <div
                       key={enrollment.id}
-                      className="grid gap-3 border-b border-border py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_auto]"
+                      className="border-b border-border py-3 last:border-0"
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium">
                             {enrollmentProgram?.name ?? "Unknown program"}
                           </p>
-                          <StatusBadge status={enrollment.status} />
+                          <StatusBadge status={displayEnrollmentStatus(enrollment.status)} />
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                           Assigned to {enrollment.assignedStaff || "Unassigned"}
                           {enrollment.nextAction ? ` · Next: ${enrollment.nextAction}` : ""}
                         </p>
-                      </div>
-                      <div className="w-full sm:w-40">
-                        <div className="flex justify-between font-mono text-[10px] uppercase text-muted-foreground">
-                          <span>Progress</span>
-                          <span>{enrollment.progressPercentage}%</span>
-                        </div>
-                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full bg-primary"
-                            style={{
-                              width: `${Math.min(100, Math.max(0, enrollment.progressPercentage))}%`,
-                            }}
-                          />
-                        </div>
                       </div>
                     </div>
                   );
@@ -1522,6 +1625,56 @@ function ClientProfile() {
               }}
             >
               Add item
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Archive dialog */}
+      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Archive client</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Reason</Label>
+              <Textarea
+                rows={2}
+                value={archiveReasonInput}
+                onChange={(e) => setArchiveReasonInput(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Final status</Label>
+              <Input
+                value={archiveFinalStatusInput}
+                onChange={(e) => setArchiveFinalStatusInput(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setArchiveOpen(false)} disabled={archiving}>
+              Cancel
+            </Button>
+            <Button
+              disabled={archiving}
+              onClick={async () => {
+                setArchiving(true);
+                try {
+                  await archiveClient(client.id, archiveReasonInput, archiveFinalStatusInput);
+                  toast.success("Moved to archive");
+                  setArchiveOpen(false);
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : "Unable to archive this client.",
+                  );
+                } finally {
+                  setArchiving(false);
+                }
+              }}
+            >
+              {archiving ? "Archiving…" : "Archive client"}
             </Button>
           </DialogFooter>
         </DialogContent>

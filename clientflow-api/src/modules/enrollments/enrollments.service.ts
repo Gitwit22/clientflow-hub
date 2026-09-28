@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isPrismaUniqueViolation } from '../../common/prisma-errors';
 
+/** Enrollment statuses considered closed — assignment changes should no longer cascade to these. */
+const TERMINAL_ENROLLMENT_STATUSES = ['completed', 'declined', 'withdrawn'];
+
+/** Mirrors compatibility.controller.ts's progressForEnrollmentStatus() for the one status this service creates directly. */
+const INITIAL_ENROLLMENT_PROGRESS_PERCENTAGE = 10;
+
 export interface EnsureEnrollmentInput {
   organizationId: string;
   clientId: string;
@@ -100,6 +106,7 @@ export class EnrollmentsService {
         assignedStaff: input.assignedStaff ?? null,
         lastModifiedByUserId: input.actorUserId ?? null,
         lastModifiedByDisplayName: input.actorDisplayName,
+        progressPercentage: INITIAL_ENROLLMENT_PROGRESS_PERCENTAGE,
         isDemo: input.isDemo ?? false,
         actorUserId: input.actorUserId ?? null,
         actorDisplayName: input.actorDisplayName,
@@ -127,6 +134,27 @@ export class EnrollmentsService {
       isDemo: false,
       activityDescription: `Enrollment created with status ${input.status}.`,
       statusHistoryReason: 'Enrollment created.',
+    });
+  }
+
+  /**
+   * A client's assignedUserId/assignedStaff is otherwise only snapshotted once at enrollment
+   * creation and never resynced — call this after a client-level assignment change so their
+   * still-open enrollments (not completed/declined/withdrawn) reflect the new assignee too.
+   */
+  async syncAssignmentToActiveEnrollments(
+    organizationId: string,
+    clientId: string,
+    assignedUserId: string | null,
+    assignedStaff: string | null,
+  ): Promise<void> {
+    await this.prisma.cfProgramEnrollment.updateMany({
+      where: {
+        organizationId,
+        clientId,
+        status: { notIn: TERMINAL_ENROLLMENT_STATUSES as any },
+      },
+      data: { assignedUserId, assignedStaff },
     });
   }
 

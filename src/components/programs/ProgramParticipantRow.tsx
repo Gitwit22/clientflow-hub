@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, UserMinus } from "lucide-react";
+import { CheckCircle2, ChevronDown, UserMinus } from "lucide-react";
 import { ParticipantProgressPanel } from "./ParticipantProgressPanel";
 import { ParticipantRepliesPanel } from "./ParticipantRepliesPanel";
 import { StatusBadge } from "@/components/StatusBadge";
+import { displayEnrollmentStatus } from "@/lib/enrollment-status";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ProgramParticipantDetail } from "@/types";
@@ -15,6 +16,8 @@ export function ProgramParticipantRow({
   onOpenChange,
   canWithdraw,
   onWithdraw,
+  canComplete,
+  onComplete,
 }: {
   participant: ProgramParticipantDetail;
   assignedStaffName: string;
@@ -23,13 +26,14 @@ export function ProgramParticipantRow({
   onOpenChange: (open: boolean) => void;
   canWithdraw: boolean;
   onWithdraw: () => void;
+  canComplete: boolean;
+  onComplete: () => void;
 }) {
   const { client, enrollment } = participant;
-  const progress = Math.min(100, Math.max(0, enrollment.progressPercentage));
 
   return (
     <Collapsible open={open} onOpenChange={onOpenChange} className="border-b border-border last:border-0">
-      <div className="grid gap-4 py-4 md:grid-cols-[minmax(0,1fr)_auto_10rem_auto] md:items-center">
+      <div className="grid gap-4 py-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
         <div className="min-w-0">
           <Link
             to="/clients/$clientId"
@@ -51,16 +55,13 @@ export function ProgramParticipantRow({
             </p>
           )}
         </div>
-        <StatusBadge status={enrollment.status} />
-        <div>
-          <div className="flex justify-between font-mono text-[10px] uppercase text-muted-foreground">
-            <span>Progress</span><span>{progress}%</span>
-          </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-primary" style={{ width: `${progress}%` }} />
-          </div>
-        </div>
+        <StatusBadge status={displayEnrollmentStatus(enrollment.status)} />
         <div className="flex items-center justify-end gap-1">
+          {canComplete && (
+            <Button variant="ghost" size="icon" aria-label={`Mark ${client.businessName} as completed`} onClick={onComplete}>
+              <CheckCircle2 className="h-4 w-4" />
+            </Button>
+          )}
           {canWithdraw && (
             <Button variant="ghost" size="icon" aria-label={`Withdraw ${client.businessName} from program`} onClick={onWithdraw}>
               <UserMinus className="h-4 w-4" />

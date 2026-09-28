@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { FilePlus2, FileSignature, Send, UserPlus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, Send, UserPlus } from "lucide-react";
+import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { acfListClients, type AutomatedClientStatus } from "@/lib/apiClient";
+import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
+import { lifecycleBucket } from "@/lib/client-lifecycle";
 import { useAppState } from "@/lib/store";
 
 export const Route = createFileRoute("/")({
@@ -38,21 +38,9 @@ function activityColor(action: string): string {
   return "#2F6F62";
 }
 
-function clientStatusColor(status: string): string {
-  if (status === "New Intake") return "#2F6F62";
-  if (["Needs Review", "More Information Needed"].includes(status)) return "#BE5138";
-  if (["Contract Pending", "Terms Proposed"].includes(status)) return "#6C5A8C";
-  if (["Final Report Needed", "Monitoring"].includes(status)) return "#B8863A";
-  if (["Active", "Completed"].includes(status)) return "#3F7A4C";
-  if (status === "CONTRACT_SENT") return "#6C5A8C";
-  if (status === "ONBOARDING") return "#3F7A4C";
-  if (status === "PENDING_STAFF_REVIEW") return "#BE5138";
-  return "#7A7A72";
-}
-
 function Dashboard() {
-  const { clients, formAssignments, monitoring, contracts, activity, programs, authenticatedAdmin } =
-    useAppState();
+  const { clients, contracts, communications, activity, programs, enrollments } = useAppState();
+  const [addClientOpen, setAddClientOpen] = useState(false);
   const today = new Date();
   const todayLabel = today.toLocaleDateString("en-US", {
     weekday: "short",
@@ -61,106 +49,38 @@ function Dashboard() {
     year: "numeric",
   });
 
-  const [automatedCounts, setAutomatedCounts] = useState<Record<AutomatedClientStatus, number> | null>(
-    null,
+  const summary = clients.reduce(
+    (acc, c) => {
+      const clientEnrollments = enrollments.filter((enrollment) => enrollment.clientId === c.id);
+      acc[lifecycleBucket(c, clientEnrollments)] += 1;
+      return acc;
+    },
+    { onboarding: 0, active: 0, archived: 0 },
   );
 
-  useEffect(() => {
-    const organizationId = authenticatedAdmin?.organizationId;
-    if (!organizationId) return;
-    acfListClients(organizationId)
-      .then((automatedClients) => {
-        const counts = automatedClients.reduce(
-          (acc, client) => {
-            acc[client.status as AutomatedClientStatus] =
-              (acc[client.status as AutomatedClientStatus] ?? 0) + 1;
-            return acc;
-          },
-          {} as Record<AutomatedClientStatus, number>,
-        );
-        setAutomatedCounts(counts);
-      })
-      .catch(() => setAutomatedCounts(null));
-  }, [authenticatedAdmin?.organizationId]);
+  const missingProgramClients = clients.filter((c) => !c.isArchived && !c.programId);
+  const draftContractClientIds = new Set(
+    contracts.filter((contract) => contract.status === "DRAFT").map((contract) => contract.clientId),
+  );
+  const draftContractClients = clients.filter((c) => draftContractClientIds.has(c.id));
+  const failedDeliveryClientIds = new Set(
+    communications
+      .filter((comm) => Boolean(comm.errorCode) || comm.status === "FAILED")
+      .map((comm) => comm.clientId),
+  );
+  const failedDeliveryClients = clients.filter((c) => failedDeliveryClientIds.has(c.id));
 
-  const automatedStats: { label: string; status: AutomatedClientStatus; color: string }[] = [
-    { label: "Intake Sent", status: "INTAKE_SENT", color: "#2F6F62" },
-    { label: "Program Selected", status: "PROGRAM_SELECTED", color: "#6C5A8C" },
-    { label: "Pending Review", status: "PENDING_STAFF_REVIEW", color: "#BE5138" },
-    { label: "Contract Sent", status: "CONTRACT_SENT", color: "#6C5A8C" },
-    { label: "Onboarding", status: "ONBOARDING", color: "#3F7A4C" },
-  ];
-
-  const stats = [
-    {
-      label: "New Intakes",
-      tag: "Intake",
-      color: "#2F6F62",
-      value: clients.filter((c) => c.status === "New Intake").length,
-    },
-    {
-      label: "Needs Review",
-      tag: "Review",
-      color: "#BE5138",
-      value: clients.filter((c) => c.status === "Needs Review").length,
-    },
-    {
-      label: "Forms Sent",
-      tag: "Forms",
-      color: "#6C5A8C",
-      value: formAssignments.filter((f) =>
-        ["sent", "delivered", "opened", "in_progress"].includes(f.status),
-      ).length,
-    },
-    {
-      label: "Active Clients",
-      tag: "Clients",
-      color: "#3F7A4C",
-      value: clients.filter((c) => ["Active", "Monitoring"].includes(c.status)).length,
-    },
-    {
-      label: "Monitoring Due",
-      tag: "Ops",
-      color: "#B8863A",
-      value: monitoring.filter((m) => m.status === "Due" || m.status === "Overdue").length,
-    },
-    {
-      label: "Contracts Pending",
-      tag: "Legal",
-      color: "#6C5A8C",
-      value: contracts.filter((c) => ["DRAFT", "SENT", "OPENED"].includes(c.status))
-        .length,
-    },
-    {
-      label: "Completed This Month",
-      tag: "Done",
-      color: "#3F7A4C",
-      value: clients.filter((c) => c.status === "Completed").length,
-    },
-    {
-      label: "Archived Clients",
-      tag: "Archive",
-      color: "#7A7A72",
-      value: clients.filter((c) => c.isArchived).length,
-    },
-  ];
+  const attentionCategories = [
+    { key: "program", label: "Missing program assignment", items: missingProgramClients },
+    { key: "contract", label: "Contract awaiting staff action", items: draftContractClients },
+    { key: "delivery", label: "Failed email delivery", items: failedDeliveryClients },
+  ].filter((category) => category.items.length > 0);
+  const attentionTotal = attentionCategories.reduce((sum, category) => sum + category.items.length, 0);
 
   const followUps = clients
     .filter((c) => !c.isArchived && c.nextFollowUpDate)
     .sort((a, b) => (a.nextFollowUpDate! < b.nextFollowUpDate! ? -1 : 1))
     .slice(0, 5);
-
-  const attention = clients.filter(
-    (c) =>
-      !c.isArchived &&
-      ([
-        "Needs Review",
-        "More Information Needed",
-        "Final Report Needed",
-        "Contract Pending",
-      ].includes(c.status) ||
-        (c.nextFollowUpDate && new Date(c.nextFollowUpDate) < today)),
-  );
 
   const programName = (id: string | null) =>
     programs.find((p) => p.id === id)?.name ?? "Unassigned";
@@ -170,85 +90,91 @@ function Dashboard() {
       <PageHeader
         eyebrow={`Today · ${todayLabel}`}
         title="Dashboard"
-        description="Everything moving through intake, programs, monitoring and contracts today."
+        description="What needs attention today, across every client."
         actions={
           <>
-            <Button asChild>
-              <Link to="/intake">
-                <UserPlus className="size-4" />
-                Add client
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/intake">
-                <FilePlus2 className="size-4" />
-                Create intake
-              </Link>
+            <Button onClick={() => setAddClientOpen(true)}>
+              <UserPlus className="size-4" />
+              Add client
             </Button>
             <Button variant="outline" asChild>
               <Link to="/clients">
                 <Send className="size-4" />
-                Send form
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/pipeline">
-                <FileSignature className="size-4" />
-                Contract pipeline
+                Go to clients
               </Link>
             </Button>
           </>
         }
       />
 
-      {/* Stat ledger */}
+      <AddClientDialog open={addClientOpen} onOpenChange={setAddClientOpen} />
+
+      {/* Lifecycle summary */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {stats.map((s) => (
+        {[
+          { label: "Onboarding", value: summary.onboarding, color: "#6C5A8C" },
+          { label: "Active", value: summary.active, color: "#3F7A4C" },
+          { label: "Archived", value: summary.archived, color: "#7A7A72" },
+          { label: "Needs Attention", value: attentionTotal, color: "#BE5138" },
+        ].map((tile) => (
           <div
-            key={s.label}
+            key={tile.label}
             className="rounded-lg border border-border bg-card p-4"
-            style={{ borderLeftWidth: "3px", borderLeftColor: s.color }}
+            style={{ borderLeftWidth: "3px", borderLeftColor: tile.color }}
           >
-            <div className="mb-2.5 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">{s.label}</span>
-              <span
-                className="font-mono text-[9.5px] uppercase tracking-wide"
-                style={{ color: s.color }}
-              >
-                {s.tag}
-              </span>
-            </div>
-            <p className="font-display text-[30px] font-semibold leading-none text-foreground">
-              {s.value}
+            <span className="text-xs text-muted-foreground">{tile.label}</span>
+            <p className="mt-2.5 font-display text-[30px] font-semibold leading-none text-foreground">
+              {tile.value}
             </p>
           </div>
         ))}
       </div>
 
-      {/* Automated intake → contract workflow */}
-      {automatedCounts && (
-        <div>
-          <p className="mb-2.5 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
-            Automated intake workflow
+      {/* Needs Attention */}
+      <div>
+        <div className="mb-3.5 flex items-baseline justify-between">
+          <h2 className="font-display text-[19px] font-semibold text-foreground">Needs Attention</h2>
+          <span className="font-mono text-[11.5px] text-muted-foreground">{attentionTotal} flagged</span>
+        </div>
+        {attentionCategories.length === 0 ? (
+          <p className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+            Nothing needs attention right now.
           </p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            {automatedStats.map((s) => (
-              <Link
-                key={s.status}
-                to="/pipeline"
-                search={{ status: s.status }}
-                className="rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/40"
-                style={{ borderLeftWidth: "3px", borderLeftColor: s.color }}
-              >
-                <span className="text-xs text-muted-foreground">{s.label}</span>
-                <p className="mt-2.5 font-display text-[30px] font-semibold leading-none text-foreground">
-                  {automatedCounts[s.status] ?? 0}
-                </p>
-              </Link>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {attentionCategories.map((category) => (
+              <Card key={category.key} className="overflow-hidden">
+                <div className="flex items-baseline justify-between border-b border-border px-5 py-4">
+                  <h3 className="flex items-center gap-1.5 font-display text-[15px] font-semibold text-foreground">
+                    <AlertTriangle className="size-3.5 text-[#BE5138]" />
+                    {category.label}
+                  </h3>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {category.items.length}
+                  </span>
+                </div>
+                <div>
+                  {category.items.slice(0, 5).map((c) => (
+                    <Link
+                      key={c.id}
+                      to="/clients/$clientId"
+                      params={{ clientId: c.id }}
+                      className="group flex items-center justify-between gap-3 border-b border-border px-5 py-3 text-sm last:border-0 hover:text-primary"
+                    >
+                      <span className="font-medium text-foreground group-hover:text-primary">
+                        {c.businessName}
+                      </span>
+                      <span className="font-mono text-[10.5px] text-muted-foreground">
+                        {programName(c.programId)}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </Card>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Panels row */}
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
@@ -326,38 +252,6 @@ function Dashboard() {
             ))}
           </div>
         </Card>
-      </div>
-
-      {/* Clients needing attention */}
-      <div>
-        <div className="mb-3.5 flex items-baseline justify-between">
-          <h2 className="font-display text-[19px] font-semibold text-foreground">
-            Clients needing attention
-          </h2>
-          <span className="font-mono text-[11.5px] text-muted-foreground">
-            {attention.length} flagged
-          </span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {attention.map((c) => (
-            <Link
-              key={c.id}
-              to="/clients/$clientId"
-              params={{ clientId: c.id }}
-              className="block rounded-[7px] border border-border bg-card p-4 transition-shadow hover:shadow-elevated"
-              style={{ borderTopWidth: "3px", borderTopColor: clientStatusColor(c.status) }}
-            >
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold text-foreground">{c.businessName}</p>
-                <StatusBadge status={c.status} />
-              </div>
-              <p className="font-mono text-[10.5px] text-muted-foreground/70">
-                {programName(c.programId)}
-                {c.assignedStaff ? ` · ${c.assignedStaff}` : ""}
-              </p>
-            </Link>
-          ))}
-        </div>
       </div>
     </div>
   );

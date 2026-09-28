@@ -414,6 +414,29 @@ export class ContractsService {
           user: 'system',
         },
       });
+      if (contract.enrollmentId) {
+        const enrollment = await transaction.cfProgramEnrollment.findFirst({
+          where: { id: contract.enrollmentId, organizationId: client.organizationId },
+          select: { status: true },
+        });
+        if (enrollment && !['completed', 'declined', 'withdrawn', 'active'].includes(enrollment.status)) {
+          await transaction.cfProgramEnrollment.update({
+            where: { id: contract.enrollmentId },
+            data: { status: 'active', lastProgressUpdate: now },
+          });
+          await transaction.cfEnrollmentStatusHistory.create({
+            data: {
+              organizationId: client.organizationId,
+              enrollmentId: contract.enrollmentId,
+              previousStatus: enrollment.status as any,
+              newStatus: 'active',
+              changedByUserId: null,
+              changedByDisplayName: 'system',
+              reason: 'Contract signed by client.',
+            },
+          });
+        }
+      }
       const communication = shouldSendWelcome
         ? await transaction.cfCommunication.create({
             data: {
@@ -767,6 +790,29 @@ export class ContractsService {
           user: 'system',
         },
       });
+      if (contract.enrollmentId) {
+        const enrollment = await transaction.cfProgramEnrollment.findFirst({
+          where: { id: contract.enrollmentId, organizationId: client.organizationId, status: 'interested' },
+          select: { status: true },
+        });
+        if (enrollment) {
+          await transaction.cfProgramEnrollment.update({
+            where: { id: contract.enrollmentId },
+            data: { status: 'onboarding', lastProgressUpdate: now },
+          });
+          await transaction.cfEnrollmentStatusHistory.create({
+            data: {
+              organizationId: client.organizationId,
+              enrollmentId: contract.enrollmentId,
+              previousStatus: 'interested',
+              newStatus: 'onboarding',
+              changedByUserId: null,
+              changedByDisplayName: 'system',
+              reason: 'Contract sent.',
+            },
+          });
+        }
+      }
       const communication = await transaction.cfCommunication.create({
         data: {
           organizationId: client.organizationId,

@@ -1,17 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  Archive,
   BarChart3,
   Briefcase,
-  ClipboardCheck,
   ClipboardList,
   LayoutDashboard,
   LogOut,
   Settings,
-  Timer,
-  UserPlus,
   Users,
-  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/lib/apiClient";
@@ -22,17 +17,12 @@ type NavItem = { title: string; url: string; icon: typeof Users; exact?: boolean
 const mainItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Clients", url: "/clients", icon: Users },
-  { title: "New Intake", url: "/intake", icon: UserPlus },
   { title: "Programs", url: "/programs", icon: Briefcase },
   { title: "Forms", url: "/forms", icon: ClipboardList },
-  { title: "Pipeline", url: "/pipeline", icon: Workflow },
-  { title: "Review", url: "/review", icon: ClipboardCheck },
-  { title: "Monitoring", url: "/monitoring", icon: Timer },
 ];
 
 const insightItems: NavItem[] = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Archive", url: "/archive", icon: Archive },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

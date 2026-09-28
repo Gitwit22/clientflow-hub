@@ -570,6 +570,62 @@ describe('ContractsService', () => {
     });
   });
 
+  it('transitions a linked interested enrollment to onboarding when its contract is sent', async () => {
+    const linkedDraftContract = { ...draftContract, enrollmentId: 'enroll-1' };
+    const transaction = {
+      cfContract: { update: jest.fn().mockResolvedValue({ ...linkedDraftContract, status: 'SENT' }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'skipped' }),
+      },
+      cfProgramEnrollment: {
+        findFirst: jest.fn().mockResolvedValue({ status: 'interested' }),
+        update: jest.fn().mockResolvedValue({ id: 'enroll-1', status: 'onboarding' }),
+      },
+      cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(linkedDraftContract) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfCommunication: { update: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
+
+    await service.sendForStaff('client-1', 'contract-1');
+
+    expect(transaction.cfProgramEnrollment.update).toHaveBeenCalledWith({
+      where: { id: 'enroll-1' },
+      data: { status: 'onboarding', lastProgressUpdate: expect.any(Date) },
+    });
+    expect(transaction.cfEnrollmentStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ previousStatus: 'interested', newStatus: 'onboarding' }),
+    }));
+  });
+
+  it('does not touch the enrollment when a contract with no linked enrollment is sent', async () => {
+    const transaction = {
+      cfContract: { update: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'skipped' }),
+      },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(draftContract) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfCommunication: { update: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
+
+    await expect(service.sendForStaff('client-1', 'contract-1')).resolves.toBeDefined();
+  });
+
   it('opens a sent public contract once without exposing token or signer internals', async () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -663,6 +719,56 @@ describe('ContractsService', () => {
       contract: expect.objectContaining({ status: 'COMPLETED' }),
       client: { id: 'client-1', status: 'ONBOARDING' },
       welcomeDelivery: { status: 'failed', reason: 'disabled' },
+    }));
+  });
+
+  it('transitions a linked non-terminal enrollment to active when its contract is signed', async () => {
+    const linkedSentContract = { ...sentContract, enrollmentId: 'enroll-1' };
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
+      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+        id: 'monitoring-1',
+        type: 'Initial Follow-Up',
+        status: 'PENDING',
+        dueDate: new Date('2030-01-31T00:00:00.000Z'),
+        assignedStaffId: null,
+      }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
+      },
+      cfProgramEnrollment: {
+        findFirst: jest.fn().mockResolvedValue({ status: 'onboarding' }),
+        update: jest.fn().mockResolvedValue({ id: 'enroll-1', status: 'active' }),
+      },
+      cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(linkedSentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: {
+        findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }),
+      },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const service = contractsServiceTestContext(prisma, n8nDisabled());
+
+    await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(transaction.cfProgramEnrollment.update).toHaveBeenCalledWith({
+      where: { id: 'enroll-1' },
+      data: { status: 'active', lastProgressUpdate: expect.any(Date) },
+    });
+    expect(transaction.cfEnrollmentStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ previousStatus: 'onboarding', newStatus: 'active' }),
     }));
   });
 

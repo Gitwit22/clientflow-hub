@@ -79,6 +79,61 @@ describe('compatibility route scaffold', () => {
       expect(prisma.cfClient.update).not.toHaveBeenCalled();
     });
 
+    it('cascades an assignment change onto the client\'s still-open enrollments', async () => {
+      const updatedClient = { id: 'client-1', organizationId: 'org-1', assignedUserId: 'user-2', assignedStaff: 'Jordan Staff' };
+      const prisma = {
+        cfClient: { update: jest.fn().mockResolvedValue(updatedClient) },
+        cfProgramEnrollment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      };
+      const enrollments = new EnrollmentsService(prisma as never);
+      const controller = new ClientflowCompatibilityController(
+        scaffold,
+        prisma as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        enrollments,
+      );
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com' },
+      });
+
+      await controller.updateClient({} as never, 'client-1', { assignedUserId: 'user-2', assignedStaff: 'Jordan Staff' });
+
+      expect(prisma.cfProgramEnrollment.updateMany).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', clientId: 'client-1', status: { notIn: ['completed', 'declined', 'withdrawn'] } },
+        data: { assignedUserId: 'user-2', assignedStaff: 'Jordan Staff' },
+      });
+    });
+
+    it('does not cascade to enrollments when the update has no assignment fields', async () => {
+      const updatedClient = { id: 'client-1', organizationId: 'org-1' };
+      const prisma = {
+        cfClient: { update: jest.fn().mockResolvedValue(updatedClient) },
+        cfProgramEnrollment: { updateMany: jest.fn() },
+      };
+      const enrollments = new EnrollmentsService(prisma as never);
+      const controller = new ClientflowCompatibilityController(
+        scaffold,
+        prisma as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        enrollments,
+      );
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com' },
+      });
+
+      await controller.updateClient({} as never, 'client-1', { businessName: 'New Name' });
+
+      expect(prisma.cfProgramEnrollment.updateMany).not.toHaveBeenCalled();
+    });
+
     it('rejects direct enrollment status mutation through the generic update endpoint', async () => {
       const prisma = {
         cfProgramEnrollment: {

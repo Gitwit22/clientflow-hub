@@ -71,6 +71,11 @@ const map: Record<string, Tone> = {
   applicant: "warning",
   client: "success",
   sponsor: "primary",
+  // simplified enrollment display labels (src/lib/enrollment-status.ts)
+  New: "info",
+  "On Hold": "warning",
+  Withdrawn: "neutral",
+  Onboarding: "primary",
   // lifecycle statuses
   new: "info",
   contacted: "info",

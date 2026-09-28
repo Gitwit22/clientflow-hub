@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { resolveMemberName, useOrganizationMembers } from "@/hooks/use-organization-members";
 import {
+  completeEnrollment,
   createProgramWorkflowContractTemplate,
   createProgramWorkflowContractVersion,
   createProgramWorkflowWelcomeTemplate,
@@ -218,6 +219,17 @@ function ProgramDetailPage() {
             onWithdraw={() => {
               setWithdrawReason("");
               setWithdrawing(participant.enrollment);
+            }}
+            canComplete={!past}
+            onComplete={() => {
+              void completeEnrollment(participant.enrollment.id)
+                .then(() => {
+                  toast.success(`${participant.client.businessName} marked as completed.`);
+                  setRefreshVersion((v) => v + 1);
+                })
+                .catch((error: unknown) => {
+                  toast.error(error instanceof Error ? error.message : "Unable to mark this enrollment as completed.");
+                });
             }}
           />
         ))}

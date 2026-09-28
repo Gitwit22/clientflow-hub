@@ -335,7 +335,16 @@ export class ClientflowCompatibilityController {
     if (body.lifecycleStatus !== undefined) {
       throw new BadRequestException('Client lifecycle state cannot be changed through the generic update endpoint.');
     }
-    return this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data: body });
+    const updated = await this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data: body });
+    if (this.enrollments && (body.assignedUserId !== undefined || body.assignedStaff !== undefined)) {
+      await this.enrollments.syncAssignmentToActiveEnrollments(
+        orgId,
+        id,
+        updated.assignedUserId,
+        updated.assignedStaff,
+      );
+    }
+    return updated;
   }
   @Delete('clients/:id') async deleteClient(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);

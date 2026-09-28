@@ -91,7 +91,7 @@ function ReportsPage() {
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="font-display text-base">Contract status report</CardTitle>
             <Button variant="outline" size="sm" asChild>
-              <Link to="/pipeline">Contract queue</Link>
+              <Link to="/clients">Contract queue</Link>
             </Button>
           </CardHeader>
           <CardContent className="space-y-3">

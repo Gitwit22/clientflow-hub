@@ -36,8 +36,25 @@ import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { useAppState } from "@/lib/store";
 import { archiveClient, deleteClient } from "@/lib/api";
+import { lifecycleBucket } from "@/lib/client-lifecycle";
+import { displayEnrollmentStatus } from "@/lib/enrollment-status";
 import { memberOptionLabel, useOrganizationMembers } from "@/hooks/use-organization-members";
-import { CLIENT_STATUSES, type Client } from "@/types";
+import { type Client, type RelationshipType } from "@/types";
+
+const LIFECYCLE_TABS = [
+  { value: "all", label: "All" },
+  { value: "onboarding", label: "Onboarding" },
+  { value: "active", label: "Active" },
+  { value: "archived", label: "Archived" },
+] as const;
+
+const RELATIONSHIP_OPTIONS: { value: RelationshipType | "all"; label: string }[] = [
+  { value: "all", label: "All relationships" },
+  { value: "prospect", label: "Prospect" },
+  { value: "applicant", label: "Applicant" },
+  { value: "client", label: "Client" },
+  { value: "sponsor", label: "Sponsor" },
+];
 
 export const Route = createFileRoute("/clients/")({
   head: () => ({
@@ -58,14 +75,13 @@ export const Route = createFileRoute("/clients/")({
 });
 
 function ClientsPage() {
-  const { authenticatedAdmin, clients, programs } = useAppState();
+  const { authenticatedAdmin, clients, programs, contracts, enrollments, monitoring } = useAppState();
   const { members } = useOrganizationMembers();
   const [q, setQ] = useState("");
   const [program, setProgram] = useState("all");
-  const [status, setStatus] = useState("all");
   const [staff, setStaff] = useState("all");
-  const [scope, setScope] = useState("active");
-  const [relationshipView, setRelationshipView] = useState("all");
+  const [lifecycleView, setLifecycleView] = useState<(typeof LIFECYCLE_TABS)[number]["value"]>("all");
+  const [relationship, setRelationship] = useState<RelationshipType | "all">("all");
   const [sendTo, setSendTo] = useState<Client | null>(null);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -76,25 +92,33 @@ function ClientsPage() {
   const programName = (id: string | null) =>
     programs.find((p) => p.id === id)?.name ?? "Unassigned";
 
-  const rows = clients.filter((c) => {
-    // Relationship view filter
-    if (relationshipView === "archived") {
-      if (!c.isArchived) return false;
-    } else if (relationshipView === "prospects") {
-      if (c.isArchived || c.relationshipType !== "prospect") return false;
-    } else if (relationshipView === "applicants") {
-      if (c.isArchived || c.relationshipType !== "applicant") return false;
-    } else if (relationshipView === "sponsors") {
-      if (c.isArchived || c.relationshipType !== "sponsor") return false;
-    } else if (relationshipView === "active-clients") {
-      if (c.isArchived || (c.relationshipType && c.relationshipType !== "client")) return false;
-    } else {
-      // "all"
-      if (scope === "active" && c.isArchived) return false;
-      if (scope === "archived" && !c.isArchived) return false;
+  // Read-only, best-effort "what should staff do next" label — no new workflow logic.
+  function nextActionFor(c: Client): string {
+    if (!c.programId) return "Assign program";
+    const clientContracts = contracts
+      .filter((contract) => contract.clientId === c.id)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const latestContract = clientContracts[0];
+    if (latestContract?.status === "DRAFT") return "Send contract";
+    if (latestContract?.status === "SENT") return "Awaiting signature";
+    const enrollmentIds = new Set(
+      enrollments.filter((enrollment) => enrollment.clientId === c.id).map((enrollment) => enrollment.id),
+    );
+    const dueMonitoring = monitoring
+      .filter((item) => enrollmentIds.has(item.enrollmentId) && item.active && item.nextReviewAt)
+      .sort((a, b) => Date.parse(a.nextReviewAt!) - Date.parse(b.nextReviewAt!))[0];
+    if (dueMonitoring && new Date(dueMonitoring.nextReviewAt!) <= new Date()) {
+      return `${dueMonitoring.name} check-in`;
     }
+    if (c.nextFollowUpDate) return "Follow up";
+    return "—";
+  }
+
+  const rows = clients.filter((c) => {
+    const clientEnrollments = enrollments.filter((enrollment) => enrollment.clientId === c.id);
+    if (lifecycleView !== "all" && lifecycleBucket(c, clientEnrollments) !== lifecycleView) return false;
+    if (relationship !== "all" && c.relationshipType !== relationship) return false;
     if (program !== "all" && c.programId !== program) return false;
-    if (status !== "all" && c.status !== status) return false;
     if (staff !== "all" && c.assignedUserId !== staff) return false;
     const t = q.toLowerCase();
     return (
@@ -105,15 +129,6 @@ function ClientsPage() {
     );
   });
 
-  const RELATIONSHIP_TABS = [
-    { value: "all", label: "All" },
-    { value: "prospects", label: "Prospects" },
-    { value: "applicants", label: "Applicants" },
-    { value: "active-clients", label: "Active Clients" },
-    { value: "sponsors", label: "Sponsors" },
-    { value: "archived", label: "Archived" },
-  ] as const;
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -122,9 +137,6 @@ function ClientsPage() {
         actions={
           <div className="flex items-center gap-2">
             <Button onClick={() => setAddClientOpen(true)}>Add client</Button>
-            <Button variant="outline" asChild>
-              <Link to="/intake">New intake</Link>
-            </Button>
           </div>
         }
       />
@@ -132,14 +144,14 @@ function ClientsPage() {
       <AddClientDialog open={addClientOpen} onOpenChange={setAddClientOpen} />
 
       <Card className="space-y-4 p-4 shadow-card">
-        {/* Relationship filter tabs */}
+        {/* Lifecycle filter tabs */}
         <div className="flex flex-wrap gap-1 border-b border-border pb-3">
-          {RELATIONSHIP_TABS.map((tab) => (
+          {LIFECYCLE_TABS.map((tab) => (
             <button
               key={tab.value}
-              onClick={() => setRelationshipView(tab.value)}
+              onClick={() => setLifecycleView(tab.value)}
               className={`rounded-md px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors ${
-                relationshipView === tab.value
+                lifecycleView === tab.value
                   ? "bg-ink text-ink-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
@@ -149,7 +161,7 @@ function ClientsPage() {
           ))}
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-5">
+        <div className="grid gap-3 lg:grid-cols-4">
           <Input placeholder="Search clients…" value={q} onChange={(e) => setQ(e.target.value)} />
           <Select value={program} onValueChange={setProgram}>
             <SelectTrigger>
@@ -160,19 +172,6 @@ function ClientsPage() {
               {programs.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger>
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {CLIENT_STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -190,18 +189,18 @@ function ClientsPage() {
               ))}
             </SelectContent>
           </Select>
-          {relationshipView === "all" && (
-            <Select value={scope} onValueChange={setScope}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active only</SelectItem>
-                <SelectItem value="archived">Archived only</SelectItem>
-                <SelectItem value="all">Active + archived</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
+          <Select value={relationship} onValueChange={(v) => setRelationship(v as RelationshipType | "all")}>
+            <SelectTrigger>
+              <SelectValue placeholder="Relationship" />
+            </SelectTrigger>
+            <SelectContent>
+              {RELATIONSHIP_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="overflow-x-auto">
@@ -211,10 +210,11 @@ function ClientsPage() {
                 <TableHead>Business / Profile</TableHead>
                 <TableHead>Primary contact</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Programs</TableHead>
                 <TableHead>Staff</TableHead>
                 <TableHead>Last activity</TableHead>
                 <TableHead>Next follow-up</TableHead>
+                <TableHead>Next action</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -229,7 +229,6 @@ function ClientsPage() {
                     >
                       {c.businessName}
                     </Link>
-                    <div className="font-mono text-xs text-muted-foreground">{programName(c.programId)}</div>
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">{c.primaryContactName}</div>
@@ -243,7 +242,20 @@ function ClientsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={c.status} />
+                    <div className="flex flex-wrap gap-1.5">
+                      {enrollments.filter((enrollment) => enrollment.clientId === c.id).length === 0 ? (
+                        <span className="text-xs text-muted-foreground">No program</span>
+                      ) : (
+                        enrollments
+                          .filter((enrollment) => enrollment.clientId === c.id)
+                          .map((enrollment) => (
+                            <span key={enrollment.id} className="inline-flex items-center gap-1">
+                              <span className="text-xs">{programName(enrollment.programId)}</span>
+                              <StatusBadge status={displayEnrollmentStatus(enrollment.status)} />
+                            </span>
+                          ))
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm">{c.assignedStaff}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
@@ -252,6 +264,7 @@ function ClientsPage() {
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {c.nextFollowUpDate ? new Date(c.nextFollowUpDate).toLocaleDateString() : "—"}
                   </TableCell>
+                  <TableCell className="text-sm">{nextActionFor(c)}</TableCell>
                   <TableCell className="space-x-1 text-right whitespace-nowrap">
                     <Button size="sm" variant="ghost" asChild>
                       <Link to="/clients/$clientId" params={{ clientId: c.id }}>

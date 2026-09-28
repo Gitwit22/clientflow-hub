@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LockKeyhole } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,14 +54,17 @@ function LoginPage() {
   return (
     <main className="grid min-h-screen bg-background font-sans lg:grid-cols-[minmax(22rem,0.8fr)_minmax(32rem,1.2fr)]">
       <section className="relative hidden overflow-hidden bg-sidebar px-12 py-14 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
+        <div className="absolute inset-0">
+          <img
+            src="/main-photo.png"
+            alt=""
+            className="size-full object-cover opacity-20"
+          />
+          <div className="absolute inset-0 bg-linear-to-b from-sidebar/95 via-sidebar/85 to-sidebar/95" />
+        </div>
         <div className="absolute inset-y-0 right-0 w-px bg-sidebar-border" />
-        <div className="flex items-center gap-3">
-          <div
-            className="flex size-8.5 shrink-0 items-center justify-center rounded-lg font-display text-base font-semibold text-white"
-            style={{ background: "linear-gradient(155deg, #3D8271, #2F6F62)" }}
-          >
-            C
-          </div>
+        <div className="relative z-10 flex items-center gap-3">
+          <img src="/logo.svg" alt="ClientFlow" className="size-8.5 shrink-0 rounded-lg" />
           <div>
             <p className="font-display text-[16.5px] font-semibold tracking-[0.2px] text-white">
               ClientFlow
@@ -72,30 +75,26 @@ function LoginPage() {
           </div>
         </div>
 
-        <div className="max-w-md">
-          <div className="mb-7 flex size-12 items-center justify-center rounded-md border border-sidebar-border bg-sidebar-accent">
-            <ShieldCheck className="size-6 text-sidebar-primary" />
-          </div>
+        <div className="relative z-10 max-w-md">
+          <img src="/logo.svg" alt="ClientFlow" className="mb-7 size-12 rounded-md" />
           <h1 className="font-display text-4xl font-semibold leading-tight text-sidebar-accent-foreground">
             Your client operations, in one secure workspace.
           </h1>
           <p className="mt-5 max-w-sm text-sm leading-6 text-sidebar-foreground/70">
             Continue managing intake, programs, monitoring, contracts, and reporting.
           </p>
+          <p className="mt-3 text-xs text-sidebar-foreground/50">
+            Brought to you by NXT LVL Technology Solutions
+          </p>
         </div>
 
-        <p className="text-xs text-sidebar-foreground/45">NXT LVL Technology Solutions</p>
+        <p className="relative z-10 text-xs text-sidebar-foreground/45">NXT LVL Technology Solutions</p>
       </section>
 
       <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
         <div className="w-full max-w-sm">
           <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <div
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg font-display text-sm font-semibold text-white"
-              style={{ background: "linear-gradient(155deg, #3D8271, #2F6F62)" }}
-            >
-              C
-            </div>
+            <img src="/logo.svg" alt="ClientFlow" className="size-9 shrink-0 rounded-lg" />
             <div>
               <p className="font-display font-semibold">ClientFlow</p>
               <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">EA Management</p>
