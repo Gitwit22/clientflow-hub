@@ -1,7 +1,9 @@
 # n8n event contract
 
 ClientFlow sends one webhook per email. n8n routes on `eventType` and owns delivery, branding and
-receipts. See also `N8N_WELCOME_EMAIL.md` and `N8N_CONTRACT_COPY.md`.
+receipts. This is the short summary; **`N8N_CONNECTION.md` is the full reference** (transport, the workflow's
+normalization and validation rules, compatibility, and open items). See also `N8N_WELCOME_EMAIL.md` and
+`N8N_CONTRACT_COPY.md`.
 
 ## Events ClientFlow sends
 
