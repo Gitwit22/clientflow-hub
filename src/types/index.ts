@@ -116,6 +116,7 @@ export interface OrgSettings {
   settings: {
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;
+    logoStoredFileId?: string;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;

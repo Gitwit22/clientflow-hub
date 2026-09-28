@@ -463,6 +463,7 @@ export class ContractsService {
             programName: program.name,
             nextStep: welcomeConfig.body,
             attachmentUrl: await this.resolveWelcomeAttachmentUrl(welcomeConfig.guideStoredFileId),
+            headerImageUrl: welcomeConfig.headerImageUrl,
             sentByUserId: client.assignedUserId ?? 'system',
           });
     if (completed.communication) {
@@ -829,7 +830,7 @@ export class ContractsService {
     fallbackMessage?: string;
   }) {
     const organizationModel = (this.prisma as unknown as {
-      organization?: { findUnique: (args: unknown) => Promise<{ name: string } | null> };
+      organization?: { findUnique: (args: unknown) => Promise<{ name: string; settings: unknown } | null> };
     }).organization;
     const enrollmentModel = (this.prisma as unknown as {
       cfProgramEnrollment?: { findFirst: (args: unknown) => Promise<{ startDate: Date | null; nextAction: string | null } | null> };
@@ -838,7 +839,7 @@ export class ContractsService {
       organizationModel
         ? organizationModel.findUnique({
             where: { id: input.organizationId },
-            select: { name: true },
+            select: { name: true, settings: true },
           })
         : Promise.resolve(null),
       input.enrollmentId && enrollmentModel
@@ -848,6 +849,11 @@ export class ContractsService {
           })
         : Promise.resolve(null),
     ]);
+    const logoStoredFileId = this.isRecord(organization?.settings)
+      && typeof organization.settings.logoStoredFileId === 'string'
+      ? organization.settings.logoStoredFileId
+      : null;
+    const headerImageUrl = await this.resolveOrganizationLogoUrl(logoStoredFileId);
 
     const context = {
       client: {
@@ -909,6 +915,7 @@ export class ContractsService {
         body: fallbackBody,
         context,
         guideStoredFileId: null,
+        headerImageUrl,
       };
     }
     return {
@@ -916,6 +923,7 @@ export class ContractsService {
       body: this.renderWelcomeTemplate(activeVersion.body, context),
       context,
       guideStoredFileId: activeVersion.guideStoredFileId ?? null,
+      headerImageUrl,
     };
   }
 
@@ -936,6 +944,28 @@ export class ContractsService {
     if (!storedFile) return undefined;
     const download = await this.storage.createPresignedDownloadUrl(storedFile.storageKey, 900);
     return download.url;
+  }
+
+  // Header logo is embedded inline and must stay resolvable whenever the email is reopened later,
+  // so this uses the permanent public URL, never the short-lived presigned attachment URL. Purely
+  // cosmetic: any failure here must not throw or otherwise affect welcome delivery.
+  private async resolveOrganizationLogoUrl(storedFileId: string | null): Promise<string | undefined> {
+    if (!storedFileId || !this.storage.isEnabled()) return undefined;
+    try {
+      const storedFile = await this.prisma.cfStoredFile.findFirst({
+        where: { id: storedFileId },
+        select: { storageKey: true },
+      });
+      if (!storedFile) return undefined;
+      return this.storage.getObjectPublicUrl(storedFile.storageKey);
+    } catch (error) {
+      this.logger.warn(`Unable to resolve organization header logo ${storedFileId}: ${(error as Error).message}`);
+      return undefined;
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
   }
 
   private readTemplateValue(context: Record<string, unknown>, path: string): unknown {

@@ -46,6 +46,7 @@ export interface WelcomeSendLifecyclePayload extends LifecycleEventBase {
   programName: string;
   nextStep: string;
   attachmentUrl?: string;
+  headerImageUrl?: string;
 }
 
 export type ClientflowLifecyclePayload =
@@ -100,6 +101,8 @@ export interface WelcomeEmailPayload {
   programName: string;
   nextStep: string;
   attachmentUrl?: string;
+  /** Public URL of the org's header logo; resolved independently of the guide attachment. */
+  headerImageUrl?: string;
   sentByUserId: string;
 }
 

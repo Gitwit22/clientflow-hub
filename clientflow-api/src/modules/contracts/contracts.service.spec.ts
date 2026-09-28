@@ -770,6 +770,258 @@ describe('ContractsService', () => {
     expect(result.client.status).toBe('ONBOARDING');
   });
 
+  function welcomeHeaderLogoTransaction() {
+    return {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
+      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+        id: 'monitoring-1',
+        type: 'Initial Follow-Up',
+        status: 'PENDING',
+        dueDate: new Date('2030-01-31T00:00:00.000Z'),
+        assignedStaffId: null,
+      }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: { create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'REQUESTED' }) },
+    };
+  }
+
+  // Reuses the WELCOME_FAILED-shaped n8n mock (status !== 'sent') so recordWelcomeDeliveryResult
+  // takes its simple early-return path, keeping these payload-shape assertions independent of the
+  // separate "sent" delivery transaction already covered above.
+  function welcomeHeaderLogoN8n() {
+    return {
+      getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
+      sendWelcome: jest.fn().mockResolvedValue({ status: 'failed', reason: 'rejected' }),
+    };
+  }
+
+  it('(A) includes headerImageUrl in the welcome.send payload when an organization logo is configured', async () => {
+    const transaction = welcomeHeaderLogoTransaction();
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }) },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
+      organization: { findUnique: jest.fn().mockResolvedValue({ name: 'EA Management', settings: { logoStoredFileId: 'logo-file-1' } }) },
+      cfStoredFile: { findFirst: jest.fn().mockResolvedValue({ storageKey: 'organization/header-logo/logo.png' }) },
+      cfCommunication: { update: jest.fn().mockResolvedValue({}) },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const storage = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      getObjectPublicUrl: jest.fn().mockReturnValue('https://assets.example.com/organization/header-logo/logo.png'),
+    };
+    const n8n = welcomeHeaderLogoN8n();
+    const service = contractsServiceTestContext(prisma, n8n, { storage });
+
+    await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(n8n.sendWelcome).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headerImageUrl: 'https://assets.example.com/organization/header-logo/logo.png',
+    }));
+  });
+
+  it('(B) leaves headerImageUrl undefined and still sends the welcome email when no organization logo is configured', async () => {
+    const transaction = welcomeHeaderLogoTransaction();
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }) },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
+      organization: { findUnique: jest.fn().mockResolvedValue({ name: 'EA Management', settings: {} }) },
+      cfCommunication: { update: jest.fn().mockResolvedValue({}) },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const storage = { isEnabled: jest.fn().mockReturnValue(true), getObjectPublicUrl: jest.fn() };
+    const n8n = welcomeHeaderLogoN8n();
+    const service = contractsServiceTestContext(prisma, n8n, { storage });
+
+    await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(storage.getObjectPublicUrl).not.toHaveBeenCalled();
+    expect(n8n.sendWelcome).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headerImageUrl: undefined,
+    }));
+  });
+
+  it('(C) resolves headerImageUrl to undefined without throwing when logo resolution fails, and welcome still sends', async () => {
+    const transaction = welcomeHeaderLogoTransaction();
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }) },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflowConfig) },
+      organization: { findUnique: jest.fn().mockResolvedValue({ name: 'EA Management', settings: { logoStoredFileId: 'logo-file-1' } }) },
+      cfStoredFile: { findFirst: jest.fn().mockResolvedValue({ storageKey: 'organization/header-logo/logo.png' }) },
+      cfCommunication: { update: jest.fn().mockResolvedValue({}) },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const storage = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      getObjectPublicUrl: jest.fn().mockImplementation(() => { throw new Error('R2_PUBLIC_URL not configured'); }),
+    };
+    const n8n = welcomeHeaderLogoN8n();
+    const service = contractsServiceTestContext(prisma, n8n, { storage });
+
+    const result = await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(n8n.sendWelcome).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headerImageUrl: undefined,
+    }));
+    expect(result.client.status).toBe('ONBOARDING');
+  });
+
+  it('(D) keeps attachmentUrl behavior unchanged when a guide is configured and no logo is set', async () => {
+    const transaction = welcomeHeaderLogoTransaction();
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }) },
+      cfProgramWorkflowConfig: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...workflowConfig,
+          activeWelcomeEmailTemplateId: 'welcome-template-1',
+          activeWelcomeEmailVersionId: 'welcome-version-1',
+        }),
+      },
+      cfProgramWelcomeEmailTemplate: { findFirst: jest.fn().mockResolvedValue({ id: 'welcome-template-1' }) },
+      cfProgramWelcomeEmailVersion: { findFirst: jest.fn().mockResolvedValue({
+        id: 'welcome-version-1',
+        templateId: 'welcome-template-1',
+        subject: 'Welcome to {{program.name}}',
+        body: 'Hello {{client.firstName}}',
+        guideStoredFileId: 'guide-file-1',
+      }) },
+      organization: { findUnique: jest.fn().mockResolvedValue({ name: 'EA Management', settings: {} }) },
+      cfStoredFile: { findFirst: jest.fn().mockResolvedValue({ storageKey: 'program-workflow/welcome-guides/guide.pdf' }) },
+      cfCommunication: { update: jest.fn().mockResolvedValue({}) },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const storage = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      createPresignedDownloadUrl: jest.fn().mockResolvedValue({ url: 'https://presigned.example.com/guide.pdf' }),
+      getObjectPublicUrl: jest.fn(),
+    };
+    const n8n = welcomeHeaderLogoN8n();
+    const service = contractsServiceTestContext(prisma, n8n, { storage });
+
+    await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(n8n.sendWelcome).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      attachmentUrl: 'https://presigned.example.com/guide.pdf',
+      headerImageUrl: undefined,
+    }));
+    expect(storage.createPresignedDownloadUrl).toHaveBeenCalledWith('program-workflow/welcome-guides/guide.pdf', 900);
+  });
+
+  it('(E) includes both attachmentUrl and headerImageUrl when a guide and a logo are both configured', async () => {
+    const transaction = welcomeHeaderLogoTransaction();
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ ...autoProgram, defaultMonitoringFrequency: 'Monthly' }) },
+      cfProgramWorkflowConfig: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...workflowConfig,
+          activeWelcomeEmailTemplateId: 'welcome-template-1',
+          activeWelcomeEmailVersionId: 'welcome-version-1',
+        }),
+      },
+      cfProgramWelcomeEmailTemplate: { findFirst: jest.fn().mockResolvedValue({ id: 'welcome-template-1' }) },
+      cfProgramWelcomeEmailVersion: { findFirst: jest.fn().mockResolvedValue({
+        id: 'welcome-version-1',
+        templateId: 'welcome-template-1',
+        subject: 'Welcome to {{program.name}}',
+        body: 'Hello {{client.firstName}}',
+        guideStoredFileId: 'guide-file-1',
+      }) },
+      organization: { findUnique: jest.fn().mockResolvedValue({ name: 'EA Management', settings: { logoStoredFileId: 'logo-file-1' } }) },
+      cfStoredFile: { findFirst: jest.fn().mockImplementation(({ where }: { where: { id: string } }) => Promise.resolve(
+        where.id === 'guide-file-1'
+          ? { storageKey: 'program-workflow/welcome-guides/guide.pdf' }
+          : where.id === 'logo-file-1'
+            ? { storageKey: 'organization/header-logo/logo.png' }
+            : null,
+      )) },
+      cfCommunication: { update: jest.fn().mockResolvedValue({}) },
+      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+        ? input(transaction)
+        : Promise.all(input as Promise<unknown>[]))),
+    };
+    const storage = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      createPresignedDownloadUrl: jest.fn().mockResolvedValue({ url: 'https://presigned.example.com/guide.pdf' }),
+      getObjectPublicUrl: jest.fn().mockReturnValue('https://assets.example.com/organization/header-logo/logo.png'),
+    };
+    const n8n = welcomeHeaderLogoN8n();
+    const service = contractsServiceTestContext(prisma, n8n, { storage });
+
+    await service.completePublicContract('a'.repeat(43), {
+      signedName: 'Client Owner',
+      signedEmail: 'client@example.com',
+      agreedToTerms: true,
+    }, { signerIp: null, userAgent: null });
+
+    expect(n8n.sendWelcome).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      attachmentUrl: 'https://presigned.example.com/guide.pdf',
+      headerImageUrl: 'https://assets.example.com/organization/header-logo/logo.png',
+    }));
+  });
+
+  it('(G) leaves the contract.send payload unaffected by the header logo feature', async () => {
+    const transaction = {
+      cfContract: { update: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_SENT' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'requested' }),
+      },
+    };
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfContract: { findFirst: jest.fn().mockResolvedValue(draftContract) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      cfCommunication: { update: jest.fn().mockResolvedValue({ id: 'communication-1', status: 'sent' }) },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const n8n = {
+      getContractAvailability: jest.fn().mockReturnValue('ready'),
+      sendContract: jest.fn().mockResolvedValue({ status: 'sent', sentAt: '2030-01-01T00:00:00.000Z' }),
+    };
+    const service = contractsServiceTestContext(prisma, n8n);
+
+    await service.sendForStaff('client-1', 'contract-1');
+
+    const [, contractPayload] = n8n.sendContract.mock.calls[0] as [string, Record<string, unknown>];
+    expect(contractPayload).not.toHaveProperty('headerImageUrl');
+    expect(contractPayload).not.toHaveProperty('attachmentUrl');
+  });
+
   it('archives the fully executed contract to storage and files it on the client record', async () => {
     const monitoringTask = {
       id: 'monitoring-1',

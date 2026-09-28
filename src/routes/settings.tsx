@@ -32,6 +32,7 @@ import {
   updateMemberRole,
   updateOrganizationSettings,
 } from "@/lib/apiClient";
+import { uploadStoredFile } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
@@ -144,6 +145,8 @@ function SettingsPage() {
   const [demoRemovedAt, setDemoRemovedAt] = useState<string | null>(null);
   const [removeDemoOpen, setRemoveDemoOpen] = useState(false);
   const [demoSeeding, setDemoSeeding] = useState(false);
+  const [logoStoredFileId, setLogoStoredFileId] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   // Templates card (local toggles)
   const [templateToggles, setTemplateToggles] = useState({
@@ -185,6 +188,7 @@ function SettingsPage() {
       }));
       setLiveMode(data.liveMode);
       setDemoRemovedAt(data.demoRemovedAt ?? null);
+      setLogoStoredFileId((data.settings.logoStoredFileId as string | undefined) ?? null);
     } catch {
       // Non-fatal — org settings may not be seeded yet
     } finally {
@@ -338,6 +342,46 @@ function SettingsPage() {
       toast.error(err instanceof ApiError ? err.message : "Failed to save profile.");
     } finally {
       setOrgSaving(false);
+    }
+  }
+
+  const LOGO_ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
+  const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+
+  async function handleLogoFileSelected(file: File | null) {
+    if (!file || !orgId) return;
+    if (!LOGO_ACCEPTED_TYPES.includes(file.type)) {
+      toast.error("Logo must be a PNG, JPEG, or WebP image.");
+      return;
+    }
+    if (file.size > LOGO_MAX_BYTES) {
+      toast.error("Logo must be 2MB or smaller.");
+      return;
+    }
+    setLogoUploading(true);
+    try {
+      const storedFile = await uploadStoredFile(file, "organization/header-logo");
+      const updated = await updateOrganizationSettings(orgId, { logoStoredFileId: storedFile.id });
+      setLogoStoredFileId((updated.settings.logoStoredFileId as string | undefined) ?? null);
+      toast.success("Header logo saved.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Failed to upload header logo.");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
+  async function handleRemoveLogo() {
+    if (!orgId) return;
+    setLogoUploading(true);
+    try {
+      const updated = await updateOrganizationSettings(orgId, { logoStoredFileId: null });
+      setLogoStoredFileId((updated.settings.logoStoredFileId as string | undefined) ?? null);
+      toast.success("Header logo removed.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Failed to remove header logo.");
+    } finally {
+      setLogoUploading(false);
     }
   }
 
@@ -662,6 +706,38 @@ function SettingsPage() {
               <StatusBadge key={s} status={s} />
             ))}
           </CardContent>
+        </Card>
+
+        <Card className="shadow-card">
+          <CardHeader>
+            <CardTitle className="font-display text-base">Email header logo</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Shown at the top of welcome emails sent to clients, across all programs.
+            </p>
+            {logoStoredFileId && <p className="text-sm">Logo uploaded.</p>}
+            <Input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              disabled={logoUploading || !orgId}
+              onChange={(event) => {
+                void handleLogoFileSelected(event.target.files?.[0] ?? null);
+                event.target.value = "";
+              }}
+            />
+          </CardContent>
+          <CardFooter className="pt-0">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={logoUploading || !orgId || !logoStoredFileId}
+              onClick={() => void handleRemoveLogo()}
+            >
+              {logoUploading ? "Working…" : "Remove logo"}
+            </Button>
+          </CardFooter>
         </Card>
 
         {/* ── Program & form settings ────────────────────────────────────────── */}

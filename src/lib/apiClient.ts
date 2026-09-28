@@ -307,6 +307,7 @@ export async function updateOrganizationSettings(
     name?: string;
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;
+    logoStoredFileId?: string | null;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;
