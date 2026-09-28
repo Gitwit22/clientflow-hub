@@ -177,3 +177,42 @@ describe('BillingDashboardService', () => {
     expect(septemberRow?.status).toBe('partial');
   });
 });
+
+describe('BillingDashboardService: revenue for reports', () => {
+  it('totals received payments per program and counts paying clients', async () => {
+    const inPeriod = new Date();
+    const enrollments = [
+      { id: 'e-1', clientId: 'c-1', programId: 'p-1', isArchived: false, startDate: null },
+      { id: 'e-2', clientId: 'c-2', programId: 'p-1', isArchived: false, startDate: null },
+      { id: 'e-3', clientId: 'c-3', programId: 'p-2', isArchived: false, startDate: null },
+    ];
+    const agreements = [
+      agreement({ enrollmentId: 'e-1', amount: 25, frequency: 'monthly', startDate: new Date('2026-01-01T05:00:00.000Z') }),
+      agreement({ enrollmentId: 'e-2', amount: 25, frequency: 'monthly', startDate: new Date('2026-01-01T05:00:00.000Z') }),
+      agreement({ enrollmentId: 'e-3', amount: 100, frequency: 'monthly', status: 'ended', startDate: new Date('2026-01-01T05:00:00.000Z') }),
+    ];
+    const payments = [
+      payment({ enrollmentId: 'e-1', amount: 25, paymentDate: inPeriod, billingPeriodStart: inPeriod, billingPeriodEnd: inPeriod }),
+      payment({ enrollmentId: 'e-2', amount: 25, paymentDate: inPeriod, billingPeriodStart: inPeriod, billingPeriodEnd: inPeriod }),
+      payment({ enrollmentId: 'e-3', amount: 100, paymentDate: inPeriod, billingPeriodStart: inPeriod, billingPeriodEnd: inPeriod }),
+      // An archived enrollment's payment still counts toward its program.
+      payment({ enrollmentId: 'e-archived', amount: 10, paymentDate: inPeriod, billingPeriodStart: inPeriod, billingPeriodEnd: inPeriod }),
+      payment({ enrollmentId: 'e-1', amount: 999, paymentDate: new Date('2020-01-01T00:00:00.000Z'), billingPeriodStart: inPeriod, billingPeriodEnd: inPeriod }),
+    ];
+    const programs = [{ id: 'p-1', name: 'Inspired Detroit' }, { id: 'p-2', name: 'Grant' }];
+    const clients = ['c-1', 'c-2', 'c-3'].map((id) => ({ id, businessName: id, isArchived: false }));
+    const prisma = createFakePrisma({ agreements, payments, enrollments, programs, clients });
+    (prisma.cfProgramEnrollment.findMany as jest.Mock)
+      .mockResolvedValueOnce(enrollments)
+      .mockResolvedValueOnce([{ id: 'e-archived', clientId: 'c-9', programId: 'p-2', isArchived: true }]);
+
+    const dashboard = await new BillingDashboardService(prisma).getOrgDashboard('org-1', TZ, 'month');
+
+    expect(dashboard.revenue.received).toBe(160);
+    expect(dashboard.receivedByProgram).toEqual([
+      { programId: 'p-2', programName: 'Grant', received: 110, payingClients: 2 },
+      { programId: 'p-1', programName: 'Inspired Detroit', received: 50, payingClients: 2 },
+    ]);
+    expect(dashboard.payingClients).toBe(2);
+  });
+});

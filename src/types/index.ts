@@ -794,5 +794,16 @@ export interface OrgBillingDashboard {
     activeRecurringRevenue: number;
   };
   expectedPayments: ExpectedPaymentRow[];
+  /** Cash received in the period per program. Absent from older API versions. */
+  receivedByProgram?: ProgramRevenueRow[];
+  /** Distinct clients with an active billing agreement. Absent from older API versions. */
+  payingClients?: number;
   needsBillingSetup: NeedsBillingSetupRow[];
+}
+
+export interface ProgramRevenueRow {
+  programId: string;
+  programName: string;
+  received: number;
+  payingClients: number;
 }

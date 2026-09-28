@@ -30,6 +30,15 @@ export interface OrgDashboard {
     amount: number;
     status: 'paid' | 'partial' | 'due' | 'overdue';
   }>;
+  /** Cash received in the period per program, from recorded (non-voided) payments. */
+  receivedByProgram: Array<{
+    programId: string;
+    programName: string;
+    received: number;
+    payingClients: number;
+  }>;
+  /** Distinct clients with an active billing agreement. */
+  payingClients: number;
   needsBillingSetup: Array<{
     clientId: string;
     clientName: string;
@@ -83,9 +92,10 @@ export class BillingDashboardService {
     const configByProgramId = new Map(configs.map((config) => [config.programId, config]));
 
     // Received: cash-basis, whenever the money actually arrived within the period.
-    const received = payments
-      .filter((payment) => payment.paymentDate >= periodStart && payment.paymentDate <= periodEnd)
-      .reduce((sum, payment) => sum + Number(payment.amount), 0);
+    const paymentsInPeriod = payments.filter(
+      (payment) => payment.paymentDate >= periodStart && payment.paymentDate <= periodEnd,
+    );
+    const received = paymentsInPeriod.reduce((sum, payment) => sum + Number(payment.amount), 0);
 
     let expected = 0;
     let obligationsThroughPeriodEnd = 0;
@@ -167,12 +177,50 @@ export class BillingDashboardService {
       });
     }
 
+    // Payments on archived enrollments still count as money received; look those enrollments up too.
+    const missingEnrollmentIds = [
+      ...new Set(paymentsInPeriod.map((payment) => payment.enrollmentId).filter((id) => !enrollmentById.has(id))),
+    ];
+    const paymentEnrollments = new Map(enrollmentById);
+    if (missingEnrollmentIds.length) {
+      const archived = await this.prisma.cfProgramEnrollment.findMany({
+        where: { organizationId, id: { in: missingEnrollmentIds } },
+      });
+      for (const enrollment of archived) paymentEnrollments.set(enrollment.id, enrollment);
+    }
+    const byProgram = new Map<string, { received: number; clients: Set<string> }>();
+    for (const payment of paymentsInPeriod) {
+      const enrollment = paymentEnrollments.get(payment.enrollmentId);
+      if (!enrollment) continue;
+      const entry = byProgram.get(enrollment.programId) ?? { received: 0, clients: new Set<string>() };
+      entry.received += Number(payment.amount);
+      entry.clients.add(enrollment.clientId);
+      byProgram.set(enrollment.programId, entry);
+    }
+    const receivedByProgram = [...byProgram.entries()]
+      .map(([programId, entry]) => ({
+        programId,
+        programName: programById.get(programId)?.name ?? 'Unknown program',
+        received: entry.received,
+        payingClients: entry.clients.size,
+      }))
+      .sort((a, b) => b.received - a.received);
+
+    const payingClients = new Set(
+      agreements
+        .filter((agreement) => agreement.status === 'active')
+        .map((agreement) => enrollmentById.get(agreement.enrollmentId)?.clientId)
+        .filter((clientId): clientId is string => Boolean(clientId)),
+    ).size;
+
     return {
       period,
       periodStart: periodStart.toISOString(),
       periodEnd: periodEnd.toISOString(),
       revenue: { received, expected, outstanding, activeRecurringRevenue },
       expectedPayments,
+      receivedByProgram,
+      payingClients,
       needsBillingSetup,
     };
   }
