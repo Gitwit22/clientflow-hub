@@ -5,6 +5,7 @@ import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog"
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
 import { ProgramParticipantRow } from "@/components/programs/ProgramParticipantRow";
+import { ProgramDocumentsCard, ProgramJourneyCard } from "@/components/programs/ProgramSetupCards";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   AlertDialog,
@@ -378,6 +379,14 @@ function ProgramDetailPage() {
               </div>
             </CardContent>
           </Card>
+          <ProgramJourneyCard
+            program={program}
+            onSaved={() => setRefreshVersion((value) => value + 1)}
+          />
+          <ProgramDocumentsCard
+            program={program}
+            onSaved={() => setRefreshVersion((value) => value + 1)}
+          />
           <Card className="shadow-card lg:col-span-2">
             <CardHeader>
               <CardTitle className="font-display text-base">Billing</CardTitle>
