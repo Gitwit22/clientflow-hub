@@ -120,7 +120,7 @@ export function ProgramsPage() {
               <ul className="space-y-1">
                 {active.slice(0, 4).map(({ client, enrollment }) => (
                   <li key={enrollment.id} className="flex items-center justify-between text-sm">
-                    <Link to="/clients/$clientId" params={{ clientId: client!.id }} search={{ programId: p.id, tab: "program" }} className="font-medium hover:text-primary">{client!.businessName}</Link>
+                    <Link to="/clients/$clientId" params={{ clientId: client!.id }} search={{ enrollmentId: enrollment.id, tab: "program" }} className="font-medium hover:text-primary">{client!.businessName}</Link>
                     <span className="text-xs capitalize text-muted-foreground">{enrollment.status.replace(/_/g, " ")}</span>
                   </li>
                 ))}

@@ -4,7 +4,18 @@ import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
-import { displayEnrollmentStatus } from "@/lib/enrollment-status";
+import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
+import { toText } from "@/lib/answer-text";
+import {
+  CLIENT_TABS,
+  CLIENT_TAB_LABELS,
+  inSelectedEnrollment,
+  needsSearchNormalization,
+  parseClientProfileSearch,
+  resolveSelectedEnrollmentId,
+  type ClientTab,
+} from "@/lib/client-profile";
+import { displayEnrollmentStatus, uniqueEnrollments } from "@/lib/enrollment-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -39,6 +50,7 @@ import {
   addCommunication,
   archiveClient,
   cancelFormAssignment,
+  createEnrollment,
   createEnrollmentMonitoring,
   createFinalReport,
   downloadDocument,
@@ -54,7 +66,6 @@ import {
   acfGenerateContract,
   acfSendContract,
   acfSendIntakeNow,
-  acfUpdateClientProgram,
   cfGetEnrollmentBillingSummary,
   cfGetProgramBillingConfig,
 } from "@/lib/apiClient";
@@ -79,15 +90,7 @@ const MONITORING_TYPES = [
 ];
 
 export const Route = createFileRoute("/clients/$clientId")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    programId: typeof search.programId === "string" ? search.programId : undefined,
-    tab:
-      search.tab === "program"
-        ? ("program" as const)
-        : search.tab === "billing"
-          ? ("billing" as const)
-          : undefined,
-  }),
+  validateSearch: parseClientProfileSearch,
   head: () => ({
     meta: [
       { title: "Client profile — ClientFlow" },
@@ -116,13 +119,6 @@ function Row({ label, value }: { label: string; value?: string }) {
       <dd className="mt-0.5 text-sm">{value || "—"}</dd>
     </div>
   );
-}
-
-function displayAnswer(value: unknown): string {
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return String(value);
-  return typeof value === "string" ? value : "";
 }
 
 const PROFILE_FIELD_IDS = new Set([
@@ -157,7 +153,7 @@ function submittedCoreFields(
     )
     .map((field) => ({
       field,
-      value: displayAnswer(submission.responsePayload[field.id]),
+      value: toText(submission.responsePayload[field.id]),
     }));
 }
 
@@ -179,7 +175,8 @@ const INTAKE_KEY_ALIASES: Record<
 
 function ClientProfile() {
   const { clientId } = Route.useParams();
-  const { programId: selectedProgramId, tab } = Route.useSearch();
+  const { enrollmentId: enrollmentIdParam, programId: legacyProgramId, tab } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const s = useAppState();
   const globalClient = s.clients.find((c) => c.id === clientId);
   const [fetchedClient, setFetchedClient] = useState<typeof globalClient | null>(null);
@@ -187,9 +184,21 @@ function ClientProfile() {
   const [clientError, setClientError] = useState<string | null>(null);
 
   const client = globalClient || fetchedClient;
-  const billingEnrollment = client
-    ? s.enrollments.find((e) => e.clientId === client.id && e.programId === selectedProgramId)
-    : undefined;
+
+  // Program context comes only from this client's enrollments, and the selected one comes only
+  // from the URL (?enrollmentId=), so a refresh or a different entry point can't change it.
+  const enrollments = uniqueEnrollments(s.enrollments.filter((e) => e.clientId === clientId));
+  const searchForSelection = { enrollmentId: enrollmentIdParam, programId: legacyProgramId };
+  const selectedEnrollmentId = resolveSelectedEnrollmentId(enrollments, searchForSelection);
+  const selectedEnrollment = enrollments.find((e) => e.id === selectedEnrollmentId);
+  const shouldNormalizeSearch = needsSearchNormalization(selectedEnrollmentId, searchForSelection);
+  const activeTab: ClientTab = tab ?? "overview";
+
+  const selectEnrollment = (nextEnrollmentId: string) =>
+    navigate({
+      search: (prev) => ({ ...prev, enrollmentId: nextEnrollmentId, programId: undefined }),
+      replace: true,
+    });
 
   const [editOpen, setEditOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
@@ -220,10 +229,6 @@ function ClientProfile() {
     clientOutcome: "Program Complete",
     archiveDecision: ARCHIVE_DECISIONS[0],
   });
-
-  // Program assignment (client has no program yet)
-  const [programToAssign, setProgramToAssign] = useState("");
-  const [assigningProgram, setAssigningProgram] = useState(false);
 
   // Resend intake email
   const [resendingIntake, setResendingIntake] = useState(false);
@@ -290,17 +295,36 @@ function ClientProfile() {
     return () => window.removeEventListener("focus", refresh);
   }, [clientId]);
 
+  // Normalize the URL once the client is loaded: add the selected enrollmentId (so View and
+  // Payments land on the same address) and drop the legacy ?programId=.
   useEffect(() => {
-    if (!client || !billingEnrollment) {
+    if (!client || !shouldNormalizeSearch) return;
+    void navigate({
+      search: (prev) => ({ ...prev, enrollmentId: selectedEnrollmentId, programId: undefined }),
+      replace: true,
+    });
+  }, [client?.id, shouldNormalizeSearch, selectedEnrollmentId, navigate]);
+
+  // Billing is fetched from the backend by (clientId, enrollmentId); there is no second store.
+  const billingFetchedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!client || !selectedEnrollment) {
+      billingFetchedFor.current = null;
       setBillingSummary(null);
       setBillingProgramConfig(null);
       return;
     }
+    // Never show the previous enrollment's agreement while the new one loads.
+    if (billingFetchedFor.current !== selectedEnrollment.id) {
+      billingFetchedFor.current = selectedEnrollment.id;
+      setBillingSummary(null);
+      setBillingProgramConfig(null);
+    }
     let cancelled = false;
     setLoadingBilling(true);
     void Promise.all([
-      cfGetEnrollmentBillingSummary(client.id, billingEnrollment.id),
-      cfGetProgramBillingConfig(billingEnrollment.programId),
+      cfGetEnrollmentBillingSummary(client.id, selectedEnrollment.id),
+      cfGetProgramBillingConfig(selectedEnrollment.programId),
     ])
       .then(([summary, config]) => {
         if (cancelled) return;
@@ -316,7 +340,7 @@ function ClientProfile() {
     return () => {
       cancelled = true;
     };
-  }, [client?.id, billingEnrollment?.id, billingRefreshVersion]);
+  }, [client?.id, selectedEnrollment?.id, billingRefreshVersion]);
 
   if (loadingClient)
     return (
@@ -338,20 +362,37 @@ function ClientProfile() {
       </p>
     );
 
-  const enrollments = s.enrollments.filter((enrollment) => enrollment.clientId === client.id);
-  const program = s.programs.find(
-    (candidate) => candidate.id === enrollments[0]?.programId || candidate.id === client.programId,
+  const selectedProgram = selectedEnrollment
+    ? s.programs.find((candidate) => candidate.id === selectedEnrollment.programId)
+    : undefined;
+  // Enrollment-scoped tabs read the selected enrollment. Records that carry an enrollmentId follow
+  // it; records without one are client-wide and stay visible for every enrollment.
+  const inScope = (record: { enrollmentId?: string | null }) =>
+    inSelectedEnrollment(record, selectedEnrollment?.id);
+  const templateProgramId = (formId: string) =>
+    s.formTemplates.find((template) => template.id === formId)?.programId;
+  const assignments = s.formAssignments
+    .filter((a) => a.clientId === client.id)
+    .filter((a) => {
+      if (!selectedEnrollment) return true;
+      if (a.enrollmentId) return a.enrollmentId === selectedEnrollment.id;
+      const programId = templateProgramId(a.formId);
+      return !programId || programId === selectedEnrollment.programId;
+    });
+  const terms = s.terms.filter((t) => t.clientId === client.id && inScope(t));
+  const monitoring = s.monitoring.filter((item) =>
+    selectedEnrollment
+      ? item.enrollmentId === selectedEnrollment.id
+      : enrollments.some((enrollment) => enrollment.id === item.enrollmentId),
   );
-  const assignments = s.formAssignments.filter((a) => a.clientId === client.id);
-  const terms = s.terms.filter((t) => t.clientId === client.id);
-  const enrollmentIds = new Set(enrollments.map((enrollment) => enrollment.id));
-  const monitoring = s.monitoring.filter((item) => enrollmentIds.has(item.enrollmentId));
-  const docs = s.documents.filter((d) => d.clientId === client.id && d.type !== "contract");
-  const comms = s.communications.filter((c) => c.clientId === client.id);
-  const contracts = s.contracts.filter((c) => c.clientId === client.id);
-  const executedContractDocs = s.documents.filter((d) => d.clientId === client.id && d.type === "contract");
-  const finals = s.finalReports.filter((f) => f.clientId === client.id);
-  const logs = s.activity.filter((a) => a.clientId === client.id);
+  const docs = s.documents.filter((d) => d.clientId === client.id && d.type !== "contract" && inScope(d));
+  const comms = s.communications.filter((c) => c.clientId === client.id && inScope(c));
+  const contracts = s.contracts.filter((c) => c.clientId === client.id && inScope(c));
+  const executedContractDocs = s.documents.filter(
+    (d) => d.clientId === client.id && d.type === "contract" && inScope(d),
+  );
+  const finals = s.finalReports.filter((f) => f.clientId === client.id && inScope(f));
+  const logs = s.activity.filter((a) => a.clientId === client.id && inScope(a));
   const intakeSubmissions = s.intakeSubmissions.filter(
     (submission) => submission.clientId === client.id,
   );
@@ -375,25 +416,15 @@ function ClientProfile() {
   // No submission on record (e.g. manually created client) — keep showing whatever is on file.
   const hasActiveIntakeField = (key: Exclude<keyof IntakeDetails, "uploadedFiles">) =>
     !latestCoreFieldTokens || INTAKE_KEY_ALIASES[key].some((alias) => latestCoreFieldTokens.has(alias));
-  const selectedEnrollment = selectedProgramId
-    ? enrollments.find((enrollment) => enrollment.programId === selectedProgramId)
-    : undefined;
-  const selectedProgram = selectedEnrollment
-    ? s.programs.find((candidate) => candidate.id === selectedEnrollment.programId)
-    : undefined;
+  // Program tab: only forms that belong to this enrollment/program (client-wide forms stay on Forms).
   const selectedProgramAssignments = selectedEnrollment
-    ? assignments.filter((assignment) => {
-        if (assignment.enrollmentId) return assignment.enrollmentId === selectedEnrollment.id;
-        return (
-          s.formTemplates.find((template) => template.id === assignment.formId)?.programId ===
-          selectedEnrollment.programId
-        );
-      })
+    ? assignments.filter(
+        (assignment) =>
+          assignment.enrollmentId || templateProgramId(assignment.formId) === selectedEnrollment.programId,
+      )
     : [];
-  const selectedProgramMonitoring = selectedEnrollment
-    ? monitoring.filter((item) => item.enrollmentId === selectedEnrollment.id)
-    : [];
-  const programAnswerGroups = enrollments.flatMap((enrollment) => {
+  const selectedProgramMonitoring = selectedEnrollment ? monitoring : [];
+  const programAnswerGroups = (selectedEnrollment ? [selectedEnrollment] : enrollments).flatMap((enrollment) => {
     for (const submission of intakeSubmissions) {
       const link = submission.programs.find(
         (candidate) =>
@@ -422,6 +453,14 @@ function ClientProfile() {
     }
     return [];
   });
+
+  const noEnrollmentNotice = (
+    <Card className="shadow-card">
+      <CardContent className="py-10 text-center text-sm text-muted-foreground">
+        Enroll this client in a program to use this tab.
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-6">
@@ -541,7 +580,7 @@ function ClientProfile() {
         <span className="font-mono text-xs text-muted-foreground">
           {enrollments.length > 0
             ? `${enrollments.length} program enrollment${enrollments.length === 1 ? "" : "s"}`
-            : (program?.name ?? "No program enrollments")}
+            : "No program enrollments"}
         </span>
         <span className="font-mono text-xs text-muted-foreground">
           Staff: {client.assignedStaff}
@@ -577,85 +616,50 @@ function ClientProfile() {
         </div>
       )}
 
-      {!client.programId && !client.isArchived && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
-          <span className="text-sm text-muted-foreground">No program assigned yet.</span>
-          <Select value={programToAssign} onValueChange={setProgramToAssign}>
-            <SelectTrigger className="h-8 w-56">
-              <SelectValue placeholder="Select a program…" />
-            </SelectTrigger>
-            <SelectContent>
-              {s.programs.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            disabled={!programToAssign || assigningProgram}
-            onClick={async () => {
-              setAssigningProgram(true);
-              try {
-                const result = await acfUpdateClientProgram(client.id, programToAssign);
-                toast.success(
-                  result.nextAction === "CONTRACT_SENT"
-                    ? `Program set to ${result.program.name}; contract generated and sent.`
-                    : `Program set to ${result.program.name}; pending staff review before the contract goes out.`,
-                );
-                setProgramToAssign("");
-                await refreshClientProfile(client.id);
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Unable to assign a program to this client.",
-                );
-              } finally {
-                setAssigningProgram(false);
-              }
-            }}
-          >
-            {assigningProgram ? "Assigning…" : "Assign program"}
-          </Button>
-        </div>
-      )}
+      <EnrollmentContextBar
+        enrollments={enrollments}
+        programs={s.programs}
+        selectedEnrollmentId={selectedEnrollment?.id}
+        canEnroll={!client.isArchived}
+        onSelect={selectEnrollment}
+        onEnroll={async (programId) => {
+          try {
+            const enrollment = await createEnrollment({
+              clientId: client.id,
+              programId,
+              status: "interested",
+            });
+            toast.success(
+              `Enrolled in ${s.programs.find((p) => p.id === programId)?.name ?? "the program"}.`,
+            );
+            await selectEnrollment(enrollment.id);
+          } catch (error) {
+            toast.error(
+              error instanceof Error ? error.message : "Unable to enroll this client in the program.",
+            );
+          }
+        }}
+      />
 
-      {selectedProgram && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-border py-3">
-          <p className="text-sm">
-            Viewing this profile in <span className="font-medium">{selectedProgram.name}</span>
-          </p>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/programs/$programId" params={{ programId: selectedProgram.id }}>
-              Back to program
-            </Link>
-          </Button>
-        </div>
-      )}
-
-      <Tabs defaultValue={selectedProgram && (tab === "program" || tab === "billing") ? tab : "overview"}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(nextTab) =>
+          navigate({ search: (prev) => ({ ...prev, tab: nextTab as ClientTab }), replace: true })
+        }
+      >
         <TabsList className="flex h-auto flex-wrap justify-start">
-          {[
-            ...(selectedProgram ? ["program", "billing"] : []),
-            "overview",
-            "forms",
-            "contracts",
-            "documents",
-            "communications",
-            "monitoring",
-            "final",
-            "activity",
-          ].map((t) => (
-            <TabsTrigger key={t} value={t} className="capitalize">
-              {t === "final" ? "Final report" : t}
+          {CLIENT_TABS.map((t) => (
+            <TabsTrigger key={t} value={t}>
+              {CLIENT_TAB_LABELS[t]}
             </TabsTrigger>
           ))}
         </TabsList>
 
-        {selectedProgram && selectedEnrollment && (
-          <TabsContent value="program" className="mt-4 space-y-4">
+        <TabsContent value="program" className="mt-4 space-y-4">
+          {!selectedProgram || !selectedEnrollment ? (
+            noEnrollmentNotice
+          ) : (
+            <>
             <div className="grid gap-4 lg:grid-cols-3">
               <Card className="shadow-card lg:col-span-2">
                 <CardHeader>
@@ -773,7 +777,7 @@ function ClientProfile() {
                                   template?.fields.find((field) => field.id === fieldId)?.label ??
                                   fieldId
                                 }
-                                value={answer || undefined}
+                                value={toText(answer) || undefined}
                               />
                             ))}
                           </dl>
@@ -784,8 +788,9 @@ function ClientProfile() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        )}
+            </>
+          )}
+        </TabsContent>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
           <Card className="shadow-card">
@@ -799,15 +804,13 @@ function ClientProfile() {
                 <Row
                   label="Program enrollments"
                   value={
-                    enrollments.length > 0
-                      ? enrollments
-                          .map(
-                            (enrollment) =>
-                              s.programs.find((item) => item.id === enrollment.programId)?.name,
-                          )
-                          .filter(Boolean)
-                          .join(", ")
-                      : program?.name
+                    enrollments
+                      .map(
+                        (enrollment) =>
+                          s.programs.find((item) => item.id === enrollment.programId)?.name,
+                      )
+                      .filter(Boolean)
+                      .join(", ") || undefined
                   }
                 />
                 <Row label="Current status" value={client.status} />
@@ -853,7 +856,7 @@ function ClientProfile() {
             <CardContent className="space-y-2">
               {enrollments.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No enrollment records yet. Legacy program information remains visible above.
+                  No program enrollments yet. Use the enrollment selector above to enroll this client.
                 </p>
               ) : (
                 enrollments.map((enrollment) => {
@@ -865,7 +868,7 @@ function ClientProfile() {
                       key={enrollment.id}
                       to="/clients/$clientId"
                       params={{ clientId: client.id }}
-                      search={{ programId: enrollment.programId, tab: "billing" }}
+                      search={{ enrollmentId: enrollment.id, tab: "billing" }}
                       className="block border-b border-border py-3 last:border-0 hover:bg-muted/40"
                     >
                       <div className="min-w-0">
@@ -888,8 +891,11 @@ function ClientProfile() {
           </Card>
         </TabsContent>
 
-        {selectedProgram && selectedEnrollment && (
-          <TabsContent value="billing" className="mt-4 space-y-4">
+        <TabsContent value="billing" className="mt-4 space-y-4">
+          {!selectedProgram || !selectedEnrollment ? (
+            noEnrollmentNotice
+          ) : (
+            <>
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="font-display text-base">Billing & payments</CardTitle>
@@ -954,8 +960,9 @@ function ClientProfile() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        )}
+            </>
+          )}
+        </TabsContent>
 
         <TabsContent value="forms" className="mt-4 space-y-3">
           <Card className="shadow-card">
@@ -1031,7 +1038,7 @@ function ClientProfile() {
                     <Row
                       key={`${section.id}:${field.id}`}
                       label={field.label}
-                      value={displayAnswer(responses[field.id])}
+                      value={toText(responses[field.id])}
                     />
                   ))}
                 </dl>
@@ -1174,7 +1181,12 @@ function ClientProfile() {
                         >
                           Review Answers
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => setMergeAssignment(a)}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setMergeAssignment(a)}
+                        >
                           Apply to Profile
                         </Button>
                         <Button
@@ -1599,11 +1611,12 @@ function ClientProfile() {
               <Button
                 onClick={async () => {
                   await createFinalReport(client.id, {
-                    programId: client.programId ?? "",
+                    programId: selectedEnrollment?.programId ?? "",
+                    enrollmentId: selectedEnrollment?.id ?? null,
                     startDate: client.createdAt,
                     endDate: new Date().toISOString(),
                     originalNeed: report.originalNeed || client.intake.assistanceRequested,
-                    supportProvided: program?.name ?? "",
+                    supportProvided: selectedProgram?.name ?? "",
                     fundingProvided: terms[0] ? `$${terms[0].fundingAmount.toLocaleString()}` : "—",
                     milestonesCompleted: terms[0]?.milestones ?? "—",
                     resultsAchieved: report.resultsAchieved,
@@ -1658,21 +1671,15 @@ function ClientProfile() {
         onOpenChange={(v) => !v && setActiveAssignment(null)}
         readOnly={formReadOnly}
       />
-      {mergeAssignment &&
-        (() => {
-          const tpl = s.formTemplates.find((t) => t.id === mergeAssignment.formId);
-          if (!tpl) return null;
-          return (
-            <MergeResponsesDialog
-              key={mergeAssignment.id}
-              assignment={mergeAssignment}
-              template={tpl}
-              client={client}
-              open={!!mergeAssignment}
-              onOpenChange={(v) => !v && setMergeAssignment(null)}
-            />
-          );
-        })()}
+      {mergeAssignment && (
+        <MergeResponsesDialog
+          key={mergeAssignment.id}
+          assignment={mergeAssignment}
+          client={client}
+          open={!!mergeAssignment}
+          onOpenChange={(v) => !v && setMergeAssignment(null)}
+        />
+      )}
       <SendFormDialog
         client={client}
         templateId={sendTemplateId}

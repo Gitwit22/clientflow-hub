@@ -38,7 +38,7 @@ export function ProgramParticipantRow({
           <Link
             to="/clients/$clientId"
             params={{ clientId: client.id }}
-            search={{ programId: enrollment.programId, tab: "program" }}
+            search={{ enrollmentId: enrollment.id, tab: "program" }}
             className="font-medium hover:text-primary"
           >
             {client.businessName}

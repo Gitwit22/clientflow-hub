@@ -37,7 +37,7 @@ import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { useAppState } from "@/lib/store";
 import { archiveClient, deleteClient } from "@/lib/api";
 import { lifecycleBucket } from "@/lib/client-lifecycle";
-import { displayEnrollmentStatus } from "@/lib/enrollment-status";
+import { ClientProgramBadges } from "@/components/clients/ClientProgramBadges";
 import { memberOptionLabel, useOrganizationMembers } from "@/hooks/use-organization-members";
 import { type Client, type RelationshipType } from "@/types";
 
@@ -94,7 +94,7 @@ function ClientsPage() {
 
   // Read-only, best-effort "what should staff do next" label — no new workflow logic.
   function nextActionFor(c: Client): string {
-    if (!c.programId) return "Assign program";
+    if (!enrollments.some((enrollment) => enrollment.clientId === c.id)) return "Assign program";
     const clientContracts = contracts
       .filter((contract) => contract.clientId === c.id)
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
@@ -118,7 +118,9 @@ function ClientsPage() {
     const clientEnrollments = enrollments.filter((enrollment) => enrollment.clientId === c.id);
     if (lifecycleView !== "all" && lifecycleBucket(c, clientEnrollments) !== lifecycleView) return false;
     if (relationship !== "all" && c.relationshipType !== relationship) return false;
-    if (program !== "all" && c.programId !== program) return false;
+    if (program !== "all" && !clientEnrollments.some((enrollment) => enrollment.programId === program)) {
+      return false;
+    }
     if (staff !== "all" && c.assignedUserId !== staff) return false;
     const t = q.toLowerCase();
     return (
@@ -242,20 +244,10 @@ function ClientsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1.5">
-                      {enrollments.filter((enrollment) => enrollment.clientId === c.id).length === 0 ? (
-                        <span className="text-xs text-muted-foreground">No program</span>
-                      ) : (
-                        enrollments
-                          .filter((enrollment) => enrollment.clientId === c.id)
-                          .map((enrollment) => (
-                            <span key={enrollment.id} className="inline-flex items-center gap-1">
-                              <span className="text-xs">{programName(enrollment.programId)}</span>
-                              <StatusBadge status={displayEnrollmentStatus(enrollment.status)} />
-                            </span>
-                          ))
-                      )}
-                    </div>
+                    <ClientProgramBadges
+                      enrollments={enrollments.filter((enrollment) => enrollment.clientId === c.id)}
+                      programName={programName}
+                    />
                   </TableCell>
                   <TableCell className="text-sm">{c.assignedStaff}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">

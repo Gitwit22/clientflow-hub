@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ export function ManageProgramMembersDialog({
   const { clients, enrollments } = useAppState();
   const [query, setQuery] = useState("");
   const [savingClientId, setSavingClientId] = useState<string | null>(null);
+  const inFlightClientIds = useRef(new Set<string>());
 
   useEffect(() => {
     if (open) setQuery("");
@@ -50,6 +51,9 @@ export function ManageProgramMembersDialog({
     });
 
   async function addMember(clientId: string) {
+    // A ref, not state: two clicks can land before the next render updates savingClientId.
+    if (inFlightClientIds.current.has(clientId)) return;
+    inFlightClientIds.current.add(clientId);
     const existing = enrollments.find(
       (item) => item.clientId === clientId && item.programId === program.id,
     );
@@ -65,6 +69,7 @@ export function ManageProgramMembersDialog({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to update membership.");
     } finally {
+      inFlightClientIds.current.delete(clientId);
       setSavingClientId(null);
     }
   }

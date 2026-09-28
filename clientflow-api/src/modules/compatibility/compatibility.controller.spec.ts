@@ -79,6 +79,49 @@ describe('compatibility route scaffold', () => {
       expect(prisma.cfClient.update).not.toHaveBeenCalled();
     });
 
+    it('never passes an arbitrary request body to Prisma from the generic client update', async () => {
+      const prisma = {
+        cfClient: { update: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com' },
+      });
+
+      await expect(controller.updateClient({} as never, 'client-1', { organizationId: 'org-2', intake: {} }))
+        .rejects.toThrow('These fields cannot be updated on a client: organizationId, intake.');
+      expect(prisma.cfClient.update).not.toHaveBeenCalled();
+
+      await controller.updateClient({} as never, 'client-1', { businessName: 'New Name', nextFollowUpDate: '' });
+      expect(prisma.cfClient.update).toHaveBeenCalledWith({
+        where: { id: 'client-1', organizationId: 'org-1' },
+        data: { businessName: 'New Name', nextFollowUpDate: null },
+      });
+    });
+
+    it('delegates apply-form-responses to the form profile service with the staff actor', async () => {
+      const formProfile = {
+        preview: jest.fn().mockResolvedValue([{ key: 'email' }]),
+        apply: jest.fn().mockResolvedValue({ applied: ['email'] }),
+      };
+      const controller = new ClientflowCompatibilityController(
+        scaffold, undefined, undefined, undefined, undefined, undefined, undefined, formProfile as never,
+      );
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com', firstName: 'Jordan', lastName: 'Lee' },
+      });
+
+      await controller.previewApplyFormResponses({} as never, 'client-1', { assignmentId: 'a-1' });
+      await controller.applyFormResponses({} as never, 'client-1', { assignmentId: 'a-1', fields: ['email'] });
+
+      expect(formProfile.preview).toHaveBeenCalledWith('org-1', 'client-1', 'a-1');
+      expect(formProfile.apply).toHaveBeenCalledWith(
+        'org-1', { id: 'admin-1', displayName: 'Jordan Lee' }, 'client-1', 'a-1', ['email'],
+      );
+    });
+
     it('cascades an assignment change onto the client\'s still-open enrollments', async () => {
       const updatedClient = { id: 'client-1', organizationId: 'org-1', assignedUserId: 'user-2', assignedStaff: 'Jordan Staff' };
       const prisma = {

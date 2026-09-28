@@ -30,21 +30,13 @@ import { StorageService } from '../../integrations/storage/storage.service';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
+import { buildClientProfileUpdate } from '../clients/client-profile-update';
+import { FormProfileService } from '../forms/form-profile.service';
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
 const ACCESS_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const AUTOMATED_CLIENT_STATUSES = new Set([
-  'INTAKE_SENT',
-  'INTAKE_SUBMITTED',
-  'PROGRAM_SELECTED',
-  'PENDING_STAFF_REVIEW',
-  'REVIEW_DECLINED',
-  'CONTRACT_SENT',
-  'CONTRACT_OPENED',
-  'ONBOARDING',
-]);
 const ENROLLMENT_TRANSITIONS: Record<string, string[]> = {
   interested: ['pending_review', 'approved', 'onboarding', 'active', 'declined', 'withdrawn'],
   pending_review: ['approved', 'declined', 'withdrawn'],
@@ -172,6 +164,7 @@ export class ClientflowCompatibilityController {
     private readonly storage?: StorageService,
     private readonly workflowConfig?: WorkflowConfigService,
     private readonly enrollments?: EnrollmentsService,
+    private readonly formProfile?: FormProfileService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -192,6 +185,11 @@ export class ClientflowCompatibilityController {
   private requireEnrollments(): EnrollmentsService {
     if (!this.enrollments) throw this.scaffold.notImplemented('ClientFlow enrollments');
     return this.enrollments;
+  }
+
+  private requireFormProfile(): FormProfileService {
+    if (!this.formProfile) throw this.scaffold.notImplemented('ClientFlow form profile');
+    return this.formProfile;
   }
 
   private enrollmentTransition(target: unknown): string {
@@ -329,14 +327,10 @@ export class ClientflowCompatibilityController {
   }
   @Patch('clients/:id') async updateClient(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    if (body.status !== undefined && AUTOMATED_CLIENT_STATUSES.has(String(body.status))) {
-      throw new BadRequestException('Client workflow statuses cannot be changed through the generic update endpoint.');
-    }
-    if (body.lifecycleStatus !== undefined) {
-      throw new BadRequestException('Client lifecycle state cannot be changed through the generic update endpoint.');
-    }
-    const updated = await this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data: body });
-    if (this.enrollments && (body.assignedUserId !== undefined || body.assignedStaff !== undefined)) {
+    // Explicit allowlist: the request body is never passed to Prisma directly.
+    const data = buildClientProfileUpdate(body);
+    const updated = await this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data });
+    if (this.enrollments && (data.assignedUserId !== undefined || data.assignedStaff !== undefined)) {
       await this.enrollments.syncAssignmentToActiveEnrollments(
         orgId,
         id,
@@ -345,6 +339,29 @@ export class ClientflowCompatibilityController {
       );
     }
     return updated;
+  }
+  @Post('clients/:clientId/apply-form-responses/preview') async previewApplyFormResponses(
+    @Req() request: Request,
+    @Param('clientId') clientId: string,
+    @Body() body: { assignmentId?: string },
+  ) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    return this.requireFormProfile().preview(orgId, clientId, String(body?.assignmentId ?? ''));
+  }
+  @Post('clients/:clientId/apply-form-responses') async applyFormResponses(
+    @Req() request: Request,
+    @Param('clientId') clientId: string,
+    @Body() body: { assignmentId?: string; fields?: unknown },
+  ) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const displayName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
+    return this.requireFormProfile().apply(
+      orgId,
+      { id: admin.id, displayName },
+      clientId,
+      String(body?.assignmentId ?? ''),
+      body?.fields,
+    );
   }
   @Delete('clients/:id') async deleteClient(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);

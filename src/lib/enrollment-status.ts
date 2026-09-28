@@ -15,6 +15,14 @@ export function displayEnrollmentStatus(status: string): string {
   return ENROLLMENT_STATUS_LABELS[status] ?? status;
 }
 
+/**
+ * Dedupe by enrollment id. Enrollment identity is authoritative: it removes repeated copies of the
+ * same row without collapsing distinct records if the model ever allows re-enrollment.
+ */
+export function uniqueEnrollments<T extends { id: string }>(enrollments: readonly T[]): T[] {
+  return Array.from(new Map(enrollments.map((enrollment) => [enrollment.id, enrollment])).values());
+}
+
 export function isTerminalEnrollmentStatus(status: string): boolean {
   return status === "completed" || status === "declined" || status === "withdrawn";
 }

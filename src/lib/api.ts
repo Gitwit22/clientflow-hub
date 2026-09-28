@@ -17,6 +17,8 @@ import {
   cfGetClient,
   cfListFormAssignments,
   cfUpdateClient,
+  cfPreviewApplyFormResponses,
+  cfApplyFormResponses,
   cfCreateProgram,
   cfGetProgramDetail,
   cfUpdateProgram,
@@ -179,6 +181,25 @@ export async function updateClient(id: string, data: Partial<Client>) {
   return delay(updatedClient);
 }
 
+/** What a submitted form would change on the client profile (values computed by the server). */
+export async function previewFormResponsesForProfile(clientId: string, assignmentId: string) {
+  return cfPreviewApplyFormResponses(clientId, assignmentId);
+}
+
+/**
+ * Applies the approved profile fields from a submitted form. The server merges into the current
+ * database state; the store is then refreshed from the server rather than patched from a local copy.
+ */
+export async function applyFormResponsesToProfile(
+  clientId: string,
+  assignmentId: string,
+  fields: string[],
+) {
+  const result = await cfApplyFormResponses(clientId, assignmentId, fields);
+  await refreshClientProfile(clientId);
+  return result;
+}
+
 export async function archiveClient(
   id: string,
   reason = "Archived by staff",
@@ -268,7 +289,11 @@ export async function createEnrollment(
     Partial<Pick<ProgramEnrollment, "status" | "assignedUserId" | "startDate">>,
 ) {
   const enrollment = await cfCreateEnrollment(data as Record<string, unknown>);
-  setState((state) => ({ ...state, enrollments: [enrollment, ...state.enrollments] }));
+  // The server answers a repeat create with the existing row, so upsert by id instead of prepending.
+  setState((state) => ({
+    ...state,
+    enrollments: [enrollment, ...state.enrollments.filter((existing) => existing.id !== enrollment.id)],
+  }));
   return enrollment;
 }
 

@@ -163,7 +163,7 @@ function PaymentsPage() {
                         <Link
                           to="/clients/$clientId"
                           params={{ clientId: row.clientId }}
-                          search={{ programId: row.programId, tab: "billing" }}
+                          search={{ enrollmentId: row.enrollmentId, tab: "billing" }}
                         >
                           Set Up Payments
                         </Link>
@@ -205,7 +205,7 @@ function PaymentsPage() {
                       <Link
                         to="/clients/$clientId"
                         params={{ clientId: row.clientId }}
-                        search={{ programId: row.programId, tab: "billing" }}
+                        search={{ enrollmentId: row.enrollmentId, tab: "billing" }}
                         className="hover:text-primary"
                       >
                         {row.clientName}

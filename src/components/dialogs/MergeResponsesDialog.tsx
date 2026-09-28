@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,165 +10,87 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { updateClient } from "@/lib/api";
-import type { Client, FormAssignment, FormTemplate } from "@/types";
-
-interface MergeField {
-  key: string;
-  label: string;
-  currentValue: string;
-  newValue: string;
-  target: "top" | "intake";
-  intakeKey?: string;
-}
-
-function buildMergeFields(
-  assignment: FormAssignment,
-  template: FormTemplate,
-  client: Client,
-): MergeField[] {
-  const responses = assignment.responses ?? {};
-  const fields: MergeField[] = [];
-
-  const topLevelMap: Record<string, { label: string; key: keyof Client }> = {
-    email: { label: "Email", key: "email" },
-    phone: { label: "Phone", key: "phone" },
-    business: { label: "Business name", key: "businessName" },
-    bizName: { label: "Business name", key: "businessName" },
-    brandName: { label: "Business name", key: "businessName" },
-    contact: { label: "Contact name", key: "primaryContactName" },
-    fullName: { label: "Contact name", key: "primaryContactName" },
-    name: { label: "Contact name", key: "primaryContactName" },
-    applicant: { label: "Contact name", key: "primaryContactName" },
-    website: { label: "Website", key: "website" },
-  };
-
-  const intakeMap: Record<string, { label: string; intakeKey: string }> = {
-    description: { label: "Business description", intakeKey: "businessDescription" },
-    businessDescription: { label: "Business description", intakeKey: "businessDescription" },
-    assistance: { label: "Assistance requested", intakeKey: "assistanceRequested" },
-    assistanceRequested: { label: "Assistance requested", intakeKey: "assistanceRequested" },
-    businessType: { label: "Business type", intakeKey: "businessType" },
-    bizType: { label: "Business type", intakeKey: "businessType" },
-    industry: { label: "Business type", intakeKey: "businessType" },
-    program: { label: "Program of interest", intakeKey: "programOfInterest" },
-    programOfInterest: { label: "Program of interest", intakeKey: "programOfInterest" },
-    budget: { label: "Budget need", intakeKey: "budgetNeed" },
-    budgetNeed: { label: "Budget need", intakeKey: "budgetNeed" },
-    contact_pref: { label: "Preferred contact", intakeKey: "preferredContact" },
-    preferredContact: { label: "Preferred contact", intakeKey: "preferredContact" },
-    heard: { label: "How they heard about us", intakeKey: "heardAboutUs" },
-    heardAboutUs: { label: "How they heard about us", intakeKey: "heardAboutUs" },
-    comments: { label: "Additional comments", intakeKey: "additionalComments" },
-    additionalComments: { label: "Additional comments", intakeKey: "additionalComments" },
-  };
-
-  const seen = new Set<string>();
-
-  for (const field of template.fields) {
-    const responseVal = responses[field.id];
-    if (!responseVal?.trim()) continue;
-
-    // Check top-level match by field ID or prefillKey
-    const topKey = topLevelMap[field.id] ?? (field.prefillKey ? topLevelMap[field.prefillKey] : undefined);
-    if (topKey && !seen.has(topKey.key)) {
-      const currentVal = String(client[topKey.key] ?? "");
-      if (responseVal !== currentVal) {
-        fields.push({
-          key: topKey.key,
-          label: topKey.label,
-          currentValue: currentVal,
-          newValue: responseVal,
-          target: "top",
-        });
-      }
-      seen.add(topKey.key);
-      continue;
-    }
-
-    // Check intake match
-    const intakeKey =
-      intakeMap[field.id] ?? (field.prefillKey ? intakeMap[field.prefillKey] : undefined);
-    if (intakeKey && !seen.has(intakeKey.intakeKey)) {
-      const currentVal = String(client.intake[intakeKey.intakeKey as keyof typeof client.intake] ?? "");
-      if (responseVal !== currentVal) {
-        fields.push({
-          key: intakeKey.intakeKey,
-          label: intakeKey.label,
-          currentValue: currentVal,
-          newValue: responseVal,
-          target: "intake",
-          intakeKey: intakeKey.intakeKey,
-        });
-      }
-      seen.add(intakeKey.intakeKey);
-    }
-  }
-
-  return fields;
-}
+import { toText } from "@/lib/answer-text";
+import { applyFormResponsesToProfile, previewFormResponsesForProfile } from "@/lib/api";
+import type { ProfileChangePreview } from "@/lib/apiClient";
+import type { Client, FormAssignment } from "@/types";
 
 interface MergeResponsesDialogProps {
   assignment: FormAssignment;
-  template: FormTemplate;
   client: Client;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }
 
+/**
+ * Review the profile fields a submitted form would change, then apply the ones staff approve.
+ * The server computes the differences and does the merge; this dialog only sends the approved
+ * keys, so it never needs (or trusts) its own copy of the answers or the client's intake.
+ */
 export function MergeResponsesDialog({
   assignment,
-  template,
   client,
   open,
   onOpenChange,
 }: MergeResponsesDialogProps) {
-  const mergeFields = buildMergeFields(assignment, template, client);
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(mergeFields.map((f) => f.key)),
-  );
+  const [changes, setChanges] = useState<ProfileChangePreview[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setChanges(null);
+    setLoadError(null);
+    previewFormResponsesForProfile(client.id, assignment.id)
+      .then((preview) => {
+        if (cancelled) return;
+        setChanges(preview);
+        setSelected(new Set(preview.map((change) => change.key)));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Unable to load the submitted answers.";
+        setLoadError(message);
+        toast.error(message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, client.id, assignment.id]);
 
   function toggle(key: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
 
   async function handleApply() {
-    const toApply = mergeFields.filter((f) => selected.has(f.key));
-    if (toApply.length === 0) {
+    const fields = (changes ?? []).filter((change) => selected.has(change.key)).map((change) => change.key);
+    if (fields.length === 0) {
       onOpenChange(false);
       return;
     }
 
     setApplying(true);
     try {
-      const topChanges: Partial<Client> = {};
-      const intakeChanges: Partial<typeof client.intake> = {};
-
-      for (const f of toApply) {
-        if (f.target === "top") {
-          (topChanges as Record<string, string>)[f.key] = f.newValue;
-        } else {
-          (intakeChanges as Record<string, string>)[f.intakeKey!] = f.newValue;
-        }
-      }
-
-      const update: Partial<Client> = { ...topChanges };
-      if (Object.keys(intakeChanges).length > 0) {
-        update.intake = { ...client.intake, ...intakeChanges };
-      }
-
-      await updateClient(client.id, update);
-      toast.success(`${toApply.length} field${toApply.length !== 1 ? "s" : ""} applied to profile`);
+      await applyFormResponsesToProfile(client.id, assignment.id, fields);
+      toast.success(`${fields.length} field${fields.length !== 1 ? "s" : ""} applied to profile`);
       onOpenChange(false);
+    } catch (error) {
+      // Stay on the page with the dialog open so staff can retry; nothing navigates or reloads.
+      toast.error(error instanceof Error ? error.message : "Unable to apply the responses to the profile.");
     } finally {
       setApplying(false);
     }
   }
+
+  const loading = changes === null && loadError === null;
+  const count = selected.size;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -181,7 +103,13 @@ export function MergeResponsesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {mergeFields.length === 0 ? (
+        {loading ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">Loading submitted answers…</p>
+        ) : loadError ? (
+          <p role="alert" className="py-4 text-center text-sm text-destructive">
+            {loadError}
+          </p>
+        ) : changes && changes.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
             No differences found — the client profile is already up to date.
           </p>
@@ -193,37 +121,41 @@ export function MergeResponsesDialog({
               <span>Current</span>
               <span>Form response</span>
             </div>
-            {mergeFields.map((f) => (
+            {(changes ?? []).map((change) => (
               <div
-                key={f.key}
+                key={change.key}
                 className="grid grid-cols-[auto_1fr_1fr_1fr] items-start gap-3 px-4 py-3"
               >
                 <Checkbox
-                  checked={selected.has(f.key)}
-                  onCheckedChange={() => toggle(f.key)}
-                  id={`merge-${f.key}`}
+                  checked={selected.has(change.key)}
+                  onCheckedChange={() => toggle(change.key)}
+                  id={`merge-${change.key}`}
                 />
                 <label
-                  htmlFor={`merge-${f.key}`}
+                  htmlFor={`merge-${change.key}`}
                   className="cursor-pointer text-sm font-medium leading-snug"
                 >
-                  {f.label}
+                  {change.label}
                 </label>
                 <span className="text-sm text-muted-foreground line-clamp-3">
-                  {f.currentValue || "—"}
+                  {toText(change.currentValue) || "—"}
                 </span>
-                <span className="text-sm font-medium line-clamp-3">{f.newValue}</span>
+                <span className="text-sm font-medium line-clamp-3">{toText(change.newValue)}</span>
               </div>
             ))}
           </div>
         )}
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleApply} disabled={applying || selected.size === 0}>
-            {applying ? "Applying…" : `Apply ${selected.size > 0 ? `${selected.size} ` : ""}field${selected.size !== 1 ? "s" : ""}`}
+          <Button
+            type="button"
+            onClick={handleApply}
+            disabled={applying || loading || !!loadError || count === 0}
+          >
+            {applying ? "Applying…" : `Apply ${count > 0 ? `${count} ` : ""}field${count !== 1 ? "s" : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>
