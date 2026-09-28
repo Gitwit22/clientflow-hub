@@ -93,6 +93,18 @@ function ProgramDetailPage() {
     };
   }, [programId, refreshVersion]);
 
+  useEffect(() => {
+    const activeVersion = detail?.workflow.contract.activeVersion;
+    setContractTitle(activeVersion?.title ?? "");
+    setContractContent(activeVersion?.content ?? "");
+  }, [detail?.workflow.contract.activeVersion?.id]);
+
+  useEffect(() => {
+    const activeVersion = detail?.workflow.welcomeEmail.activeVersion;
+    setWelcomeSubject(activeVersion?.subject ?? "");
+    setWelcomeBody(activeVersion?.body ?? "");
+  }, [detail?.workflow.welcomeEmail.activeVersion?.id]);
+
   const program = detail?.program ?? state.programs.find((candidate) => candidate.id === programId);
 
   if (loadingDetail && !detail) {
@@ -451,8 +463,6 @@ function ProgramDetailPage() {
                             isActive: true,
                           });
                         }
-                        setContractTitle("");
-                        setContractContent("");
                         setContractFile(null);
                         setRefreshVersion((value) => value + 1);
                         toast.success("Contract workflow asset saved.");
@@ -542,8 +552,6 @@ function ProgramDetailPage() {
                             isActive: true,
                           });
                         }
-                        setWelcomeSubject("");
-                        setWelcomeBody("");
                         setWelcomeGuideFile(null);
                         setRefreshVersion((value) => value + 1);
                         toast.success("Welcome workflow asset saved.");
