@@ -1163,11 +1163,11 @@ describe('ContractsService', () => {
     };
     const storage = {
       isEnabled: jest.fn().mockReturnValue(true),
-      uploadText: jest.fn().mockResolvedValue({
+      uploadBuffer: jest.fn().mockResolvedValue({
         bucket: 'eamanagement',
-        objectKey: 'contracts/org-1/client-1/contract-1-executed.txt',
+        objectKey: 'contracts/org-1/client-1/contract-1-executed.pdf',
         byteSize: 42,
-        url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
+        url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.pdf',
       }),
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled(), { storage });
@@ -1178,14 +1178,15 @@ describe('ContractsService', () => {
       agreedToTerms: true,
     }, { signerIp: null, userAgent: null });
 
-    expect(storage.uploadText).toHaveBeenCalledWith(
-      'contracts/org-1/client-1/contract-1-executed.txt',
-      expect.stringContaining('CLIENT ACCEPTANCE'),
-      'text/plain',
-    );
+    const [key, pdf, mimeType, fileName] = storage.uploadBuffer.mock.calls[0];
+    expect(key).toBe('contracts/org-1/client-1/contract-1-executed.pdf');
+    expect((pdf as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    expect(mimeType).toBe('application/pdf');
+    expect(fileName).toMatch(/ - Signed\.pdf$/);
     expect(prisma.cfStoredFile.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        storageKey: 'contracts/org-1/client-1/contract-1-executed.txt',
+        storageKey: 'contracts/org-1/client-1/contract-1-executed.pdf',
+        mimeType: 'application/pdf',
         status: 'READY',
       }),
     }));
@@ -1194,9 +1195,9 @@ describe('ContractsService', () => {
         organizationId: 'org-1',
         clientId: 'client-1',
         type: 'contract',
-        url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
+        url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.pdf',
         storedFileId: 'stored-file-1',
-        objectKey: 'contracts/org-1/client-1/contract-1-executed.txt',
+        objectKey: 'contracts/org-1/client-1/contract-1-executed.pdf',
         bucket: 'eamanagement',
       }),
     }));
@@ -1234,7 +1235,7 @@ describe('ContractsService', () => {
     };
     const storage = {
       isEnabled: jest.fn().mockReturnValue(true),
-      uploadText: jest.fn().mockRejectedValue(new Error('R2 unavailable')),
+      uploadBuffer: jest.fn().mockRejectedValue(new Error('R2 unavailable')),
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled(), { storage });
 

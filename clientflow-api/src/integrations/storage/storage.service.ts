@@ -87,6 +87,7 @@ export class StorageService {
   async createPresignedDownloadUrl(
     objectKey: string,
     expiresInSeconds = 300,
+    options: { downloadFileName?: string; contentType?: string } = {},
   ): Promise<PresignedStorageUrl> {
     const client = this.getClient();
     const bucket = this.getBucketName();
@@ -94,6 +95,11 @@ export class StorageService {
     const url = await getSignedUrl(client, new GetObjectCommand({
       Bucket: bucket,
       Key: objectKey,
+      // Makes the link download as a named file instead of opening in the browser.
+      ...(options.downloadFileName
+        ? { ResponseContentDisposition: attachmentDisposition(options.downloadFileName) }
+        : {}),
+      ...(options.contentType ? { ResponseContentType: options.contentType } : {}),
     }), { expiresIn: expiresInSeconds });
     return { bucket, objectKey, url, expiresInSeconds };
   }
@@ -115,19 +121,35 @@ export class StorageService {
 
   /** Uploads a small text document (e.g. an executed contract snapshot) and returns its storage location. */
   async uploadText(objectKey: string, content: string, contentType = 'text/plain'): Promise<UploadTextResult> {
+    return this.uploadBuffer(objectKey, Buffer.from(content, 'utf8'), contentType);
+  }
+
+  /** Uploads a small generated file (e.g. an executed contract PDF) and returns its storage location. */
+  async uploadBuffer(
+    objectKey: string,
+    body: Buffer,
+    contentType: string,
+    downloadFileName?: string,
+  ): Promise<UploadTextResult> {
     const client = this.getClient();
     const bucket = this.getBucketName();
     if (!client || !bucket) throw new ServiceUnavailableException('R2 is not configured.');
 
-    const body = Buffer.from(content, 'utf8');
     await client.send(new PutObjectCommand({
       Bucket: bucket,
       Key: objectKey,
       Body: body,
       ContentType: contentType,
+      ...(downloadFileName ? { ContentDisposition: attachmentDisposition(downloadFileName) } : {}),
     }));
 
     const url = this.getPublicUrl(objectKey) ?? `https://${bucket}.r2.cloudflarestorage.com/${objectKey}`;
     return { bucket, objectKey, byteSize: body.byteLength, url };
   }
+}
+
+/** `attachment` disposition with an ASCII fallback name plus the RFC 5987 UTF-8 name. */
+export function attachmentDisposition(fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '').trim() || 'download';
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
