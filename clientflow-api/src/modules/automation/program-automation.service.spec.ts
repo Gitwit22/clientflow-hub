@@ -86,6 +86,63 @@ describe('ProgramAutomationService', () => {
     }));
   });
 
+  it('send_email rules send their own subject and message verbatim, tagged as an automation rule', async () => {
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },
+      cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
+      cfProgramAutomationRule: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'rule-9',
+            action: 'send_email',
+            actionConfig: { subject: 'Your first week', message: 'Hello, here is your first-week checklist.' },
+            conditions: {},
+          },
+        ]),
+      },
+      cfProgramAutomationExecution: {
+        create: jest.fn().mockResolvedValue({ id: 'exec-1' }),
+        update: jest.fn().mockResolvedValue({ id: 'exec-1' }),
+      },
+      cfCommunication: {
+        create: jest.fn().mockResolvedValue({ id: 'comm-1' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const n8n = {
+      getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
+      sendWelcome: jest.fn().mockResolvedValue({ status: 'sent', sentAt: '2030-01-01T00:00:00.000Z' }),
+    };
+    const service = programAutomationTestContext(prisma, {} as ContractsService, n8n);
+
+    await service.runTrigger({
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      trigger: 'intake.submitted',
+      programIds: ['program-1'],
+      enrollmentIdsByProgramId: { 'program-1': 'enroll-1' },
+      idempotencySeed: 'seed-9',
+    });
+
+    const payload = (n8n.sendWelcome.mock.calls[0] as [string, Record<string, unknown>])[1];
+    expect(payload).toEqual(expect.objectContaining({
+      subject: 'Your first week',
+      body: 'Hello, here is your first-week checklist.',
+      nextStep: 'Hello, here is your first-week checklist.',
+      renderMode: 'verbatim',
+      welcome: {
+        source: 'automation_rule', templateId: null, templateName: null, versionId: null, versionNumber: null, ruleId: 'rule-9',
+      },
+    }));
+    expect(prisma.cfCommunication.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        renderedSubject: 'Your first week',
+        renderedBody: 'Hello, here is your first-week checklist.',
+        templateContext: { welcome: expect.objectContaining({ source: 'automation_rule', ruleId: 'rule-9' }) },
+      }),
+    });
+  });
+
   it('creates an enrollment and logs ENROLLMENT_CREATED activity for create_enrollment rules', async () => {
     const transaction = {
       cfProgramEnrollment: { create: jest.fn().mockResolvedValue({ id: 'enroll-new' }) },

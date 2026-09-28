@@ -149,6 +149,16 @@ describe('disabled integrations', () => {
       recipientEmail: 'client@example.com',
       clientName: 'Client Name',
       programName: 'The Inspired Detroit Initiative',
+      subject: 'Welcome to The Inspired Detroit Initiative',
+      body: 'Your agreement has been received and your enrollment is now moving into onboarding.',
+      renderMode: 'verbatim' as const,
+      welcome: {
+        source: 'program_version' as const,
+        templateId: 'welcome-template-1',
+        templateName: 'IDI Welcome',
+        versionId: 'welcome-version-3',
+        versionNumber: 3,
+      },
       nextStep: 'Your agreement has been received and your enrollment is now moving into onboarding.',
       attachmentUrl: 'https://clientflow-2g9.pages.dev/contracts%20and%20emails/IDI%20Member%20Welcome%20Guide.pdf',
       sentByUserId: 'system',
@@ -175,6 +185,18 @@ describe('disabled integrations', () => {
     expect(sentBody).not.toHaveProperty('formId');
     expect(sentBody).not.toHaveProperty('formName');
     expect(sentBody).not.toHaveProperty('formUrl');
+    // ClientFlow owns the wording: the webhook carries the resolved subject/body, the render mode that
+    // tells n8n to add no business wording around them, and which version produced the copy.
+    expect(sentBody.subject).toBe('Welcome to The Inspired Detroit Initiative');
+    expect(sentBody.body).toBe(sentBody.nextStep);
+    expect(sentBody.renderMode).toBe('verbatim');
+    expect(sentBody.welcome).toEqual({
+      source: 'program_version',
+      templateId: 'welcome-template-1',
+      templateName: 'IDI Welcome',
+      versionId: 'welcome-version-3',
+      versionNumber: 3,
+    });
     fetchMock.mockRestore();
   });
 
@@ -193,6 +215,10 @@ describe('disabled integrations', () => {
       recipientEmail: 'client@example.com',
       clientName: 'Client Owner',
       programName: 'The Inspired Detroit Initiative',
+      subject: 'Welcome',
+      body: 'Welcome aboard.',
+      renderMode: 'verbatim',
+      welcome: { source: 'default', templateId: null, templateName: null, versionId: null, versionNumber: null },
       nextStep: 'Welcome aboard.',
       sentByUserId: 'system',
       occurredAt: new Date().toISOString(),

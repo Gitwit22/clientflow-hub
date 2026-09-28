@@ -41,10 +41,44 @@ export interface ContractSendLifecyclePayload extends LifecycleEventBase {
   dueDate?: string;
 }
 
+/** Which ClientFlow copy produced a welcome email, so any sent email can be traced back to it. */
+export type WelcomeCopySource =
+  /** The program's active CfProgramWelcomeEmailVersion. */
+  | 'program_version'
+  /** No active version: the program's own welcomeMessage override. */
+  | 'program_message'
+  /** No active version and no override: the generic ClientFlow welcome body. */
+  | 'default'
+  /** A program automation `send_email` rule. */
+  | 'automation_rule';
+
+export type WelcomeCopyMetadata = {
+  source: WelcomeCopySource;
+  templateId: string | null;
+  templateName: string | null;
+  versionId: string | null;
+  versionNumber: number | null;
+  /** Only for source `automation_rule`. */
+  ruleId?: string | null;
+};
+
+/**
+ * ClientFlow owns the client-facing welcome copy. `subject` and `body` are the fully resolved text
+ * (variables already substituted) and `renderMode: 'verbatim'` tells n8n to send `body` as the
+ * message with NO additional business wording before or after it. n8n supplies only the header
+ * image, recipient, attachment, an optional fixed footer, and delivery.
+ *
+ * `nextStep` is the same text as `body`. It is kept only because the current n8n branch validates
+ * it; new workflow logic should read `subject` and `body`. See docs/N8N_WELCOME_EMAIL.md.
+ */
 export interface WelcomeSendLifecyclePayload extends LifecycleEventBase {
   eventType: 'welcome.send';
   clientName: string;
   programName: string;
+  subject: string;
+  body: string;
+  renderMode: 'verbatim';
+  welcome: WelcomeCopyMetadata;
   nextStep: string;
   attachmentUrl?: string;
   headerImageUrl?: string;
@@ -117,6 +151,14 @@ export interface WelcomeEmailPayload {
   recipientEmail: string;
   clientName: string;
   programName: string;
+  /** The resolved subject, exactly as it should read. */
+  subject: string;
+  /** The resolved body, exactly as it should read. Sent as-is; n8n adds no wording around it. */
+  body: string;
+  renderMode: 'verbatim';
+  /** Which ClientFlow copy this came from (template/version ids), for tracing. */
+  welcome: WelcomeCopyMetadata;
+  /** Same text as `body`; kept for the current n8n validation. */
   nextStep: string;
   attachmentUrl?: string;
   /** Public URL of the org's header logo; resolved independently of the guide attachment. */

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import type { N8nService } from '../../integrations/n8n/n8n.service';
@@ -503,53 +503,55 @@ describe('ContractsService: manual welcome email', () => {
   });
 });
 
-describe('ContractsService: completion sends the signed copy, then the welcome email', () => {
-  function completionContext(n8nOverrides: Record<string, unknown> = {}) {
-    const order: string[] = [];
-    const n8n = readyN8n({
-      sendContractCopy: jest.fn(async () => {
-        order.push('copy');
-        return { status: 'sent', sentAt: '2030-01-01T00:00:03.000Z' };
-      }),
-      sendWelcome: jest.fn(async () => {
-        order.push('welcome');
-        return { status: 'sent', sentAt: '2030-01-01T00:00:02.000Z' };
-      }),
-      ...n8nOverrides,
-    });
-    const transaction: Record<string, any> = {
-      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      cfClient: { update: jest.fn().mockResolvedValue(client) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue({ id: 'm-1', type: 'x', status: 'PENDING', dueDate: now, assignedStaffId: null }) },
-      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'a-1' }) },
-      cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null) },
-      cfCommunication: { create: jest.fn().mockImplementation(async ({ data }) => ({ id: 'welcome-comm', ...data })), update: jest.fn() },
-    };
-    const storage = {
-      ...storageReady(),
-      uploadText: jest.fn().mockResolvedValue({ bucket: 'b', objectKey: 'k', byteSize: 1, url: 'u' }),
-    };
-    const { service, prisma } = build({
-      cfContract: {
-        findUnique: jest.fn().mockResolvedValue(sent),
-        findFirst: jest.fn().mockResolvedValue(completed),
-        update: jest.fn(),
-      },
-      cfStoredFile: {
-        create: jest.fn().mockResolvedValue({ id: 'stored-1' }),
-        findFirst: jest.fn().mockResolvedValue({ storageKey: 'k' }),
-      },
-      cfDocument: { create: jest.fn() },
-      $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
-        ? (input as (tx: unknown) => unknown)(transaction)
-        : Promise.all(input as Promise<unknown>[]))),
-    }, n8n, storage);
-    const complete = () => service.completePublicContract('a'.repeat(43), {
-      signedName: 'Client Owner', signedEmail: 'client@example.com', agreedToTerms: true,
-    }, { signerIp: null, userAgent: null });
-    return { complete, order, n8n, prisma, transaction };
-  }
+function completionContext(n8nOverrides: Record<string, unknown> = {}, prismaExtra: Record<string, unknown> = {}) {
+  const order: string[] = [];
+  const n8n = readyN8n({
+    sendContractCopy: jest.fn(async () => {
+      order.push('copy');
+      return { status: 'sent', sentAt: '2030-01-01T00:00:03.000Z' };
+    }),
+    sendWelcome: jest.fn(async () => {
+      order.push('welcome');
+      return { status: 'sent', sentAt: '2030-01-01T00:00:02.000Z' };
+    }),
+    ...n8nOverrides,
+  });
+  const transaction: Record<string, any> = {
+    cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    cfClient: { update: jest.fn().mockResolvedValue(client) },
+    cfMonitoringTask: { create: jest.fn().mockResolvedValue({ id: 'm-1', type: 'x', status: 'PENDING', dueDate: now, assignedStaffId: null }) },
+    cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'a-1' }) },
+    cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null) },
+    cfCommunication: { create: jest.fn().mockImplementation(async ({ data }) => ({ id: 'welcome-comm', ...data })), update: jest.fn() },
+  };
+  const storage = {
+    ...storageReady(),
+    uploadText: jest.fn().mockResolvedValue({ bucket: 'b', objectKey: 'k', byteSize: 1, url: 'u' }),
+  };
+  const { service, prisma } = build({
+    cfContract: {
+      findUnique: jest.fn().mockResolvedValue(sent),
+      findFirst: jest.fn().mockResolvedValue(completed),
+      update: jest.fn(),
+    },
+    cfStoredFile: {
+      create: jest.fn().mockResolvedValue({ id: 'stored-1' }),
+      findFirst: jest.fn().mockResolvedValue({ storageKey: 'k' }),
+    },
+    cfDocument: { create: jest.fn() },
+    $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
+      ? (input as (tx: unknown) => unknown)(transaction)
+      : Promise.all(input as Promise<unknown>[]))),
+    ...prismaExtra,
+  }, n8n, storage);
+  const complete = () => service.completePublicContract('a'.repeat(43), {
+    signedName: 'Client Owner', signedEmail: 'client@example.com', agreedToTerms: true,
+  }, { signerIp: null, userAgent: null });
+  return { complete, order, n8n, prisma, transaction };
+}
 
+
+describe('ContractsService: completion sends the signed copy, then the welcome email', () => {
   it('fires contract.copy first (automation) and then welcome.send', async () => {
     const { complete, order, prisma, transaction } = completionContext();
     await complete();
@@ -591,5 +593,141 @@ describe('ContractsService: completion sends the signed copy, then the welcome e
 
     expect(order).toEqual(['welcome']);
     expect(result.contract.status).toBe('COMPLETED');
+  });
+});
+
+describe('ContractsService: ClientFlow owns the welcome wording', () => {
+  const welcomeOptions = { enrollmentId: 'enroll-1', actor: staff, idempotencyKey: 'welcome-attempt-01' };
+  const john = { ...client, primaryContactName: 'John Steele' };
+  const versionBody =
+    'Good Afternoon {{client.firstName}}:\n\nYour membership payment has been received.\n\nEAM-Team "Inspire to be Great"';
+  const expectedBody =
+    'Good Afternoon John:\n\nYour membership payment has been received.\n\nEAM-Team "Inspire to be Great"';
+  const activeWorkflow = {
+    ...workflowConfig,
+    activeWelcomeEmailTemplateId: 'wt-1',
+    activeWelcomeEmailVersionId: 'wv-3',
+  };
+  const activeVersionModels = () => ({
+    cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(activeWorkflow) },
+    cfProgramWelcomeEmailVersion: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'wv-3',
+        templateId: 'wt-1',
+        version: 3,
+        subject: 'Welcome to {{program.name}}',
+        body: versionBody,
+        guideStoredFileId: null,
+      }),
+    },
+    cfProgramWelcomeEmailTemplate: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'wt-1', name: 'IDI Membership Welcome' }),
+    },
+  });
+  const sentPayload = (n8n: { sendWelcome: jest.Mock }) => n8n.sendWelcome.mock.calls[0][1];
+  const withContract = () => ({
+    cfContract: { findFirst: jest.fn().mockResolvedValue(completed) },
+    cfClient: { findFirst: jest.fn().mockResolvedValue(john) },
+  });
+
+  it('sends the active program version as the subject and body, exactly as configured, plus the version id', async () => {
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const n8n = readyN8n();
+    const { service, prisma } = build({ ...withContract(), ...activeVersionModels() }, n8n);
+
+    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+
+    const payload = sentPayload(n8n);
+    expect(payload.subject).toBe('Welcome to Brand Awareness Subscription');
+    // Variables are resolved; nothing is added before or after the configured wording.
+    expect(payload.body).toBe(expectedBody);
+    expect(payload.body).not.toMatch(/Welcome, John|Thank you for completing|Your next step|We are glad/);
+    expect(payload.nextStep).toBe(payload.body); // legacy field carries the same text
+    expect(payload.renderMode).toBe('verbatim');
+    expect(payload.welcome).toEqual({
+      source: 'program_version',
+      templateId: 'wt-1',
+      templateName: 'IDI Membership Welcome',
+      versionId: 'wv-3',
+      versionNumber: 3,
+    });
+
+    // The same trace is stored with the communication and written to the log (no client data).
+    const stored = prisma.cfCommunication.create.mock.calls[0][0].data;
+    expect(stored.renderedBody).toBe(payload.body);
+    expect(stored.renderedSubject).toBe(payload.subject);
+    expect(stored.templateContext.welcome).toEqual(payload.welcome);
+    const line = log.mock.calls.map((call) => String(call[0])).find((message) => message.startsWith('welcome.send'));
+    expect(line).toContain('versionId=wv-3');
+    expect(line).toContain('templateId=wt-1');
+    expect(line).toContain('source=program_version');
+    expect(line).not.toContain('John');
+    log.mockRestore();
+  });
+
+  it('with no active version, uses the program welcome message override', async () => {
+    const n8n = readyN8n();
+    const { service } = build({
+      ...withContract(),
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ ...program, welcomeMessage: 'Hi {{client.firstName}}, welcome aboard.' }) },
+    }, n8n);
+
+    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+
+    const payload = sentPayload(n8n);
+    expect(payload.body).toBe('Hi John, welcome aboard.');
+    expect(payload.subject).toBe('Welcome to Brand Awareness Subscription');
+    expect(payload.welcome).toEqual({
+      source: 'program_message', templateId: null, templateName: null, versionId: null, versionNumber: null,
+    });
+  });
+
+  it('with neither an active version nor an override, uses the generic ClientFlow body', async () => {
+    const n8n = readyN8n();
+    const { service } = build(withContract(), n8n);
+
+    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+
+    const payload = sentPayload(n8n);
+    expect(payload.body).toBe('Your onboarding has started. A team member will follow up with you soon.');
+    expect(payload.welcome).toEqual({
+      source: 'default', templateId: null, templateName: null, versionId: null, versionNumber: null,
+    });
+  });
+
+  it('does not use a version that belongs to a different template than the active one', async () => {
+    const n8n = readyN8n();
+    const { service } = build({
+      ...withContract(),
+      ...activeVersionModels(),
+      cfProgramWelcomeEmailVersion: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'wv-x', templateId: 'some-other-template', version: 1, subject: 'Other', body: 'Other body', guideStoredFileId: null,
+        }),
+      },
+    }, n8n);
+
+    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+
+    const payload = sentPayload(n8n);
+    expect(payload.body).not.toBe('Other body');
+    expect(payload.welcome.source).toBe('default');
+    expect(payload.welcome.versionId).toBeNull();
+  });
+
+  it('the automatic post-signature email uses the same resolved copy and the same trace', async () => {
+    const { complete, n8n, transaction } = completionContext({}, {
+      ...activeVersionModels(),
+      cfClient: { findFirst: jest.fn().mockResolvedValue(john) },
+    });
+
+    await complete();
+
+    const payload = (n8n.sendWelcome).mock.calls[0][1];
+    expect(payload.subject).toBe('Welcome to Brand Awareness Subscription');
+    expect(payload.body).toBe(expectedBody);
+    expect(payload.renderMode).toBe('verbatim');
+    expect(payload.welcome).toEqual(expect.objectContaining({ source: 'program_version', versionId: 'wv-3' }));
+    expect(transaction.cfCommunication.create.mock.calls[0][0].data.templateContext.welcome.versionId).toBe('wv-3');
   });
 });

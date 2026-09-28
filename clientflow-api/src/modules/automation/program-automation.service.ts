@@ -497,6 +497,9 @@ export class ProgramAutomationService {
         direction: 'outbound',
         subject,
         notes: message,
+        renderedSubject: subject,
+        renderedBody: message,
+        templateContext: { welcome: { source: 'automation_rule', templateId: null, templateName: null, versionId: null, versionNumber: null, ruleId } },
         date: new Date(),
         staffMember: 'automation',
         isDemo: context.client.isDemo,
@@ -514,6 +517,18 @@ export class ProgramAutomationService {
         recipientEmail: context.client.email,
         clientName: context.client.primaryContactName,
         programName: context.program.name,
+        // The rule's own subject and message go out as-is, like every other welcome.send.
+        subject,
+        body: message,
+        renderMode: 'verbatim',
+        welcome: {
+          source: 'automation_rule',
+          templateId: null,
+          templateName: null,
+          versionId: null,
+          versionNumber: null,
+          ruleId,
+        },
         nextStep: message,
         sentByUserId: context.client.assignedUserId ?? 'system',
       });

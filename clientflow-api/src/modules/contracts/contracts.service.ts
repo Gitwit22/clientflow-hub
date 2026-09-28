@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { Environment } from '../../config/env';
 import type {
   ContractEmailDeliveryResult,
+  WelcomeCopyMetadata,
   WelcomeEmailDeliveryResult,
 } from '../../integrations/n8n/n8n.types';
 import { N8nService } from '../../integrations/n8n/n8n.service';
@@ -404,7 +405,7 @@ export class ContractsService {
           notes: availability === 'ready' ? 'Welcome email requested by staff.' : 'Welcome email blocked before send.',
           renderedSubject: welcomeConfig.subject,
           renderedBody: welcomeConfig.body,
-          templateContext: welcomeConfig.context,
+          templateContext: this.welcomeTemplateContext(welcomeConfig),
           date: now,
           staffMember: delivery.actor?.name?.trim() || 'staff',
           createdByUserId: delivery.actor?.id ?? null,
@@ -611,6 +612,12 @@ export class ContractsService {
         data: { status: COMMUNICATION_STATUS.sending },
       });
     }
+    // Enough to trace any email back to the ClientFlow copy that produced it (no client data).
+    this.logger.log(
+      `welcome.send eventId=${input.eventId} source=${welcomeConfig.meta.source} `
+      + `templateId=${welcomeConfig.meta.templateId ?? 'none'} versionId=${welcomeConfig.meta.versionId ?? 'none'} `
+      + `trigger=${input.delivery.source}`,
+    );
     const welcomeDelivery: WelcomeEmailDeliveryResult = availability !== 'ready'
       ? { status: 'failed', reason: availability }
       : await this.n8n.sendWelcome(input.eventId, {
@@ -619,6 +626,11 @@ export class ContractsService {
           recipientEmail: client.email,
           clientName: client.primaryContactName,
           programName: program.name,
+          // ClientFlow owns the wording: the resolved subject and body go out as-is.
+          subject: welcomeConfig.subject,
+          body: welcomeConfig.body,
+          renderMode: 'verbatim',
+          welcome: welcomeConfig.meta,
           nextStep: welcomeConfig.body,
           attachmentUrl: await this.resolveWelcomeAttachmentUrl(welcomeConfig.guideStoredFileId),
           headerImageUrl: welcomeConfig.headerImageUrl,
@@ -862,7 +874,7 @@ export class ContractsService {
                 : 'Welcome email blocked before send.',
               renderedSubject: welcomeConfig.subject,
               renderedBody: welcomeConfig.body,
-              templateContext: welcomeConfig.context,
+              templateContext: this.welcomeTemplateContext(welcomeConfig),
               date: now,
               staffMember: 'system',
               source: DELIVERY_SOURCE.automation,
@@ -1367,7 +1379,7 @@ export class ContractsService {
       : null;
     const activeWelcomeTemplateModel = (this.prisma as unknown as {
       cfProgramWelcomeEmailTemplate?: {
-        findFirst: (args: unknown) => Promise<{ id: string } | null>;
+        findFirst: (args: unknown) => Promise<{ id: string; name?: string } | null>;
       };
     }).cfProgramWelcomeEmailTemplate;
     const activeWelcomeTemplate = input.workflow.activeWelcomeEmailTemplateId && activeWelcomeTemplateModel
@@ -1378,7 +1390,7 @@ export class ContractsService {
             programId: input.program.id,
             isActive: true,
           },
-          select: { id: true },
+          select: { id: true, name: true },
         })
       : null;
     const activeVersion = activeVersionCandidate
@@ -1389,21 +1401,45 @@ export class ContractsService {
       )
       : null;
     if (!activeVersion) {
+      // Fallback order: the program's own message override, then the generic ClientFlow body.
+      const meta: WelcomeCopyMetadata = {
+        source: input.fallbackMessage?.trim() ? 'program_message' : 'default',
+        templateId: null,
+        templateName: null,
+        versionId: null,
+        versionNumber: null,
+      };
       return {
         subject: fallbackSubject,
         body: fallbackBody,
         context,
         guideStoredFileId: null,
         headerImageUrl,
+        meta,
       };
     }
+    const meta: WelcomeCopyMetadata = {
+      source: 'program_version',
+      templateId: activeVersion.templateId ?? activeWelcomeTemplate?.id ?? null,
+      templateName: activeWelcomeTemplate?.name ?? null,
+      versionId: activeVersion.id ?? null,
+      versionNumber: typeof activeVersion.version === 'number' ? activeVersion.version : null,
+    };
     return {
       subject: this.renderWelcomeTemplate(activeVersion.subject, context),
       body: this.renderWelcomeTemplate(activeVersion.body, context),
       context,
       guideStoredFileId: activeVersion.guideStoredFileId ?? null,
       headerImageUrl,
+      meta,
     };
+  }
+
+  /** What is stored with the communication: the variables used plus which copy produced the email. */
+  private welcomeTemplateContext(
+    welcomeConfig: Awaited<ReturnType<ContractsService['resolveWelcomeEmailForDelivery']>>,
+  ) {
+    return { ...welcomeConfig.context, welcome: welcomeConfig.meta };
   }
 
   private renderWelcomeTemplate(template: string, context: Record<string, unknown>): string {
