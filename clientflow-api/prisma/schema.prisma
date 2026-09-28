@@ -539,6 +539,104 @@ model CfTerms {
   @@index([enrollmentId])
 }
 
+enum CfBillingFrequency {
+  one_time
+  weekly
+  monthly
+  quarterly
+  annually
+  custom
+}
+
+enum CfBillingAgreementStatus {
+  active
+  ended
+}
+
+enum CfPaymentMethod {
+  cash
+  check
+  ach
+  card
+  other
+}
+
+enum CfPaymentSource {
+  manual
+  legacy_backfill
+}
+
+model CfProgramBillingConfig {
+  id                       String             @id @default(cuid())
+  organizationId           String
+  programId                String
+  defaultAmount            Decimal            @default(0) @db.Decimal(10, 2)
+  frequency                CfBillingFrequency @default(monthly)
+  customIntervalDays       Int?
+  billingRequired          Boolean            @default(true)
+  defaultDueDay            Int?
+  allowCustomClientPricing Boolean            @default(true)
+  active                   Boolean            @default(true)
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  @@unique([organizationId, programId])
+  @@index([organizationId, programId])
+}
+
+/// Financial terms (amount/frequency/customIntervalDays/startDate/defaultDueDay) are append-only:
+/// changing them ends this row and inserts a new one. A hand-written partial unique index
+/// (see migration SQL) enforces at most one row with status = 'active' per enrollmentId.
+model CfEnrollmentBillingAgreement {
+  id                    String                    @id @default(cuid())
+  organizationId        String
+  enrollmentId          String
+  amount                Decimal                   @default(0) @db.Decimal(10, 2)
+  frequency             CfBillingFrequency
+  customIntervalDays    Int?
+  startDate             DateTime
+  endDate               DateTime?
+  defaultDueDay         Int?
+  status                CfBillingAgreementStatus  @default(active)
+  nextDueDate           DateTime?
+  createdByUserId       String?
+  createdByDisplayName  String?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  @@index([organizationId, enrollmentId, status])
+}
+
+/// billingPeriodStart/End record which obligation a payment is applied to (not merely when
+/// cash arrived), so a payment made early against a future period doesn't distort reporting.
+/// A hand-written partial unique index (see migration SQL) prevents duplicate LEGACY_BACKFILL
+/// rows for the same enrollment+period; ordinary manual payments are not constrained, since
+/// partial/multiple payments within the same period are an intentional, supported case.
+model CfPaymentRecord {
+  id                   String          @id @default(cuid())
+  organizationId       String
+  enrollmentId         String
+  billingAgreementId   String
+  amount               Decimal         @db.Decimal(10, 2)
+  paymentDate          DateTime
+  paymentMethod        CfPaymentMethod
+  billingPeriodStart   DateTime
+  billingPeriodEnd     DateTime
+  source               CfPaymentSource @default(manual)
+  note                 String?
+  recordedByUserId     String?
+  recordedByDisplayName String?
+  voidedAt             DateTime?
+  voidedByUserId       String?
+  voidedByDisplayName  String?
+  voidReason           String?
+  createdAt            DateTime        @default(now())
+
+  @@index([organizationId, enrollmentId, paymentDate])
+  @@index([organizationId, billingPeriodStart, billingPeriodEnd])
+  @@index([organizationId, billingAgreementId])
+}
+
 model CfContractTemplate {
   id             String   @id
   organizationId String
