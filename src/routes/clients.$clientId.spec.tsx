@@ -490,3 +490,17 @@ describe("one Send workflow in the client header", () => {
     expect(await screen.findByTestId("dialog-contract")).toBeTruthy();
   });
 });
+
+describe("client saved with an empty intake", () => {
+  // The API creates clients with `intake: {}`, so intake fields (even uploadedFiles) can be missing.
+  beforeEach(() => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    setState((state) => ({ ...state, clients: [{ ...client, intake: {} } as never] }));
+  });
+
+  it.each(["overview", "program"])("renders the %s tab instead of crashing", async (tab) => {
+    mountRouter(`/clients/c1?enrollmentId=e1&tab=${tab}`);
+    expect(await screen.findByText("Keep it Moving Construction LLC")).toBeTruthy();
+    expect(tabNames()).toEqual(TAB_LABELS);
+  });
+});

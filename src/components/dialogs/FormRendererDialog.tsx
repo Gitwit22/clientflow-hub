@@ -56,9 +56,9 @@ function prefillFromClient(field: FormField, client: Client): PublicFormResponse
     fullName: client.primaryContactName,
     name: client.primaryContactName,
     website: client.website ?? "",
-    businessType: client.intake.businessType ?? "",
-    bizType: client.intake.businessType ?? "",
-    industry: client.intake.businessType ?? "",
+    businessType: client.intake?.businessType ?? "",
+    bizType: client.intake?.businessType ?? "",
+    industry: client.intake?.businessType ?? "",
   };
   return idMap[field.id] ?? "";
 }

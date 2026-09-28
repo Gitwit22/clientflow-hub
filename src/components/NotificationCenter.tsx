@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { Bell, CheckCheck, ClipboardCheck } from "lucide-react";
 import {
   cfListNotifications,
@@ -20,6 +21,8 @@ function notificationTime(value: string): string {
 }
 
 export function NotificationCenter({ inverted = false }: { inverted?: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<ClientflowNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -27,8 +30,8 @@ export function NotificationCenter({ inverted = false }: { inverted?: boolean })
   async function refresh() {
     try {
       const result = await cfListNotifications();
-      setNotifications(result.items);
-      setUnreadCount(result.unreadCount);
+      setNotifications(Array.isArray(result?.items) ? result.items : []);
+      setUnreadCount(typeof result?.unreadCount === "number" ? result.unreadCount : 0);
     } catch (error) {
       console.error("Unable to load notifications", error);
     } finally {
@@ -57,6 +60,21 @@ export function NotificationCenter({ inverted = false }: { inverted?: boolean })
     }
   }
 
+  // In-app links go through the router so the page doesn't do a full server reload.
+  function openNotification(
+    event: MouseEvent<HTMLAnchorElement>,
+    notification: ClientflowNotification,
+  ) {
+    void markRead(notification);
+    const url = notification.actionUrl;
+    if (!url || !url.startsWith("/") || url.startsWith("//")) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
+      return;
+    event.preventDefault();
+    setOpen(false);
+    void router.navigate({ href: url });
+  }
+
   async function markAllRead() {
     const readAt = new Date().toISOString();
     setNotifications((current) => current.map((item) => ({ ...item, readAt })));
@@ -70,7 +88,13 @@ export function NotificationCenter({ inverted = false }: { inverted?: boolean })
   }
 
   return (
-    <Popover onOpenChange={(open) => open && void refresh()}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) void refresh();
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -121,7 +145,7 @@ export function NotificationCenter({ inverted = false }: { inverted?: boolean })
               <a
                 key={notification.id}
                 href={notification.actionUrl ?? undefined}
-                onClick={() => void markRead(notification)}
+                onClick={(event) => openNotification(event, notification)}
                 className={cn(
                   "flex gap-3 border-b border-border px-4 py-3.5 last:border-b-0",
                   notification.actionUrl && "hover:bg-muted/60",
@@ -133,7 +157,9 @@ export function NotificationCenter({ inverted = false }: { inverted?: boolean })
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-start gap-2">
-                    <span className="flex-1 text-sm font-medium leading-5">{notification.title}</span>
+                    <span className="flex-1 text-sm font-medium leading-5">
+                      {notification.title}
+                    </span>
                     {!notification.readAt ? (
                       <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
                     ) : null}

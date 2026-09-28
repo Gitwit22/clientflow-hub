@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,8 +21,8 @@ import {
 } from "@/components/ui/select";
 import { createProgram, updateProgram } from "@/lib/api";
 import { useAppState } from "@/lib/store";
-import { CLIENT_STATUSES } from "@/types";
-import type { ClientStatus, ContractType, MonitoringFrequency, Program } from "@/types";
+import { DEFAULT_JOURNEY, journeyToProgramFields } from "@/lib/program-journey";
+import type { ContractType, MonitoringFrequency, Program } from "@/types";
 
 const MONITORING_FREQUENCIES: MonitoringFrequency[] = [
   "Weekly",
@@ -46,69 +45,6 @@ const CONTRACT_TYPES: ContractType[] = [
   "Partnership Agreement",
 ];
 
-function TagListEditor({
-  label,
-  items,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  items: string[];
-  onChange: (items: string[]) => void;
-  placeholder?: string;
-}) {
-  const [draft, setDraft] = useState("");
-
-  function add() {
-    const val = draft.trim();
-    if (!val) return;
-    onChange([...items, val]);
-    setDraft("");
-  }
-
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="flex gap-2">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              add();
-            }
-          }}
-          placeholder={placeholder}
-          className="flex-1"
-        />
-        <Button type="button" variant="outline" size="sm" onClick={add}>
-          Add
-        </Button>
-      </div>
-      {items.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {items.map((item, idx) => (
-            <span
-              key={idx}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium"
-            >
-              {item}
-              <button
-                type="button"
-                onClick={() => onChange(items.filter((_, i) => i !== idx))}
-                className="ml-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function AddEditProgramDialog({
   program,
   open,
@@ -120,10 +56,11 @@ export function AddEditProgramDialog({
 }) {
   const { formTemplates } = useAppState();
   const isEdit = !!program;
-  const eligibleFormTemplates = formTemplates.filter((template) =>
-    template.isActive
-    && template.scope !== "master_core"
-    && (template.programId === null || template.programId === program?.id),
+  const eligibleFormTemplates = formTemplates.filter(
+    (template) =>
+      template.isActive &&
+      template.scope !== "master_core" &&
+      (template.programId === null || template.programId === program?.id),
   );
 
   const [name, setName] = useState(program?.name ?? "");
@@ -132,19 +69,11 @@ export function AddEditProgramDialog({
   const [defaultFormTemplateId, setDefaultFormTemplateId] = useState(
     program?.defaultFormTemplateId ?? "",
   );
-  const [defaultMonitoringFrequency, setDefaultMonitoringFrequency] =
-    useState<MonitoringFrequency>(program?.defaultMonitoringFrequency ?? "Monthly");
+  const [defaultMonitoringFrequency, setDefaultMonitoringFrequency] = useState<MonitoringFrequency>(
+    program?.defaultMonitoringFrequency ?? "Monthly",
+  );
   const [defaultContractTemplateId, setDefaultContractTemplateId] = useState<ContractType>(
     program?.defaultContractTemplateId ?? "Service Agreement",
-  );
-  const [defaultWorkflow, setDefaultWorkflow] = useState<string[]>(
-    program?.defaultWorkflow ?? [],
-  );
-  const [requiredDocuments, setRequiredDocuments] = useState<string[]>(
-    program?.requiredDocuments ?? [],
-  );
-  const [statusPipeline, setStatusPipeline] = useState<ClientStatus[]>(
-    program?.statusPipeline ?? [],
   );
   const [saving, setSaving] = useState(false);
 
@@ -157,17 +86,8 @@ export function AddEditProgramDialog({
       setDefaultFormTemplateId(program?.defaultFormTemplateId ?? "");
       setDefaultMonitoringFrequency(program?.defaultMonitoringFrequency ?? "Monthly");
       setDefaultContractTemplateId(program?.defaultContractTemplateId ?? "Service Agreement");
-      setDefaultWorkflow(program?.defaultWorkflow ?? []);
-      setRequiredDocuments(program?.requiredDocuments ?? []);
-      setStatusPipeline(program?.statusPipeline ?? []);
     }
   }, [open, program]);
-
-  function toggleStatus(status: ClientStatus) {
-    setStatusPipeline((prev) =>
-      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status],
-    );
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -188,15 +108,18 @@ export function AddEditProgramDialog({
         defaultFormTemplateId,
         defaultMonitoringFrequency,
         defaultContractTemplateId,
-        defaultWorkflow,
-        requiredDocuments,
-        statusPipeline,
       };
+      // Workflow, required documents and the status pipeline are edited on the program page;
+      // an edit here leaves them untouched.
       if (isEdit && program) {
         await updateProgram(program.id, data);
         toast.success("Program updated.");
       } else {
-        await createProgram(data);
+        await createProgram({
+          ...data,
+          ...journeyToProgramFields(DEFAULT_JOURNEY),
+          requiredDocuments: [],
+        });
         toast.success("Program created.");
       }
       onOpenChange(false);
@@ -207,14 +130,14 @@ export function AddEditProgramDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-display">
             {isEdit ? "Edit program" : "Add program"}
           </DialogTitle>
         </DialogHeader>
 
-        <form id="program-form" onSubmit={handleSubmit} className="space-y-5 py-2">
+        <form id="program-form" onSubmit={handleSubmit} className="space-y-4 py-1">
           {/* Name */}
           <div className="space-y-1.5">
             <Label htmlFor="prog-name">Program name *</Label>
@@ -242,7 +165,7 @@ export function AddEditProgramDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             {/* Default Form Template */}
             <div className="space-y-1.5">
-              <Label>Default form template</Label>
+              <Label>Default form</Label>
               <Select value={defaultFormTemplateId} onValueChange={setDefaultFormTemplateId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Choose a form" />
@@ -257,29 +180,9 @@ export function AddEditProgramDialog({
               </Select>
             </div>
 
-            {/* Monitoring Frequency */}
+            {/* Contract */}
             <div className="space-y-1.5">
-              <Label>Monitoring frequency</Label>
-              <Select
-                value={defaultMonitoringFrequency}
-                onValueChange={(v) => setDefaultMonitoringFrequency(v as MonitoringFrequency)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MONITORING_FREQUENCIES.map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Contract Template */}
-            <div className="space-y-1.5">
-              <Label>Contract template</Label>
+              <Label>Contract</Label>
               <Select
                 value={defaultContractTemplateId}
                 onValueChange={(v) => setDefaultContractTemplateId(v as ContractType)}
@@ -297,56 +200,34 @@ export function AddEditProgramDialog({
               </Select>
             </div>
 
-            {/* Active toggle */}
-            <div className="flex items-center gap-3 pt-6">
-              <Switch id="prog-active" checked={isActive} onCheckedChange={setIsActive} />
-              <Label htmlFor="prog-active">Active</Label>
+            {/* Monitoring */}
+            <div className="space-y-1.5">
+              <Label>Monitoring</Label>
+              <Select
+                value={defaultMonitoringFrequency}
+                onValueChange={(v) => setDefaultMonitoringFrequency(v as MonitoringFrequency)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONITORING_FREQUENCIES.map((f) => (
+                    <SelectItem key={f} value={f}>
+                      {f}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          </div>
 
-          {/* Workflow steps */}
-          <TagListEditor
-            label="Default workflow steps"
-            items={defaultWorkflow}
-            onChange={setDefaultWorkflow}
-            placeholder="e.g. Intake"
-          />
-
-          {/* Required documents */}
-          <TagListEditor
-            label="Required documents"
-            items={requiredDocuments}
-            onChange={setRequiredDocuments}
-            placeholder="e.g. Signed agreement"
-          />
-
-          {/* Status pipeline */}
-          <div className="space-y-2">
-            <Label>Status pipeline</Label>
-            <p className="text-xs text-muted-foreground">
-              Check statuses to include them. Order of selection is preserved.
-            </p>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-              {CLIENT_STATUSES.map((s) => (
-                <label
-                  key={s}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted has-checked:border-primary has-checked:bg-primary/5"
-                >
-                  <input
-                    type="checkbox"
-                    className="accent-primary"
-                    checked={statusPipeline.includes(s)}
-                    onChange={() => toggleStatus(s)}
-                  />
-                  {s}
-                </label>
-              ))}
+            {/* Program status */}
+            <div className="space-y-1.5">
+              <Label htmlFor="prog-active">Status</Label>
+              <div className="flex h-10 items-center gap-3">
+                <Switch id="prog-active" checked={isActive} onCheckedChange={setIsActive} />
+                <span className="text-sm">{isActive ? "Active" : "Inactive"}</span>
+              </div>
             </div>
-            {statusPipeline.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Pipeline: {statusPipeline.join(" → ")}
-              </p>
-            )}
           </div>
         </form>
 
