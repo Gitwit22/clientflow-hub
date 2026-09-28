@@ -1,4 +1,4 @@
-import { ContractsController } from './contracts.controller';
+import { ContractsController, WelcomeController } from './contracts.controller';
 import type { ContractsService } from './contracts.service';
 import { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 import { PublicContractsController } from './public-contracts.controller';
@@ -15,13 +15,75 @@ describe('contract controllers', () => {
     const request = {} as never;
 
     await controller.generate(request, 'client-1', { staffSignerName: 'Jordan Staff' });
-    await controller.send('client-1', { contractId: 'contract-1' });
+    await controller.send(request, 'client-1', { contractId: 'contract-1' });
 
-    expect(service.generateForStaff).toHaveBeenCalledWith('client-1', {
-      id: null,
-      name: 'Jordan Staff',
+    expect(service.generateForStaff).toHaveBeenCalledWith(
+      'client-1',
+      { id: null, name: 'Jordan Staff' },
+      { enrollmentId: null },
+    );
+    expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1', {
+      enrollmentId: null,
+      actor: null,
+      idempotencyKey: null,
     });
-    expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1');
+  });
+
+  it('passes the enrollment, the staff actor and the idempotency key through to generate and send', async () => {
+    const service = {
+      generateForStaff: jest.fn().mockResolvedValue({}),
+      sendForStaff: jest.fn().mockResolvedValue({}),
+    };
+    const controller = new ContractsController(service as unknown as ContractsService);
+    const request = { adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin' } } as never;
+
+    await controller.generate(request, 'client-1', { enrollmentId: 'enroll-1' });
+    await controller.send(request, 'client-1', { contractId: 'contract-1', enrollmentId: 'enroll-1' }, 'attempt-key-0001');
+
+    expect(service.generateForStaff).toHaveBeenCalledWith(
+      'client-1',
+      { id: 'admin-1', name: 'Jordan Real' },
+      { enrollmentId: 'enroll-1' },
+    );
+    expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1', {
+      enrollmentId: 'enroll-1',
+      actor: { id: 'admin-1', name: 'Jordan Real' },
+      idempotencyKey: 'attempt-key-0001',
+    });
+  });
+
+  it('rejects a malformed Idempotency-Key before doing anything', () => {
+    const service = { sendForStaff: jest.fn() };
+    const controller = new ContractsController(service as unknown as ContractsService);
+    expect(() => controller.send({} as never, 'client-1', { contractId: 'c' }, 'bad key!')).toThrow(
+      'Idempotency-Key must be 8-128 characters',
+    );
+    expect(service.sendForStaff).not.toHaveBeenCalled();
+  });
+
+  it('delegates send-copy and the manual welcome with the staff actor and idempotency key', async () => {
+    const service = {
+      sendExecutedCopy: jest.fn().mockResolvedValue({}),
+      sendWelcomeForEnrollment: jest.fn().mockResolvedValue({}),
+    };
+    const request = { adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin' } } as never;
+
+    await new ContractsController(service as unknown as ContractsService).sendCopy(
+      request, 'client-1', 'contract-1', 'copy-attempt-0001',
+    );
+    await new WelcomeController(service as unknown as ContractsService).send(
+      request, 'client-1', { enrollmentId: 'enroll-1' }, 'welcome-attempt-0001',
+    );
+
+    expect(service.sendExecutedCopy).toHaveBeenCalledWith('client-1', 'contract-1', {
+      actor: { id: 'admin-1', name: 'Jordan Real' },
+      idempotencyKey: 'copy-attempt-0001',
+    });
+    expect(service.sendWelcomeForEnrollment).toHaveBeenCalledWith('client-1', {
+      enrollmentId: 'enroll-1',
+      actor: { id: 'admin-1', name: 'Jordan Real' },
+      idempotencyKey: 'welcome-attempt-0001',
+    });
   });
 
   it('derives the staff signer from the authenticated session instead of trusting the request body', async () => {
@@ -35,10 +97,11 @@ describe('contract controllers', () => {
 
     await controller.generate(request, 'client-1', { staffSignerName: 'Someone Else' });
 
-    expect(service.generateForStaff).toHaveBeenCalledWith('client-1', {
-      id: 'admin-1',
-      name: 'Jordan Real',
-    });
+    expect(service.generateForStaff).toHaveBeenCalledWith(
+      'client-1',
+      { id: 'admin-1', name: 'Jordan Real' },
+      { enrollmentId: null },
+    );
   });
 
   it('delegates public contract opening and completion with request metadata', async () => {

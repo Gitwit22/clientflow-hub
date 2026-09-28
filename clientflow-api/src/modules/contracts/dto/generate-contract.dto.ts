@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, MinLength } from 'class-validator';
 
 export class GenerateContractDto {
   @ApiPropertyOptional({
@@ -14,4 +14,13 @@ export class GenerateContractDto {
   @IsOptional()
   @IsString()
   staffSignerId?: string;
+
+  @ApiPropertyOptional({
+    example: 'enrollment_123',
+    description: 'The program enrollment to generate the contract for. Program context comes from the enrollment, not the legacy client program.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  enrollmentId?: string;
 }

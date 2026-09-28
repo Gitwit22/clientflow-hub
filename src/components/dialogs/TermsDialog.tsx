@@ -38,10 +38,13 @@ const FREQUENCIES: MonitoringFrequency[] = ["Weekly", "Biweekly", "Monthly", "Qu
 
 export function TermsDialog({
   client,
+  enrollment,
   open,
   onOpenChange,
 }: {
   client: Client | null;
+  /** The enrollment these terms are for. Program context comes from it, never from client.programId. */
+  enrollment?: { id: string; programId: string } | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
@@ -69,9 +72,10 @@ export function TermsDialog({
   const num = (v: string) => Number(v || 0);
 
   async function handleSave() {
-    if (!client) return;
+    if (!client || !enrollment) return;
     await createTerms(client.id, {
-      programId: client.programId ?? "",
+      programId: enrollment.programId,
+      enrollmentId: enrollment.id,
       supportType,
       fundingAmount: num(amounts.fundingAmount),
       grantAmount: num(amounts.grantAmount),
@@ -90,7 +94,8 @@ export function TermsDialog({
       specialConditions: text.specialConditions,
       approvalStatus: "Pending",
     });
-    toast.success("Terms created and sent for internal approval");
+    // Saving terms does not email anyone; they wait for internal approval.
+    toast.success("Terms saved and pending internal approval");
     onOpenChange(false);
   }
 

@@ -135,6 +135,14 @@ function canRefresh(path: string): boolean {
   ].some((publicPath) => path.startsWith(publicPath));
 }
 
+/**
+ * One key per send attempt. The server records it with the communication, so a retried request (or
+ * a double click) returns the first attempt's result instead of emailing the client twice.
+ */
+function idempotencyHeaders(idempotencyKey?: string): Record<string, string> | undefined {
+  return idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
+}
+
 export async function apiRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   let response = await sendRequest(path, init);
 
@@ -715,7 +723,11 @@ export async function cfCreateFormAssignment(data: {
     body: JSON.stringify(data),
   });
 }
-export async function cfSendFormAssignment(id: string, data: { personalMessage?: string }) {
+export async function cfSendFormAssignment(
+  id: string,
+  data: { personalMessage?: string },
+  idempotencyKey?: string,
+) {
   return apiRequest<{
     success: true;
     status: "SENT";
@@ -727,6 +739,7 @@ export async function cfSendFormAssignment(id: string, data: { personalMessage?:
     assignment: FormAssignment;
   }>(`${CF}/form-assignments/${id}/send`, {
     method: "POST",
+    headers: idempotencyHeaders(idempotencyKey),
     body: JSON.stringify(data),
   });
 }
@@ -1058,11 +1071,14 @@ export async function acfUpdateClientProgram(id: string, programId: string) {
   });
 }
 
-/** POST /clients/:id/intake/send — sends a previously deferred intake email. */
-export async function acfSendIntakeNow(id: string) {
-  return apiRequest<{ emailDelivery: { status: string; reason?: string } }>(
+/** The recorded outcome of a send. `pending` only appears when replaying an attempt still in flight. */
+export type SendDeliveryResult = { status: string; reason?: string; sentAt?: string };
+
+/** POST /clients/:id/intake/send — sends (or resends) the General Intake email. */
+export async function acfSendIntakeNow(id: string, options: { idempotencyKey?: string } = {}) {
+  return apiRequest<{ emailDelivery: SendDeliveryResult; replayed?: boolean }>(
     `/api/v1/clients/${encodeURIComponent(id)}/intake/send`,
-    { method: "POST" },
+    { method: "POST", headers: idempotencyHeaders(options.idempotencyKey) },
   );
 }
 
@@ -1164,27 +1180,68 @@ export interface AutomatedContractSummary {
   updatedAt: string;
 }
 
-/** POST /clients/:id/contracts/generate — manually draft a contract for the client's selected program. */
+/**
+ * POST /clients/:id/contracts/generate — draft a contract for an enrollment's program. When a contract
+ * was already emailed for it, that contract is returned as-is (publicContractUrl is null) and its link
+ * is not rotated.
+ */
 export async function acfGenerateContract(
   clientId: string,
-  staffSigner: { staffSignerName?: string; staffSignerId?: string } = {},
+  staffSigner: { staffSignerName?: string; staffSignerId?: string; enrollmentId?: string } = {},
 ) {
-  return apiRequest<{ contract: AutomatedContractSummary; publicContractUrl: string }>(
+  return apiRequest<{ contract: AutomatedContractSummary; publicContractUrl: string | null }>(
     `/api/v1/clients/${encodeURIComponent(clientId)}/contracts/generate`,
     { method: "POST", body: JSON.stringify(staffSigner) },
   );
 }
 
-/** POST /clients/:id/contracts/send — issue and send an existing draft contract. */
-export async function acfSendContract(clientId: string, contractId: string) {
+/** POST /clients/:id/contracts/send — issue and send (or resend the signing link of) an existing contract. */
+export async function acfSendContract(
+  clientId: string,
+  contractId: string,
+  options: { enrollmentId?: string; idempotencyKey?: string } = {},
+) {
   return apiRequest<{
     contract: AutomatedContractSummary;
-    publicContractUrl: string;
-    emailDelivery: { status: string; reason?: string };
+    publicContractUrl: string | null;
+    emailDelivery: SendDeliveryResult;
+    replayed?: boolean;
   }>(`/api/v1/clients/${encodeURIComponent(clientId)}/contracts/send`, {
     method: "POST",
-    body: JSON.stringify({ contractId }),
+    headers: idempotencyHeaders(options.idempotencyKey),
+    body: JSON.stringify({ contractId, ...(options.enrollmentId ? { enrollmentId: options.enrollmentId } : {}) }),
   });
+}
+
+/**
+ * POST /clients/:id/contracts/:contractId/send-copy — emails the client the signed copy of a COMPLETED
+ * contract. Never issues or rotates a signing link.
+ */
+export async function acfSendContractCopy(
+  clientId: string,
+  contractId: string,
+  options: { idempotencyKey?: string } = {},
+) {
+  return apiRequest<{ contractId: string; emailDelivery: SendDeliveryResult; replayed: boolean }>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/contracts/${encodeURIComponent(contractId)}/send-copy`,
+    { method: "POST", headers: idempotencyHeaders(options.idempotencyKey) },
+  );
+}
+
+/** POST /clients/:id/welcome/send — sends or resends the welcome email once the enrollment's contract is signed. */
+export async function acfSendWelcome(
+  clientId: string,
+  enrollmentId: string,
+  options: { idempotencyKey?: string } = {},
+) {
+  return apiRequest<{ contractId: string | null; emailDelivery: SendDeliveryResult; replayed: boolean }>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/welcome/send`,
+    {
+      method: "POST",
+      headers: idempotencyHeaders(options.idempotencyKey),
+      body: JSON.stringify({ enrollmentId }),
+    },
+  );
 }
 
 // ─── Billing & payments ───────────────────────────────────────────────────────

@@ -122,6 +122,54 @@ describe('compatibility route scaffold', () => {
       );
     });
 
+    it('delegates form assignment create and send to the form delivery service with the staff actor', async () => {
+      const formDelivery = {
+        createAssignment: jest.fn().mockResolvedValue({ id: 'assign-1' }),
+        send: jest.fn().mockResolvedValue({ success: true }),
+      };
+      const controller = new ClientflowCompatibilityController(
+        scaffold, undefined, undefined, undefined, undefined, undefined, undefined, undefined, formDelivery as never,
+      );
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com', firstName: 'Jordan', lastName: 'Lee' },
+      });
+
+      await controller.createFormAssignment({} as never, { clientId: 'client-1', formId: 'form-1', enrollmentId: 'e-1' });
+      await controller.sendFormAssignment(
+        { headers: { 'idempotency-key': 'attempt-0001-abcd' } } as never,
+        'assign-1',
+        { personalMessage: 'Hi' },
+      );
+
+      expect(formDelivery.createAssignment).toHaveBeenCalledWith(
+        'org-1',
+        { id: 'admin-1', displayName: 'Jordan Lee' },
+        { clientId: 'client-1', formId: 'form-1', enrollmentId: 'e-1' },
+      );
+      expect(formDelivery.send).toHaveBeenCalledWith(
+        'org-1',
+        { id: 'admin-1', displayName: 'Jordan Lee' },
+        'assign-1',
+        { personalMessage: 'Hi', idempotencyKey: 'attempt-0001-abcd' },
+      );
+    });
+
+    it('rejects a malformed Idempotency-Key on the form send', async () => {
+      const formDelivery = { send: jest.fn() };
+      const controller = new ClientflowCompatibilityController(
+        scaffold, undefined, undefined, undefined, undefined, undefined, undefined, undefined, formDelivery as never,
+      );
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
+        orgId: 'org-1',
+        admin: { id: 'admin-1', email: 'admin@example.com' },
+      });
+      await expect(controller.sendFormAssignment(
+        { headers: { 'idempotency-key': 'x' } } as never, 'assign-1', {},
+      )).rejects.toThrow('Idempotency-Key must be 8-128 characters');
+      expect(formDelivery.send).not.toHaveBeenCalled();
+    });
+
     it('cascades an assignment change onto the client\'s still-open enrollments', async () => {
       const updatedClient = { id: 'client-1', organizationId: 'org-1', assignedUserId: 'user-2', assignedStaff: 'Jordan Staff' };
       const prisma = {

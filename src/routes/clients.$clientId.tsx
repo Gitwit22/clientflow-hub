@@ -4,8 +4,10 @@ import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ClientSendMenu, SendToClientPanel } from "@/components/clients/ClientSendMenu";
 import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
 import { toText } from "@/lib/answer-text";
+import { contractSendState, currentContract, newIdempotencyKey, type SendKind } from "@/lib/client-send";
 import {
   CLIENT_TABS,
   CLIENT_TAB_LABELS,
@@ -39,7 +41,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
 import { MergeResponsesDialog } from "@/components/dialogs/MergeResponsesDialog";
+import { SendContractDialog } from "@/components/dialogs/SendContractDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
+import { SendIntakeDialog } from "@/components/dialogs/SendIntakeDialog";
+import { SendWelcomeDialog } from "@/components/dialogs/SendWelcomeDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
 import { SetUpPaymentsDialog, type InitialPaymentStatus } from "@/components/dialogs/SetUpPaymentsDialog";
 import { RecordPaymentDialog } from "@/components/dialogs/RecordPaymentDialog";
@@ -55,17 +60,15 @@ import {
   createFinalReport,
   downloadDocument,
   downloadExecutedContract,
-  refreshClientContracts,
+  refreshClientCommunications,
   refreshClientProfile,
+  sendFormEmail,
   recordMonitoringResult,
   restoreClient,
   updateClient,
   uploadDocument,
 } from "@/lib/api";
 import {
-  acfGenerateContract,
-  acfSendContract,
-  acfSendIntakeNow,
   cfGetEnrollmentBillingSummary,
   cfGetProgramBillingConfig,
 } from "@/lib/apiClient";
@@ -204,6 +207,10 @@ function ClientProfile() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTemplateId, setSendTemplateId] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
+  // One place to send anything to the client: which send dialog is open (if any).
+  const [sendDialog, setSendDialog] = useState<SendKind | null>(null);
+  const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
+  const [schedulingFollowUp, setSchedulingFollowUp] = useState(false);
   const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
   const [mergeAssignment, setMergeAssignment] = useState<FormAssignment | null>(null);
   const [formReadOnly, setFormReadOnly] = useState(false);
@@ -229,9 +236,6 @@ function ClientProfile() {
     clientOutcome: "Program Complete",
     archiveDecision: ARCHIVE_DECISIONS[0],
   });
-
-  // Resend intake email
-  const [resendingIntake, setResendingIntake] = useState(false);
 
   // Archive dialog
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -454,6 +458,65 @@ function ClientProfile() {
     return [];
   });
 
+  const openSend = (kind: SendKind) => setSendDialog(kind);
+  const closeSend = (nextOpen: boolean) => {
+    if (!nextOpen) setSendDialog(null);
+  };
+  const staffSigner = {
+    name:
+      [s.authenticatedAdmin?.firstName, s.authenticatedAdmin?.lastName].filter(Boolean).join(" ") ||
+      s.authenticatedAdmin?.email ||
+      "",
+    id: s.authenticatedAdmin?.id,
+  };
+
+  // Sends a form that was already assigned as a draft, through the same delivery path as everything else.
+  async function sendDraftAssignment(assignment: FormAssignment) {
+    if (sendingDraftId) return;
+    setSendingDraftId(assignment.id);
+    try {
+      const result = await sendFormEmail(assignment.id, undefined, newIdempotencyKey());
+      toast.success(`${result.message} Sent to ${result.recipientEmail}.`);
+      void refreshClientCommunications(client!.id).catch(() => undefined);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to send this form.");
+    } finally {
+      setSendingDraftId(null);
+    }
+  }
+
+  async function scheduleFollowUp() {
+    setSchedulingFollowUp(true);
+    try {
+      await updateClient(client!.id, {
+        nextFollowUpDate: new Date(Date.now() + 7 * 864e5).toISOString(),
+      });
+      toast.success("Follow-up scheduled in 7 days");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to schedule the follow-up.");
+    } finally {
+      setSchedulingFollowUp(false);
+    }
+  }
+
+  const contractState = contractSendState(currentContract(contracts, selectedEnrollment?.id));
+  const contractSummary =
+    contractState.kind === "signed"
+      ? `Signed ${contractState.contract.signedAt ? new Date(contractState.contract.signedAt).toLocaleDateString() : ""}`.trim()
+      : contractState.kind === "sent" || contractState.kind === "opened"
+        ? `${contractState.kind === "opened" ? "Opened" : "Sent"}, waiting for a signature`
+        : contractState.kind === "draft"
+          ? "Draft ready to send"
+          : contractState.kind === "closed"
+            ? "The previous contract is closed"
+            : "No contract yet";
+  const contractActionLabel =
+    contractState.kind === "signed"
+      ? "Send copy"
+      : contractState.kind === "sent" || contractState.kind === "opened"
+        ? "Resend signing link"
+        : "Send contract";
+
   const noEnrollmentNotice = (
     <Card className="shadow-card">
       <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -473,78 +536,7 @@ function ClientProfile() {
               <Pencil className="size-4" />
               Edit client
             </Button>
-            <Button
-              onClick={() => {
-                setSendTemplateId(null);
-                setSendOpen(true);
-              }}
-            >
-              Send program form
-            </Button>
-            <Button variant="outline" onClick={() => setTermsOpen(true)}>
-              Create terms
-            </Button>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                try {
-                  const staffSignerName =
-                    [s.authenticatedAdmin?.firstName, s.authenticatedAdmin?.lastName]
-                      .filter(Boolean)
-                      .join(" ") ||
-                    s.authenticatedAdmin?.email ||
-                    "";
-                  await acfGenerateContract(client.id, {
-                    staffSignerName,
-                    staffSignerId: s.authenticatedAdmin?.id,
-                  });
-                  await refreshClientContracts(client.id);
-                  toast.success("Draft contract generated");
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error ? error.message : "Unable to generate a contract.",
-                  );
-                }
-              }}
-            >
-              Generate contract
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                updateClient(client.id, {
-                  nextFollowUpDate: new Date(Date.now() + 7 * 864e5).toISOString(),
-                });
-                toast.success("Follow-up scheduled in 7 days");
-              }}
-            >
-              Schedule follow-up
-            </Button>
-            <Button
-              variant="outline"
-              disabled={resendingIntake}
-              onClick={async () => {
-                setResendingIntake(true);
-                try {
-                  const result = await acfSendIntakeNow(client.id);
-                  if (result.emailDelivery.status === "sent") {
-                    toast.success("Intake email resent.");
-                  } else {
-                    toast.error(
-                      `Intake email was not sent (${result.emailDelivery.reason ?? result.emailDelivery.status}).`,
-                    );
-                  }
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error ? error.message : "Unable to resend the intake email.",
-                  );
-                } finally {
-                  setResendingIntake(false);
-                }
-              }}
-            >
-              {resendingIntake ? "Resending…" : "Resend intake email"}
-            </Button>
+            <ClientSendMenu hasEnrollment={!!selectedEnrollment} onSelect={openSend} />
             {client.isArchived ? (
               <Button
                 variant="outline"
@@ -716,6 +708,34 @@ function ClientProfile() {
 
             <Card className="shadow-card">
               <CardHeader>
+                <CardTitle className="font-display text-base">Funding & service terms</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {terms.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No terms have been drafted for this program yet.
+                  </p>
+                ) : (
+                  terms.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
+                    >
+                      <span className="font-medium">
+                        {t.supportType} · ${t.fundingAmount.toLocaleString()}
+                      </span>
+                      <StatusBadge status={t.approvalStatus} />
+                    </div>
+                  ))
+                )}
+                <Button type="button" variant="outline" size="sm" onClick={() => setTermsOpen(true)}>
+                  Create terms
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
+              <CardHeader>
                 <CardTitle className="font-display text-base">Master intake answers</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-x-8 sm:grid-cols-2">
@@ -849,6 +869,30 @@ function ClientProfile() {
               ))}
             </CardContent>
           </Card>
+          <Card className="shadow-card">
+            <CardHeader>
+              <CardTitle className="font-display text-base">Follow-up</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm">
+                Next follow-up:{" "}
+                <span className="font-medium">
+                  {client.nextFollowUpDate
+                    ? new Date(client.nextFollowUpDate).toLocaleDateString()
+                    : "Not scheduled"}
+                </span>
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={schedulingFollowUp}
+                onClick={() => void scheduleFollowUp()}
+              >
+                {schedulingFollowUp ? "Scheduling…" : "Schedule follow-up (7 days)"}
+              </Button>
+            </CardContent>
+          </Card>
           <Card className="shadow-card lg:col-span-2">
             <CardHeader>
               <CardTitle className="font-display text-base">Program enrollments</CardTitle>
@@ -965,6 +1009,7 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="forms" className="mt-4 space-y-3">
+          <SendToClientPanel hasEnrollment={!!selectedEnrollment} onSelect={openSend} />
           <Card className="shadow-card">
             <CardHeader>
               <CardTitle className="font-display text-base">Intake</CardTitle>
@@ -1103,13 +1148,13 @@ function ClientProfile() {
                           Continue
                         </Button>
                         <Button
+                          type="button"
                           size="sm"
                           variant="outline"
-                          onClick={() =>
-                            toast.info('Use "Assign a Form" to send a secure link to this client')
-                          }
+                          disabled={sendingDraftId === a.id}
+                          onClick={() => void sendDraftAssignment(a)}
                         >
-                          Send to Client
+                          {sendingDraftId === a.id ? "Sending…" : "Send to Client"}
                         </Button>
                         <Button
                           size="sm"
@@ -1265,10 +1310,8 @@ function ClientProfile() {
             );
           })}
           <Button
-            onClick={() => {
-              setSendTemplateId(null);
-              setSendOpen(true);
-            }}
+            type="button"
+            onClick={() => openSend(selectedEnrollment ? "program_form" : "general_form")}
           >
             Assign a form
           </Button>
@@ -1470,10 +1513,20 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="contracts" className="mt-4 space-y-3">
-          {contracts.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No contract generated yet. Use "Generate contract" above to create one.
-            </p>
+          {selectedEnrollment ? (
+            <Card className="shadow-card">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+                <div>
+                  <p className="font-medium">{selectedProgram?.name ?? "Program"} contract</p>
+                  <p className="text-xs text-muted-foreground">{contractSummary}</p>
+                </div>
+                <Button type="button" onClick={() => openSend("contract")}>
+                  {contractActionLabel}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            noEnrollmentNotice
           )}
           {contracts.map((c) => (
             <Card key={c.id} className="shadow-card">
@@ -1486,29 +1539,29 @@ function ClientProfile() {
                   {c.generatedContent}
                 </pre>
                 <div className="flex flex-wrap gap-2">
-                  {(c.status === "DRAFT" || c.status === "SENT") && (
+                  {(c.status === "DRAFT" || c.status === "SENT" || c.status === "OPENED") && (
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
-                      onClick={async () => {
-                        try {
-                          await acfSendContract(client.id, c.id);
-                          await refreshClientContracts(client.id);
-                          toast.success(
-                            c.status === "DRAFT" ? "Contract sent" : "Contract resent",
-                          );
-                        } catch (error) {
-                          toast.error(
-                            error instanceof Error ? error.message : "Unable to send this contract.",
-                          );
-                        }
-                      }}
+                      onClick={() => openSend("contract")}
                     >
-                      {c.status === "DRAFT" ? "Send" : "Resend"}
+                      {c.status === "DRAFT" ? "Send" : "Resend signing link"}
+                    </Button>
+                  )}
+                  {c.status === "COMPLETED" && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openSend("contract")}
+                    >
+                      Send copy
                     </Button>
                   )}
                   {c.executedStoredFileId && (
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
                       onClick={() => {
@@ -1522,7 +1575,7 @@ function ClientProfile() {
                       Download signed agreement
                     </Button>
                   )}
-                  {!c.executedStoredFileId && !(c.status === "DRAFT" || c.status === "SENT") && (
+                  {c.status === "COMPLETED" && !c.executedStoredFileId && (
                     <span className="text-xs text-muted-foreground self-center">
                       Signed artifact not available yet.
                     </span>
@@ -1689,7 +1742,48 @@ function ClientProfile() {
           if (!nextOpen) setSendTemplateId(null);
         }}
       />
-      <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
+      <SendFormDialog
+        client={client}
+        kind="program"
+        enrollment={selectedEnrollment ?? null}
+        open={sendDialog === "program_form"}
+        onOpenChange={closeSend}
+      />
+      <SendFormDialog
+        client={client}
+        kind="general"
+        open={sendDialog === "general_form"}
+        onOpenChange={closeSend}
+      />
+      <SendIntakeDialog client={client} open={sendDialog === "intake"} onOpenChange={closeSend} />
+      {selectedEnrollment && (
+        <>
+          <SendContractDialog
+            client={client}
+            enrollment={selectedEnrollment}
+            program={selectedProgram}
+            contracts={contracts}
+            staffSigner={staffSigner}
+            open={sendDialog === "contract"}
+            onOpenChange={closeSend}
+          />
+          <SendWelcomeDialog
+            client={client}
+            enrollment={selectedEnrollment}
+            program={selectedProgram}
+            contracts={contracts}
+            communications={comms}
+            open={sendDialog === "welcome"}
+            onOpenChange={closeSend}
+          />
+        </>
+      )}
+      <TermsDialog
+        client={client}
+        enrollment={selectedEnrollment ?? null}
+        open={termsOpen}
+        onOpenChange={setTermsOpen}
+      />
       <EditClientDialog client={client} open={editOpen} onOpenChange={setEditOpen} />
 
       {selectedEnrollment && (

@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   type AuthenticatedRequest,
   ClientflowAdminOnlyGuard,
   ClientflowAuthGuard,
 } from '../../common/guards/clientflow-auth.guard';
+import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { ContractsService } from '../contracts/contracts.service';
 import { ApproveReviewDto } from '../contracts/dto/approve-review.dto';
 import { DeclineReviewDto } from '../contracts/dto/decline-review.dto';
@@ -54,8 +55,15 @@ export class ClientsController {
   @Post(':id/intake/send')
   @ApiOperation({ summary: 'Send a deferred intake email for a client' })
   @ApiOkResponse({ description: 'Non-fatal email delivery result.' })
-  sendIntakeNow(@Param('id') id: string) {
-    return this.clients.sendIntakeNow(id);
+  sendIntakeNow(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.clients.sendIntakeNow(id, {
+      actor: request.adminUser ? { id: request.adminUser.id, name: request.adminUser.displayName } : null,
+      idempotencyKey: parseIdempotencyKey(idempotencyKey),
+    });
   }
 
   @Post(':id/review/approve')

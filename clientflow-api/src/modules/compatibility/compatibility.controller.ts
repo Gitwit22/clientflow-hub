@@ -31,7 +31,9 @@ import { ProgramAutomationService } from '../automation/program-automation.servi
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { buildClientProfileUpdate } from '../clients/client-profile-update';
+import { FormDeliveryService } from '../forms/form-delivery.service';
 import { FormProfileService } from '../forms/form-profile.service';
+import { parseIdempotencyKey } from '../communications/communication-attempts';
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
@@ -165,6 +167,7 @@ export class ClientflowCompatibilityController {
     private readonly workflowConfig?: WorkflowConfigService,
     private readonly enrollments?: EnrollmentsService,
     private readonly formProfile?: FormProfileService,
+    private readonly formDelivery?: FormDeliveryService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -190,6 +193,15 @@ export class ClientflowCompatibilityController {
   private requireFormProfile(): FormProfileService {
     if (!this.formProfile) throw this.scaffold.notImplemented('ClientFlow form profile');
     return this.formProfile;
+  }
+
+  private requireFormDelivery(): FormDeliveryService {
+    if (!this.formDelivery) throw this.scaffold.notImplemented('ClientFlow form delivery');
+    return this.formDelivery;
+  }
+
+  private actorOf(admin: { id: string; email: string; firstName?: string | null; lastName?: string | null }) {
+    return { id: admin.id, displayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email };
   }
 
   private enrollmentTransition(target: unknown): string {
@@ -1062,32 +1074,19 @@ export class ClientflowCompatibilityController {
     return this.requirePrisma().cfFormAssignment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
   }
   @Post('form-assignments') async createFormAssignment(@Req() request: Request, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    const rawToken = randomBytes(32).toString('base64url');
-    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-    const appUrl = process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev';
-    return this.requirePrisma().cfFormAssignment.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), formId: String(body.formId ?? ''), assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null, completionMethod: body.completionMethod ? String(body.completionMethod) : null, deliveryMethod: body.deliveryMethod ? String(body.deliveryMethod) : null, recipientEmail: body.recipientEmail ? String(body.recipientEmail) : null, recipientPhone: body.recipientPhone ? String(body.recipientPhone) : null, status: String(body.status ?? 'draft'), dueAt: body.dueDate ? new Date(String(body.dueDate)) : null, dueDate: body.dueDate ? String(body.dueDate) : null, expiresAt: body.dueDate ? new Date(String(body.dueDate)) : null, sentAt: body.sentAt ? new Date(String(body.sentAt)) : null, secureLink: `${appUrl}/s/${rawToken}`, secureLinkToken: tokenHash, createdByUserId: body.assignedUserId ? String(body.assignedUserId) : null } });
-  }
-  @Post('form-assignments/:id/send') async sendFormAssignment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
-    const assignment = await this.requirePrisma().cfFormAssignment.findFirst({ where: { id, organizationId: orgId } });
-    if (!assignment) throw new NotFoundException('Form assignment not found.');
-    if (!assignment.recipientEmail) throw new BadRequestException('A recipient email is required before sending.');
-    if (!this.n8n) throw new ServiceUnavailableException('Email delivery is unavailable.');
-    let formUrl = assignment.secureLink;
-    if (!formUrl) {
-      const rawToken = randomBytes(32).toString('base64url');
-      const appUrl = process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev';
-      formUrl = `${appUrl}/s/${rawToken}`;
-      await this.requirePrisma().cfFormAssignment.update({ where: { id: assignment.id }, data: { secureLink: formUrl, secureLinkToken: createHash('sha256').update(rawToken).digest('hex') } });
-    }
-    const client = await this.requirePrisma().cfClient.findFirst({ where: { id: assignment.clientId, organizationId: orgId }, select: { primaryContactName: true } });
-    const form = await this.requirePrisma().cfFormTemplate.findFirst({ where: { id: assignment.formId, organizationId: orgId }, select: { name: true } });
-    if (!client || !form) throw new NotFoundException('Form assignment details not found.');
-    const receipt = await this.n8n.deliver({ eventId: `form.send:${assignment.id}`, eventType: 'form.send', organizationId: orgId, clientId: assignment.clientId, formId: assignment.formId, recipientEmail: assignment.recipientEmail, clientName: client.primaryContactName, formName: form.name, formUrl, expiresAt: assignment.expiresAt?.toISOString() ?? null, sentByUserId: admin.id, dueDate: assignment.dueDate ?? assignment.expiresAt?.toISOString() ?? new Date().toISOString(), ...(typeof body.personalMessage === 'string' && body.personalMessage.trim() ? { personalMessage: body.personalMessage.trim() } : {}), occurredAt: new Date().toISOString() });
-    const sentAt = new Date(receipt.sentAt);
-    const updatedAssignment = await this.requirePrisma().cfFormAssignment.update({ where: { id: assignment.id }, data: { status: 'sent', sentAt } });
-    return { success: true, status: receipt.status, message: 'Email accepted for delivery', provider: 'N8N_GMAIL', formId: assignment.formId, recipientEmail: assignment.recipientEmail, sentAt: receipt.sentAt, assignment: updatedAssignment };
+    return this.requireFormDelivery().createAssignment(orgId, this.actorOf(admin), body);
+  }
+  @Post('form-assignments/:id/send') async sendFormAssignment(
+    @Req() request: Request,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    return this.requireFormDelivery().send(orgId, this.actorOf(admin), id, {
+      personalMessage: body?.personalMessage,
+      idempotencyKey: parseIdempotencyKey(request.headers['idempotency-key']),
+    });
   }
   @Patch('form-assignments/:id') async updateFormAssignment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);

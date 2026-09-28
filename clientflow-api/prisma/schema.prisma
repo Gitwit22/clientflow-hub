@@ -813,10 +813,15 @@ model CfCommunication {
   templateContext    Json?
   date               DateTime
   staffMember        String
+  /// Where the send came from: manual_staff_action, automation. Null on older rows.
+  source             String?
+  /// One key per send attempt. A retried request reuses it, so it cannot send twice.
+  idempotencyKey     String?
   isDemo             Boolean   @default(false)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
+  @@unique([organizationId, idempotencyKey])
   @@index([organizationId, isDemo])
   @@index([organizationId, clientId])
   @@index([organizationId, status])
@@ -861,6 +866,8 @@ model CfActivityLog {
   action         String
   description    String
   user           String
+  /// Where the action came from: manual_staff_action, automation, public_form. Null on older rows.
+  source         String?
   timestamp      DateTime @default(now())
   isDemo         Boolean  @default(false)
 

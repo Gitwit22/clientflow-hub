@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiForbiddenResponse,
@@ -12,9 +12,16 @@ import {
   ClientflowAdminOnlyGuard,
   ClientflowAuthGuard,
 } from '../../common/guards/clientflow-auth.guard';
-import { ContractsService } from './contracts.service';
+import { parseIdempotencyKey } from '../communications/communication-attempts';
+import { ContractsService, type StaffSigner } from './contracts.service';
 import { GenerateContractDto } from './dto/generate-contract.dto';
 import { SendContractDto } from './dto/send-contract.dto';
+import { SendWelcomeDto } from './dto/send-welcome.dto';
+
+/** The signed-in staff member behind a request, used for signatures and the audit trail. */
+function staffActor(request: AuthenticatedRequest): StaffSigner | null {
+  return request.adminUser ? { id: request.adminUser.id, name: request.adminUser.displayName } : null;
+}
 
 @ApiTags('contracts')
 @Controller('clients/:id/contracts')
@@ -47,7 +54,7 @@ export class ContractsController {
     const signer = request.adminUser
       ? { id: request.adminUser.id, name: request.adminUser.displayName }
       : { id: dto.staffSignerId ?? null, name: dto.staffSignerName ?? '' };
-    return this.contracts.generateForStaff(clientId, signer);
+    return this.contracts.generateForStaff(clientId, signer, { enrollmentId: dto.enrollmentId ?? null });
   }
 
   @Post('send')
@@ -65,7 +72,70 @@ export class ContractsController {
   @ApiForbiddenResponse({ description: 'Standalone staff contract management is disabled.' })
   @ApiNotFoundResponse({ description: 'Client or contract was not found.' })
   @ApiBadRequestResponse({ description: 'The contract cannot be sent.' })
-  send(@Param('id') clientId: string, @Body() dto: SendContractDto) {
-    return this.contracts.sendForStaff(clientId, dto.contractId);
+  send(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') clientId: string,
+    @Body() dto: SendContractDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.contracts.sendForStaff(clientId, dto.contractId, {
+      enrollmentId: dto.enrollmentId ?? null,
+      actor: staffActor(request),
+      idempotencyKey: parseIdempotencyKey(idempotencyKey),
+    });
+  }
+
+  @Post(':contractId/send-copy')
+  @ApiOperation({
+    summary: 'Email the client the signed copy of a completed contract',
+    description: 'Never issues or rotates a signing link. Requires a COMPLETED contract with an archived executed copy.',
+  })
+  @ApiOkResponse({
+    description: 'The recorded delivery result for this attempt.',
+    schema: { example: { contractId: 'contract_123', emailDelivery: { status: 'sent', sentAt: '2026-09-28T12:00:00.000Z' }, replayed: false } },
+  })
+  @ApiNotFoundResponse({ description: 'Client or contract was not found.' })
+  @ApiBadRequestResponse({ description: 'The contract is not signed, or its signed copy is not available yet.' })
+  sendCopy(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') clientId: string,
+    @Param('contractId') contractId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.contracts.sendExecutedCopy(clientId, contractId, {
+      actor: staffActor(request),
+      idempotencyKey: parseIdempotencyKey(idempotencyKey),
+    });
+  }
+}
+
+@ApiTags('contracts')
+@Controller('clients/:id/welcome')
+@UseGuards(ClientflowAuthGuard, ClientflowAdminOnlyGuard)
+export class WelcomeController {
+  constructor(private readonly contracts: ContractsService) {}
+
+  @Post('send')
+  @ApiOperation({
+    summary: 'Send or resend the welcome email for an enrollment',
+    description: 'Requires the contract for this enrollment to be signed, exactly like the automatic post-signature workflow.',
+  })
+  @ApiOkResponse({
+    description: 'The recorded delivery result for this attempt.',
+    schema: { example: { contractId: 'contract_123', emailDelivery: { status: 'sent', sentAt: '2026-09-28T12:00:00.000Z' }, replayed: false } },
+  })
+  @ApiBadRequestResponse({ description: 'The contract has not been signed yet.' })
+  @ApiNotFoundResponse({ description: 'Client or enrollment was not found.' })
+  send(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') clientId: string,
+    @Body() dto: SendWelcomeDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.contracts.sendWelcomeForEnrollment(clientId, {
+      enrollmentId: dto.enrollmentId,
+      actor: staffActor(request),
+      idempotencyKey: parseIdempotencyKey(idempotencyKey),
+    });
   }
 }

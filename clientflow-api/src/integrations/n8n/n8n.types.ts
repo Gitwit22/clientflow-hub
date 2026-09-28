@@ -2,6 +2,7 @@ export type ClientflowLifecycleEventType =
   | 'form.send'
   | 'contract.send'
   | 'welcome.send'
+  | 'contract.copy'
   | 'form.submitted'
   | 'contract.completed'
   | 'email.status';
@@ -49,10 +50,27 @@ export interface WelcomeSendLifecyclePayload extends LifecycleEventBase {
   headerImageUrl?: string;
 }
 
+/**
+ * Emails a client the fully signed copy of their contract. Unlike contract.send this carries no
+ * signing link: executedCopyUrl is a time-limited download URL for the executed document.
+ * The matching n8n branch is specified in docs/N8N_CONTRACT_COPY.md.
+ */
+export interface ContractCopyLifecyclePayload extends LifecycleEventBase {
+  eventType: 'contract.copy';
+  contractId: string;
+  enrollmentId?: string | null;
+  clientName: string;
+  programName: string;
+  contractName: string;
+  executedCopyUrl: string;
+  expiresAt: string;
+}
+
 export type ClientflowLifecyclePayload =
   | FormSendLifecyclePayload
   | ContractSendLifecyclePayload
-  | WelcomeSendLifecyclePayload;
+  | WelcomeSendLifecyclePayload
+  | ContractCopyLifecyclePayload;
 
 export interface N8nDeliveryReceipt {
   success: true;
@@ -107,3 +125,19 @@ export interface WelcomeEmailPayload {
 }
 
 export type WelcomeEmailDeliveryResult = IntakeEmailDeliveryResult;
+
+export interface ContractCopyEmailPayload {
+  organizationId: string;
+  clientId: string;
+  contractId: string;
+  enrollmentId?: string | null;
+  recipientEmail: string;
+  clientName: string;
+  programName: string;
+  contractName: string;
+  executedCopyUrl: string;
+  expiresAt: string;
+  sentByUserId: string;
+}
+
+export type ContractCopyEmailDeliveryResult = IntakeEmailDeliveryResult;

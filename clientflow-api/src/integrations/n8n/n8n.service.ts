@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import type {
   ClientflowLifecyclePayload,
+  ContractCopyEmailDeliveryResult,
+  ContractCopyEmailPayload,
+  ContractCopyLifecyclePayload,
   ContractEmailDeliveryResult,
   ContractEmailPayload,
   ContractSendLifecyclePayload,
@@ -76,6 +79,10 @@ export class N8nService {
     return this.getIntakeAvailability();
   }
 
+  getContractCopyAvailability(): 'ready' | 'disabled' | 'not_configured' {
+    return this.getIntakeAvailability();
+  }
+
   // sendIntake/sendContract/sendWelcome all delegate to deliver() for a single HTTP transport, but
   // each must supply its OWN real eventType - n8n's workflow switches on eventType and validates
   // different required fields per branch (form.send needs formName/formUrl, contract.send needs
@@ -132,6 +139,16 @@ export class N8nService {
     return this.sendViaDeliver<WelcomeSendLifecyclePayload>(this.getWelcomeAvailability(), eventId, {
       ...payload,
       eventType: 'welcome.send',
+    });
+  }
+
+  async sendContractCopy(
+    eventId: string,
+    payload: ContractCopyEmailPayload,
+  ): Promise<ContractCopyEmailDeliveryResult> {
+    return this.sendViaDeliver<ContractCopyLifecyclePayload>(this.getContractCopyAvailability(), eventId, {
+      ...payload,
+      eventType: 'contract.copy',
     });
   }
 

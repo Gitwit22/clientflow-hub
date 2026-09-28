@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 import type { Environment } from '../../config/env';
 import type {
   ContractEmailDeliveryResult,
@@ -13,6 +14,14 @@ import type {
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { StorageService } from '../../integrations/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  attemptEventId,
+  DELIVERY_SOURCE,
+  findAttemptByKey,
+  isUniqueViolation,
+  recordedDelivery,
+  type DeliverySource,
+} from '../communications/communication-attempts';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import {
   CONTRACT_CLIENT_STATUS,
@@ -51,6 +60,16 @@ const ALLOWED_WELCOME_VARIABLES = new Set([
 export interface StaffSigner {
   id: string | null;
   name: string;
+}
+
+/** Longest a presigned R2/S3 download URL may live (7 days). Emailed copies need more than minutes. */
+const EXECUTED_COPY_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+/** Who is behind a delivery and where it came from; drives the audit trail. */
+export interface DeliveryContext {
+  source: DeliverySource;
+  actor?: StaffSigner | null;
+  idempotencyKey?: string | null;
 }
 
 type NotificationPayload = {
@@ -192,17 +211,30 @@ export class ContractsService {
     return this.issueContract(client, program, template, generated.contract.id);
   }
 
-  async generateForStaff(clientId: string, staffSigner: StaffSigner) {
-    const { client, program } = await this.resolveClientProgram(clientId);
+  async generateForStaff(
+    clientId: string,
+    staffSigner: StaffSigner,
+    options?: { enrollmentId?: string | null },
+  ) {
+    // Program context comes from the enrollment when one is given; the legacy single client.programId
+    // is only a fallback for older callers that don't send an enrollment.
+    const { client, program, enrollmentId } = options?.enrollmentId
+      ? await this.resolveEnrollmentProgram(clientId, options.enrollmentId)
+      : { ...(await this.resolveClientProgram(clientId)), enrollmentId: null };
     const template = await this.resolveTemplate(program);
-    const generated = await this.generateInternal(client, program, template, staffSigner);
+    const generated = await this.generateInternal(client, program, template, staffSigner, enrollmentId);
     return {
       contract: this.safeContract(generated.contract, template.name),
-      publicContractUrl: this.publicContractUrl(generated.rawToken),
+      // Null when a contract was already emailed: its link is left untouched rather than rotated.
+      publicContractUrl: generated.rawToken ? this.publicContractUrl(generated.rawToken) : null,
     };
   }
 
-  async sendForStaff(clientId: string, contractId: string) {
+  async sendForStaff(
+    clientId: string,
+    contractId: string,
+    options?: { enrollmentId?: string | null; actor?: StaffSigner | null; idempotencyKey?: string | null },
+  ) {
     const client = await this.prisma.cfClient.findFirst({
       where: { id: clientId, isArchived: false },
     });
@@ -212,8 +244,20 @@ export class ContractsService {
       where: { id: contractId, clientId: client.id, organizationId: client.organizationId },
     });
     if (!contract) throw new NotFoundException('Contract not found.');
-    if (![CONTRACT_STATUS.draft, CONTRACT_STATUS.sent].includes(contract.status as 'DRAFT' | 'SENT')) {
+
+    // A retried request (same Idempotency-Key) returns the first attempt instead of re-issuing, so
+    // the signing link isn't rotated twice and the client isn't emailed twice.
+    if (options?.idempotencyKey) {
+      const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
+      if (prior) return this.replayedContractSend(contract, prior);
+    }
+
+    // OPENED (the client viewed the link but hasn't signed) can be resent like SENT.
+    if (![CONTRACT_STATUS.draft, CONTRACT_STATUS.sent, CONTRACT_STATUS.opened].includes(contract.status as 'DRAFT' | 'SENT' | 'OPENED')) {
       throw new BadRequestException('The contract cannot be sent in its current status.');
+    }
+    if (options?.enrollmentId && contract.enrollmentId && contract.enrollmentId !== options.enrollmentId) {
+      throw new BadRequestException('This contract belongs to a different program enrollment.');
     }
 
     const program = await this.prisma.cfProgram.findFirst({
@@ -222,7 +266,366 @@ export class ContractsService {
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
     // A contract that's already been generated carries its own name/content - re-resolving a
     // template here would require guessing which table (legacy vs. program-scoped) it came from.
-    return this.issueContract(client, program, { name: contract.contractType }, contract.id);
+    try {
+      return await this.issueContract(client, program, { name: contract.contractType }, contract.id, {
+        source: DELIVERY_SOURCE.manual,
+        actor: options?.actor ?? null,
+        idempotencyKey: options?.idempotencyKey ?? null,
+      });
+    } catch (error) {
+      // Two concurrent requests with the same key: the unique index let one win.
+      if (options?.idempotencyKey && isUniqueViolation(error)) {
+        const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
+        if (prior) return this.replayedContractSend(contract, prior);
+      }
+      throw error;
+    }
+  }
+
+  private replayedContractSend(
+    contract: Parameters<ContractsService['safeContract']>[0] & { contractType: string },
+    prior: Parameters<typeof recordedDelivery>[0],
+  ) {
+    return {
+      contract: this.safeContract(contract, contract.contractType),
+      publicContractUrl: null,
+      emailDelivery: recordedDelivery(prior),
+      replayed: true as const,
+    };
+  }
+
+  /**
+   * Emails the client the fully signed copy of a COMPLETED contract. This is a separate path from
+   * the signing link: it never rotates a token and never touches the contract's status.
+   */
+  async sendExecutedCopy(
+    clientId: string,
+    contractId: string,
+    options?: { actor?: StaffSigner | null; idempotencyKey?: string | null },
+  ) {
+    const client = await this.prisma.cfClient.findFirst({
+      where: { id: clientId, isArchived: false },
+    });
+    if (!client) throw new NotFoundException('Client not found.');
+    const contract = await this.prisma.cfContract.findFirst({
+      where: { id: contractId, clientId: client.id, organizationId: client.organizationId },
+    });
+    if (!contract) throw new NotFoundException('Contract not found.');
+    if (contract.status !== CONTRACT_STATUS.completed) {
+      throw new BadRequestException('Only a signed contract can be sent as a copy.');
+    }
+    if (options?.idempotencyKey) {
+      const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
+      if (prior) {
+        return { contractId: contract.id, emailDelivery: recordedDelivery(prior), replayed: true as const };
+      }
+    }
+    if (!contract.executedStoredFileId) {
+      throw new BadRequestException('The signed copy is not available yet.');
+    }
+    const program = await this.prisma.cfProgram.findFirst({
+      where: { id: contract.programId, organizationId: client.organizationId },
+    });
+    if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+    return this.deliverExecutedCopy(client, contract, program, {
+      source: DELIVERY_SOURCE.manual,
+      actor: options?.actor ?? null,
+      idempotencyKey: options?.idempotencyKey ?? null,
+    });
+  }
+
+  /**
+   * Manual welcome email / resend for one enrollment. The signature gate the automatic workflow
+   * uses is preserved: the enrollment's latest contract must be COMPLETED.
+   */
+  async sendWelcomeForEnrollment(
+    clientId: string,
+    options: { enrollmentId: string; actor?: StaffSigner | null; idempotencyKey?: string | null },
+  ) {
+    const { client, program, enrollmentId } = await this.resolveEnrollmentProgram(clientId, options.enrollmentId);
+
+    if (options.idempotencyKey) {
+      const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
+      if (prior) {
+        return { contractId: prior.contractId, emailDelivery: recordedDelivery(prior), replayed: true as const };
+      }
+    }
+
+    const contract = await this.prisma.cfContract.findFirst({
+      where: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        OR: [{ enrollmentId }, { enrollmentId: null, programId: program.id }],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!contract || contract.status !== CONTRACT_STATUS.completed) {
+      throw new BadRequestException('The contract must be signed before the welcome email can be sent.');
+    }
+
+    const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
+    const welcomeConfig = await this.resolveWelcomeEmailForDelivery({
+      workflow,
+      organizationId: client.organizationId,
+      client,
+      program,
+      enrollmentId,
+      fallbackMessage: program.welcomeMessage ?? undefined,
+    });
+    const availability = this.n8n.getWelcomeAvailability();
+    const now = new Date();
+    const communicationId = randomUUID();
+    const eventId = attemptEventId('welcome.send', contract.id, communicationId);
+    const delivery: DeliveryContext = {
+      source: DELIVERY_SOURCE.manual,
+      actor: options.actor ?? null,
+      idempotencyKey: options.idempotencyKey ?? null,
+    };
+
+    let communication: { id: string };
+    try {
+      communication = await this.prisma.cfCommunication.create({
+        data: {
+          id: communicationId,
+          organizationId: client.organizationId,
+          clientId: client.id,
+          enrollmentId,
+          eventId,
+          contractId: contract.id,
+          recipientEmail: client.email,
+          channel: 'email',
+          provider: 'n8n',
+          status: availability === 'ready' ? COMMUNICATION_STATUS.requested : COMMUNICATION_STATUS.failed,
+          requestedAt: now,
+          errorCode: availability === 'ready' ? null : availability,
+          type: 'welcome_email',
+          direction: 'outbound',
+          subject: welcomeConfig.subject,
+          notes: availability === 'ready' ? 'Welcome email requested by staff.' : 'Welcome email blocked before send.',
+          renderedSubject: welcomeConfig.subject,
+          renderedBody: welcomeConfig.body,
+          templateContext: welcomeConfig.context,
+          date: now,
+          staffMember: delivery.actor?.name?.trim() || 'staff',
+          createdByUserId: delivery.actor?.id ?? null,
+          source: DELIVERY_SOURCE.manual,
+          idempotencyKey: delivery.idempotencyKey ?? null,
+          isDemo: client.isDemo,
+        },
+      });
+    } catch (error) {
+      if (options.idempotencyKey && isUniqueViolation(error)) {
+        const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
+        if (prior) {
+          return { contractId: contract.id, emailDelivery: recordedDelivery(prior), replayed: true as const };
+        }
+      }
+      throw error;
+    }
+
+    const emailDelivery = await this.dispatchWelcome({
+      communicationId: communication.id,
+      eventId,
+      client,
+      program,
+      welcomeConfig,
+      availability,
+      delivery,
+    });
+    return { contractId: contract.id, emailDelivery, replayed: false as const };
+  }
+
+  private async sendExecutedCopyAfterSignature(
+    client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
+    contract: { id: string },
+    program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
+  ): Promise<void> {
+    // Never lets a failing copy affect the signature that already happened or the welcome email.
+    try {
+      const completedContract = await this.prisma.cfContract.findFirst({ where: { id: contract.id } });
+      if (!completedContract) return;
+      await this.deliverExecutedCopy(client, completedContract, program, {
+        source: DELIVERY_SOURCE.automation,
+        idempotencyKey: `auto:contract.copy:${contract.id}`,
+      });
+    } catch (error) {
+      this.logger.warn(`Unable to send the executed copy for contract ${contract.id}: ${(error as Error).message}`);
+    }
+  }
+
+  private async deliverExecutedCopy(
+    client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
+    contract: NonNullable<Awaited<ReturnType<PrismaService['cfContract']['findFirst']>>>,
+    program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
+    delivery: DeliveryContext,
+  ) {
+    if (delivery.idempotencyKey) {
+      const prior = await findAttemptByKey(this.prisma, client.organizationId, delivery.idempotencyKey);
+      if (prior) {
+        return { contractId: contract.id, emailDelivery: recordedDelivery(prior), replayed: true as const };
+      }
+    }
+
+    const now = new Date();
+    const manual = delivery.source === DELIVERY_SOURCE.manual;
+    const staffName = delivery.actor?.name?.trim() || 'system';
+    const communicationId = randomUUID();
+    const eventId = attemptEventId('contract.copy', contract.id, communicationId);
+    const availability = this.n8n.getContractCopyAvailability();
+    const storedFile = contract.executedStoredFileId
+      ? await this.prisma.cfStoredFile.findFirst({
+          where: { id: contract.executedStoredFileId },
+          select: { storageKey: true },
+        })
+      : null;
+    const blocked = !storedFile
+      ? 'executed_copy_unavailable'
+      : !this.storage.isEnabled()
+        ? 'storage_unavailable'
+        : availability !== 'ready'
+          ? availability
+          : null;
+
+    let communication: { id: string };
+    try {
+      communication = await this.prisma.cfCommunication.create({
+        data: {
+          id: communicationId,
+          organizationId: client.organizationId,
+          clientId: client.id,
+          enrollmentId: contract.enrollmentId,
+          eventId,
+          contractId: contract.id,
+          recipientEmail: client.email,
+          channel: 'email',
+          provider: 'n8n',
+          status: blocked ? COMMUNICATION_STATUS.failed : COMMUNICATION_STATUS.requested,
+          requestedAt: now,
+          errorCode: blocked,
+          type: 'contract_copy_email',
+          direction: 'outbound',
+          subject: `${contract.contractType} - signed copy`,
+          notes: blocked ? 'Signed copy blocked before send.' : 'Signed copy requested.',
+          date: now,
+          staffMember: manual ? staffName : 'system',
+          createdByUserId: delivery.actor?.id ?? null,
+          source: delivery.source,
+          idempotencyKey: delivery.idempotencyKey ?? null,
+          isDemo: client.isDemo,
+        },
+      });
+    } catch (error) {
+      if (delivery.idempotencyKey && isUniqueViolation(error)) {
+        const prior = await findAttemptByKey(this.prisma, client.organizationId, delivery.idempotencyKey);
+        if (prior) {
+          return { contractId: contract.id, emailDelivery: recordedDelivery(prior), replayed: true as const };
+        }
+      }
+      throw error;
+    }
+
+    let emailDelivery: ContractEmailDeliveryResult;
+    if (blocked || !storedFile) {
+      emailDelivery = { status: 'failed', reason: 'unavailable' };
+    } else {
+      await this.prisma.cfCommunication.update({
+        where: { id: communication.id },
+        data: { status: COMMUNICATION_STATUS.sending },
+      });
+      try {
+        const download = await this.storage.createPresignedDownloadUrl(
+          storedFile.storageKey,
+          EXECUTED_COPY_URL_TTL_SECONDS,
+        );
+        emailDelivery = await this.n8n.sendContractCopy(eventId, {
+          organizationId: client.organizationId,
+          clientId: client.id,
+          contractId: contract.id,
+          enrollmentId: contract.enrollmentId,
+          recipientEmail: client.email,
+          clientName: client.primaryContactName,
+          programName: program.name,
+          contractName: contract.contractType,
+          executedCopyUrl: download.url,
+          expiresAt: new Date(now.getTime() + EXECUTED_COPY_URL_TTL_SECONDS * 1000).toISOString(),
+          sentByUserId: delivery.actor?.id ?? client.assignedUserId ?? 'system',
+        });
+      } catch (error) {
+        this.logger.warn(`Unable to prepare the signed copy for contract ${contract.id}: ${(error as Error).message}`);
+        emailDelivery = { status: 'failed', reason: 'unavailable' };
+      }
+    }
+
+    const failureReason = blocked
+      ?? (emailDelivery.status === 'sent' ? null : ('reason' in emailDelivery ? emailDelivery.reason : 'unknown'));
+    await this.prisma.cfCommunication.update({
+      where: { id: communication.id },
+      data: emailDelivery.status === 'sent'
+        ? { status: COMMUNICATION_STATUS.sent, sentAt: new Date(emailDelivery.sentAt), failedAt: null, errorCode: null }
+        : { status: COMMUNICATION_STATUS.failed, failedAt: new Date(), errorCode: failureReason },
+    });
+    await this.prisma.cfActivityLog.create({
+      data: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        enrollmentId: contract.enrollmentId,
+        actorUserId: delivery.actor?.id ?? client.assignedUserId,
+        action: emailDelivery.status === 'sent' ? 'CONTRACT_COPY_SENT' : 'CONTRACT_COPY_FAILED',
+        description: emailDelivery.status === 'sent'
+          ? 'Signed contract copy sent to the client.'
+          : `Signed contract copy failed: ${failureReason ?? 'unknown'}.`,
+        user: manual ? staffName : 'system',
+        source: delivery.source,
+      },
+    });
+    if (emailDelivery.status !== 'sent') {
+      await this.createAdminNotifications({
+        organizationId: client.organizationId,
+        clientId: client.id,
+        sourceType: 'contract_copy_delivery',
+        sourceId: communication.id,
+        type: 'CONTRACT_COPY_FAILED',
+        title: 'Signed contract copy failed',
+        message: `The signed copy for ${client.primaryContactName} needs staff attention.`,
+        actionUrl: `/clients/${client.id}?tab=contracts`,
+        isDemo: client.isDemo,
+      });
+    }
+    return { contractId: contract.id, emailDelivery, replayed: false as const };
+  }
+
+  /** Sends the welcome email for an already-created communication, then records the outcome. */
+  private async dispatchWelcome(input: {
+    communicationId: string;
+    eventId: string;
+    client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {};
+    program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {};
+    welcomeConfig: Awaited<ReturnType<ContractsService['resolveWelcomeEmailForDelivery']>>;
+    availability: 'ready' | 'disabled' | 'not_configured';
+    delivery: DeliveryContext;
+  }): Promise<WelcomeEmailDeliveryResult> {
+    const { client, program, welcomeConfig, availability } = input;
+    if (availability === 'ready') {
+      await this.prisma.cfCommunication.update({
+        where: { id: input.communicationId },
+        data: { status: COMMUNICATION_STATUS.sending },
+      });
+    }
+    const welcomeDelivery: WelcomeEmailDeliveryResult = availability !== 'ready'
+      ? { status: 'failed', reason: availability }
+      : await this.n8n.sendWelcome(input.eventId, {
+          organizationId: client.organizationId,
+          clientId: client.id,
+          recipientEmail: client.email,
+          clientName: client.primaryContactName,
+          programName: program.name,
+          nextStep: welcomeConfig.body,
+          attachmentUrl: await this.resolveWelcomeAttachmentUrl(welcomeConfig.guideStoredFileId),
+          headerImageUrl: welcomeConfig.headerImageUrl,
+          sentByUserId: input.delivery.actor?.id ?? client.assignedUserId ?? 'system',
+        });
+    await this.recordWelcomeDeliveryResult(input.communicationId, client, welcomeDelivery, input.delivery);
+    return welcomeDelivery;
   }
 
   async approveReview(clientId: string, staffSigner: StaffSigner) {
@@ -442,6 +845,7 @@ export class ContractsService {
             data: {
               organizationId: client.organizationId,
               clientId: client.id,
+              enrollmentId: contract.enrollmentId,
               eventId,
               contractId: contract.id,
               recipientEmail: client.email,
@@ -461,6 +865,9 @@ export class ContractsService {
               templateContext: welcomeConfig.context,
               date: now,
               staffMember: 'system',
+              source: DELIVERY_SOURCE.automation,
+              // A repeated completion can never queue a second automatic welcome.
+              idempotencyKey: `auto:welcome.send:${contract.id}`,
               isDemo: client.isDemo,
             },
           })
@@ -468,36 +875,22 @@ export class ContractsService {
       return { monitoringTask, communication };
     });
 
-    if (completed.communication && availability === 'ready') {
-      await this.prisma.cfCommunication.update({
-        where: { id: completed.communication.id },
-        data: { status: COMMUNICATION_STATUS.sending },
-      });
-    }
-    const welcomeDelivery = !shouldSendWelcome
-      ? { status: 'skipped' as const, reason: 'disabled' as const }
-      : availability !== 'ready'
-        ? { status: 'failed' as const, reason: availability }
-        : await this.n8n.sendWelcome(eventId, {
-            organizationId: client.organizationId,
-            clientId: client.id,
-            recipientEmail: client.email,
-            clientName: client.primaryContactName,
-            programName: program.name,
-            nextStep: welcomeConfig.body,
-            attachmentUrl: await this.resolveWelcomeAttachmentUrl(welcomeConfig.guideStoredFileId),
-            headerImageUrl: welcomeConfig.headerImageUrl,
-            sentByUserId: client.assignedUserId ?? 'system',
-          });
-    if (completed.communication) {
-      await this.recordWelcomeDeliveryResult(
-        completed.communication.id,
-        client,
-        welcomeDelivery,
-      );
-    }
-
+    // Order matters: file the executed copy, email it, then send the welcome email. The copy and the
+    // welcome are independent: neither can block the other, or the completion that already happened.
     await this.archiveExecutedContract(client, contract, acceptance, now);
+    await this.sendExecutedCopyAfterSignature(client, contract, program);
+
+    const welcomeDelivery: WelcomeEmailDeliveryResult = !completed.communication
+      ? { status: 'skipped', reason: 'disabled' }
+      : await this.dispatchWelcome({
+          communicationId: completed.communication.id,
+          eventId,
+          client,
+          program,
+          welcomeConfig,
+          availability,
+          delivery: { source: DELIVERY_SOURCE.automation },
+        });
 
     await this.createAdminNotifications({
       organizationId: client.organizationId,
@@ -603,6 +996,23 @@ export class ContractsService {
     return { client, program };
   }
 
+  /** The client's enrollment and the program it points at: the only source of program context. */
+  private async resolveEnrollmentProgram(clientId: string, enrollmentId: string) {
+    const client = await this.prisma.cfClient.findFirst({
+      where: { id: clientId, isArchived: false },
+    });
+    if (!client) throw new NotFoundException('Client not found.');
+    const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
+      where: { id: enrollmentId, clientId: client.id, organizationId: client.organizationId },
+    });
+    if (!enrollment) throw new NotFoundException('Program enrollment not found for this client.');
+    const program = await this.prisma.cfProgram.findFirst({
+      where: { id: enrollment.programId, organizationId: client.organizationId, isActive: true },
+    });
+    if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+    return { client, program, enrollmentId: enrollment.id };
+  }
+
   private async resolvePublicContract(rawToken: string) {
     if (!CONTRACT_TOKEN_PATTERN.test(rawToken)) {
       throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
@@ -700,10 +1110,18 @@ export class ContractsService {
         organizationId: client.organizationId,
         clientId: client.id,
         programId: program.id,
-        status: { in: [CONTRACT_STATUS.draft, CONTRACT_STATUS.sent] },
+        status: { in: [CONTRACT_STATUS.draft, CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] },
       },
       orderBy: { createdAt: 'desc' },
     });
+    if (existing && (existing.status === CONTRACT_STATUS.sent || existing.status === CONTRACT_STATUS.opened)) {
+      // Already emailed: rotating the token would silently invalidate the link the client holds.
+      // Staff who mean to resend use the send action, which rotates it deliberately.
+      const contract = existing.enrollmentId || !enrollmentId
+        ? existing
+        : await this.prisma.cfContract.update({ where: { id: existing.id }, data: { enrollmentId } });
+      return { contract, rawToken: null as string | null };
+    }
     if (existing) {
       const contract = await this.prisma.cfContract.update({
         where: { id: existing.id },
@@ -718,7 +1136,7 @@ export class ContractsService {
           }),
         },
       });
-      return { contract, rawToken };
+      return { contract, rawToken: rawToken as string | null };
     }
 
     const contract = await this.prisma.cfContract.create({
@@ -749,7 +1167,7 @@ export class ContractsService {
         isDemo: client.isDemo,
       },
     });
-    return { contract, rawToken };
+    return { contract, rawToken: rawToken as string | null };
   }
 
   private async issueContract(
@@ -757,6 +1175,7 @@ export class ContractsService {
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
     template: { name: string },
     contractId: string,
+    delivery: DeliveryContext = { source: DELIVERY_SOURCE.automation },
   ) {
     const now = new Date();
     const rawToken = generateContractToken();
@@ -764,7 +1183,14 @@ export class ContractsService {
     const secureTokenExpiresAt = contractTokenExpiry(now);
     const publicContractUrl = this.publicContractUrl(rawToken);
     const availability = this.n8n.getContractAvailability();
-    const eventId = `contract.send:${contractId}:${secureTokenHash.slice(0, 16)}`;
+    const manual = delivery.source === DELIVERY_SOURCE.manual;
+    // Manual sends build the provider event id from the communication row created first, so a
+    // deliberate resend is a new event and a retried request (same key) is never a second one.
+    const communicationId = manual ? randomUUID() : null;
+    const eventId = communicationId
+      ? attemptEventId('contract.send', contractId, communicationId)
+      : `contract.send:${contractId}:${secureTokenHash.slice(0, 16)}`;
+    const staffName = delivery.actor?.name?.trim() || 'system';
 
     const issued = await this.prisma.$transaction(async (transaction) => {
       const contract = await transaction.cfContract.update({
@@ -784,10 +1210,12 @@ export class ContractsService {
         data: {
           organizationId: client.organizationId,
           clientId: client.id,
-          actorUserId: client.assignedUserId,
+          enrollmentId: contract.enrollmentId,
+          actorUserId: delivery.actor?.id ?? client.assignedUserId,
           action: 'CONTRACT_SENT',
           description: 'Contract sent',
-          user: 'system',
+          user: manual ? staffName : 'system',
+          source: delivery.source,
         },
       });
       if (contract.enrollmentId) {
@@ -815,8 +1243,10 @@ export class ContractsService {
       }
       const communication = await transaction.cfCommunication.create({
         data: {
+          ...(communicationId ? { id: communicationId } : {}),
           organizationId: client.organizationId,
           clientId: client.id,
+          enrollmentId: contract.enrollmentId,
           eventId,
           contractId: contract.id,
           recipientEmail: client.email,
@@ -832,7 +1262,10 @@ export class ContractsService {
             ? 'Contract email requested.'
             : 'Contract email blocked before send.',
           date: now,
-          staffMember: 'system',
+          staffMember: manual ? staffName : 'system',
+          createdByUserId: delivery.actor?.id ?? null,
+          source: delivery.source,
+          idempotencyKey: delivery.idempotencyKey ?? null,
           isDemo: client.isDemo,
         },
       });
@@ -1149,7 +1582,11 @@ export class ContractsService {
     communicationId: string,
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     delivery: WelcomeEmailDeliveryResult,
+    context: DeliveryContext = { source: DELIVERY_SOURCE.automation },
   ): Promise<void> {
+    const manual = context.source === DELIVERY_SOURCE.manual;
+    const auditUser = manual ? context.actor?.name?.trim() || 'staff' : 'system';
+    const auditActorId = context.actor?.id ?? client.assignedUserId;
     const communicationModel = (this.prisma as unknown as {
       cfCommunication?: { update: (args: unknown) => Promise<unknown> };
     }).cfCommunication;
@@ -1172,10 +1609,11 @@ export class ContractsService {
           data: {
             organizationId: client.organizationId,
             clientId: client.id,
-            actorUserId: client.assignedUserId,
+            actorUserId: auditActorId,
             action: 'WELCOME_FAILED',
             description: `Welcome email failed: ${'reason' in delivery ? delivery.reason : 'unknown'}.`,
-            user: 'system',
+            user: auditUser,
+            source: context.source,
           },
         });
       }
@@ -1208,10 +1646,11 @@ export class ContractsService {
         data: {
           organizationId: client.organizationId,
           clientId: client.id,
-          actorUserId: client.assignedUserId,
+          actorUserId: auditActorId,
           action: 'WELCOME_SENT',
           description: 'Welcome email sent',
-          user: 'system',
+          user: auditUser,
+          source: context.source,
         },
       });
     });

@@ -35,6 +35,7 @@ import {
   cfCreateTerms,
   cfUpdateTerms,
   cfListContracts,
+  cfListCommunications,
   cfCreateEnrollmentMonitoring,
   cfRecordMonitoringResult,
   cfCreateDocumentUpload,
@@ -408,6 +409,8 @@ export async function createFormAssignment(data: {
   organizationId?: string;
   isDemo?: boolean;
   personalMessage?: string;
+  /** The enrollment this form is for. Program forms must belong to an enrollment in their program. */
+  enrollmentId?: string | null;
 }) {
   const isSendLink = data.completionMethod === "secure_link";
   const assignment = await cfCreateFormAssignment({
@@ -421,6 +424,7 @@ export async function createFormAssignment(data: {
     dueDate: data.dueDate,
     status: "draft",
     isDemo: data.isDemo ?? false,
+    ...(data.enrollmentId ? { enrollmentId: data.enrollmentId } : {}),
   });
   setState((s) => ({ ...s, formAssignments: [assignment, ...s.formAssignments] }));
   await log(
@@ -443,10 +447,16 @@ export async function convertProfile(id: string, newRelationshipType: Relationsh
   return delay(true);
 }
 
-export async function sendFormEmail(formAssignmentId: string, personalMessage?: string) {
-  const result = await cfSendFormAssignment(formAssignmentId, {
-    ...(personalMessage ? { personalMessage } : {}),
-  });
+export async function sendFormEmail(
+  formAssignmentId: string,
+  personalMessage?: string,
+  idempotencyKey?: string,
+) {
+  const result = await cfSendFormAssignment(
+    formAssignmentId,
+    { ...(personalMessage ? { personalMessage } : {}) },
+    idempotencyKey,
+  );
   setState((s) => ({
     ...s,
     formAssignments: s.formAssignments.map((assignment) =>
@@ -617,6 +627,19 @@ export async function refreshClientContracts(clientId: string) {
     contracts: [...contracts, ...s.contracts.filter((c) => c.clientId !== clientId)],
   }));
   return contracts;
+}
+
+/** Communications are loaded at bootstrap; refresh one client's after a send so status is current. */
+export async function refreshClientCommunications(clientId: string) {
+  const communications = await cfListCommunications(clientId);
+  setState((s) => ({
+    ...s,
+    communications: [
+      ...communications,
+      ...s.communications.filter((communication) => communication.clientId !== clientId),
+    ],
+  }));
+  return communications;
 }
 
 /* -------------------------------- Monitoring -------------------------------- */

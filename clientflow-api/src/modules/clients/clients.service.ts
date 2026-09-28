@@ -1,9 +1,18 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import type { IntakeEmailDeliveryResult } from '../../integrations/n8n/n8n.types';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  attemptEventId,
+  COMMUNICATION_STATUS,
+  DELIVERY_SOURCE,
+  findAttemptByKey,
+  isUniqueViolation,
+  recordedDelivery,
+} from '../communications/communication-attempts';
 import { ContractsService } from '../contracts/contracts.service';
 import {
   CLIENT_STATUS,
@@ -308,16 +317,84 @@ export class ClientsService {
     return this.contracts.handlePostIntakeProgramSelection(client.id, program.id);
   }
 
-  async sendIntakeNow(id: string) {
+  /**
+   * Sends (or resends) the General Intake email. Only the client's general-intake assignment is ever
+   * resent (never a program form that happens to be the newest assignment), and every attempt leaves
+   * a communication row and an activity row with the staff member and source.
+   */
+  async sendIntakeNow(
+    id: string,
+    options: { actor?: { id: string | null; name: string } | null; idempotencyKey?: string | null } = {},
+  ) {
+    const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
+    if (!client) throw new NotFoundException('Client not found.');
+
+    // A retried request (same Idempotency-Key) returns the first attempt instead of emailing twice.
+    if (options.idempotencyKey) {
+      const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
+      if (prior) return { emailDelivery: recordedDelivery(prior), replayed: true as const };
+    }
+
+    const masterTemplates = await this.prisma.cfFormTemplate.findMany({
+      where: { organizationId: client.organizationId, scope: 'master_core' },
+      select: { id: true },
+    });
+    const intakeTemplateIds = [
+      generalIntakeTemplateId(client.organizationId),
+      ...masterTemplates.map((template) => template.id),
+    ];
     const assignment = await this.prisma.cfFormAssignment.findFirst({
-      where: { clientId: id, cancelledAt: null },
+      where: {
+        clientId: client.id,
+        organizationId: client.organizationId,
+        cancelledAt: null,
+        formId: { in: intakeTemplateIds },
+      },
       orderBy: { createdAt: 'desc' },
     });
-    if (!assignment) throw new NotFoundException('No intake assignment found for this client.');
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id, organizationId: assignment.organizationId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+    if (!assignment) throw new NotFoundException('No General Intake assignment found for this client.');
+
+    const manual = DELIVERY_SOURCE.manual;
+    const staffName = options.actor?.name?.trim() || 'staff';
+    const availability = this.n8n.getIntakeAvailability();
+    const now = new Date();
+    const communicationId = randomUUID();
+    const eventId = attemptEventId('intake.send', assignment.id, communicationId);
+    let communication: { id: string };
+    try {
+      communication = await this.prisma.cfCommunication.create({
+        data: {
+          id: communicationId,
+          organizationId: client.organizationId,
+          clientId: client.id,
+          eventId,
+          formAssignmentId: assignment.id,
+          formId: assignment.formId,
+          recipientEmail: client.email,
+          channel: 'email',
+          provider: 'n8n',
+          status: availability === 'ready' ? COMMUNICATION_STATUS.requested : COMMUNICATION_STATUS.failed,
+          requestedAt: now,
+          errorCode: availability === 'ready' ? null : availability,
+          type: 'intake_email',
+          direction: 'outbound',
+          subject: 'General Intake Form',
+          notes: availability === 'ready' ? 'Intake email requested by staff.' : 'Intake email blocked before send.',
+          date: now,
+          staffMember: staffName,
+          createdByUserId: options.actor?.id ?? null,
+          source: manual,
+          idempotencyKey: options.idempotencyKey ?? null,
+          isDemo: client.isDemo,
+        },
+      });
+    } catch (error) {
+      if (options.idempotencyKey && isUniqueViolation(error)) {
+        const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
+        if (prior) return { emailDelivery: recordedDelivery(prior), replayed: true as const };
+      }
+      throw error;
+    }
 
     // secureLinkToken only ever stores a hash, so a fresh raw token must be rotated in to link the client.
     const rawToken = generatePublicToken();
@@ -328,7 +405,13 @@ export class ClientsService {
 
     const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/$/, '');
     const publicFormUrl = `${appUrl}/s/${rawToken}`;
-    const emailDelivery = await this.n8n.sendIntake(`intake-${assignment.id}-manual`, {
+    if (availability === 'ready') {
+      await this.prisma.cfCommunication.update({
+        where: { id: communication.id },
+        data: { status: COMMUNICATION_STATUS.sending },
+      });
+    }
+    const emailDelivery = await this.n8n.sendIntake(eventId, {
       organizationId: client.organizationId,
       clientId: client.id,
       formId: assignment.formId,
@@ -338,18 +421,26 @@ export class ClientsService {
       formUrl: publicFormUrl,
       dueDate: (assignment.dueAt ?? new Date()).toISOString(),
       expiresAt: assignment.expiresAt?.toISOString() ?? null,
-      sentByUserId: client.assignedUserId ?? 'system',
+      sentByUserId: options.actor?.id ?? client.assignedUserId ?? 'system',
+    });
+    const failureReason = emailDelivery.status === 'sent' ? null : emailDelivery.reason;
+    await this.prisma.cfCommunication.update({
+      where: { id: communication.id },
+      data: emailDelivery.status === 'sent'
+        ? { status: COMMUNICATION_STATUS.sent, sentAt: new Date(emailDelivery.sentAt), failedAt: null, errorCode: null }
+        : { status: COMMUNICATION_STATUS.failed, failedAt: new Date(), errorCode: failureReason },
     });
     await this.prisma.cfActivityLog.create({
       data: {
         organizationId: client.organizationId,
         clientId: client.id,
-        actorUserId: client.assignedUserId,
+        actorUserId: options.actor?.id ?? client.assignedUserId,
         action: emailDelivery.status === 'sent' ? 'INTAKE_EMAIL_SENT' : 'INTAKE_EMAIL_FAILED',
         description: emailDelivery.status === 'sent'
           ? 'General Intake email sent by staff.'
           : `General Intake email delivery failed or skipped: ${emailDelivery.status}.`,
-        user: 'staff',
+        user: staffName,
+        source: manual,
       },
     });
     return { emailDelivery };

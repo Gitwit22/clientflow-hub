@@ -48,7 +48,19 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 vi.mock("@/components/dialogs/FormRendererDialog", () => ({ FormRendererDialog: () => null }));
 vi.mock("@/components/dialogs/EditClientDialog", () => ({ EditClientDialog: () => null }));
 vi.mock("@/components/dialogs/MergeResponsesDialog", () => ({ MergeResponsesDialog: () => null }));
-vi.mock("@/components/dialogs/SendFormDialog", () => ({ SendFormDialog: () => null }));
+vi.mock("@/components/dialogs/SendFormDialog", () => ({
+  SendFormDialog: ({ open, kind }: { open: boolean; kind?: string }) =>
+    open ? <div data-testid={`dialog-form-${kind ?? "legacy"}`} /> : null,
+}));
+vi.mock("@/components/dialogs/SendContractDialog", () => ({
+  SendContractDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="dialog-contract" /> : null),
+}));
+vi.mock("@/components/dialogs/SendWelcomeDialog", () => ({
+  SendWelcomeDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="dialog-welcome" /> : null),
+}));
+vi.mock("@/components/dialogs/SendIntakeDialog", () => ({
+  SendIntakeDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="dialog-intake" /> : null),
+}));
 vi.mock("@/components/dialogs/TermsDialog", () => ({ TermsDialog: () => null }));
 vi.mock("@/components/dialogs/SetUpPaymentsDialog", () => ({ SetUpPaymentsDialog: () => null }));
 vi.mock("@/components/dialogs/RecordPaymentDialog", () => ({ RecordPaymentDialog: () => null }));
@@ -358,5 +370,123 @@ describe("canonical client profile: client with no enrollments", () => {
     expect(await screen.findByText("Enroll this client in a program to use this tab.")).toBeTruthy();
     expect(cfGetEnrollmentBillingSummary).not.toHaveBeenCalled();
     expect(router.state.location.search.enrollmentId).toBeUndefined();
+  });
+});
+
+describe("one Send workflow in the client header", () => {
+  const openSendMenu = () =>
+    fireEvent.keyDown(screen.getByRole("button", { name: /^Send$/ }), { key: "Enter" });
+  const menuItem = (name: RegExp) => screen.getByRole("menuitem", { name });
+  const isDisabled = (el: HTMLElement) =>
+    el.getAttribute("aria-disabled") === "true" || el.hasAttribute("data-disabled");
+
+  it("the header is just Edit client | Send | Move to archive", async () => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    mountRouter("/clients/c1");
+    await screen.findByRole("tab", { name: "Billing" });
+
+    expect(screen.getByRole("button", { name: "Edit client" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Move to archive" })).toBeTruthy();
+
+    // The old standalone header actions are gone.
+    for (const name of ["Create terms", "Generate contract", "Schedule follow-up", "Resend intake email", "Send program form"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+  });
+
+  it("one enrollment: every send action is available and opens the matching dialog", async () => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    mountRouter("/clients/c1");
+    await screen.findByRole("tab", { name: "Billing" });
+
+    const cases: [RegExp, string][] = [
+      [/Send \/ resend intake/, "dialog-intake"],
+      [/Send program form/, "dialog-form-program"],
+      [/Send general form/, "dialog-form-general"],
+      [/Send contract/, "dialog-contract"],
+      [/Send \/ resend welcome email/, "dialog-welcome"],
+    ];
+    for (const [label, dialog] of cases) {
+      openSendMenu();
+      expect(isDisabled(menuItem(label))).toBe(false);
+      fireEvent.click(menuItem(label));
+      expect(await screen.findByTestId(dialog)).toBeTruthy();
+    }
+  });
+
+  it("zero enrollments: program-specific sends are disabled with the reason; intake and general forms still work", async () => {
+    seed({ enrollments: [] });
+    mountRouter("/clients/c1");
+    await screen.findByRole("tab", { name: "Billing" });
+
+    openSendMenu();
+    expect(isDisabled(menuItem(/Send program form/))).toBe(true);
+    expect(isDisabled(menuItem(/Send contract/))).toBe(true);
+    expect(isDisabled(menuItem(/Send \/ resend welcome email/))).toBe(true);
+    expect(screen.getByText("Assign the client to a program before sending program-specific materials.")).toBeTruthy();
+    expect(isDisabled(menuItem(/Send \/ resend intake/))).toBe(false);
+    expect(isDisabled(menuItem(/Send general form/))).toBe(false);
+
+    fireEvent.click(menuItem(/Send general form/));
+    expect(await screen.findByTestId("dialog-form-general")).toBeTruthy();
+  });
+
+  it("the Forms tab has the same sending center, above the assigned-forms history", async () => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    mountRouter("/clients/c1?enrollmentId=e1&tab=forms");
+
+    expect(await screen.findByText("Send something to this client")).toBeTruthy();
+    for (const name of ["Program Form", "General Form", "Contract", "Welcome Email"]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
+    }
+    expect(screen.getByText("Form P1")).toBeTruthy(); // history is preserved
+
+    fireEvent.click(screen.getByRole("button", { name: "Contract" }));
+    expect(await screen.findByTestId("dialog-contract")).toBeTruthy();
+  });
+
+  it("the Forms tab panel follows the zero-enrollment rules too", async () => {
+    seed({ enrollments: [] });
+    mountRouter("/clients/c1?tab=forms");
+    await screen.findByText("Send something to this client");
+    expect((screen.getByRole("button", { name: "General Form" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Program Form" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Welcome Email" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("relocated actions: terms live on the Program tab, contracts on Contracts, follow-up on Overview", async () => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    mountRouter("/clients/c1?enrollmentId=e1&tab=program");
+    expect(await screen.findByRole("button", { name: "Create terms" })).toBeTruthy();
+
+    openTab("Contracts");
+    await waitFor(() => expect(selectedTab()).toBe("Contracts"));
+    // The seeded contract was already sent, so the action is a resend (not a new draft).
+    expect(screen.getByText("Sent, waiting for a signature")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Generate contract" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Resend signing link" })[0]);
+    expect(await screen.findByTestId("dialog-contract")).toBeTruthy();
+
+    openTab("Overview");
+    await waitFor(() => expect(selectedTab()).toBe("Overview"));
+    expect(screen.getByRole("button", { name: "Schedule follow-up (7 days)" })).toBeTruthy();
+  });
+
+  it("Contracts tab offers Send copy (not the signing link) for a signed contract", async () => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    setState((state) => ({
+      ...state,
+      contracts: [
+        { id: "k1", clientId: "c1", enrollmentId: "e1", contractType: "Contract P1", status: "COMPLETED", signedAt: "2026-09-20T00:00:00.000Z", executedStoredFileId: "f1", generatedContent: "", createdAt: "2026-09-01T00:00:00.000Z" },
+      ] as never,
+    }));
+    mountRouter("/clients/c1?enrollmentId=e1&tab=contracts");
+
+    const copyButtons = await screen.findAllByRole("button", { name: "Send copy" });
+    expect(copyButtons.length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Resend signing link" })).toBeNull();
+    fireEvent.click(copyButtons[0]);
+    expect(await screen.findByTestId("dialog-contract")).toBeTruthy();
   });
 });
