@@ -1,5 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import type { Environment } from '../../config/env';
 import type { N8nService } from '../../integrations/n8n/n8n.service';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -27,6 +27,38 @@ function contractsServiceMock() {
 }
 
 describe('ClientsService', () => {
+  it('identifies an activity-write failure before n8n without logging client data or the raw exception', async () => {
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const errorLog = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const failure = Object.assign(new Error('private database exception contents'), { code: 'P2022' });
+    const transaction = {
+      cfFormTemplate: { findFirst: jest.fn().mockResolvedValue({ id: 'form-1', dueInDays: 7 }) },
+      cfClient: { create: jest.fn().mockResolvedValue({ id: 'client-1', email: 'private@example.com' }) },
+      cfFormAssignment: { create: jest.fn().mockResolvedValue({ id: 'assignment-1' }) },
+      cfActivityLog: { create: jest.fn().mockRejectedValue(failure) },
+    };
+    const prisma = {
+      organization: { findFirst: jest.fn().mockResolvedValue({ id: 'org-1' }) },
+      $transaction: jest.fn(async (callback: (tx: typeof transaction) => unknown) => callback(transaction)),
+    } as unknown as PrismaService;
+    const n8n = { getIntakeAvailability: jest.fn().mockReturnValue('ready'), sendIntake: jest.fn() };
+    const service = new ClientsService(prisma, configService(), n8n as unknown as N8nService, contractsServiceMock());
+    try {
+      await expect(service.create({ organizationId: 'org-1', contactName: 'Private Client', email: 'private@example.com' }))
+        .rejects.toBe(failure);
+      expect(n8n.sendIntake).not.toHaveBeenCalled();
+      const errors = errorLog.mock.calls.map(([entry]) => JSON.parse(String(entry)));
+      expect(errors[0]).toEqual(expect.objectContaining({
+        stage: 'activity.CLIENT_CREATED.insert', state: 'failed', errorCode: 'P2022', eventId: 'intake-assignment-1',
+      }));
+      const output = JSON.stringify([...log.mock.calls, ...errorLog.mock.calls]);
+      expect(output).not.toMatch(/private@example|Private Client|private database exception contents/);
+    } finally {
+      log.mockRestore();
+      errorLog.mockRestore();
+    }
+  });
+
   it('creates a client, intake assignment, and skipped-email activity when n8n is disabled', async () => {
     const template = {
       id: 'form-1',

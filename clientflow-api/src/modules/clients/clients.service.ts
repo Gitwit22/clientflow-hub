@@ -38,17 +38,39 @@ export class ClientsService {
   ) {}
 
   async create(dto: CreateClientDto) {
-    const organization = await this.prisma.organization.findFirst({
+    // Temporary intake diagnosis: never log the DTO, SQL, error message, or public token.
+    const traceId = randomUUID();
+    let eventId: string | null = null;
+    const traceStep = async <T>(stage: string, action: () => Promise<T>): Promise<T> => {
+      this.logger.log(JSON.stringify({ eventType: 'intake.send', eventId, traceId, stage, state: 'started' }));
+      try {
+        const result = await action();
+        this.logger.log(JSON.stringify({ eventType: 'intake.send', eventId, traceId, stage, state: 'completed' }));
+        return result;
+      } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+        this.logger.error(JSON.stringify({
+          eventType: 'intake.send', eventId, traceId, stage, state: 'failed',
+          errorCode: typeof code === 'string' && /^P\d{4}$/.test(code) ? code : null,
+        }));
+        throw error;
+      }
+    };
+    this.logger.log(JSON.stringify({
+      eventType: 'intake.send', eventId, traceId, stage: 'ClientsService.create',
+      sendIntakeImmediately: dto.sendIntakeImmediately !== false,
+    }));
+    const organization = await traceStep('organization.lookup', () => this.prisma.organization.findFirst({
       where: { id: dto.organizationId, status: 'active' },
       select: { id: true },
-    });
+    }));
     if (!organization) throw new NotFoundException('Organization not found.');
 
     const assignee = dto.assignedStaffId
-      ? await this.prisma.adminUser.findFirst({
+      ? await traceStep('assignee.lookup', () => this.prisma.adminUser.findFirst({
           where: { id: dto.assignedStaffId, organizationId: organization.id, isActive: true },
           select: { id: true, email: true, firstName: true, lastName: true },
-        })
+        }))
       : null;
     if (dto.assignedStaffId && !assignee) throw new NotFoundException('Assigned staff member not found.');
 
@@ -64,13 +86,13 @@ export class ClientsService {
     const n8nAvailability = this.n8n.getIntakeAvailability();
     const deferred = dto.sendIntakeImmediately === false;
 
-    const created = await this.prisma.$transaction(async (transaction) => {
-      let template = await transaction.cfFormTemplate.findFirst({
+    const created = await traceStep('intake.transaction', () => this.prisma.$transaction(async (transaction) => {
+      let template = await traceStep('intake.template.lookup', () => transaction.cfFormTemplate.findFirst({
         where: { organizationId: organization.id, scope: 'master_core', isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      });
+      }));
       if (!template) {
-        template = await transaction.cfFormTemplate.upsert({
+        template = await traceStep('intake.template.upsert', () => transaction.cfFormTemplate.upsert({
           where: { id: generalIntakeTemplateId(organization.id) },
           update: {},
           create: {
@@ -90,11 +112,11 @@ export class ClientsService {
             dueInDays: 7,
             isActive: true,
           },
-        });
+        }));
       }
 
       const dueAt = new Date(now.getTime() + template.dueInDays * 86_400_000);
-      const client = await transaction.cfClient.create({
+      const client = await traceStep('client.insert', () => transaction.cfClient.create({
         data: {
           organizationId: organization.id,
           primaryContactName: dto.contactName.trim(),
@@ -109,8 +131,8 @@ export class ClientsService {
           source: dto.intakeSource?.trim() || 'admin_created',
           intake: {},
         },
-      });
-      const assignment = await transaction.cfFormAssignment.create({
+      }));
+      const assignment = await traceStep('intake.assignment.insert', () => transaction.cfFormAssignment.create({
         data: {
           organizationId: organization.id,
           clientId: client.id,
@@ -127,8 +149,9 @@ export class ClientsService {
           secureLinkToken: tokenHash,
           createdByUserId: assignee?.id ?? null,
         },
-      });
-      await transaction.cfActivityLog.create({
+      }));
+      eventId = `intake-${assignment.id}`;
+      await traceStep('activity.CLIENT_CREATED.insert', () => transaction.cfActivityLog.create({
         data: {
           organizationId: organization.id,
           clientId: client.id,
@@ -137,9 +160,9 @@ export class ClientsService {
           description: 'Client created and General Intake assigned.',
           user: assignedStaff,
         },
-      });
+      }));
       if (deferred) {
-        await transaction.cfActivityLog.create({
+        await traceStep('activity.INTAKE_EMAIL_DEFERRED.insert', () => transaction.cfActivityLog.create({
           data: {
             organizationId: organization.id,
             clientId: client.id,
@@ -148,9 +171,9 @@ export class ClientsService {
             description: 'Intake email send deferred by staff at creation.',
             user: 'system',
           },
-        });
+        }));
       } else if (n8nAvailability !== 'ready') {
-        await transaction.cfActivityLog.create({
+        await traceStep('activity.INTAKE_EMAIL_SKIPPED.insert', () => transaction.cfActivityLog.create({
           data: {
             organizationId: organization.id,
             clientId: client.id,
@@ -161,10 +184,15 @@ export class ClientsService {
               : 'Intake email skipped because n8n is not configured.',
             user: 'system',
           },
-        });
+        }));
       }
       return { client, assignment, template, dueAt };
-    });
+    }));
+
+    this.logger.log(JSON.stringify({
+      eventType: 'intake.send', eventId, traceId,
+      stage: deferred ? 'intake.deferred' : 'intake.dispatch', availability: n8nAvailability,
+    }));
 
     const emailDelivery: IntakeEmailDeliveryResult | DeferredEmailDelivery = deferred
       ? { status: 'deferred' }
