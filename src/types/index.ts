@@ -675,3 +675,124 @@ export const ARCHIVE_DECISIONS = [
   "Pre-Archive",
   "Archived",
 ];
+
+// ─── Billing & payments ───────────────────────────────────────────────────────
+
+export type BillingFrequency = "one_time" | "weekly" | "monthly" | "quarterly" | "annually" | "custom";
+export type BillingAgreementStatus = "active" | "ended";
+export type PaymentMethod = "cash" | "check" | "ach" | "card" | "other";
+export type PaymentSource = "manual" | "legacy_backfill";
+export type PaymentPeriodStatus = "paid" | "partial" | "due" | "overdue";
+
+export interface ProgramBillingConfig {
+  id: string;
+  organizationId: string;
+  programId: string;
+  defaultAmount: number;
+  frequency: BillingFrequency;
+  customIntervalDays?: number | null;
+  billingRequired: boolean;
+  defaultDueDay?: number | null;
+  allowCustomClientPricing: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EnrollmentBillingAgreement {
+  id: string;
+  organizationId: string;
+  enrollmentId: string;
+  amount: number;
+  frequency: BillingFrequency;
+  customIntervalDays?: number | null;
+  startDate: string;
+  endDate?: string | null;
+  defaultDueDay?: number | null;
+  status: BillingAgreementStatus;
+  nextDueDate?: string | null;
+  createdByUserId?: string | null;
+  createdByDisplayName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentRecord {
+  id: string;
+  organizationId: string;
+  enrollmentId: string;
+  billingAgreementId: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: PaymentMethod;
+  billingPeriodStart: string;
+  billingPeriodEnd: string;
+  source: PaymentSource;
+  note?: string | null;
+  recordedByUserId?: string | null;
+  recordedByDisplayName?: string | null;
+  voidedAt?: string | null;
+  voidedByUserId?: string | null;
+  voidedByDisplayName?: string | null;
+  voidReason?: string | null;
+  createdAt: string;
+}
+
+export interface EnrollmentBillingSummary {
+  agreement: EnrollmentBillingAgreement | null;
+  payments: PaymentRecord[];
+  collected: number;
+  expected: number;
+  outstanding: number;
+  nextDueDate?: string | null;
+}
+
+export interface OpenBillingPeriod {
+  dueDate: string;
+  billingPeriodStart: string;
+  billingPeriodEnd: string;
+  amount: number;
+  paidAmount: number;
+  status: PaymentPeriodStatus;
+}
+
+export interface BackfillPreview {
+  periods: Array<{ start: string; end: string; amount: number }>;
+  totalAmount: number;
+  count: number;
+}
+
+export interface ExpectedPaymentRow {
+  clientId: string;
+  clientName: string;
+  programId: string;
+  programName: string;
+  enrollmentId: string;
+  period: string;
+  dueDate: string;
+  amount: number;
+  status: "paid" | "partial" | "due" | "overdue";
+}
+
+export interface NeedsBillingSetupRow {
+  clientId: string;
+  clientName: string;
+  programId: string;
+  programName: string;
+  enrollmentId: string;
+  enrollmentDate: string | null;
+}
+
+export interface OrgBillingDashboard {
+  period: "month" | "quarter" | "year";
+  periodStart: string;
+  periodEnd: string;
+  revenue: {
+    received: number;
+    expected: number;
+    outstanding: number;
+    activeRecurringRevenue: number;
+  };
+  expectedPayments: ExpectedPaymentRow[];
+  needsBillingSetup: NeedsBillingSetupRow[];
+}

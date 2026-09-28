@@ -3,6 +3,7 @@ import {
   BarChart3,
   Briefcase,
   ClipboardList,
+  DollarSign,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -18,6 +19,7 @@ const mainItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Programs", url: "/programs", icon: Briefcase },
+  { title: "Payments", url: "/payments", icon: DollarSign },
   { title: "Forms", url: "/forms", icon: ClipboardList },
 ];
 

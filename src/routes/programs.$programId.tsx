@@ -34,9 +34,20 @@ import {
   uploadStoredFile,
   withdrawEnrollment,
 } from "@/lib/api";
+import { cfGetProgramBillingConfig, cfUpdateProgramBillingConfig } from "@/lib/apiClient";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useAppState } from "@/lib/store";
 import { toast } from "sonner";
-import type { ProgramDetailResponse, ProgramEnrollment } from "@/types";
+import type { BillingFrequency, ProgramBillingConfig, ProgramDetailResponse, ProgramEnrollment } from "@/types";
+
+const BILLING_FREQUENCIES: BillingFrequency[] = ["one_time", "weekly", "monthly", "quarterly", "annually", "custom"];
 
 export const Route = createFileRoute("/programs/$programId")({
   head: () => ({
@@ -72,6 +83,17 @@ function ProgramDetailPage() {
   const [welcomeSubject, setWelcomeSubject] = useState("");
   const [welcomeBody, setWelcomeBody] = useState("");
   const [welcomeGuideFile, setWelcomeGuideFile] = useState<File | null>(null);
+  const [billingConfig, setBillingConfig] = useState<ProgramBillingConfig | null>(null);
+  const [savingBilling, setSavingBilling] = useState(false);
+  const [billingForm, setBillingForm] = useState({
+    defaultAmount: "0",
+    frequency: "monthly" as BillingFrequency,
+    customIntervalDays: "",
+    billingRequired: true,
+    defaultDueDay: "1",
+    allowCustomClientPricing: true,
+    active: true,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +127,30 @@ function ProgramDetailPage() {
     setWelcomeSubject(activeVersion?.subject ?? "");
     setWelcomeBody(activeVersion?.body ?? "");
   }, [detail?.workflow.welcomeEmail.activeVersion?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void cfGetProgramBillingConfig(programId)
+      .then((config) => {
+        if (cancelled) return;
+        setBillingConfig(config);
+        setBillingForm({
+          defaultAmount: String(config.defaultAmount),
+          frequency: config.frequency,
+          customIntervalDays: config.customIntervalDays ? String(config.customIntervalDays) : "",
+          billingRequired: config.billingRequired,
+          defaultDueDay: config.defaultDueDay ? String(config.defaultDueDay) : "",
+          allowCustomClientPricing: config.allowCustomClientPricing,
+          active: config.active,
+        });
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "Unable to load billing settings.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [programId]);
 
   const program = detail?.program ?? state.programs.find((candidate) => candidate.id === programId);
 
@@ -330,6 +376,111 @@ function ProgramDetailPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">Closed</p>
               </div>
+            </CardContent>
+          </Card>
+          <Card className="shadow-card lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="font-display text-base">Billing</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Standard fee</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={billingForm.defaultAmount}
+                    onChange={(event) => setBillingForm({ ...billingForm, defaultAmount: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Billing frequency</Label>
+                  <Select
+                    value={billingForm.frequency}
+                    onValueChange={(value) => setBillingForm({ ...billingForm, frequency: value as BillingFrequency })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BILLING_FREQUENCIES.map((freq) => (
+                        <SelectItem key={freq} value={freq}>
+                          {freq.replace("_", "-")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {billingForm.frequency === "custom" && (
+                  <div className="space-y-1.5">
+                    <Label>Custom interval (days)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={billingForm.customIntervalDays}
+                      onChange={(event) => setBillingForm({ ...billingForm, customIntervalDays: event.target.value })}
+                    />
+                  </div>
+                )}
+                {["monthly", "quarterly", "annually"].includes(billingForm.frequency) && (
+                  <div className="space-y-1.5">
+                    <Label>Default due day</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="28"
+                      value={billingForm.defaultDueDay}
+                      onChange={(event) => setBillingForm({ ...billingForm, defaultDueDay: event.target.value })}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                <span>Billing required for this program</span>
+                <Switch
+                  checked={billingForm.billingRequired}
+                  onCheckedChange={(checked) => setBillingForm({ ...billingForm, billingRequired: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                <span>Allow custom client pricing</span>
+                <Switch
+                  checked={billingForm.allowCustomClientPricing}
+                  onCheckedChange={(checked) => setBillingForm({ ...billingForm, allowCustomClientPricing: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                <span>Active</span>
+                <Switch
+                  checked={billingForm.active}
+                  onCheckedChange={(checked) => setBillingForm({ ...billingForm, active: checked })}
+                />
+              </div>
+              <Button
+                disabled={savingBilling || !billingConfig}
+                onClick={() => {
+                  setSavingBilling(true);
+                  void cfUpdateProgramBillingConfig(program.id, {
+                    defaultAmount: Number(billingForm.defaultAmount || 0),
+                    frequency: billingForm.frequency,
+                    customIntervalDays: billingForm.customIntervalDays ? Number(billingForm.customIntervalDays) : undefined,
+                    billingRequired: billingForm.billingRequired,
+                    defaultDueDay: billingForm.defaultDueDay ? Number(billingForm.defaultDueDay) : undefined,
+                    allowCustomClientPricing: billingForm.allowCustomClientPricing,
+                    active: billingForm.active,
+                  })
+                    .then((config) => {
+                      setBillingConfig(config);
+                      toast.success("Billing settings saved.");
+                    })
+                    .catch((error: unknown) => {
+                      toast.error(error instanceof Error ? error.message : "Unable to save billing settings.");
+                    })
+                    .finally(() => setSavingBilling(false));
+                }}
+              >
+                {savingBilling ? "Saving..." : "Save billing settings"}
+              </Button>
             </CardContent>
           </Card>
           <Card className="shadow-card lg:col-span-2">

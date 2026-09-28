@@ -104,6 +104,11 @@ const map: Record<string, Tone> = {
   Overdue: "danger",
   Scheduled: "info",
   Pending: "warning",
+  // billing / payments (lowercase, matches the API's literal enum casing)
+  paid: "success",
+  partial: "warning",
+  due: "info",
+  overdue: "danger",
 };
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {

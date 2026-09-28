@@ -30,6 +30,10 @@ import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
 import { MergeResponsesDialog } from "@/components/dialogs/MergeResponsesDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
+import { SetUpPaymentsDialog, type InitialPaymentStatus } from "@/components/dialogs/SetUpPaymentsDialog";
+import { RecordPaymentDialog } from "@/components/dialogs/RecordPaymentDialog";
+import { BringAccountCurrentDialog } from "@/components/dialogs/BringAccountCurrentDialog";
+import { PaymentLedgerDialog } from "@/components/dialogs/PaymentLedgerDialog";
 import { getState, useAppState } from "@/lib/store";
 import {
   addCommunication,
@@ -51,12 +55,16 @@ import {
   acfSendContract,
   acfSendIntakeNow,
   acfUpdateClientProgram,
+  cfGetEnrollmentBillingSummary,
+  cfGetProgramBillingConfig,
 } from "@/lib/apiClient";
 import {
   ARCHIVE_DECISIONS,
+  type EnrollmentBillingSummary,
   type FormAssignment,
   type IntakeDetails,
   type IntakeSubmission,
+  type ProgramBillingConfig,
 } from "@/types";
 
 const MONITORING_TYPES = [
@@ -73,7 +81,12 @@ const MONITORING_TYPES = [
 export const Route = createFileRoute("/clients/$clientId")({
   validateSearch: (search: Record<string, unknown>) => ({
     programId: typeof search.programId === "string" ? search.programId : undefined,
-    tab: search.tab === "program" ? ("program" as const) : undefined,
+    tab:
+      search.tab === "program"
+        ? ("program" as const)
+        : search.tab === "billing"
+          ? ("billing" as const)
+          : undefined,
   }),
   head: () => ({
     meta: [
@@ -174,6 +187,9 @@ function ClientProfile() {
   const [clientError, setClientError] = useState<string | null>(null);
 
   const client = globalClient || fetchedClient;
+  const billingEnrollment = client
+    ? s.enrollments.find((e) => e.clientId === client.id && e.programId === selectedProgramId)
+    : undefined;
 
   const [editOpen, setEditOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
@@ -182,6 +198,18 @@ function ClientProfile() {
   const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
   const [mergeAssignment, setMergeAssignment] = useState<FormAssignment | null>(null);
   const [formReadOnly, setFormReadOnly] = useState(false);
+
+  // Billing & payments (fetched on-demand per selected enrollment, not part of the global store)
+  const [billingSummary, setBillingSummary] = useState<EnrollmentBillingSummary | null>(null);
+  const [billingProgramConfig, setBillingProgramConfig] = useState<ProgramBillingConfig | null>(null);
+  const [loadingBilling, setLoadingBilling] = useState(false);
+  const [billingRefreshVersion, setBillingRefreshVersion] = useState(0);
+  const [setUpPaymentsOpen, setSetUpPaymentsOpen] = useState(false);
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  const [bringCurrentOpen, setBringCurrentOpen] = useState(false);
+  const [bringCurrentMode, setBringCurrentMode] = useState<"current" | "partial_unknown">("current");
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+
   const [note, setNote] = useState("");
   const [report, setReport] = useState({
     originalNeed: "",
@@ -261,6 +289,34 @@ function ClientProfile() {
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [clientId]);
+
+  useEffect(() => {
+    if (!client || !billingEnrollment) {
+      setBillingSummary(null);
+      setBillingProgramConfig(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingBilling(true);
+    void Promise.all([
+      cfGetEnrollmentBillingSummary(client.id, billingEnrollment.id),
+      cfGetProgramBillingConfig(billingEnrollment.programId),
+    ])
+      .then(([summary, config]) => {
+        if (cancelled) return;
+        setBillingSummary(summary);
+        setBillingProgramConfig(config);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "Unable to load billing details.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBilling(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client?.id, billingEnrollment?.id, billingRefreshVersion]);
 
   if (loadingClient)
     return (
@@ -579,10 +635,10 @@ function ClientProfile() {
         </div>
       )}
 
-      <Tabs defaultValue={selectedProgram && tab === "program" ? "program" : "overview"}>
+      <Tabs defaultValue={selectedProgram && (tab === "program" || tab === "billing") ? tab : "overview"}>
         <TabsList className="flex h-auto flex-wrap justify-start">
           {[
-            ...(selectedProgram ? ["program"] : []),
+            ...(selectedProgram ? ["program", "billing"] : []),
             "overview",
             "forms",
             "contracts",
@@ -805,9 +861,12 @@ function ClientProfile() {
                     (item) => item.id === enrollment.programId,
                   );
                   return (
-                    <div
+                    <Link
                       key={enrollment.id}
-                      className="border-b border-border py-3 last:border-0"
+                      to="/clients/$clientId"
+                      params={{ clientId: client.id }}
+                      search={{ programId: enrollment.programId, tab: "billing" }}
+                      className="block border-b border-border py-3 last:border-0 hover:bg-muted/40"
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -821,13 +880,82 @@ function ClientProfile() {
                           {enrollment.nextAction ? ` · Next: ${enrollment.nextAction}` : ""}
                         </p>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })
               )}
             </CardContent>
           </Card>
         </TabsContent>
+
+        {selectedProgram && selectedEnrollment && (
+          <TabsContent value="billing" className="mt-4 space-y-4">
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="font-display text-base">Billing & payments</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                {loadingBilling && !billingSummary ? (
+                  <p className="text-sm text-muted-foreground">Loading billing details...</p>
+                ) : !billingSummary?.agreement ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">Payment setup required</p>
+                    <Button onClick={() => setSetUpPaymentsOpen(true)}>Set Up Payments</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="font-display text-lg font-semibold">{selectedProgram.name}</p>
+                      <p className="text-muted-foreground">
+                        ${billingSummary.agreement.amount.toLocaleString()} / {billingSummary.agreement.frequency.replace("_", "-")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Active since {new Date(billingSummary.agreement.startDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <p className="font-display text-xl font-semibold">${billingSummary.collected.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Collected</p>
+                      </div>
+                      <div>
+                        <p className="font-display text-xl font-semibold">${billingSummary.expected.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Expected</p>
+                      </div>
+                      <div>
+                        <p className="font-display text-xl font-semibold">${billingSummary.outstanding.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Outstanding</p>
+                      </div>
+                    </div>
+                    {billingSummary.nextDueDate && (
+                      <p className="text-xs text-muted-foreground">
+                        Next payment: {new Date(billingSummary.nextDueDate).toLocaleDateString()}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={() => setRecordPaymentOpen(true)}>Record Payment</Button>
+                      <Button variant="outline" onClick={() => setSetUpPaymentsOpen(true)}>
+                        Update Agreement
+                      </Button>
+                      <Button variant="outline" onClick={() => setLedgerOpen(true)}>
+                        View Ledger
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setBringCurrentMode("current");
+                          setBringCurrentOpen(true);
+                        }}
+                      >
+                        Bring Account Current
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="forms" className="mt-4 space-y-3">
           <Card className="shadow-card">
@@ -1556,6 +1684,49 @@ function ClientProfile() {
       />
       <TermsDialog client={client} open={termsOpen} onOpenChange={setTermsOpen} />
       <EditClientDialog client={client} open={editOpen} onOpenChange={setEditOpen} />
+
+      {selectedEnrollment && (
+        <>
+          <SetUpPaymentsDialog
+            open={setUpPaymentsOpen}
+            onOpenChange={setSetUpPaymentsOpen}
+            clientId={client.id}
+            enrollmentId={selectedEnrollment.id}
+            programName={selectedProgram?.name ?? "this program"}
+            programConfig={billingProgramConfig}
+            existingAgreement={billingSummary?.agreement}
+            onSaved={(_agreement, initialPaymentStatus: InitialPaymentStatus | null) => {
+              setBillingRefreshVersion((v) => v + 1);
+              if (initialPaymentStatus === "current" || initialPaymentStatus === "partial_unknown") {
+                setBringCurrentMode(initialPaymentStatus);
+                setBringCurrentOpen(true);
+              }
+            }}
+          />
+          <RecordPaymentDialog
+            open={recordPaymentOpen}
+            onOpenChange={setRecordPaymentOpen}
+            clientId={client.id}
+            enrollmentId={selectedEnrollment.id}
+            agreementAmount={billingSummary?.agreement?.amount ?? 0}
+            onSaved={() => setBillingRefreshVersion((v) => v + 1)}
+          />
+          <BringAccountCurrentDialog
+            open={bringCurrentOpen}
+            onOpenChange={setBringCurrentOpen}
+            clientId={client.id}
+            enrollmentId={selectedEnrollment.id}
+            mode={bringCurrentMode}
+            onDone={() => setBillingRefreshVersion((v) => v + 1)}
+          />
+          <PaymentLedgerDialog
+            open={ledgerOpen}
+            onOpenChange={setLedgerOpen}
+            payments={billingSummary?.payments ?? []}
+            onVoided={() => setBillingRefreshVersion((v) => v + 1)}
+          />
+        </>
+      )}
 
       {/* Monitoring item dialog */}
       <Dialog open={monitoringOpen} onOpenChange={setMonitoringOpen}>

@@ -8,19 +8,28 @@ import {
 } from "./idle-session";
 import type {
   ActivityLog,
+  BackfillPreview,
+  BillingFrequency,
   Client,
   ClientDocument,
   Communication,
   Contract,
+  EnrollmentBillingAgreement,
+  EnrollmentBillingSummary,
   EnrollmentStatusHistory,
   EnrollmentMonitoring,
   FinalReport,
   FormAssignment,
   FormTemplate,
   IntakeSubmission,
+  OpenBillingPeriod,
+  OrgBillingDashboard,
   OrgMember,
   OrgSettings,
+  PaymentMethod,
+  PaymentRecord,
   Program,
+  ProgramBillingConfig,
   ProgramDetailResponse,
   ProgramWorkflow,
   ProgramEnrollment,
@@ -1152,3 +1161,127 @@ export async function acfSendContract(clientId: string, contractId: string) {
     body: JSON.stringify({ contractId }),
   });
 }
+
+// ─── Billing & payments ───────────────────────────────────────────────────────
+
+/** GET /programs/:programId/billing-config — get-or-create the program's billing defaults. */
+export async function cfGetProgramBillingConfig(programId: string) {
+  return apiRequest<ProgramBillingConfig>(`/api/v1/programs/${encodeURIComponent(programId)}/billing-config`);
+}
+
+/** PATCH /programs/:programId/billing-config */
+export async function cfUpdateProgramBillingConfig(
+  programId: string,
+  data: Partial<
+    Pick<
+      ProgramBillingConfig,
+      | "defaultAmount"
+      | "frequency"
+      | "customIntervalDays"
+      | "billingRequired"
+      | "defaultDueDay"
+      | "allowCustomClientPricing"
+      | "active"
+    >
+  >,
+) {
+  return apiRequest<ProgramBillingConfig>(`/api/v1/programs/${encodeURIComponent(programId)}/billing-config`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+function billingBase(clientId: string, enrollmentId: string) {
+  return `/api/v1/clients/${encodeURIComponent(clientId)}/enrollments/${encodeURIComponent(enrollmentId)}/billing`;
+}
+
+/** GET .../billing — agreement + payments + collected/expected/outstanding for one enrollment. */
+export async function cfGetEnrollmentBillingSummary(clientId: string, enrollmentId: string) {
+  return apiRequest<EnrollmentBillingSummary>(billingBase(clientId, enrollmentId));
+}
+
+/** GET .../billing/periods — every occurrence since the agreement started, with paid/due/overdue status. */
+export async function cfListOpenBillingPeriods(clientId: string, enrollmentId: string, throughDate?: string) {
+  const query = throughDate ? `?throughDate=${encodeURIComponent(throughDate)}` : "";
+  return apiRequest<OpenBillingPeriod[]>(`${billingBase(clientId, enrollmentId)}/periods${query}`);
+}
+
+/** POST .../billing/agreement — ends the current agreement (if any) and creates a new one. */
+export async function cfReplaceEnrollmentAgreement(
+  clientId: string,
+  enrollmentId: string,
+  data: {
+    amount: number;
+    frequency: BillingFrequency;
+    customIntervalDays?: number;
+    startDate: string;
+    defaultDueDay?: number;
+  },
+) {
+  return apiRequest<EnrollmentBillingAgreement>(`${billingBase(clientId, enrollmentId)}/agreement`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** POST .../billing/payments — record a manual payment applied to a specific billing period. */
+export async function cfRecordPayment(
+  clientId: string,
+  enrollmentId: string,
+  data: {
+    amount: number;
+    paymentDate: string;
+    paymentMethod: PaymentMethod;
+    billingPeriodStart: string;
+    billingPeriodEnd: string;
+    note?: string;
+  },
+) {
+  return apiRequest<PaymentRecord>(`${billingBase(clientId, enrollmentId)}/payments`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** PATCH /billing/payments/:id/void */
+export async function cfVoidPayment(paymentId: string, reason: string) {
+  return apiRequest<PaymentRecord>(`/api/v1/billing/payments/${encodeURIComponent(paymentId)}/void`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export interface BackfillSelectionPayload {
+  paidThroughDate?: string;
+  periods?: Array<{ start: string; end: string }>;
+}
+
+/** POST .../billing/backfill/preview */
+export async function cfPreviewBackfill(
+  clientId: string,
+  enrollmentId: string,
+  selection: BackfillSelectionPayload,
+) {
+  return apiRequest<BackfillPreview>(`${billingBase(clientId, enrollmentId)}/backfill/preview`, {
+    method: "POST",
+    body: JSON.stringify(selection),
+  });
+}
+
+/** POST .../billing/backfill/confirm */
+export async function cfConfirmBackfill(
+  clientId: string,
+  enrollmentId: string,
+  selection: BackfillSelectionPayload,
+) {
+  return apiRequest<{ created: number; totalAmount: number }>(
+    `${billingBase(clientId, enrollmentId)}/backfill/confirm`,
+    { method: "POST", body: JSON.stringify(selection) },
+  );
+}
+
+/** GET /billing/dashboard?period=month|quarter|year */
+export async function cfGetBillingDashboard(period: "month" | "quarter" | "year" = "month") {
+  return apiRequest<OrgBillingDashboard>(`/api/v1/billing/dashboard?period=${period}`);
+}
+

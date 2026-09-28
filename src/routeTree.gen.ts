@@ -17,6 +17,7 @@ import { Route as FormsRouteImport } from './routes/forms'
 import { Route as IntakeRouteImport } from './routes/intake'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MonitoringRouteImport } from './routes/monitoring'
+import { Route as PaymentsRouteImport } from './routes/payments'
 import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProgramsRouteImport } from './routes/programs'
 import { Route as ReportsRouteImport } from './routes/reports'
@@ -70,6 +71,11 @@ const LoginRoute = LoginRouteImport.update({
 const MonitoringRoute = MonitoringRouteImport.update({
   id: '/monitoring',
   path: '/monitoring',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PaymentsRoute = PaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PipelineRoute = PipelineRouteImport.update({
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/payments': typeof PaymentsRoute
   '/pipeline': typeof PipelineRouteWithChildren
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
@@ -175,6 +182,7 @@ export interface FileRoutesByTo {
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/payments': typeof PaymentsRoute
   '/reports': typeof ReportsRoute
   '/review': typeof ReviewRoute
   '/settings': typeof SettingsRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/payments': typeof PaymentsRoute
   '/pipeline': typeof PipelineRouteWithChildren
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
@@ -224,6 +233,7 @@ export interface FileRouteTypes {
     | '/intake'
     | '/login'
     | '/monitoring'
+    | '/payments'
     | '/pipeline'
     | '/programs'
     | '/reports'
@@ -247,6 +257,7 @@ export interface FileRouteTypes {
     | '/intake'
     | '/login'
     | '/monitoring'
+    | '/payments'
     | '/reports'
     | '/review'
     | '/settings'
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/intake'
     | '/login'
     | '/monitoring'
+    | '/payments'
     | '/pipeline'
     | '/programs'
     | '/reports'
@@ -294,6 +306,7 @@ export interface RootRouteChildren {
   IntakeRoute: typeof IntakeRoute
   LoginRoute: typeof LoginRoute
   MonitoringRoute: typeof MonitoringRoute
+  PaymentsRoute: typeof PaymentsRoute
   PipelineRoute: typeof PipelineRouteWithChildren
   ProgramsRoute: typeof ProgramsRouteWithChildren
   ReportsRoute: typeof ReportsRoute
@@ -360,6 +373,13 @@ declare module '@tanstack/react-router' {
       path: '/monitoring'
       fullPath: '/monitoring'
       preLoaderRoute: typeof MonitoringRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/payments': {
+      id: '/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof PaymentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pipeline': {
@@ -513,6 +533,7 @@ const rootRouteChildren: RootRouteChildren = {
   IntakeRoute: IntakeRoute,
   LoginRoute: LoginRoute,
   MonitoringRoute: MonitoringRoute,
+  PaymentsRoute: PaymentsRoute,
   PipelineRoute: PipelineRouteWithChildren,
   ProgramsRoute: ProgramsRouteWithChildren,
   ReportsRoute: ReportsRoute,
