@@ -12,6 +12,12 @@ workflow accepts and requires, how the two line up, and what is still open.
 Related, narrower docs: `N8N_EVENTS.md` (event summary), `N8N_WELCOME_EMAIL.md` (welcome wording and
 attachment), `N8N_CONTRACT_COPY.md` (signed-copy event).
 
+**2026-09-28 baseline:** The n8n audit below predates the rollback and is historical, not a
+description of the current live workflow. The frozen `contract.copy` request and agreed dedicated
+branch are documented in [N8N_CONTRACT_COPY.md](N8N_CONTRACT_COPY.md). For this event, that document
+supersedes the older normalization, URL fallback, and body-validation details below. Other
+ClientFlow event payloads are unchanged by this alignment.
+
 ---
 
 ## 1. Overview
@@ -109,7 +115,7 @@ Every event carries: `eventId`, `eventType`, `occurredAt`, `organizationId`, `cl
 | `intake.send` | `formId`, `formName` ("General Intake Form"), `formUrl`, `clientName`, `dueDate`, `expiresAt` |
 | `form.send` | `formId`, `formName`, `formUrl`, `clientName`, `dueDate`, `expiresAt`, `personalMessage` (optional) |
 | `contract.send` | `clientName`, `contractName`, `contractUrl`, `programName`, `dueDate` |
-| `contract.copy` | `contractId`, `enrollmentId`, `clientName`, `programName`, `contractName`, `executedCopyUrl` (7-day link), `expiresAt` |
+| `contract.copy` | `contractId`, `enrollmentId`, `clientName`, `programName`, `contractName`, `executedCopyUrl` (7-day link), `source` (`automation` or `manual_staff_action`) |
 | `welcome.send` | `clientName`, `programName`, **`subject`**, **`body`**, `renderMode: "verbatim"`, `welcome{ source, templateId, templateName, versionId, versionNumber, ruleId? }`, `nextStep` (same text as `body`), `attachmentUrl`, `attachmentFileName`, `attachmentMimeType`, `headerImageUrl` |
 
 Only `welcome.send` currently carries ClientFlow-authored `subject` and `body`. See open item **C1**.

@@ -148,8 +148,18 @@ export class N8nService {
     payload: ContractCopyEmailPayload,
   ): Promise<ContractCopyEmailDeliveryResult> {
     return this.sendViaDeliver<ContractCopyLifecyclePayload>(this.getContractCopyAvailability(), eventId, {
-      ...payload,
       eventType: 'contract.copy',
+      organizationId: payload.organizationId,
+      clientId: payload.clientId,
+      sentByUserId: payload.sentByUserId,
+      recipientEmail: payload.recipientEmail,
+      clientName: payload.clientName,
+      enrollmentId: payload.enrollmentId,
+      contractId: payload.contractId,
+      contractName: payload.contractName,
+      programName: payload.programName,
+      executedCopyUrl: payload.executedCopyUrl,
+      source: payload.source,
     });
   }
 

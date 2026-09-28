@@ -347,12 +347,19 @@ describe('ContractsService: send the signed copy', () => {
       staffMember: 'Jordan Lee',
     }));
     expect(created.eventId).toBe(`contract.copy:contract-1:${created.id}`);
-    expect(n8n.sendContractCopy).toHaveBeenCalledWith(created.eventId, expect.objectContaining({
+    expect(n8n.sendContractCopy).toHaveBeenCalledWith(created.eventId, {
+      organizationId: 'org-1',
+      clientId: 'client-1',
       contractId: 'contract-1',
+      enrollmentId: 'enroll-1',
       recipientEmail: 'client@example.com',
+      clientName: 'Client Owner',
       executedCopyUrl: 'https://r2.example.com/signed?sig=1',
       programName: 'Brand Awareness Subscription',
-    }));
+      contractName: 'Brand Awareness Service Agreement',
+      source: 'manual_staff_action',
+      sentByUserId: 'admin-1',
+    });
     expect(n8n.sendContract).not.toHaveBeenCalled(); // never the signing-link path
     expect(prisma.cfContract.update).not.toHaveBeenCalled(); // no token rotation, no status change
     expect(prisma.cfCommunication.update).toHaveBeenCalledWith({
@@ -385,6 +392,40 @@ describe('ContractsService: send the signed copy', () => {
     }));
   });
 
+  it('does not send when the referenced executed file no longer exists', async () => {
+    const n8n = readyN8n();
+    const storage = storageReady();
+    const { service, prisma } = build({
+      ...completedLookup(),
+      cfStoredFile: { findFirst: jest.fn().mockResolvedValue(null) },
+    }, n8n, storage);
+
+    const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+
+    expect(result.emailDelivery.status).toBe('failed');
+    expect(n8n.sendContractCopy).not.toHaveBeenCalled();
+    expect(storage.createPresignedDownloadUrl).not.toHaveBeenCalled();
+    expect(prisma.cfCommunication.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED', errorCode: 'executed_copy_unavailable' }),
+    }));
+  });
+
+  it('records a non-HTTPS executed-file URL as failed without sending it', async () => {
+    const n8n = readyN8n();
+    const storage = storageReady();
+    storage.createPresignedDownloadUrl.mockResolvedValue({ url: 'http://storage.example.com/executed.txt' });
+    const { service, prisma } = build(completedLookup(), n8n, storage);
+
+    const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+
+    expect(result.emailDelivery.status).toBe('failed');
+    expect(n8n.sendContractCopy).not.toHaveBeenCalled();
+    expect(prisma.cfActivityLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'CONTRACT_COPY_FAILED' }),
+    });
+    expect(prisma.cfNotification.createMany).toHaveBeenCalled();
+  });
+
   it('a retried request (same key) returns the first attempt and sends exactly once', async () => {
     const n8n = readyN8n();
     const prior = {
@@ -411,6 +452,7 @@ describe('ContractsService: send the signed copy', () => {
     const ids = prisma.cfCommunication.create.mock.calls.map((call: any) => call[0].data.eventId);
     expect(new Set(ids).size).toBe(2);
     expect(n8n.sendContractCopy).toHaveBeenCalledTimes(2);
+    expect(n8n.sendContractCopy.mock.calls.map((call: any) => call[0])).toEqual(ids);
   });
 });
 
@@ -553,10 +595,14 @@ function completionContext(n8nOverrides: Record<string, unknown> = {}, prismaExt
 
 describe('ContractsService: completion sends the signed copy, then the welcome email', () => {
   it('fires contract.copy first (automation) and then welcome.send', async () => {
-    const { complete, order, prisma, transaction } = completionContext();
+    const { complete, order, n8n, prisma, transaction } = completionContext({}, {
+      cfClient: { findFirst: jest.fn().mockResolvedValue({ ...client, assignedUserId: 'assigned-staff-1' }) },
+    });
     await complete();
 
     expect(order).toEqual(['copy', 'welcome']);
+    expect(n8n.sendContractCopy).toHaveBeenCalledWith(expect.stringMatching(/^contract\.copy:contract-1:/),
+      expect.objectContaining({ source: 'automation', sentByUserId: 'system' }));
     const copyComm = prisma.cfCommunication.create.mock.calls[0][0].data;
     expect(copyComm).toEqual(expect.objectContaining({
       type: 'contract_copy_email',
@@ -574,7 +620,7 @@ describe('ContractsService: completion sends the signed copy, then the welcome e
   });
 
   it('a failing signed copy never blocks the welcome email or the completion', async () => {
-    const { complete, order, n8n } = completionContext({
+    const { complete, order, n8n, prisma } = completionContext({
       sendContractCopy: jest.fn().mockResolvedValue({ status: 'failed', reason: 'rejected' }),
     });
     const result = await complete();
@@ -583,6 +629,34 @@ describe('ContractsService: completion sends the signed copy, then the welcome e
     expect(order).toEqual(['welcome']);
     expect(result.contract.status).toBe('COMPLETED');
     expect(result.welcomeDelivery).toEqual({ status: 'sent', sentAt: '2030-01-01T00:00:02.000Z' });
+    expect(prisma.cfCommunication.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED', errorCode: 'rejected' }),
+    }));
+    expect(prisma.cfActivityLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'CONTRACT_COPY_FAILED', source: 'automation' }),
+    });
+    expect(prisma.cfNotification.createMany).toHaveBeenCalled();
+  });
+
+  it('reuses the recorded automatic attempt without allocating another eventId', async () => {
+    const prior = {
+      id: 'copy-attempt-1', eventId: 'contract.copy:contract-1:copy-attempt-1',
+      status: 'SENT', sentAt: now, errorCode: null,
+      contractId: 'contract-1', formAssignmentId: null, type: 'contract_copy_email',
+    };
+    const { complete, order, n8n, prisma } = completionContext({}, {
+      cfCommunication: { findFirst: jest.fn().mockResolvedValue(prior), create: jest.fn(), update: jest.fn() },
+    });
+
+    const result = await complete();
+
+    expect(prisma.cfCommunication.findFirst).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', idempotencyKey: 'auto:contract.copy:contract-1' },
+    });
+    expect(prisma.cfCommunication.create).not.toHaveBeenCalled();
+    expect(n8n.sendContractCopy).not.toHaveBeenCalled();
+    expect(order).toEqual(['welcome']);
+    expect(result.contract.status).toBe('COMPLETED');
   });
 
   it('a throwing signed-copy path is swallowed: welcome still sends and the contract stays completed', async () => {

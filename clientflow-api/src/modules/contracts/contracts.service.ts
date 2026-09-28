@@ -461,6 +461,9 @@ export class ContractsService {
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
     delivery: DeliveryContext,
   ) {
+    if (contract.status !== CONTRACT_STATUS.completed) {
+      throw new BadRequestException('Only a signed contract can be sent as a copy.');
+    }
     if (delivery.idempotencyKey) {
       const prior = await findAttemptByKey(this.prisma, client.organizationId, delivery.idempotencyKey);
       if (prior) {
@@ -539,6 +542,9 @@ export class ContractsService {
           storedFile.storageKey,
           EXECUTED_COPY_URL_TTL_SECONDS,
         );
+        if (!download.url.startsWith('https://')) {
+          throw new Error('The executed copy requires an HTTPS download URL.');
+        }
         emailDelivery = await this.n8n.sendContractCopy(eventId, {
           organizationId: client.organizationId,
           clientId: client.id,
@@ -549,8 +555,8 @@ export class ContractsService {
           programName: program.name,
           contractName: contract.contractType,
           executedCopyUrl: download.url,
-          expiresAt: new Date(now.getTime() + EXECUTED_COPY_URL_TTL_SECONDS * 1000).toISOString(),
-          sentByUserId: delivery.actor?.id ?? client.assignedUserId ?? 'system',
+          source: delivery.source,
+          sentByUserId: manual ? delivery.actor?.id ?? client.assignedUserId ?? 'system' : 'system',
         });
       } catch (error) {
         this.logger.warn(`Unable to prepare the signed copy for contract ${contract.id}: ${(error as Error).message}`);

@@ -117,7 +117,7 @@ export interface ContractCopyLifecyclePayload extends LifecycleEventBase {
   programName: string;
   contractName: string;
   executedCopyUrl: string;
-  expiresAt: string;
+  source: 'automation' | 'manual_staff_action';
 }
 
 export type ClientflowLifecyclePayload =
@@ -191,18 +191,6 @@ export interface WelcomeEmailPayload {
 
 export type WelcomeEmailDeliveryResult = IntakeEmailDeliveryResult;
 
-export interface ContractCopyEmailPayload {
-  organizationId: string;
-  clientId: string;
-  contractId: string;
-  enrollmentId?: string | null;
-  recipientEmail: string;
-  clientName: string;
-  programName: string;
-  contractName: string;
-  executedCopyUrl: string;
-  expiresAt: string;
-  sentByUserId: string;
-}
+export type ContractCopyEmailPayload = Omit<ContractCopyLifecyclePayload, 'eventType' | 'eventId' | 'occurredAt'>;
 
 export type ContractCopyEmailDeliveryResult = IntakeEmailDeliveryResult;
