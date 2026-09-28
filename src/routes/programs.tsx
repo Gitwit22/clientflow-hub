@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppState } from "@/lib/store";
 import { updateProgram } from "@/lib/api";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
+import { journeyLabel, programJourney } from "@/lib/program-journey";
 
 export const Route = createFileRoute("/programs")({
   head: () => ({
@@ -106,8 +107,7 @@ export function ProgramsPage() {
           <div><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Contract template</dt><dd>{p.defaultContractTemplateId}</dd></div>
           <div><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Monitoring</dt><dd>{p.defaultMonitoringFrequency}</dd></div>
           <div><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Required documents</dt><dd>{p.requiredDocuments.join(", ") || "None"}</dd></div>
-          <div className="sm:col-span-2"><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Default workflow</dt><dd>{p.defaultWorkflow.join(" → ")}</dd></div>
-          <div className="sm:col-span-2"><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Status pipeline</dt><dd>{p.statusPipeline.join(" → ")}</dd></div>
+          <div className="sm:col-span-2"><dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Client journey</dt><dd>{journeyLabel(programJourney(p))}</dd></div>
         </dl>
         {(() => {
           const active = enrollments
