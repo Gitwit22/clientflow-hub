@@ -47,7 +47,7 @@ services:
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
       - key: STORAGE_ENABLED
-        value: "false"
+        sync: false
       - key: R2_ACCOUNT_ID
         sync: false
       - key: R2_ACCESS_KEY_ID
