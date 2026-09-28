@@ -1,5 +1,6 @@
 export type ClientflowLifecycleEventType =
   | 'form.send'
+  | 'intake.send'
   | 'contract.send'
   | 'welcome.send'
   | 'contract.copy'
@@ -29,7 +30,21 @@ export interface FormSendLifecyclePayload extends LifecycleEventBase {
   dueDate?: string;
   expiresAt?: string | null;
   personalMessage?: string;
-  formPurpose?: 'manual' | 'general_intake';
+}
+
+/**
+ * The General Intake email has its own event: n8n routes on eventType, so intake is no longer sent as
+ * `form.send` with a purpose flag (n8n ignores it, and form.send is for forms staff assign).
+ * Like form.send it needs the secure form URL.
+ */
+export interface IntakeSendLifecyclePayload extends LifecycleEventBase {
+  eventType: 'intake.send';
+  formId: string;
+  formName: string;
+  formUrl: string;
+  clientName?: string;
+  dueDate?: string;
+  expiresAt?: string | null;
 }
 
 export interface ContractSendLifecyclePayload extends LifecycleEventBase {
@@ -102,6 +117,7 @@ export interface ContractCopyLifecyclePayload extends LifecycleEventBase {
 
 export type ClientflowLifecyclePayload =
   | FormSendLifecyclePayload
+  | IntakeSendLifecyclePayload
   | ContractSendLifecyclePayload
   | WelcomeSendLifecyclePayload
   | ContractCopyLifecyclePayload;

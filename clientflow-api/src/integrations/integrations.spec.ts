@@ -55,7 +55,7 @@ describe('disabled integrations', () => {
     expect(() => new StorageService(disabledConfig()).assertEnabled()).toThrow(ServiceUnavailableException);
   });
 
-  it('sends intake with eventType form.send', async () => {
+  it('sends intake with its own eventType intake.send (not form.send, and no formPurpose flag)', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
       const sent = JSON.parse(String((init as RequestInit).body));
       return new Response(JSON.stringify({ success: true, status: 'ACCEPTED', eventId: sent.eventId, sentAt: '2030-01-01T00:00:00.000Z' }), { status: 202 });
@@ -88,10 +88,12 @@ describe('disabled integrations', () => {
     expect(sentBody).toEqual({
       ...payload,
       eventId: 'intake-assignment-1',
-      eventType: 'form.send',
-      formPurpose: 'general_intake',
+      eventType: 'intake.send',
       occurredAt: expect.any(String),
     });
+    // n8n routes on eventType; the old purpose flag is gone and the intake email still carries its form URL.
+    expect(sentBody).not.toHaveProperty('formPurpose');
+    expect(sentBody.formUrl).toBe('https://clientflow.example.com/s/token');
     fetchMock.mockRestore();
   });
 

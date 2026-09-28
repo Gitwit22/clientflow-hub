@@ -9,7 +9,7 @@ import type {
   ContractEmailDeliveryResult,
   ContractEmailPayload,
   ContractSendLifecyclePayload,
-  FormSendLifecyclePayload,
+  IntakeSendLifecyclePayload,
   IntakeEmailDeliveryResult,
   IntakeEmailPayload,
   N8nDeliveryReceipt,
@@ -85,9 +85,11 @@ export class N8nService {
 
   // sendIntake/sendContract/sendWelcome all delegate to deliver() for a single HTTP transport, but
   // each must supply its OWN real eventType - n8n's workflow switches on eventType and validates
-  // different required fields per branch (form.send needs formName/formUrl, contract.send needs
-  // contractName/contractUrl, welcome.send needs clientName/programName/nextStep). Forcing every
-  // send through 'form.send' made contract/welcome payloads fail that branch's validation.
+  // different required fields per branch (form.send and intake.send need formName/formUrl,
+  // contract.send needs contractName/contractUrl, contract.copy needs executedCopyUrl, welcome.send
+  // needs clientName/programName and the resolved subject/body). Forcing every send through one
+  // event type made the other payloads fail that branch's validation. Intake has its own event
+  // type (intake.send) rather than form.send plus a purpose flag, which n8n does not read.
   private async sendViaDeliver<T extends ClientflowLifecyclePayload>(
     availability: 'ready' | 'disabled' | 'not_configured',
     eventId: string,
@@ -115,10 +117,9 @@ export class N8nService {
   }
 
   async sendIntake(eventId: string, payload: IntakeEmailPayload): Promise<IntakeEmailDeliveryResult> {
-    return this.sendViaDeliver<FormSendLifecyclePayload>(this.getIntakeAvailability(), eventId, {
+    return this.sendViaDeliver<IntakeSendLifecyclePayload>(this.getIntakeAvailability(), eventId, {
       ...payload,
-      eventType: 'form.send',
-      formPurpose: 'general_intake',
+      eventType: 'intake.send',
     });
   }
 
