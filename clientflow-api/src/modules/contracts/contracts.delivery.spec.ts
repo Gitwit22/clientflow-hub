@@ -568,7 +568,7 @@ function completionContext(n8nOverrides: Record<string, unknown> = {}, prismaExt
   };
   const storage = {
     ...storageReady(),
-    uploadText: jest.fn().mockResolvedValue({ bucket: 'b', objectKey: 'k', byteSize: 1, url: 'u' }),
+    uploadBuffer: jest.fn().mockResolvedValue({ bucket: 'b', objectKey: 'k', byteSize: 1, url: 'u' }),
   };
   const { service, prisma } = build({
     cfContract: {

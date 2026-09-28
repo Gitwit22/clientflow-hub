@@ -37,6 +37,7 @@ import {
   safeAttachmentFileName,
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
+import { renderExecutedContractPdf } from './executed-contract-pdf';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 
 const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract processing.';
@@ -945,7 +946,7 @@ export class ContractsService {
     };
   }
 
-  /** Uploads the fully signed document to R2 and files it on the client's record. Non-fatal on failure. */
+  /** Uploads the fully signed document to R2 as a PDF and files it on the client's record. Non-fatal on failure. */
   private async archiveExecutedContract(
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     contract: Awaited<ReturnType<PrismaService['cfContract']['findUnique']>> & {},
@@ -964,15 +965,19 @@ export class ContractsService {
         acceptance.signatureNote?.trim() ? `Note: ${acceptance.signatureNote.trim()}` : null,
       ].filter((line): line is string => line !== null).join('\n');
 
-      const objectKey = `contracts/${client.organizationId}/${client.id}/${contract.id}-executed.txt`;
-      const uploaded = await this.storage.uploadText(objectKey, executedContent, 'text/plain');
+      const executedPdf = await renderExecutedContractPdf({
+        title: `${contract.contractType} - Executed`,
+        content: executedContent,
+      });
+      const objectKey = `contracts/${client.organizationId}/${client.id}/${contract.id}-executed.pdf`;
+      const uploaded = await this.storage.uploadBuffer(objectKey, executedPdf, 'application/pdf');
 
       const storedFile = await this.prisma.cfStoredFile.create({
         data: {
           organizationId: client.organizationId,
           storageKey: uploaded.objectKey,
-          originalFileName: `${contract.contractType} - Executed.txt`,
-          mimeType: 'text/plain',
+          originalFileName: `${contract.contractType} - Executed.pdf`,
+          mimeType: 'application/pdf',
           sizeBytes: uploaded.byteSize,
           status: 'READY',
           uploadedByUserId: client.assignedUserId,

@@ -66,7 +66,7 @@ No per-event endpoint is introduced.
   "clientName": "Client Owner",
   "programName": "The Inspired Detroit Initiative",
   "contractName": "Inspired Detroit Service Agreement",
-  "executedCopyUrl": "https://<r2-host>/contracts/...-executed.txt?X-Amz-...",
+  "executedCopyUrl": "https://<r2-host>/contracts/...-executed.pdf?X-Amz-...",
   "sentByUserId": "system",
   "source": "automation"
 }
@@ -88,7 +88,9 @@ No per-event endpoint is introduced.
 
 ### `executedCopyUrl`
 
-A presigned object-storage URL valid for **7 days**. If a client needs a new link later, staff use
+A presigned object-storage URL valid for **7 days**. It points to the executed contract, archived as
+a PDF (`application/pdf`) when the client signs; contracts signed before that change keep their
+original plain-text copy. If a client needs a new link later, staff use
 **Send copy** again, which issues a fresh URL. It is the only URL in this payload: no `contractUrl`,
 `signingUrl`, `formUrl`, public signing token, `expiresAt`, or attachment field is sent.
 Sending a copy never generates or rotates a signing token.

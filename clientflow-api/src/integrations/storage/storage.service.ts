@@ -115,11 +115,15 @@ export class StorageService {
 
   /** Uploads a small text document (e.g. an executed contract snapshot) and returns its storage location. */
   async uploadText(objectKey: string, content: string, contentType = 'text/plain'): Promise<UploadTextResult> {
+    return this.uploadBuffer(objectKey, Buffer.from(content, 'utf8'), contentType);
+  }
+
+  /** Uploads a small generated file (e.g. an executed contract PDF) and returns its storage location. */
+  async uploadBuffer(objectKey: string, body: Buffer, contentType: string): Promise<UploadTextResult> {
     const client = this.getClient();
     const bucket = this.getBucketName();
     if (!client || !bucket) throw new ServiceUnavailableException('R2 is not configured.');
 
-    const body = Buffer.from(content, 'utf8');
     await client.send(new PutObjectCommand({
       Bucket: bucket,
       Key: objectKey,
