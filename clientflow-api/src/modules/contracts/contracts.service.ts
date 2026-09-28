@@ -12,6 +12,7 @@ import type {
   WelcomeCopyMetadata,
   WelcomeEmailDeliveryResult,
 } from '../../integrations/n8n/n8n.types';
+import { logoStoredFileIdFromSettings, publicLogoUrl } from '../../integrations/n8n/email-branding';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { StorageService } from '../../integrations/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -37,8 +38,15 @@ import {
   safeAttachmentFileName,
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
-import { renderExecutedContractPdf } from './executed-contract-pdf';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
+import {
+  EXECUTED_CONTRACT_MIME_TYPE,
+  EXECUTED_STORED_FILE_SELECT,
+  ensureExecutedContractPdf,
+  executedContractObjectKey,
+  executedCopyFileName,
+  renderExecutedContract,
+} from './executed-contract-file';
 
 const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract processing.';
 const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contract template.';
@@ -481,7 +489,7 @@ export class ContractsService {
     const storedFile = contract.executedStoredFileId
       ? await this.prisma.cfStoredFile.findFirst({
           where: { id: contract.executedStoredFileId },
-          select: { storageKey: true },
+          select: EXECUTED_STORED_FILE_SELECT,
         })
       : null;
     const blocked = !storedFile
@@ -539,9 +547,18 @@ export class ContractsService {
         data: { status: COMMUNICATION_STATUS.sending },
       });
       try {
+        // Copies archived as plain text before copies were PDFs are upgraded here.
+        const executed = await ensureExecutedContractPdf(
+          this.prisma,
+          this.storage,
+          contract,
+          storedFile,
+          client.businessName,
+        );
         const download = await this.storage.createPresignedDownloadUrl(
-          storedFile.storageKey,
+          executed.storageKey,
           EXECUTED_COPY_URL_TTL_SECONDS,
+          { downloadFileName: executed.downloadFileName, contentType: EXECUTED_CONTRACT_MIME_TYPE },
         );
         if (!download.url.startsWith('https://')) {
           throw new Error('The executed copy requires an HTTPS download URL.');
@@ -946,7 +963,7 @@ export class ContractsService {
     };
   }
 
-  /** Uploads the fully signed document to R2 as a PDF and files it on the client's record. Non-fatal on failure. */
+  /** Uploads the fully signed document to R2 and files it on the client's record. Non-fatal on failure. */
   private async archiveExecutedContract(
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     contract: Awaited<ReturnType<PrismaService['cfContract']['findUnique']>> & {},
@@ -955,29 +972,26 @@ export class ContractsService {
   ): Promise<void> {
     if (!this.storage.isEnabled()) return;
     try {
-      const executedContent = [
-        contract.generatedContent,
-        '',
-        'CLIENT ACCEPTANCE',
-        `Signed by: ${acceptance.signedName.trim()}`,
-        `Signed email: ${acceptance.signedEmail.trim().toLowerCase()}`,
-        `Signed at: ${signedAt.toISOString()}`,
-        acceptance.signatureNote?.trim() ? `Note: ${acceptance.signatureNote.trim()}` : null,
-      ].filter((line): line is string => line !== null).join('\n');
-
-      const executedPdf = await renderExecutedContractPdf({
-        title: `${contract.contractType} - Executed`,
-        content: executedContent,
+      const pdf = await renderExecutedContract(contract, {
+        signedName: acceptance.signedName.trim(),
+        signedEmail: acceptance.signedEmail.trim().toLowerCase(),
+        signedAt,
+        note: acceptance.signatureNote?.trim() || null,
       });
-      const objectKey = `contracts/${client.organizationId}/${client.id}/${contract.id}-executed.pdf`;
-      const uploaded = await this.storage.uploadBuffer(objectKey, executedPdf, 'application/pdf');
+      const objectKey = executedContractObjectKey(client.organizationId, client.id, contract.id);
+      const uploaded = await this.storage.uploadBuffer(
+        objectKey,
+        pdf,
+        EXECUTED_CONTRACT_MIME_TYPE,
+        executedCopyFileName(client.businessName, contract.contractType),
+      );
 
       const storedFile = await this.prisma.cfStoredFile.create({
         data: {
           organizationId: client.organizationId,
           storageKey: uploaded.objectKey,
           originalFileName: `${contract.contractType} - Executed.pdf`,
-          mimeType: 'application/pdf',
+          mimeType: EXECUTED_CONTRACT_MIME_TYPE,
           sizeBytes: uploaded.byteSize,
           status: 'READY',
           uploadedByUserId: client.assignedUserId,
@@ -1357,10 +1371,7 @@ export class ContractsService {
           })
         : Promise.resolve(null),
     ]);
-    const logoStoredFileId = this.isRecord(organization?.settings)
-      && typeof organization.settings.logoStoredFileId === 'string'
-      ? organization.settings.logoStoredFileId
-      : null;
+    const logoStoredFileId = logoStoredFileIdFromSettings(organization?.settings);
     const headerImageUrl = await this.resolveOrganizationLogoUrl(logoStoredFileId);
 
     const context = {
@@ -1497,12 +1508,7 @@ export class ContractsService {
   private async resolveOrganizationLogoUrl(storedFileId: string | null): Promise<string | undefined> {
     if (!storedFileId || !this.storage.isEnabled()) return undefined;
     try {
-      const storedFile = await this.prisma.cfStoredFile.findFirst({
-        where: { id: storedFileId },
-        select: { storageKey: true },
-      });
-      if (!storedFile) return undefined;
-      return this.storage.getObjectPublicUrl(storedFile.storageKey);
+      return await publicLogoUrl(this.prisma, this.storage, storedFileId);
     } catch (error) {
       this.logger.warn(`Unable to resolve organization header logo ${storedFileId}: ${(error as Error).message}`);
       return undefined;

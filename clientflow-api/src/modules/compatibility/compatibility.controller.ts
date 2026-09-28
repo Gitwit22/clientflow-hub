@@ -31,6 +31,11 @@ import { ProgramAutomationService } from '../automation/program-automation.servi
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { buildClientProfileUpdate } from '../clients/client-profile-update';
+import {
+  EXECUTED_CONTRACT_MIME_TYPE,
+  EXECUTED_STORED_FILE_SELECT,
+  ensureExecutedContractPdf,
+} from '../contracts/executed-contract-file';
 import { FormDeliveryService } from '../forms/form-delivery.service';
 import { FormProfileService } from '../forms/form-profile.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
@@ -1289,20 +1294,27 @@ export class ClientflowCompatibilityController {
         clientId,
         organizationId: orgId,
       },
-      select: {
-        executedStoredFileId: true,
-        executedStoredFile: {
-          select: {
-            id: true,
-            storageKey: true,
-          },
-        },
-      },
+      include: { executedStoredFile: { select: EXECUTED_STORED_FILE_SELECT } },
     });
     if (!contract?.executedStoredFileId || !contract.executedStoredFile) {
       throw new NotFoundException('Executed contract artifact not found.');
     }
-    const download = await storage.createPresignedDownloadUrl(contract.executedStoredFile.storageKey, 300);
+    // Upgrades a copy archived as plain text to a PDF on first download.
+    const client = await this.requirePrisma().cfClient.findFirst({
+      where: { id: clientId, organizationId: orgId },
+      select: { businessName: true },
+    });
+    const executed = await ensureExecutedContractPdf(
+      this.requirePrisma(),
+      storage,
+      contract,
+      contract.executedStoredFile,
+      client?.businessName,
+    );
+    const download = await storage.createPresignedDownloadUrl(executed.storageKey, 300, {
+      downloadFileName: executed.downloadFileName,
+      contentType: EXECUTED_CONTRACT_MIME_TYPE,
+    });
     return { url: download.url, expiresInSeconds: download.expiresInSeconds };
   }
   @Get('clients/:clientId/documents') async listDocuments(@Req() request: Request, @Param('clientId') clientId: string) {

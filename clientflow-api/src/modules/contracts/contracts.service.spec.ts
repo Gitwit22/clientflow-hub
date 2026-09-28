@@ -1178,17 +1178,14 @@ describe('ContractsService', () => {
       agreedToTerms: true,
     }, { signerIp: null, userAgent: null });
 
-    expect(storage.uploadBuffer).toHaveBeenCalledWith(
-      'contracts/org-1/client-1/contract-1-executed.pdf',
-      expect.any(Buffer),
-      'application/pdf',
-    );
-    const [, pdf] = storage.uploadBuffer.mock.calls[0] as [string, Buffer, string];
-    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    const [key, pdf, mimeType, fileName] = storage.uploadBuffer.mock.calls[0];
+    expect(key).toBe('contracts/org-1/client-1/contract-1-executed.pdf');
+    expect((pdf as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    expect(mimeType).toBe('application/pdf');
+    expect(fileName).toMatch(/ - Signed\.pdf$/);
     expect(prisma.cfStoredFile.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         storageKey: 'contracts/org-1/client-1/contract-1-executed.pdf',
-        originalFileName: expect.stringMatching(/ - Executed\.pdf$/),
         mimeType: 'application/pdf',
         status: 'READY',
       }),

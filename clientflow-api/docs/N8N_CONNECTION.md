@@ -108,7 +108,8 @@ Order after a signature: `contract.copy`, then `welcome.send`. They are independ
 ### 3.1 Payloads ClientFlow sends today
 
 Every event carries: `eventId`, `eventType`, `occurredAt`, `organizationId`, `clientId`,
-`recipientEmail`, `sentByUserId`.
+`recipientEmail`, `sentByUserId`, and `headerImageUrl` (the permanent public URL of the header logo
+uploaded in ClientFlow Settings; omitted when none is configured).
 
 | Event | Additional fields |
 |---|---|
@@ -116,7 +117,7 @@ Every event carries: `eventId`, `eventType`, `occurredAt`, `organizationId`, `cl
 | `form.send` | `formId`, `formName`, `formUrl`, `clientName`, `dueDate`, `expiresAt`, `personalMessage` (optional) |
 | `contract.send` | `clientName`, `contractName`, `contractUrl`, `programName`, `dueDate` |
 | `contract.copy` | `contractId`, `enrollmentId`, `clientName`, `programName`, `contractName`, `executedCopyUrl` (7-day link), `source` (`automation` or `manual_staff_action`) |
-| `welcome.send` | `clientName`, `programName`, **`subject`**, **`body`**, `renderMode: "verbatim"`, `welcome{ source, templateId, templateName, versionId, versionNumber, ruleId? }`, `nextStep` (same text as `body`), `attachmentUrl`, `attachmentFileName`, `attachmentMimeType`, `headerImageUrl` |
+| `welcome.send` | `clientName`, `programName`, **`subject`**, **`body`**, `renderMode: "verbatim"`, `welcome{ source, templateId, templateName, versionId, versionNumber, ruleId? }`, `nextStep` (same text as `body`), `attachmentUrl`, `attachmentFileName`, `attachmentMimeType` |
 
 Only `welcome.send` currently carries ClientFlow-authored `subject` and `body`. See open item **C1**.
 
@@ -231,7 +232,8 @@ the subject, body or htmlBody: `422`, `errorCode: "VALIDATION_FAILED"`,
 - **Button:** built from `actionUrl` with `actionLabel` or a per-event default (`contract.send` "Review &
   Sign Contract", `contract.copy` "View Signed Agreement"). **Never added to `welcome.send`.**
 - **Frame around every email, including welcome:** header is the organization logo (`headerImageUrl` /
-  `logoUrl`) or the text "EA MANAGEMENT"; footer is "Thank you, / EA Management" (also appended to the
+  `logoUrl`, sent on every event) shown full width (up to 600px, scaling down on phones), or the
+  text "EA MANAGEMENT" when no logo is configured; footer is "Thank you, / EA Management" (also appended to the
   plain-text version). The old invented welcome wording ("Welcome, {name}!", "Thank you for completing the
   previous step", "Your next step:") is gone.
 

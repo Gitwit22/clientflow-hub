@@ -114,7 +114,7 @@ function build(prismaOverrides: Record<string, unknown>, n8n: Record<string, unk
       update: jest.fn().mockResolvedValue({}),
     },
     cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-2' }) },
-    cfStoredFile: { findFirst: jest.fn().mockResolvedValue({ storageKey: 'contracts/org-1/client-1/c-executed.txt' }) },
+    cfStoredFile: { findFirst: jest.fn().mockResolvedValue(executedPdf) },
     adminUser: { findMany: jest.fn().mockResolvedValue([{ id: 'admin-9' }]) },
     cfNotification: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'
@@ -141,6 +141,14 @@ const readyN8n = (overrides: Record<string, unknown> = {}) => ({
   sendContractCopy: jest.fn().mockResolvedValue({ status: 'sent', sentAt: '2030-01-01T00:00:03.000Z' }),
   ...overrides,
 });
+
+const executedPdf = {
+  id: 'stored-pdf-1',
+  storageKey: 'contracts/org-1/client-1/c-executed.pdf',
+  mimeType: 'application/pdf',
+  uploadedByUserId: null,
+  completedAt: now,
+};
 
 const storageReady = () => ({
   isEnabled: jest.fn().mockReturnValue(true),
@@ -336,7 +344,8 @@ describe('ContractsService: send the signed copy', () => {
     const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
 
     expect(storage.createPresignedDownloadUrl).toHaveBeenCalledWith(
-      'contracts/org-1/client-1/c-executed.txt', 7 * 24 * 60 * 60,
+      'contracts/org-1/client-1/c-executed.pdf', 7 * 24 * 60 * 60,
+      { downloadFileName: expect.stringMatching(/ - Signed\.pdf$/), contentType: 'application/pdf' },
     );
     const created = prisma.cfCommunication.create.mock.calls[0][0].data;
     expect(created).toEqual(expect.objectContaining({
@@ -372,6 +381,42 @@ describe('ContractsService: send the signed copy', () => {
       }),
     });
     expect(result.emailDelivery).toEqual({ status: 'sent', sentAt: '2030-01-01T00:00:03.000Z' });
+  });
+
+  it('upgrades a copy archived as plain text to a PDF before sending the link', async () => {
+    const n8n = readyN8n();
+    const storage = {
+      ...storageReady(),
+      uploadBuffer: jest.fn().mockResolvedValue({
+        bucket: 'b', objectKey: 'contracts/org-1/client-1/contract-1-executed.pdf', byteSize: 2048, url: 'u',
+      }),
+    };
+    const legacyText = { ...executedPdf, id: 'stored-txt-1', storageKey: 'contracts/org-1/client-1/c-executed.txt', mimeType: 'text/plain' };
+    const { service, prisma } = build({
+      ...completedLookup({ ...completed, signedName: 'Client Owner', signedEmail: 'client@example.com', signedAt: now }),
+      cfStoredFile: {
+        findFirst: jest.fn().mockResolvedValue(legacyText),
+        upsert: jest.fn().mockResolvedValue({ id: 'stored-pdf-2' }),
+      },
+      cfDocument: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    }, n8n, storage);
+
+    await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+
+    const [key, pdf, mime] = storage.uploadBuffer.mock.calls[0];
+    expect(key).toBe('contracts/org-1/client-1/contract-1-executed.pdf');
+    expect((pdf as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    expect(mime).toBe('application/pdf');
+    expect(prisma.cfContract.update).toHaveBeenCalledWith({
+      where: { id: 'contract-1' }, data: { executedStoredFileId: 'stored-pdf-2' },
+    });
+    expect(prisma.cfDocument.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organizationId: 'org-1', storedFileId: 'stored-txt-1' },
+    }));
+    expect(storage.createPresignedDownloadUrl).toHaveBeenCalledWith(
+      'contracts/org-1/client-1/contract-1-executed.pdf', 7 * 24 * 60 * 60, expect.anything(),
+    );
+    expect(n8n.sendContractCopy).toHaveBeenCalled();
   });
 
   it('records a failed delivery, logs CONTRACT_COPY_FAILED and notifies admins', async () => {
@@ -578,7 +623,7 @@ function completionContext(n8nOverrides: Record<string, unknown> = {}, prismaExt
     },
     cfStoredFile: {
       create: jest.fn().mockResolvedValue({ id: 'stored-1' }),
-      findFirst: jest.fn().mockResolvedValue({ storageKey: 'k' }),
+      findFirst: jest.fn().mockResolvedValue({ ...executedPdf, storageKey: 'k' }),
     },
     cfDocument: { create: jest.fn() },
     $transaction: jest.fn(async (input: unknown) => (typeof input === 'function'

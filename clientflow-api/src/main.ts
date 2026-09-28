@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
+import { CORS_ALLOWED_HEADERS } from './config/cors';
 import { environmentSchema } from './config/env';
 
 async function bootstrap(): Promise<void> {
@@ -25,7 +26,7 @@ async function bootstrap(): Promise<void> {
     origin: environment.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean),
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-App-Partition'],
+    allowedHeaders: CORS_ALLOWED_HEADERS,
     exposedHeaders: ['X-Request-Id'],
   });
   app.setGlobalPrefix('api/v1');

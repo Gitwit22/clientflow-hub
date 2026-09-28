@@ -1,6 +1,9 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
+import { PrismaService } from '../../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
+import { organizationHeaderImageUrl } from './email-branding';
 import type {
   ClientflowLifecyclePayload,
   ContractCopyEmailDeliveryResult,
@@ -18,11 +21,37 @@ import type {
   WelcomeSendLifecyclePayload,
 } from './n8n.types';
 
+const HEADER_IMAGE_CACHE_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class N8nService {
   private readonly logger = new Logger(N8nService.name);
 
-  constructor(private readonly config: ConfigService<Environment, true>) {}
+  private readonly headerImageCache = new Map<string, { url: string | undefined; expiresAt: number }>();
+
+  constructor(
+    private readonly config: ConfigService<Environment, true>,
+    @Optional() private readonly prisma?: PrismaService,
+    @Optional() private readonly storage?: StorageService,
+  ) {}
+
+  /**
+   * The Settings header logo goes on every email. Purely cosmetic: a failed lookup logs and the
+   * email is sent without it (n8n then shows its text header).
+   */
+  private async resolveHeaderImageUrl(organizationId: string): Promise<string | undefined> {
+    if (!this.prisma || !this.storage) return undefined;
+    const cached = this.headerImageCache.get(organizationId);
+    if (cached && cached.expiresAt > Date.now()) return cached.url;
+    try {
+      const url = await organizationHeaderImageUrl(this.prisma, this.storage, organizationId);
+      this.headerImageCache.set(organizationId, { url, expiresAt: Date.now() + HEADER_IMAGE_CACHE_MS });
+      return url;
+    } catch (error) {
+      this.logger.warn(`Unable to resolve the email header logo: ${(error as Error).message}`);
+      return undefined;
+    }
+  }
 
   // Both the legacy clientflow-api names and the aliases shared with nxt-lvl-api2 must be honored -
   // deliver() already resolved aliases while the send* methods below did not, so the same n8n
@@ -208,8 +237,11 @@ export class N8nService {
       throw new ServiceUnavailableException('n8n delivery is disabled.');
     }
     if (!webhookUrl || !secret) throw new ServiceUnavailableException('n8n is not configured.');
+    // Looked up by ClientFlow's own organization, before the wire organizationId is swapped in.
+    const headerImageUrl = payload.headerImageUrl ?? (await this.resolveHeaderImageUrl(payload.organizationId));
     const outboundPayload = {
       ...payload,
+      ...(headerImageUrl ? { headerImageUrl } : {}),
       organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
     };
 

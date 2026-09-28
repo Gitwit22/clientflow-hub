@@ -85,12 +85,14 @@ No per-event endpoint is introduced.
 | `executedCopyUrl` | yes | a time-limited download link for the signed document (see below) |
 | `sentByUserId` | yes | the staff member who clicked Send copy, or `system` for the automatic send |
 | `source` | yes | `automation` or `manual_staff_action` |
+| `headerImageUrl` | no | public URL of the Settings header logo, added to every event (coordinated change, 2026-09-28); absent when no logo is configured |
 
 ### `executedCopyUrl`
 
-A presigned object-storage URL valid for **7 days**. It points to the executed contract, archived as
-a PDF (`application/pdf`) when the client signs; contracts signed before that change keep their
-original plain-text copy. If a client needs a new link later, staff use
+A presigned object-storage URL valid for **7 days**. It points to the signed agreement as a
+**PDF** and downloads as `<Business> - <Contract> - Signed.pdf` (the link sets
+`Content-Disposition: attachment`). Contracts signed before copies were PDFs are converted
+automatically the first time a copy is sent or downloaded. No workflow change is needed. If a client needs a new link later, staff use
 **Send copy** again, which issues a fresh URL. It is the only URL in this payload: no `contractUrl`,
 `signingUrl`, `formUrl`, public signing token, `expiresAt`, or attachment field is sent.
 Sending a copy never generates or rotates a signing token.
