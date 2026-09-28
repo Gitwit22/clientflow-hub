@@ -15,6 +15,8 @@ interface LifecycleEventBase {
   clientId: string;
   recipientEmail: string;
   sentByUserId: string;
+  /** Public URL of the organization's Settings header logo; added to every event when configured. */
+  headerImageUrl?: string;
 }
 
 // n8n's webhook validator switches on eventType and requires different fields per branch

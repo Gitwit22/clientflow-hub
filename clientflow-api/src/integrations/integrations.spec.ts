@@ -238,3 +238,83 @@ describe('disabled integrations', () => {
     expect(service.getWelcomeAvailability()).toBe('ready');
   });
 });
+
+describe('email header logo on every n8n event', () => {
+  const contractSend = {
+    organizationId: 'org-1',
+    clientId: 'client-1',
+    recipientEmail: 'client@example.com',
+    clientName: 'Client Owner',
+    contractName: 'Membership Agreement',
+    contractUrl: 'https://clientflow.example.com/agreements/token',
+    sentByUserId: 'system',
+  };
+  const logoUrl = 'https://assets.example.com/organization/header-logo/logo.png';
+
+  function branded(prismaOverrides: Record<string, unknown> = {}, storageEnabled = true) {
+    const prisma = {
+      organization: { findUnique: jest.fn().mockResolvedValue({ settings: { logoStoredFileId: 'logo-file' } }) },
+      cfStoredFile: { findFirst: jest.fn().mockResolvedValue({ storageKey: 'organization/header-logo/logo.png' }) },
+      ...prismaOverrides,
+    };
+    const storage = {
+      isEnabled: jest.fn().mockReturnValue(storageEnabled),
+      getObjectPublicUrl: jest.fn().mockReturnValue(logoUrl),
+    };
+    const service = new N8nService(configuredN8n(), prisma as never, storage as never);
+    return { service, prisma };
+  }
+
+  type SentBody = { eventId: string; headerImageUrl?: string };
+  let fetchMock: jest.SpiedFunction<typeof fetch>;
+  const bodyOf = (init: RequestInit | undefined) => JSON.parse(init?.body as string) as SentBody;
+  const sentBody = (call = 0) => bodyOf(fetchMock.mock.calls[call][1]);
+  beforeEach(() => {
+    fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const sent = bodyOf(init);
+      return new Response(JSON.stringify({ success: true, eventId: sent.eventId, sentAt: '2030-01-01T00:00:00.000Z' }), { status: 202 });
+    });
+  });
+  afterEach(() => fetchMock.mockRestore());
+
+  it('adds the Settings logo to events that do not carry one (contract.send), looked up once per organization', async () => {
+    const { service, prisma } = branded();
+    await service.sendContract('contract.send:c-1', contractSend);
+    await service.sendContract('contract.send:c-2', contractSend);
+
+    expect(sentBody(0).headerImageUrl).toBe(logoUrl);
+    expect(sentBody(1).headerImageUrl).toBe(logoUrl);
+    expect(prisma.organization.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.organization.findUnique).toHaveBeenCalledWith({ where: { id: 'org-1' }, select: { settings: true } });
+  });
+
+  it('keeps a header the payload already supplies', async () => {
+    const { service, prisma } = branded();
+    await service.deliver({
+      ...contractSend,
+      eventType: 'contract.send',
+      eventId: 'e-1',
+      occurredAt: new Date().toISOString(),
+      headerImageUrl: 'https://assets.example.com/other.png',
+    } as never);
+
+    expect(sentBody().headerImageUrl).toBe('https://assets.example.com/other.png');
+    expect(prisma.organization.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('omits the header when no logo is configured or storage is off', async () => {
+    await branded({ organization: { findUnique: jest.fn().mockResolvedValue({ settings: {} }) } })
+      .service.sendContract('contract.send:c-1', contractSend);
+    await branded({}, false).service.sendContract('contract.send:c-2', contractSend);
+
+    expect(sentBody(0)).not.toHaveProperty('headerImageUrl');
+    expect(sentBody(1)).not.toHaveProperty('headerImageUrl');
+  });
+
+  it('still sends the email when the logo lookup fails', async () => {
+    const { service } = branded({ organization: { findUnique: jest.fn().mockRejectedValue(new Error('db down')) } });
+    await expect(service.sendContract('contract.send:c-1', contractSend))
+      .resolves.toEqual(expect.objectContaining({ status: 'sent' }));
+    expect(sentBody()).not.toHaveProperty('headerImageUrl');
+  });
+});

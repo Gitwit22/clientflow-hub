@@ -12,6 +12,7 @@ import type {
   WelcomeCopyMetadata,
   WelcomeEmailDeliveryResult,
 } from '../../integrations/n8n/n8n.types';
+import { logoStoredFileIdFromSettings, publicLogoUrl } from '../../integrations/n8n/email-branding';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { StorageService } from '../../integrations/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -1370,10 +1371,7 @@ export class ContractsService {
           })
         : Promise.resolve(null),
     ]);
-    const logoStoredFileId = this.isRecord(organization?.settings)
-      && typeof organization.settings.logoStoredFileId === 'string'
-      ? organization.settings.logoStoredFileId
-      : null;
+    const logoStoredFileId = logoStoredFileIdFromSettings(organization?.settings);
     const headerImageUrl = await this.resolveOrganizationLogoUrl(logoStoredFileId);
 
     const context = {
@@ -1510,12 +1508,7 @@ export class ContractsService {
   private async resolveOrganizationLogoUrl(storedFileId: string | null): Promise<string | undefined> {
     if (!storedFileId || !this.storage.isEnabled()) return undefined;
     try {
-      const storedFile = await this.prisma.cfStoredFile.findFirst({
-        where: { id: storedFileId },
-        select: { storageKey: true },
-      });
-      if (!storedFile) return undefined;
-      return this.storage.getObjectPublicUrl(storedFile.storageKey);
+      return await publicLogoUrl(this.prisma, this.storage, storedFileId);
     } catch (error) {
       this.logger.warn(`Unable to resolve organization header logo ${storedFileId}: ${(error as Error).message}`);
       return undefined;

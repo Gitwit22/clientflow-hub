@@ -85,6 +85,7 @@ No per-event endpoint is introduced.
 | `executedCopyUrl` | yes | a time-limited download link for the signed document (see below) |
 | `sentByUserId` | yes | the staff member who clicked Send copy, or `system` for the automatic send |
 | `source` | yes | `automation` or `manual_staff_action` |
+| `headerImageUrl` | no | public URL of the Settings header logo, added to every event (coordinated change, 2026-09-28); absent when no logo is configured |
 
 ### `executedCopyUrl`
 
