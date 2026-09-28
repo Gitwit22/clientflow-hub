@@ -30,8 +30,8 @@ export function NotificationCenter({ inverted = false }: { inverted?: boolean })
   async function refresh() {
     try {
       const result = await cfListNotifications();
-      setNotifications(result.items);
-      setUnreadCount(result.unreadCount);
+      setNotifications(Array.isArray(result?.items) ? result.items : []);
+      setUnreadCount(typeof result?.unreadCount === "number" ? result.unreadCount : 0);
     } catch (error) {
       console.error("Unable to load notifications", error);
     } finally {

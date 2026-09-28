@@ -740,16 +740,16 @@ function ClientProfile() {
               </CardHeader>
               <CardContent className="grid gap-x-8 sm:grid-cols-2">
                 <dl>
-                  <Row label="Business description" value={client.intake.businessDescription} />
-                  <Row label="Assistance requested" value={client.intake.assistanceRequested} />
-                  <Row label="Program of interest" value={client.intake.programOfInterest} />
-                  <Row label="Budget or funding need" value={client.intake.budgetNeed} />
+                  <Row label="Business description" value={client.intake?.businessDescription} />
+                  <Row label="Assistance requested" value={client.intake?.assistanceRequested} />
+                  <Row label="Program of interest" value={client.intake?.programOfInterest} />
+                  <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
                 </dl>
                 <dl>
-                  <Row label="Preferred contact" value={client.intake.preferredContact} />
-                  <Row label="How they heard about us" value={client.intake.heardAboutUs} />
-                  <Row label="Additional comments" value={client.intake.additionalComments} />
-                  <Row label="Uploaded files" value={client.intake.uploadedFiles.join(", ")} />
+                  <Row label="Preferred contact" value={client.intake?.preferredContact} />
+                  <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
+                  <Row label="Additional comments" value={client.intake?.additionalComments} />
+                  <Row label="Uploaded files" value={(client.intake?.uploadedFiles ?? []).join(", ")} />
                 </dl>
               </CardContent>
             </Card>
@@ -819,8 +819,8 @@ function ClientProfile() {
             </CardHeader>
             <CardContent>
               <dl>
-                <Row label="Business description" value={client.intake.businessDescription} />
-                <Row label="What they need" value={client.intake.assistanceRequested} />
+                <Row label="Business description" value={client.intake?.businessDescription} />
+                <Row label="What they need" value={client.intake?.assistanceRequested} />
                 <Row
                   label="Program enrollments"
                   value={
@@ -1025,10 +1025,10 @@ function ClientProfile() {
                 {!submittedFields && (
                   <>
                     {hasActiveIntakeField("businessDescription") && (
-                      <Row label="Business description" value={client.intake.businessDescription} />
+                      <Row label="Business description" value={client.intake?.businessDescription} />
                     )}
                     {hasActiveIntakeField("businessType") && (
-                      <Row label="Business type" value={client.intake.businessType} />
+                      <Row label="Business type" value={client.intake?.businessType} />
                     )}
                   </>
                 )}
@@ -1043,25 +1043,25 @@ function ClientProfile() {
                     {hasActiveIntakeField("assistanceRequested") && (
                       <Row
                         label="Type of assistance requested"
-                        value={client.intake.assistanceRequested}
+                        value={client.intake?.assistanceRequested}
                       />
                     )}
                     {hasActiveIntakeField("programOfInterest") && (
-                      <Row label="Program of interest" value={client.intake.programOfInterest} />
+                      <Row label="Program of interest" value={client.intake?.programOfInterest} />
                     )}
                     {hasActiveIntakeField("budgetNeed") && (
-                      <Row label="Budget or funding need" value={client.intake.budgetNeed} />
+                      <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
                     )}
                     {hasActiveIntakeField("preferredContact") && (
-                      <Row label="Preferred contact method" value={client.intake.preferredContact} />
+                      <Row label="Preferred contact method" value={client.intake?.preferredContact} />
                     )}
                     {hasActiveIntakeField("heardAboutUs") && (
-                      <Row label="How they heard about us" value={client.intake.heardAboutUs} />
+                      <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
                     )}
                     {hasActiveIntakeField("additionalComments") && (
-                      <Row label="Additional comments" value={client.intake.additionalComments} />
+                      <Row label="Additional comments" value={client.intake?.additionalComments} />
                     )}
-                    <Row label="Uploaded files" value={client.intake.uploadedFiles.join(", ")} />
+                    <Row label="Uploaded files" value={(client.intake?.uploadedFiles ?? []).join(", ")} />
                   </>
                 )}
               </dl>
@@ -1618,7 +1618,7 @@ function ClientProfile() {
                 <Textarea
                   rows={2}
                   value={report.originalNeed}
-                  placeholder={client.intake.assistanceRequested}
+                  placeholder={client.intake?.assistanceRequested}
                   onChange={(e) => setReport({ ...report, originalNeed: e.target.value })}
                 />
               </div>
@@ -1668,7 +1668,7 @@ function ClientProfile() {
                     enrollmentId: selectedEnrollment?.id ?? null,
                     startDate: client.createdAt,
                     endDate: new Date().toISOString(),
-                    originalNeed: report.originalNeed || client.intake.assistanceRequested,
+                    originalNeed: report.originalNeed || client.intake?.assistanceRequested,
                     supportProvided: selectedProgram?.name ?? "",
                     fundingProvided: terms[0] ? `$${terms[0].fundingAmount.toLocaleString()}` : "—",
                     milestonesCompleted: terms[0]?.milestones ?? "—",

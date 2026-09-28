@@ -112,7 +112,7 @@ export function SendFormDialog({
         ["Email", client.email],
         ["Phone", client.phone],
         ["Website", client.website ?? "—"],
-        ["Program of interest", client.intake.programOfInterest],
+        ["Program of interest", client.intake?.programOfInterest],
       ]
     : [];
 
