@@ -31,6 +31,8 @@ email was right; the beginning and end were n8n's.
 | `welcome` | Which ClientFlow copy produced this email (see below). |
 | `nextStep` | The same text as `body`. Kept only so the current n8n validation keeps passing; new logic should not use it. |
 | `attachmentUrl` | Presigned URL of the welcome guide (valid ~15 minutes; fetch it as soon as the event arrives). Absent when no guide is configured. |
+| `attachmentFileName` | The guide's real filename, e.g. `IDI Member Welcome Guide.pdf`. Use it as the attachment name instead of deriving one from the URL. Sent only with `attachmentUrl`; path separators and control characters are already removed. |
+| `attachmentMimeType` | The guide's MIME type, e.g. `application/pdf`. Sent only with `attachmentUrl`. |
 | `headerImageUrl` | Permanent public URL of the organization's logo. Absent when none is configured. |
 | `clientName`, `programName`, `recipientEmail`, `organizationId`, `clientId`, `sentByUserId`, `eventId`, `eventType`, `occurredAt` | As before. |
 
@@ -65,7 +67,9 @@ For events where `renderMode === "verbatim"`:
 2. **Message:** `{{ $json.body }}` exactly. Escape HTML, and turn blank lines into paragraphs and single
    newlines into `<br>`. Do not add a greeting, a lead-in, or a closing.
 3. **Header:** the `headerImageUrl` image, when present.
-4. **Attachment:** download `attachmentUrl` and attach it, when present.
+4. **Attachment:** download `attachmentUrl` and attach it under `attachmentFileName` with type
+   `attachmentMimeType`, when present. If either is missing, fall back to the response's
+   `Content-Disposition` / `Content-Type` rather than the URL.
 5. **Footer (optional):** only a fixed, non-business footer such as the organization name or address.
    Do not repeat a sign-off; the configured body already ends with one (for example
    `EAM-Team "Inspire to be Great"`).

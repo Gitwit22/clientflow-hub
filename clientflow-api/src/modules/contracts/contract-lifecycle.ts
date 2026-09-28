@@ -81,6 +81,16 @@ export function welcomeMessageFor(
   return message;
 }
 
+/**
+ * A stored file's name as an email attachment name: no path separators or control characters (it is
+ * staff-supplied), and a sane length. Undefined when nothing usable is left, so n8n falls back.
+ */
+export function safeAttachmentFileName(name: string | null | undefined): string | undefined {
+  // eslint-disable-next-line no-control-regex
+  const cleaned = (name ?? '').replace(/[\\/\u0000-\u001f\u007f]/g, '_').trim().slice(0, 200);
+  return cleaned && cleaned.replace(/[._\s]/g, '') ? cleaned : undefined;
+}
+
 /** Public URL of the program's welcome-email attachment, for n8n to fetch and attach to the send. */
 export function welcomeAttachmentUrlFor(programName: string, appUrl?: string): string | undefined {
   if (programName !== 'The Inspired Detroit Initiative' || !appUrl) return undefined;

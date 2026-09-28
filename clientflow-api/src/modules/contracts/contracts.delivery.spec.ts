@@ -695,6 +695,76 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
     });
   });
 
+  describe('welcome guide attachment', () => {
+    const withGuide = (storedFile: Record<string, unknown> | null) => {
+      const models = activeVersionModels();
+      models.cfProgramWelcomeEmailVersion.findFirst = jest.fn().mockResolvedValue({
+        id: 'wv-3', templateId: 'wt-1', version: 3, subject: 'Welcome', body: 'Hello', guideStoredFileId: 'guide-1',
+      });
+      return { ...withContract(), ...models, cfStoredFile: { findFirst: jest.fn().mockResolvedValue(storedFile) } };
+    };
+
+    it("sends the guide's real filename and type with the download URL, not just a presigned URL", async () => {
+      const n8n = readyN8n();
+      const storage = storageReady();
+      const { service, prisma } = build(
+        withGuide({ storageKey: 'program-workflow/welcome-guides/8f3a.pdf', originalFileName: 'IDI Member Welcome Guide.pdf', mimeType: 'application/pdf' }),
+        n8n,
+        storage,
+      );
+
+      await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+
+      expect(prisma.cfStoredFile.findFirst).toHaveBeenCalledWith({
+        where: { id: 'guide-1' },
+        select: { storageKey: true, originalFileName: true, mimeType: true },
+      });
+      expect(storage.createPresignedDownloadUrl).toHaveBeenCalledWith('program-workflow/welcome-guides/8f3a.pdf', 900);
+      const payload = sentPayload(n8n);
+      expect(payload.attachmentUrl).toBe('https://r2.example.com/signed?sig=1');
+      expect(payload.attachmentFileName).toBe('IDI Member Welcome Guide.pdf');
+      expect(payload.attachmentMimeType).toBe('application/pdf');
+    });
+
+    it('cleans a staff-supplied filename so it cannot smuggle a path into the attachment name', async () => {
+      const n8n = readyN8n();
+      const { service } = build(
+        withGuide({ storageKey: 'k', originalFileName: '../../etc/passwd\\evil.pdf', mimeType: 'application/pdf' }),
+        n8n,
+        storageReady(),
+      );
+
+      await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+
+      const { attachmentFileName } = sentPayload(n8n);
+      expect(attachmentFileName).toBe('.._.._etc_passwd_evil.pdf');
+      expect(attachmentFileName).not.toMatch(/[\\/]/);
+    });
+
+    it('omits a filename or type that is empty, and the whole attachment when there is no guide', async () => {
+      const blank = readyN8n();
+      await build(withGuide({ storageKey: 'k', originalFileName: '  ', mimeType: '' }), blank, storageReady())
+        .service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+      const payload = sentPayload(blank);
+      expect(payload.attachmentUrl).toBe('https://r2.example.com/signed?sig=1');
+      expect(payload).toHaveProperty('attachmentFileName', undefined);
+      expect(payload).toHaveProperty('attachmentMimeType', undefined);
+
+      const none = readyN8n();
+      await build(withContract(), none, storageReady()).service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+      expect(sentPayload(none).attachmentUrl).toBeUndefined();
+      expect(sentPayload(none).attachmentFileName).toBeUndefined();
+      expect(sentPayload(none).attachmentMimeType).toBeUndefined();
+    });
+
+    it('sends no attachment when the guide file no longer exists', async () => {
+      const n8n = readyN8n();
+      await build(withGuide(null), n8n, storageReady()).service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+      expect(sentPayload(n8n).attachmentUrl).toBeUndefined();
+      expect(sentPayload(n8n).attachmentFileName).toBeUndefined();
+    });
+  });
+
   it('does not use a version that belongs to a different template than the active one', async () => {
     const n8n = readyN8n();
     const { service } = build({

@@ -34,6 +34,7 @@ import {
   hashContractToken,
   monitoringDueDate,
   renderContractSnapshot,
+  safeAttachmentFileName,
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
@@ -618,6 +619,9 @@ export class ContractsService {
       + `templateId=${welcomeConfig.meta.templateId ?? 'none'} versionId=${welcomeConfig.meta.versionId ?? 'none'} `
       + `trigger=${input.delivery.source}`,
     );
+    const attachment = availability === 'ready'
+      ? await this.resolveWelcomeAttachment(welcomeConfig.guideStoredFileId)
+      : undefined;
     const welcomeDelivery: WelcomeEmailDeliveryResult = availability !== 'ready'
       ? { status: 'failed', reason: availability }
       : await this.n8n.sendWelcome(input.eventId, {
@@ -632,7 +636,9 @@ export class ContractsService {
           renderMode: 'verbatim',
           welcome: welcomeConfig.meta,
           nextStep: welcomeConfig.body,
-          attachmentUrl: await this.resolveWelcomeAttachmentUrl(welcomeConfig.guideStoredFileId),
+          attachmentUrl: attachment?.url,
+          attachmentFileName: attachment?.fileName,
+          attachmentMimeType: attachment?.mimeType,
           headerImageUrl: welcomeConfig.headerImageUrl,
           sentByUserId: input.delivery.actor?.id ?? client.assignedUserId ?? 'system',
         });
@@ -1450,15 +1456,28 @@ export class ContractsService {
     });
   }
 
-  private async resolveWelcomeAttachmentUrl(storedFileId: string | null): Promise<string | undefined> {
+  /**
+   * The welcome guide as an attachment: a short-lived download URL plus the document's real name and
+   * type. ClientFlow knows what the document is, so n8n never has to guess a filename from a
+   * presigned URL; it downloads the URL and attaches the file under this name and type.
+   */
+  private async resolveWelcomeAttachment(
+    storedFileId: string | null,
+  ): Promise<{ url: string; fileName?: string; mimeType?: string } | undefined> {
     if (!storedFileId || !this.storage.isEnabled()) return undefined;
     const storedFile = await this.prisma.cfStoredFile.findFirst({
       where: { id: storedFileId },
-      select: { storageKey: true },
+      select: { storageKey: true, originalFileName: true, mimeType: true },
     });
     if (!storedFile) return undefined;
     const download = await this.storage.createPresignedDownloadUrl(storedFile.storageKey, 900);
-    return download.url;
+    const fileName = safeAttachmentFileName(storedFile.originalFileName);
+    const mimeType = storedFile.mimeType?.trim() || undefined;
+    return {
+      url: download.url,
+      ...(fileName ? { fileName } : {}),
+      ...(mimeType ? { mimeType } : {}),
+    };
   }
 
   // Header logo is embedded inline and must stay resolvable whenever the email is reopened later,

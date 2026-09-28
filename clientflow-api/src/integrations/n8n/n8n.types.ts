@@ -95,7 +95,12 @@ export interface WelcomeSendLifecyclePayload extends LifecycleEventBase {
   renderMode: 'verbatim';
   welcome: WelcomeCopyMetadata;
   nextStep: string;
+  /** Short-lived download URL of the welcome guide. n8n downloads it and attaches the file. */
   attachmentUrl?: string;
+  /** The guide's real filename, e.g. "IDI Member Welcome Guide.pdf". Only with attachmentUrl. */
+  attachmentFileName?: string;
+  /** The guide's MIME type, e.g. "application/pdf". Only with attachmentUrl. */
+  attachmentMimeType?: string;
   headerImageUrl?: string;
 }
 
@@ -177,6 +182,8 @@ export interface WelcomeEmailPayload {
   /** Same text as `body`; kept for the current n8n validation. */
   nextStep: string;
   attachmentUrl?: string;
+  attachmentFileName?: string;
+  attachmentMimeType?: string;
   /** Public URL of the org's header logo; resolved independently of the guide attachment. */
   headerImageUrl?: string;
   sentByUserId: string;
