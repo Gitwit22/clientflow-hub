@@ -42,6 +42,13 @@ function table(rows: Row[]) {
       hits.forEach((row) => Object.assign(row, data));
       return Promise.resolve({ count: hits.length });
     },
+    deleteMany: ({ where }: { where?: Row } = {}) => {
+      const before = rows.length;
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        if (matches(rows[index], where)) rows.splice(index, 1);
+      }
+      return Promise.resolve({ count: before - rows.length });
+    },
     create: ({ data }: { data: Row }) => {
       const row = { id: Math.random().toString(36).slice(2), ...data };
       rows.push(row);

@@ -13,7 +13,8 @@ import {
   cfDeleteFormTemplate,
   cfUpdateFormTemplate,
   cfCreateClient,
-  cfDeleteClient,
+  cfPermanentlyDeleteClient,
+  cfListArchivedClients,
   cfGetClient,
   cfListFormAssignments,
   cfUpdateClient,
@@ -217,13 +218,30 @@ export async function archiveClient(
   return delay(true);
 }
 
-export async function deleteClient(id: string) {
-  await cfDeleteClient(id);
+/**
+ * Permanently erases a client and everything recorded for them, payments included, so their money
+ * leaves Payments and Reports. Archive instead to keep the record and its financial history.
+ */
+export async function deleteClient(id: string, confirmation: string) {
+  await cfPermanentlyDeleteClient(id, confirmation);
   setState((current) => ({
     ...current,
     clients: current.clients.filter((client) => client.id !== id),
   }));
   retryBootstrap();
+}
+
+/** Loads the archive into the client list (the default load is active clients only). */
+export async function loadArchivedClients() {
+  const archived = await cfListArchivedClients();
+  setState((current) => ({
+    ...current,
+    clients: [
+      ...current.clients.filter((client) => !archived.some((row) => row.id === client.id)),
+      ...archived,
+    ],
+  }));
+  return archived;
 }
 
 export async function restoreClient(id: string) {

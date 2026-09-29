@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   type AuthenticatedRequest,
@@ -9,8 +9,10 @@ import {
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { ContractsService } from '../contracts/contracts.service';
 import { DeclineReviewDto } from '../contracts/dto/decline-review.dto';
+import { ClientDeletionService } from './client-deletion.service';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
+import { PermanentDeleteClientDto } from './dto/permanent-delete-client.dto';
 import { UpdateClientProgramDto } from './dto/update-client-program.dto';
 
 @ApiTags('clients')
@@ -20,6 +22,7 @@ export class ClientsController {
   constructor(
     private readonly clients: ClientsService,
     private readonly contracts: ContractsService,
+    private readonly deletion: ClientDeletionService,
   ) {}
 
   @Post()
@@ -98,6 +101,27 @@ export class ClientsController {
     return this.contracts.declineReview(admin.organizationId, id, dto.reason, {
       enrollmentId: enrollmentId || null,
       actor: { id: admin.id, name: admin.displayName },
+    });
+  }
+
+  @Delete(':id/permanent')
+  @UseGuards(ClientflowAdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Permanently erase a client and everything recorded for them, including payments',
+    description: 'Irreversible. Archive instead to keep the record and its financial history.',
+  })
+  @ApiOkResponse({ description: 'Row counts removed per table; no client details.' })
+  permanentlyDelete(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: PermanentDeleteClientDto,
+  ) {
+    const admin = requireAdmin(request);
+    return this.deletion.permanentlyDelete({
+      organizationId: admin.organizationId,
+      clientId: id,
+      actor: { id: admin.id, role: admin.role },
+      confirmation: dto.confirmation,
     });
   }
 }

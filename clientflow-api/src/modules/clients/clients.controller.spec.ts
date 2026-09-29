@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import type { ContractsService } from '../contracts/contracts.service';
+import type { ClientDeletionService } from './client-deletion.service';
 import { ClientsController } from './clients.controller';
 import type { ClientsService } from './clients.service';
 
@@ -11,6 +12,7 @@ describe('ClientsController.approveReview', () => {
     const controller = new ClientsController(
       {} as unknown as ClientsService,
       contracts as unknown as ContractsService,
+      {} as unknown as ClientDeletionService,
     );
     const request = {
       adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin', organizationId: 'org-1' },
@@ -29,6 +31,7 @@ describe('ClientsController.approveReview', () => {
     const controller = new ClientsController(
       {} as unknown as ClientsService,
       contracts as unknown as ContractsService,
+      {} as unknown as ClientDeletionService,
     );
 
     expect(() => controller.approveReview({} as never, 'client-1'))

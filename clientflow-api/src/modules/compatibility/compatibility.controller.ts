@@ -340,13 +340,18 @@ export class ClientflowCompatibilityController {
     };
   }
 
-  @Get('clients') async listClients(@Req() request: Request) {
+  /** Active clients by default; `?archived=true` lists the archive (they are never mixed). */
+  @Get('clients') async listClients(@Req() request: Request, @Query('archived') archived?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfClient.findMany({ where: { organizationId: orgId, isArchived: false }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfClient.findMany({
+      where: { organizationId: orgId, isArchived: archived === 'true' },
+      orderBy: archived === 'true' ? { archivedAt: 'desc' } : { createdAt: 'desc' },
+    });
   }
+  // An archived client stays viewable (the profile shows it as archived and offers Restore).
   @Get('clients/:id') async getClient(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const client = await this.requirePrisma().cfClient.findFirst({ where: { id, organizationId: orgId, isArchived: false } });
+    const client = await this.requirePrisma().cfClient.findFirst({ where: { id, organizationId: orgId } });
     if (!client) throw new NotFoundException('Client not found.');
     return client;
   }

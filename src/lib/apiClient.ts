@@ -540,6 +540,10 @@ async function listAllPages<T>(path: string): Promise<T[]> {
 export async function cfListClients() {
   return apiRequest<Client[]>(`${CF}/clients`);
 }
+/** Archived clients only (the default list is active clients). */
+export async function cfListArchivedClients() {
+  return apiRequest<Client[]>(`${CF}/clients?archived=true`);
+}
 export async function cfGetClient(id: string) {
   return apiRequest<Client>(`${CF}/clients/${id}`);
 }
@@ -581,9 +585,20 @@ export async function cfApplyFormResponses(
   );
 }
 
-export async function cfDeleteClient(id: string) {
-  return apiRequest<{ id: string; deleted: true }>(`${CF}/clients/${id}`, {
+/**
+ * DELETE /clients/:id/permanent — erases the client and everything recorded for them, including
+ * billing agreements and payments. `confirmation` must be the business name, typed by staff.
+ */
+export async function cfPermanentlyDeleteClient(id: string, confirmation: string) {
+  return apiRequest<{
+    id: string;
+    deleted: true;
+    counts: Record<string, number>;
+    filesRemoved: number;
+    filesFailed: number;
+  }>(`/api/v1/clients/${encodeURIComponent(id)}/permanent`, {
     method: "DELETE",
+    body: JSON.stringify({ confirmation }),
   });
 }
 
