@@ -32,10 +32,17 @@ import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { buildClientProfileUpdate } from '../clients/client-profile-update';
 import {
+  assertCanGrantRole,
+  assertCanManageMember,
+  parseRole,
+  requireManager,
+} from '../../common/authorization/role-policy';
+import {
   assertEnrollmentForClient,
   findClientForOrg,
   findEnrollmentForOrg,
   findProgramForOrg,
+  findStoredFileForOrg,
 } from '../../common/tenancy/org-scoped.repository';
 import {
   EXECUTED_CONTRACT_MIME_TYPE,
@@ -1463,14 +1470,36 @@ export class ClientflowCompatibilityController {
     return this.n8n?.getDiagnostics() ?? { availability: 'not_configured', enabled: false };
   }
   @Post('seed-demo') async seedDemo(@Req() request: Request) {
-    const { orgId } = await this.requireOrgFromRequest(request);
+    const { admin } = await this.requireOrgFromRequest(request);
+    requireManager(admin);
     return { seeded: {}, liveMode: false };
   }
   @Post('remove-demo') async removeDemo(@Req() request: Request, @Body() _body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    requireManager(admin);
     await this.requirePrisma().organization.update({ where: { id: orgId }, data: { liveMode: true } });
     return { liveMode: true, demoRemovedAt: new Date().toISOString(), principalAdminId: null, removed: {} };
   }
+}
+
+/** The organization settings staff may change. Anything else in the request body is ignored. */
+function pickOrganizationSettings(body: Record<string, unknown>): Record<string, unknown> {
+  const settings: Record<string, unknown> = {};
+  for (const key of ['replyToEmail', 'defaultMonitoringFrequency', 'timezone', 'currency'] as const) {
+    if (typeof body[key] === 'string') settings[key] = (body[key] as string).trim();
+  }
+  if (body.logoStoredFileId === null || typeof body.logoStoredFileId === 'string') {
+    settings.logoStoredFileId = body.logoStoredFileId;
+  }
+  for (const key of ['features', 'notificationTemplateToggles'] as const) {
+    const value = body[key];
+    if (isRecord(value)) {
+      settings[key] = Object.fromEntries(
+        Object.entries(value).filter(([, flag]) => typeof flag === 'boolean'),
+      );
+    }
+  }
+  return settings;
 }
 
 const PUBLIC_FIELD_ALIASES: Record<string, 'primaryContactName' | 'businessName' | 'email' | 'phone' | 'website'> = {
@@ -1978,12 +2007,17 @@ export class OrganizationsCompatibilityController {
   }
 
   @Patch(':orgId/settings') async updateSettings(@Req() request: Request, @Param('orgId') orgId: string, @Body() body: Record<string, unknown>) {
-    await this.requireOrgAccess(request, orgId);
+    requireManager(await this.requireOrgAccess(request, orgId));
     const existing = await this.requirePrisma().organization.findUnique({ where: { id: orgId } });
     if (!existing) throw new NotFoundException('Organization not found.');
     const currentSettings = isRecord(existing.settings) ? existing.settings as Record<string, unknown> : {};
-    const nextSettings: Record<string, unknown> = { ...currentSettings, ...body };
-    const updated = await this.requirePrisma().organization.update({ where: { id: orgId }, data: { name: typeof body.name === 'string' ? body.name : undefined, settings: nextSettings as any } as any });
+    const changes = pickOrganizationSettings(body);
+    if (typeof changes.logoStoredFileId === 'string') {
+      await findStoredFileForOrg(this.requirePrisma(), orgId, changes.logoStoredFileId);
+    }
+    const nextSettings: Record<string, unknown> = { ...currentSettings, ...changes };
+    const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : undefined;
+    const updated = await this.requirePrisma().organization.update({ where: { id: orgId }, data: { name, settings: nextSettings as any } });
     return { id: updated.id, name: updated.name, settings: nextSettings, liveMode: updated.liveMode, demoRemovedAt: updated.demoRemovedAt, principal: null };
   }
 
@@ -1994,7 +2028,9 @@ export class OrganizationsCompatibilityController {
   }
 
   @Post(':orgId/invitations') async inviteMember(@Req() request: Request, @Param('orgId') orgId: string, @Body() body: Record<string, unknown>) {
-    await this.requireOrgAccess(request, orgId);
+    const actor = await this.requireOrgAccess(request, orgId);
+    const role = body.role === undefined ? 'reviewer' : parseRole(body.role);
+    assertCanGrantRole(actor, role);
     const email = String(body.email ?? '').trim().toLowerCase();
     if (!email) throw new BadRequestException('Email is required.');
     const existing = await this.requirePrisma().adminUser.findUnique({ where: { email } });
@@ -2002,36 +2038,51 @@ export class OrganizationsCompatibilityController {
     const plainToken = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(plainToken).digest('hex');
     const randomPasswordHash = await hash(randomBytes(32).toString('hex'), 12);
-    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role: String(body.role ?? 'reviewer') as 'org_admin' | 'reviewer', isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) } } } });
+    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role, isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) } } } });
     return { message: `Invitation sent to ${email}.` };
   }
 
   @Post(':orgId/invitations/:memberId/revoke') async revokeInvite(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
-    await this.requireOrgAccess(request, orgId);
-    const invitation = await this.requirePrisma().adminInvitation.findFirst({ where: { adminUserId: memberId }, include: { adminUser: true } });
+    const actor = await this.requireOrgAccess(request, orgId);
+    const invitation = await this.requirePrisma().adminInvitation.findFirst({
+      where: { adminUserId: memberId, adminUser: { organizationId: orgId } },
+      include: { adminUser: true },
+    });
     if (!invitation) throw new NotFoundException('Invitation not found.');
+    assertCanManageMember(actor, invitation.adminUser);
     if (invitation.acceptedAt || invitation.revokedAt) throw new BadRequestException('Only pending invitations can be revoked.');
-    await this.requirePrisma().adminInvitation.update({ where: { id: invitation.id }, data: { revokedAt: new Date() } });
-    await this.requirePrisma().adminUser.delete({ where: { id: memberId } });
+    await this.requirePrisma().$transaction([
+      this.requirePrisma().adminInvitation.update({ where: { id: invitation.id }, data: { revokedAt: new Date() } }),
+      this.requirePrisma().adminUser.delete({ where: { id: memberId, organizationId: orgId } }),
+    ]);
     return { message: `Invitation to ${invitation.adminUser.email} revoked.` };
   }
 
   @Patch(':orgId/members/:memberId/role') async updateMemberRole(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string, @Body() body: Record<string, unknown>) {
-    await this.requireOrgAccess(request, orgId);
+    const actor = await this.requireOrgAccess(request, orgId);
     const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId } });
     if (!member) throw new NotFoundException('Member not found.');
-    const updated = await this.requirePrisma().adminUser.update({ where: { id: memberId }, data: { role: String(body.role ?? member.role) as 'org_admin' | 'reviewer' }, select: { id: true, email: true, role: true } });
+    assertCanManageMember(actor, member);
+    const role = parseRole(body.role);
+    assertCanGrantRole(actor, role);
+    const updated = await this.requirePrisma().adminUser.update({ where: { id: memberId, organizationId: orgId }, data: { role }, select: { id: true, email: true, role: true } });
     return { id: updated.id, email: updated.email, role: updated.role };
   }
 
   @Post(':orgId/members/:memberId/disable') async disableMember(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
-    await this.requireOrgAccess(request, orgId);
+    const actor = await this.requireOrgAccess(request, orgId);
+    const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId } });
+    if (!member) throw new NotFoundException('Member not found.');
+    assertCanManageMember(actor, member);
     await this.requirePrisma().adminUser.update({ where: { id: memberId, organizationId: orgId }, data: { isActive: false } });
     return { message: 'Member disabled.' };
   }
 
   @Post(':orgId/members/:memberId/enable') async enableMember(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
-    await this.requireOrgAccess(request, orgId);
+    const actor = await this.requireOrgAccess(request, orgId);
+    const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId } });
+    if (!member) throw new NotFoundException('Member not found.');
+    assertCanManageMember(actor, member);
     await this.requirePrisma().adminUser.update({ where: { id: memberId, organizationId: orgId }, data: { isActive: true } });
     return { message: 'Member enabled.' };
   }
