@@ -393,7 +393,33 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     // Explicit allowlist: the request body is never passed to Prisma directly.
     const data = buildClientProfileUpdate(body);
-    const updated = await this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data });
+    const prisma = this.requirePrisma();
+    const previous = await findClientForOrg(prisma, orgId, id, { includeArchived: true });
+    const archiving = data.isArchived === true && !previous.isArchived;
+    const restoring = data.isArchived === false && previous.isArchived;
+    const previousArchivedAt = previous.archivedAt;
+    if (archiving && !data.archivedAt) data.archivedAt = new Date();
+    // Restoring returns the client to the active caseload: the archive details no longer apply.
+    if (restoring) Object.assign(data, { archivedAt: null, archiveReason: null, finalStatus: null });
+    const updated = await prisma.$transaction(async (transaction) => {
+      const client = await transaction.cfClient.update({ where: { id, organizationId: orgId }, data });
+      // Archive and restore cascade to the client's enrollments on the server, so every page
+      // (and every other session) sees the same state. Restore only brings back the enrollments
+      // archived together with the client, not ones archived on their own earlier.
+      if (archiving) {
+        await transaction.cfProgramEnrollment.updateMany({
+          where: { organizationId: orgId, clientId: id, isArchived: false },
+          data: { isArchived: true, archivedAt: client.archivedAt },
+        });
+      }
+      if (restoring && previousArchivedAt) {
+        await transaction.cfProgramEnrollment.updateMany({
+          where: { organizationId: orgId, clientId: id, isArchived: true, archivedAt: previousArchivedAt },
+          data: { isArchived: false, archivedAt: null },
+        });
+      }
+      return client;
+    });
     if (this.enrollments && (data.assignedUserId !== undefined || data.assignedStaff !== undefined)) {
       await this.enrollments.syncAssignmentToActiveEnrollments(
         orgId,

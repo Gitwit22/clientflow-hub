@@ -82,8 +82,12 @@ describe('compatibility route scaffold', () => {
     });
 
     it('never passes an arbitrary request body to Prisma from the generic client update', async () => {
-      const prisma = {
-        cfClient: { update: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+      const prisma: Record<string, any> = {
+        cfClient: {
+          update: jest.fn().mockResolvedValue({ id: 'client-1' }),
+          findFirst: jest.fn().mockResolvedValue({ id: 'client-1', organizationId: 'org-1', isArchived: false, archivedAt: null }),
+        },
+        $transaction: jest.fn(async (callback: (value: unknown) => unknown) => callback(prisma)),
       };
       const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
       jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
@@ -174,8 +178,12 @@ describe('compatibility route scaffold', () => {
 
     it('cascades an assignment change onto the client\'s still-open enrollments', async () => {
       const updatedClient = { id: 'client-1', organizationId: 'org-1', assignedUserId: 'user-2', assignedStaff: 'Jordan Staff' };
-      const prisma = {
-        cfClient: { update: jest.fn().mockResolvedValue(updatedClient) },
+      const prisma: Record<string, any> = {
+        cfClient: {
+          update: jest.fn().mockResolvedValue(updatedClient),
+          findFirst: jest.fn().mockResolvedValue({ id: 'client-1', organizationId: 'org-1', isArchived: false, archivedAt: null }),
+        },
+        $transaction: jest.fn(async (callback: (value: unknown) => unknown) => callback(prisma)),
         cfProgramEnrollment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       };
       const enrollments = new EnrollmentsService(prisma as never);
@@ -203,8 +211,12 @@ describe('compatibility route scaffold', () => {
 
     it('does not cascade to enrollments when the update has no assignment fields', async () => {
       const updatedClient = { id: 'client-1', organizationId: 'org-1' };
-      const prisma = {
-        cfClient: { update: jest.fn().mockResolvedValue(updatedClient) },
+      const prisma: Record<string, any> = {
+        cfClient: {
+          update: jest.fn().mockResolvedValue(updatedClient),
+          findFirst: jest.fn().mockResolvedValue({ id: 'client-1', organizationId: 'org-1', isArchived: false, archivedAt: null }),
+        },
+        $transaction: jest.fn(async (callback: (value: unknown) => unknown) => callback(prisma)),
         cfProgramEnrollment: { updateMany: jest.fn() },
       };
       const enrollments = new EnrollmentsService(prisma as never);
