@@ -703,19 +703,14 @@ export async function recordMonitoringResult(
       >
     >,
 ) {
-  await cfRecordMonitoringResult(id, data as Record<string, unknown>);
+  // The server applies the review (next review date, kept notes, history) and returns the item.
+  const updated = (await cfRecordMonitoringResult(
+    id,
+    data as Record<string, unknown>,
+  )) as EnrollmentMonitoring;
   setState((s) => ({
     ...s,
-    monitoring: s.monitoring.map((item) =>
-      item.id === id
-        ? {
-            ...item,
-            ...data,
-            actualValue: data.actualValue ?? item.actualValue,
-            lastReviewedAt: nowISO(),
-          }
-        : item,
-    ),
+    monitoring: s.monitoring.map((item) => (item.id === id ? { ...item, ...updated } : item)),
   }));
   return delay(true);
 }

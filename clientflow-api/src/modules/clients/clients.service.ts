@@ -281,10 +281,7 @@ export class ClientsService {
         where: { clientId: client.id, organizationId: client.organizationId },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.cfMonitoringTask.findFirst({
-        where: { clientId: client.id, organizationId: client.organizationId },
-        orderBy: { createdAt: 'desc' },
-      }),
+      this.latestMonitoring(client.organizationId, client.id),
       this.prisma.cfDocument.findFirst({
         where: { clientId: client.id, organizationId: client.organizationId, type: 'contract' },
         orderBy: { createdAt: 'desc' },
@@ -319,6 +316,30 @@ export class ClientsService {
           }
         : null,
     };
+  }
+
+  /**
+   * The client's most recent monitoring item, from their enrollments (canonical). Clients whose only
+   * follow-up predates enrollment monitoring still show that legacy task.
+   */
+  private async latestMonitoring(organizationId: string, clientId: string) {
+    const enrollmentIds = (await this.prisma.cfProgramEnrollment.findMany({
+      where: { organizationId, clientId },
+      select: { id: true },
+    })).map((enrollment) => enrollment.id);
+    const item = enrollmentIds.length
+      ? await this.prisma.cfEnrollmentMonitoring.findFirst({
+          where: { organizationId, enrollmentId: { in: enrollmentIds }, active: true },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null;
+    if (item) {
+      return { id: item.id, type: item.name, status: item.complianceStatus, dueDate: item.nextReviewAt };
+    }
+    return this.prisma.cfMonitoringTask.findFirst({
+      where: { clientId, organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async updateProgram(

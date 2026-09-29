@@ -610,7 +610,7 @@ function completionContext(n8nOverrides: Record<string, unknown> = {}, prismaExt
   const transaction: Record<string, any> = {
     cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     cfClient: { update: jest.fn().mockResolvedValue(client) },
-    cfMonitoringTask: { create: jest.fn().mockResolvedValue({ id: 'm-1', type: 'x', status: 'PENDING', dueDate: now, assignedStaffId: null }) },
+    cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue({ id: 'm-1', type: 'x', status: 'PENDING', dueDate: now, assignedStaffId: null }) },
     cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'a-1' }) },
     cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null) },
     cfCommunication: { create: jest.fn().mockImplementation(async ({ data }) => ({ id: 'welcome-comm', ...data })), update: jest.fn() },

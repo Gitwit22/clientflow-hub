@@ -254,6 +254,7 @@ describe('ClientsService', () => {
       cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1', name: 'Grant' }) },
       cfContract: { findFirst: jest.fn().mockResolvedValue(contract) },
       cfMonitoringTask: { findFirst: jest.fn().mockResolvedValue(null) },
+      cfProgramEnrollment: { findMany: jest.fn().mockResolvedValue([]) },
       cfDocument: {
         findFirst: jest.fn().mockResolvedValue({
           url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',

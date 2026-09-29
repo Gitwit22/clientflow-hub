@@ -35,6 +35,7 @@ import { resolvePublicFormLink } from '../forms/public-form-link';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
+import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
   assertCanGrantRole,
@@ -1374,11 +1375,17 @@ export class ClientflowCompatibilityController {
   @Post('enrollments/:enrollmentId/monitoring') async createMonitoring(@Req() request: Request, @Param('enrollmentId') enrollmentId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     await findEnrollmentForOrg(this.requirePrisma(), orgId, enrollmentId);
-    return this.requirePrisma().cfEnrollmentMonitoring.create({ data: { organizationId: orgId, enrollmentId, name: String(body.name ?? 'Monitoring Review'), description: body.description ? String(body.description) : null, frequency: String(body.frequency ?? 'monthly') as any, customIntervalDays: body.customIntervalDays ? Number(body.customIntervalDays) : null, expectedValue: body.expectedValue ? Number(body.expectedValue) : null, actualValue: body.actualValue ? Number(body.actualValue) : null, unit: body.unit ? String(body.unit) : null, complianceStatus: String(body.status ?? 'pending') as any, lastReviewedAt: body.lastReviewedAt ? new Date(String(body.lastReviewedAt)) : null, nextReviewAt: body.nextReviewAt ? new Date(String(body.nextReviewAt)) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), assignedReviewerId: body.assignedStaffId ? String(body.assignedStaffId) : null, followUpRequired: Boolean(body.followUpRequired ?? false), evidenceRequired: Boolean(body.evidenceRequired ?? false), notes: String(body.notes ?? ''), active: true } as any });
+    return this.requirePrisma().cfEnrollmentMonitoring.create({ data: { organizationId: orgId, enrollmentId, name: String(body.name ?? 'Monitoring Review'), description: body.description ? String(body.description) : null, frequency: normalizeMonitoringFrequency(body.frequency ?? 'monthly').frequency, customIntervalDays: body.customIntervalDays ? Number(body.customIntervalDays) : normalizeMonitoringFrequency(body.frequency ?? 'monthly').customIntervalDays, expectedValue: body.expectedValue ? Number(body.expectedValue) : null, actualValue: body.actualValue ? Number(body.actualValue) : null, unit: body.unit ? String(body.unit) : null, complianceStatus: body.complianceStatus !== undefined || body.status !== undefined ? parseComplianceStatus(body.complianceStatus ?? body.status) : 'pending', lastReviewedAt: body.lastReviewedAt ? new Date(String(body.lastReviewedAt)) : null, nextReviewAt: body.nextReviewAt ? new Date(String(body.nextReviewAt)) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), assignedReviewerId: body.assignedStaffId ? String(body.assignedStaffId) : null, followUpRequired: Boolean(body.followUpRequired ?? false), evidenceRequired: Boolean(body.evidenceRequired ?? false), notes: String(body.notes ?? ''), active: true } as any });
   }
+  /** Adapter: the review is recorded by the monitoring lifecycle (result, schedule, history). */
   @Post('enrollment-monitoring/:id/results') async recordMonitoringResult(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfEnrollmentMonitoring.update({ where: { id, organizationId: orgId }, data: { complianceStatus: String(body.status ?? 'compliant') as any, notes: body.notes ? String(body.notes) : null, lastReviewedAt: new Date(), followUpRequired: Boolean(body.followUpRequired ?? false) } as any });
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().$transaction((transaction) => recordMonitoringResult(transaction, {
+      organizationId: orgId,
+      monitoringId: id,
+      result: body,
+      reviewedByUserId: admin.id,
+    }));
   }
   @Get('enrollment-monitoring/:id/history') async getMonitoringHistory(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);

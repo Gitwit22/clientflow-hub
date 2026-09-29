@@ -717,7 +717,7 @@ describe('ContractsService', () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue(monitoringTask) },
+      cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue(monitoringTask) },
       cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
       cfCommunication: {
         create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
@@ -758,13 +758,8 @@ describe('ContractsService', () => {
     expect(transaction.cfClient.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'ONBOARDING' }),
     }));
-    expect(transaction.cfMonitoringTask.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        type: 'Initial Follow-Up',
-        status: 'PENDING',
-        assignedStaffId: null,
-      }),
-    }));
+    // Monitoring belongs to an enrollment; this contract predates enrollments, so it gets none.
+    expect(transaction.cfEnrollmentMonitoring.create).not.toHaveBeenCalled();
     expect(n8n.sendWelcome).not.toHaveBeenCalled();
     expect(result).toEqual(expect.objectContaining({
       contract: expect.objectContaining({ status: 'COMPLETED' }),
@@ -778,7 +773,7 @@ describe('ContractsService', () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+      cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue({
         id: 'monitoring-1',
         type: 'Initial Follow-Up',
         status: 'PENDING',
@@ -815,6 +810,17 @@ describe('ContractsService', () => {
       agreedToTerms: true,
     }, { signerIp: null, userAgent: null });
 
+    // The first follow-up is a monitoring item on the enrollment, scheduled from the program.
+    expect(transaction.cfEnrollmentMonitoring.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: 'org-1',
+        enrollmentId: 'enroll-1',
+        name: 'Initial Follow-Up',
+        frequency: 'monthly',
+        complianceStatus: 'pending',
+        nextReviewAt: expect.any(Date),
+      }),
+    });
     expect(transaction.cfProgramEnrollment.updateMany).toHaveBeenCalledWith({
       where: { id: 'enroll-1', organizationId: 'org-1', status: 'onboarding' },
       data: { status: 'active', lastProgressUpdate: expect.any(Date) },
@@ -828,7 +834,7 @@ describe('ContractsService', () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+      cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue({
         id: 'monitoring-1',
         type: 'Initial Follow-Up',
         status: 'PENDING',
@@ -872,7 +878,7 @@ describe('ContractsService', () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+      cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue({
         id: 'monitoring-1',
         type: 'Initial Follow-Up',
         status: 'PENDING',
@@ -932,7 +938,7 @@ describe('ContractsService', () => {
     return {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue({
+      cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue({
         id: 'monitoring-1',
         type: 'Initial Follow-Up',
         status: 'PENDING',
@@ -1195,7 +1201,7 @@ describe('ContractsService', () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue(monitoringTask) },
+      cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue(monitoringTask) },
       cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
       cfCommunication: {
         create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
@@ -1270,7 +1276,7 @@ describe('ContractsService', () => {
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'ONBOARDING' }) },
-      cfMonitoringTask: { create: jest.fn().mockResolvedValue(monitoringTask) },
+      cfEnrollmentMonitoring: { create: jest.fn().mockResolvedValue(monitoringTask) },
       cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
       cfCommunication: {
         create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
