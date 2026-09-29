@@ -314,6 +314,8 @@ export class FormDeliveryService {
 export function withoutLinkSecrets<T extends { secureLink?: string | null; secureLinkToken?: string | null }>(
   assignment: T,
 ): Omit<T, 'secureLink' | 'secureLinkToken'> {
-  const { secureLink: _link, secureLinkToken: _hash, ...rest } = assignment;
-  return rest;
+  const rest: Partial<T> = { ...assignment };
+  delete rest.secureLink;
+  delete rest.secureLinkToken;
+  return rest as Omit<T, 'secureLink' | 'secureLinkToken'>;
 }

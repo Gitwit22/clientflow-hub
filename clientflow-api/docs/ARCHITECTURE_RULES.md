@@ -65,5 +65,5 @@ built-in fallback secret.
 
 - `src/common/tenancy/tenancy-scan.spec.ts` fails on id-only client lookups outside the tenancy
   repository and on request bodies passed to Prisma `data`.
-- `test/invariants/*.spec.ts` hold the cross-cutting rules (cross-organization access, role
+- `src/invariants/*.invariant.spec.ts` hold the cross-cutting rules (cross-organization access, role
   promotion, token states, and more as later phases land).

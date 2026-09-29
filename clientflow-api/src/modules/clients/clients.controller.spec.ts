@@ -16,7 +16,7 @@ describe('ClientsController.approveReview', () => {
       adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin', organizationId: 'org-1' },
     } as never;
 
-    await controller.approveReview(request, 'client-1', { staffSignerName: 'Someone Else' });
+    await controller.approveReview(request, 'client-1');
 
     expect(contracts.approveReview).toHaveBeenCalledWith('org-1', 'client-1', {
       id: 'admin-1',
@@ -31,7 +31,7 @@ describe('ClientsController.approveReview', () => {
       contracts as unknown as ContractsService,
     );
 
-    expect(() => controller.approveReview({} as never, 'client-1', { staffSignerName: 'Jordan Staff' }))
+    expect(() => controller.approveReview({} as never, 'client-1'))
       .toThrow(UnauthorizedException);
     expect(contracts.approveReview).not.toHaveBeenCalled();
   });

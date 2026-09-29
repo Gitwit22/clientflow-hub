@@ -8,7 +8,6 @@ import {
 } from '../../common/guards/clientflow-auth.guard';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { ContractsService } from '../contracts/contracts.service';
-import { ApproveReviewDto } from '../contracts/dto/approve-review.dto';
 import { DeclineReviewDto } from '../contracts/dto/decline-review.dto';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
@@ -75,9 +74,9 @@ export class ClientsController {
   approveReview(
     @Req() request: AuthenticatedRequest,
     @Param('id') id: string,
-    // The body may still carry legacy staffSigner* fields; they are ignored.
-    @Body() _dto: ApproveReviewDto,
   ) {
+    // Older clients may still send staffSigner* fields in the body; the signer is always the
+    // signed-in admin, so the body is not read.
     const admin = requireAdmin(request);
     return this.contracts.approveReview(admin.organizationId, id, { id: admin.id, name: admin.displayName });
   }
