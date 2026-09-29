@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cfListOpenBillingPeriods, cfRecordPayment } from "@/lib/apiClient";
+import { isDefinitiveFailure, newIdempotencyKey } from "@/lib/client-send";
 import type { OpenBillingPeriod, PaymentMethod, PaymentRecord } from "@/types";
 
 const METHODS: PaymentMethod[] = ["cash", "check", "ach", "card", "other"];
@@ -47,9 +48,13 @@ export function RecordPaymentDialog({
   const [method, setMethod] = useState<PaymentMethod>("ach");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  // One key per payment being entered: kept across a retry after a dropped connection, so the
+  // payment can't be recorded twice; cleared once the server has answered.
+  const attemptKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    attemptKey.current = null;
     setAmount(String(agreementAmount));
     setPaymentDate(new Date().toISOString().slice(0, 10));
     setNote("");
@@ -78,18 +83,26 @@ export function RecordPaymentDialog({
     }
     setSaving(true);
     try {
-      const payment = await cfRecordPayment(clientId, enrollmentId, {
-        amount: Number(amount || 0),
-        paymentDate: new Date(paymentDate).toISOString(),
-        paymentMethod: method,
-        billingPeriodStart,
-        billingPeriodEnd,
-        note: note || undefined,
-      });
+      attemptKey.current ??= newIdempotencyKey();
+      const payment = await cfRecordPayment(
+        clientId,
+        enrollmentId,
+        {
+          amount: Number(amount || 0),
+          paymentDate: new Date(paymentDate).toISOString(),
+          paymentMethod: method,
+          billingPeriodStart,
+          billingPeriodEnd,
+          note: note || undefined,
+        },
+        attemptKey.current,
+      );
+      attemptKey.current = null;
       toast.success("Payment recorded.");
       onOpenChange(false);
       onSaved(payment);
     } catch (error) {
+      if (isDefinitiveFailure(error)) attemptKey.current = null;
       toast.error(error instanceof Error ? error.message : "Unable to record the payment.");
     } finally {
       setSaving(false);

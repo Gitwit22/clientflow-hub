@@ -1384,9 +1384,12 @@ export async function cfRecordPayment(
     billingPeriodEnd: string;
     note?: string;
   },
+  idempotencyKey?: string,
 ) {
+  // The key makes a retried or double-clicked save return the first payment instead of a second.
   return apiRequest<PaymentRecord>(`${billingBase(clientId, enrollmentId)}/payments`, {
     method: "POST",
+    headers: idempotencyHeaders(idempotencyKey),
     body: JSON.stringify(data),
   });
 }

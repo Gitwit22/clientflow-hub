@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   type AuthenticatedRequest,
   ClientflowAdminOnlyGuard,
   ClientflowAuthGuard,
 } from '../../common/guards/clientflow-auth.guard';
+import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { BillingDashboardService } from './billing-dashboard.service';
 import type { CalendarPeriodKind } from './billing-schedule.util';
 import { BillingService } from './billing.service';
@@ -118,6 +119,7 @@ export class EnrollmentBillingController {
     @Param('clientId') clientId: string,
     @Param('enrollmentId') enrollmentId: string,
     @Body() dto: RecordPaymentDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     const organizationId = request.adminUser!.organizationId;
     await this.billing.requireEnrollmentForClient(organizationId, clientId, enrollmentId);
@@ -132,6 +134,7 @@ export class EnrollmentBillingController {
       billingPeriodEnd: new Date(dto.billingPeriodEnd),
       note: dto.note ?? null,
       timezone,
+      idempotencyKey: parseIdempotencyKey(idempotencyKey),
       ...actorFrom(request),
     });
   }

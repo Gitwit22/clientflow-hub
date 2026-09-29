@@ -36,6 +36,7 @@ import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
+import { applyFinalReportDecision } from '../lifecycle/final-report';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
   assertCanGrantRole,
@@ -1420,8 +1421,11 @@ export class ClientflowCompatibilityController {
   @Post('clients/:clientId/terms') async createTerms(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     await findClientForOrg(this.requirePrisma(), orgId, clientId, { includeArchived: true });
-    if (body.programId) await findProgramForOrg(this.requirePrisma(), orgId, String(body.programId));
-    return this.requirePrisma().cfTerms.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), supportType: String(body.supportType ?? 'Service'), resourceDescription: String(body.resourceDescription ?? ''), grantAmount: Number(body.grantAmount ?? 0), loanAmount: Number(body.loanAmount ?? 0), investmentAmount: Number(body.investmentAmount ?? 0), forgivableAmount: Number(body.forgivableAmount ?? 0), repaymentRequired: Boolean(body.repaymentRequired ?? false), repaymentSchedule: String(body.repaymentSchedule ?? ''), interestDescription: String(body.interestDescription ?? ''), milestones: String(body.milestones ?? ''), reportingRequirements: String(body.reportingRequirements ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), monitoringFrequency: String(body.monitoringFrequency ?? 'Monthly'), specialConditions: String(body.specialConditions ?? ''), fundingAmount: Number(body.fundingAmount ?? 0) } });
+    const termsEnrollment = typeof body.enrollmentId === 'string' && body.enrollmentId
+      ? await findEnrollmentForOrg(this.requirePrisma(), orgId, body.enrollmentId, { clientId })
+      : null;
+    if (!termsEnrollment && body.programId) await findProgramForOrg(this.requirePrisma(), orgId, String(body.programId));
+    return this.requirePrisma().cfTerms.create({ data: { organizationId: orgId, clientId, enrollmentId: termsEnrollment?.id ?? null, programId: termsEnrollment?.programId ?? String(body.programId ?? ''), supportType: String(body.supportType ?? 'Service'), resourceDescription: String(body.resourceDescription ?? ''), grantAmount: Number(body.grantAmount ?? 0), loanAmount: Number(body.loanAmount ?? 0), investmentAmount: Number(body.investmentAmount ?? 0), forgivableAmount: Number(body.forgivableAmount ?? 0), repaymentRequired: Boolean(body.repaymentRequired ?? false), repaymentSchedule: String(body.repaymentSchedule ?? ''), interestDescription: String(body.interestDescription ?? ''), milestones: String(body.milestones ?? ''), reportingRequirements: String(body.reportingRequirements ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), monitoringFrequency: String(body.monitoringFrequency ?? 'Monthly'), specialConditions: String(body.specialConditions ?? ''), fundingAmount: Number(body.fundingAmount ?? 0) } });
   }
   @Patch('terms/:id') async updateTerms(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1611,8 +1615,29 @@ export class ClientflowCompatibilityController {
     return this.requirePrisma().cfFinalReport.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
   }
   @Post('clients/:clientId/final-reports') async createFinalReport(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFinalReport.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), originalNeed: String(body.originalNeed ?? ''), supportProvided: String(body.supportProvided ?? ''), fundingProvided: String(body.fundingProvided ?? ''), milestonesCompleted: String(body.milestonesCompleted ?? ''), resultsAchieved: String(body.resultsAchieved ?? ''), issuesEncountered: String(body.issuesEncountered ?? ''), staffComments: String(body.staffComments ?? ''), clientOutcome: String(body.clientOutcome ?? ''), recommendedNextSteps: String(body.recommendedNextSteps ?? ''), archiveDecision: String(body.archiveDecision ?? '') } });
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const prisma = this.requirePrisma();
+    const client = await findClientForOrg(prisma, orgId, clientId, { includeArchived: true });
+    // The report belongs to an enrollment when one is given (its program is the report's program).
+    const enrollment = typeof body.enrollmentId === 'string' && body.enrollmentId
+      ? await findEnrollmentForOrg(prisma, orgId, body.enrollmentId, { clientId: client.id })
+      : null;
+    const programId = enrollment?.programId
+      ?? (typeof body.programId === 'string' && body.programId ? (await findProgramForOrg(prisma, orgId, body.programId)).id : '');
+    const decision = String(body.archiveDecision ?? '');
+    const actorName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
+    return prisma.$transaction(async (transaction) => {
+      const report = await transaction.cfFinalReport.create({ data: { organizationId: orgId, clientId: client.id, enrollmentId: enrollment?.id ?? null, programId, startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), originalNeed: String(body.originalNeed ?? ''), supportProvided: String(body.supportProvided ?? ''), fundingProvided: String(body.fundingProvided ?? ''), milestonesCompleted: String(body.milestonesCompleted ?? ''), resultsAchieved: String(body.resultsAchieved ?? ''), issuesEncountered: String(body.issuesEncountered ?? ''), staffComments: String(body.staffComments ?? ''), clientOutcome: String(body.clientOutcome ?? ''), recommendedNextSteps: String(body.recommendedNextSteps ?? ''), archiveDecision: decision, isDemo: client.isDemo } });
+      // The archive decision takes effect with the report (complete / withdraw / archive).
+      const outcome = await applyFinalReportDecision(transaction, {
+        organizationId: orgId,
+        clientId: client.id,
+        enrollmentId: enrollment?.id ?? null,
+        decision,
+        actor: { id: admin.id, name: actorName },
+      });
+      return { ...report, outcome };
+    });
   }
   @Get('activity') async listActivity(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);

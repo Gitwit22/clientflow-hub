@@ -111,8 +111,11 @@ describe('BillingDashboardService', () => {
 
   it('lists enrollments needing billing setup, excluding programs where billing is not required', async () => {
     const enrollments = [
-      { id: 'enroll-required', clientId: 'client-1', programId: 'program-required', isArchived: false, startDate: null },
-      { id: 'enroll-free', clientId: 'client-2', programId: 'program-free', isArchived: false, startDate: null },
+      { id: 'enroll-required', clientId: 'client-1', programId: 'program-required', status: 'active', isArchived: false, startDate: null },
+      { id: 'enroll-free', clientId: 'client-2', programId: 'program-free', status: 'active', isArchived: false, startDate: null },
+      // Not in the program (yet, or any more): no billing setup is expected.
+      { id: 'enroll-pending', clientId: 'client-1', programId: 'program-required', status: 'pending_review', isArchived: false, startDate: null },
+      { id: 'enroll-withdrawn', clientId: 'client-1', programId: 'program-required', status: 'withdrawn', isArchived: false, startDate: null },
     ];
     const clients = [
       { id: 'client-1', businessName: 'Needs Setup Co', isArchived: false },
