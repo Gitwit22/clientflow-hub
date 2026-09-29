@@ -100,7 +100,7 @@ export class IntakeWorkflowService {
     const actor = input.actorDisplayName ?? 'Client submission';
     const submittedAt = new Date();
 
-    const { submission, enrollmentIds, enrollmentIdsByProgramId } = await this.prisma.$transaction(async (transaction) => {
+    const { submission, enrollmentIds, enrollmentIdsByProgramId, createdProgramIds } = await this.prisma.$transaction(async (transaction) => {
       // Claim the form: only one request can move it to submitted.
       const claimed = await transaction.cfFormAssignment.updateMany({
         where: { id: assignment.id, organizationId: assignment.organizationId, submittedAt: null, cancelledAt: null },
@@ -110,8 +110,9 @@ export class IntakeWorkflowService {
 
       const ids: string[] = [];
       const idsByProgram: Record<string, string> = {};
+      const createdProgramIds: string[] = [];
       for (const programId of selectedProgramIds) {
-        const { enrollmentId } = await this.enrollments.ensureEnrollmentWithin(transaction, {
+        const { enrollmentId, created } = await this.enrollments.ensureEnrollmentWithin(transaction, {
           organizationId: assignment.organizationId,
           clientId: client.id,
           programId,
@@ -124,6 +125,7 @@ export class IntakeWorkflowService {
         });
         ids.push(enrollmentId);
         idsByProgram[programId] = enrollmentId;
+        if (created) createdProgramIds.push(programId);
       }
 
       const created = await transaction.cfIntakeSubmission.create({
@@ -188,7 +190,7 @@ export class IntakeWorkflowService {
           isDemo: client.isDemo,
         },
       });
-      return { submission: created, enrollmentIds: ids, enrollmentIdsByProgramId: idsByProgram };
+      return { submission: created, enrollmentIds: ids, enrollmentIdsByProgramId: idsByProgram, createdProgramIds };
     });
 
     // After commit: nothing below can undo or duplicate the submission.
@@ -202,10 +204,8 @@ export class IntakeWorkflowService {
       isDemo: client.isDemo,
     });
 
-    let automation: unknown = null;
-    if (selectedProgramIds.length && this.automation) {
-      try {
-        automation = await this.automation.runTrigger({
+    const automation = selectedProgramIds.length
+      ? await this.fireTrigger({
           organizationId: assignment.organizationId,
           clientId: client.id,
           trigger: 'intake.submitted',
@@ -214,9 +214,37 @@ export class IntakeWorkflowService {
           actorDisplayName: actor,
           idempotencySeed: `intake.submitted:${submission.id}`,
           payload: { selectedProgramIds },
+        })
+      : null;
+    // Enrollments this submission created start their program's "enrollment created" rules.
+    if (createdProgramIds.length) {
+      await this.fireTrigger({
+        organizationId: assignment.organizationId,
+        clientId: client.id,
+        trigger: 'enrollment.created',
+        programIds: createdProgramIds,
+        enrollmentIdsByProgramId,
+        actorDisplayName: actor,
+        idempotencySeed: `enrollment.created:${submission.id}`,
+      });
+    }
+    // A program's own form (tied to an enrollment) completes: that program's "form completed" rules.
+    if (assignment.enrollmentId) {
+      const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
+        where: { id: assignment.enrollmentId, organizationId: assignment.organizationId },
+        select: { id: true, programId: true },
+      });
+      if (enrollment) {
+        await this.fireTrigger({
+          organizationId: assignment.organizationId,
+          clientId: client.id,
+          trigger: 'form.completed',
+          programIds: [enrollment.programId],
+          enrollmentIdsByProgramId: { [enrollment.programId]: enrollment.id },
+          actorDisplayName: actor,
+          idempotencySeed: `form.completed:${submission.id}`,
+          payload: { formId: assignment.formId, assignmentId: assignment.id },
         });
-      } catch (error) {
-        this.logger.warn(`Intake automation failed for submission ${submission.id}: ${(error as Error).message}`);
       }
     }
 
@@ -228,6 +256,17 @@ export class IntakeWorkflowService {
       enrollmentIds,
       automation,
     };
+  }
+
+  /** Automation runs after the submission is recorded; a failure there never affects it. */
+  private async fireTrigger(request: Parameters<ProgramAutomationService['runTrigger']>[0]): Promise<unknown> {
+    if (!this.automation) return null;
+    try {
+      return await this.automation.runTrigger(request);
+    } catch (error) {
+      this.logger.warn(`Automation ${request.trigger} failed for client ${request.clientId}: ${(error as Error).message}`);
+      return null;
+    }
   }
 
   private replay(

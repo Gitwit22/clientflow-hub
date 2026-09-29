@@ -1,5 +1,5 @@
-import { ConflictException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
+import { ConflictException, forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8,6 +8,8 @@ import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-l
 import { ContractsService } from '../contracts/contracts.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
+import { DELIVERY_SOURCE } from '../communications/communication-attempts';
+import { FormDeliveryService } from '../forms/form-delivery.service';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { canTransitionEnrollment, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 
@@ -40,6 +42,7 @@ interface ProgramExecutionContext {
     id: string;
     email: string;
     primaryContactName: string;
+    businessName: string;
     assignedUserId: string | null;
     assignedStaff: string;
     isDemo: boolean;
@@ -77,6 +80,8 @@ export class ProgramAutomationService {
     private readonly n8n: N8nService,
     private readonly workflowConfig: WorkflowConfigService,
     private readonly enrollments: EnrollmentsService,
+    // Built from the same dependencies when the module doesn't provide it (avoids a module cycle).
+    @Optional() private readonly formDelivery: FormDeliveryService = new FormDeliveryService(prisma, n8n),
   ) {}
 
   async runTrigger(request: TriggerRequest) {
@@ -90,6 +95,7 @@ export class ProgramAutomationService {
         id: true,
         email: true,
         primaryContactName: true,
+        businessName: true,
         assignedUserId: true,
         assignedStaff: true,
         isDemo: true,
@@ -140,7 +146,10 @@ export class ProgramAutomationService {
     });
 
     const executed: string[] = [];
-    if (rules.length === 0 && context.triggerDb === CfProgramTrigger.intake_submitted) {
+    // The program's "send contract after intake" setting applies whether or not the program also
+    // has rules; a rule that sends the contract itself takes precedence (never two contracts).
+    const ruleSendsContract = rules.some((rule) => rule.action === CfProgramAction.send_contract);
+    if (!ruleSendsContract && context.triggerDb === CfProgramTrigger.intake_submitted) {
       const workflow = await this.workflowConfig.getOrCreate(context.organizationId, context.program.id, context.program.name);
       const shouldSendContract = workflow.enabled && workflow.sendContractAfterIntake;
       if (shouldSendContract) {
@@ -151,29 +160,24 @@ export class ProgramAutomationService {
           CfProgramAction.send_contract,
           idempotencyKey,
         );
-        if (!claim) return ['send_contract:skipped_duplicate'];
-        try {
-          const result = await this.sendContract(context, {});
-          await this.prisma.cfProgramAutomationExecution.update({
-            where: { id: claim.id },
-            data: {
-              status: 'completed',
-              details: result,
-            },
-          });
-          return ['send_contract'];
-        } catch (error) {
-          await this.prisma.cfProgramAutomationExecution.update({
-            where: { id: claim.id },
-            data: {
-              status: 'failed',
-              details: {
-                error: (error as Error).message,
-              },
-            },
-          });
-          this.logger.warn(`Workflow auto contract failed for program ${context.program.id}: ${(error as Error).message}`);
-          return ['send_contract:failed'];
+        if (!claim) {
+          executed.push('send_contract:skipped_duplicate');
+        } else {
+          try {
+            const result = await this.sendContract(context, {});
+            await this.prisma.cfProgramAutomationExecution.update({
+              where: { id: claim.id },
+              data: { status: 'completed', details: result },
+            });
+            executed.push('send_contract');
+          } catch (error) {
+            await this.prisma.cfProgramAutomationExecution.update({
+              where: { id: claim.id },
+              data: { status: 'failed', details: { error: (error as Error).message } },
+            });
+            this.logger.warn(`Workflow auto contract failed for program ${context.program.id}: ${(error as Error).message}`);
+            executed.push('send_contract:failed');
+          }
         }
       }
     }
@@ -344,6 +348,8 @@ export class ProgramAutomationService {
     });
     if (!template) return { skipped: true, reason: 'form_template_missing' };
 
+    // An unfinished copy the client already has is reused; one that was never emailed (a draft)
+    // is sent now.
     const existing = await this.prisma.cfFormAssignment.findFirst({
       where: {
         organizationId: context.organizationId,
@@ -354,33 +360,35 @@ export class ProgramAutomationService {
         submittedAt: null,
       },
     });
-    if (existing) return { assignmentId: existing.id, created: false };
+    if (existing && existing.status !== 'draft') return { assignmentId: existing.id, created: false };
 
+    // Same path as a staff send: a real link, an email through n8n, a communication record.
+    const actor = {
+      id: context.actorUserId ?? context.client.assignedUserId ?? 'automation',
+      displayName: context.actorDisplayName || 'automation',
+    };
     const dueInDays = typeof template.dueInDays === 'number' && Number.isFinite(template.dueInDays)
       ? template.dueInDays
       : 7;
-    const dueAt = new Date(Date.now() + dueInDays * 86_400_000);
-    const assignment = await this.prisma.cfFormAssignment.create({
-      data: {
-        organizationId: context.organizationId,
-        clientId: context.client.id,
-        enrollmentId: context.enrollmentId,
-        formId: template.id,
-        assignedUserId: context.client.assignedUserId,
-        deliveryMethod: 'automation',
-        recipientEmail: context.client.email,
-        status: 'sent',
-        dueAt,
-        dueDate: dueAt.toISOString().slice(0, 10),
-        sentAt: new Date(),
-        expiresAt: dueAt,
-        secureLinkToken: randomTokenHash(),
-        createdByUserId: context.actorUserId,
-        isDemo: context.client.isDemo,
-      },
+    const assignmentId = existing?.id ?? (await this.formDelivery.createAssignment(context.organizationId, actor, {
+      clientId: context.client.id,
+      formId: template.id,
+      ...(context.enrollmentId ? { enrollmentId: context.enrollmentId } : {}),
+      assignedUserId: context.client.assignedUserId,
+      completionMethod: 'secure_link',
+      deliveryMethod: 'automation',
+      recipientEmail: context.client.email,
+      dueDate: new Date(Date.now() + dueInDays * 86_400_000).toISOString().slice(0, 10),
+    })).id;
+    const idempotencyKey = `auto-form-${createHash('sha256')
+      .update(`${context.idempotencySeed}:${context.program.id}:${template.id}`)
+      .digest('hex')
+      .slice(0, 48)}`;
+    const sent = await this.formDelivery.send(context.organizationId, actor, assignmentId, {
+      idempotencyKey,
+      source: DELIVERY_SOURCE.automation,
     });
-
-    return { assignmentId: assignment.id, created: true };
+    return { assignmentId, created: !existing, emailStatus: sent.status };
   }
 
   private async sendContract(
@@ -476,12 +484,23 @@ export class ProgramAutomationService {
     actionConfig: Record<string, unknown>,
     ruleId: string,
   ): Promise<Prisma.JsonObject> {
-    const subject = typeof actionConfig.subject === 'string' && actionConfig.subject.trim()
-      ? actionConfig.subject.trim()
-      : `${context.program.name} update`;
-    const message = typeof actionConfig.message === 'string' && actionConfig.message.trim()
-      ? actionConfig.message.trim()
-      : 'A program update is available in ClientFlow.';
+    const variables = {
+      contactName: context.client.primaryContactName,
+      clientName: context.client.primaryContactName,
+      businessName: context.client.businessName,
+      programName: context.program.name,
+      staffName: context.client.assignedStaff,
+    };
+    const subject = renderRuleText(
+      typeof actionConfig.subject === 'string' && actionConfig.subject.trim() ? actionConfig.subject.trim() : `${context.program.name} update`,
+      variables,
+    );
+    const message = renderRuleText(
+      typeof actionConfig.message === 'string' && actionConfig.message.trim()
+        ? actionConfig.message.trim()
+        : 'A program update is available in ClientFlow.',
+      variables,
+    );
 
     const availability = this.n8n.getWelcomeAvailability();
     const eventId = `automation.email:${context.idempotencySeed}:${ruleId}:${context.program.id}:${context.client.id}`;
@@ -761,10 +780,18 @@ export class ProgramAutomationService {
   }
 }
 
-function randomTokenHash(): string {
-  return randomBytes(32).toString('hex');
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Fills `{{contactName}}`, `{{clientName}}`, `{{businessName}}`, `{{programName}}` and `{{staffName}}`
+ * (every occurrence) in a rule's email subject and message. Unknown placeholders are left as written.
+ */
+export function renderRuleText(text: string, variables: Record<string, string | null | undefined>): string {
+  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (placeholder, name: string) => {
+    const value = variables[name];
+    return typeof value === 'string' && value.trim() ? value : placeholder;
+  });
 }

@@ -15,6 +15,7 @@ import {
   findAttemptByKey,
   isUniqueViolation,
   type CommunicationSnapshot,
+  type DeliverySource,
 } from '../communications/communication-attempts';
 
 export interface FormDeliveryActor {
@@ -114,7 +115,7 @@ export class FormDeliveryService {
     organizationId: string,
     actor: FormDeliveryActor,
     assignmentId: string,
-    input: { personalMessage?: unknown; idempotencyKey?: string | null },
+    input: { personalMessage?: unknown; idempotencyKey?: string | null; source?: DeliverySource },
   ) {
     const assignment = await this.prisma.cfFormAssignment.findFirst({ where: { id: assignmentId, organizationId } });
     if (!assignment) throw new NotFoundException('Form assignment not found.');
@@ -175,7 +176,7 @@ export class FormDeliveryService {
           date: now,
           staffMember: actor.displayName,
           createdByUserId: actor.id,
-          source: DELIVERY_SOURCE.manual,
+          source: input.source ?? DELIVERY_SOURCE.manual,
           idempotencyKey: input.idempotencyKey ?? null,
           isDemo: client.isDemo,
         },
@@ -189,7 +190,7 @@ export class FormDeliveryService {
     }
 
     if (availability !== 'ready') {
-      await this.recordFailure(organizationId, actor, assignment, form.name, communication.id, availability);
+      await this.recordFailure(organizationId, actor, assignment, form.name, communication.id, availability, input.source);
       throw new ServiceUnavailableException('Email delivery is unavailable.');
     }
 
@@ -222,7 +223,7 @@ export class FormDeliveryService {
       const reason = error instanceof N8nHttpError
         ? error.reason
         : error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'rejected';
-      await this.recordFailure(organizationId, actor, assignment, form.name, communication.id, reason);
+      await this.recordFailure(organizationId, actor, assignment, form.name, communication.id, reason, input.source);
       throw error;
     }
 
@@ -245,7 +246,7 @@ export class FormDeliveryService {
           action: 'FORM_EMAIL_SENT',
           description: `${form.name} emailed to the client.`,
           user: actor.displayName,
-          source: DELIVERY_SOURCE.manual,
+          source: input.source ?? DELIVERY_SOURCE.manual,
         },
       });
       return updated;
@@ -270,6 +271,7 @@ export class FormDeliveryService {
     formName: string,
     communicationId: string,
     reason: string,
+    source: DeliverySource = DELIVERY_SOURCE.manual,
   ) {
     await this.prisma.cfCommunication.update({
       where: { id: communicationId },
@@ -284,7 +286,7 @@ export class FormDeliveryService {
         action: 'FORM_EMAIL_FAILED',
         description: `${formName} could not be emailed: ${reason}.`,
         user: actor.displayName,
-        source: DELIVERY_SOURCE.manual,
+        source,
       },
     });
   }

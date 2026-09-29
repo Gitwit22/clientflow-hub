@@ -327,6 +327,7 @@ describe('ClientsService', () => {
       clientId: 'client-1',
       formId: 'master-template-1',
       secureLinkToken: 'stale-hash',
+      status: 'sent',
       dueAt: new Date('2030-01-08T00:00:00.000Z'),
       expiresAt: null,
     };
@@ -345,6 +346,7 @@ describe('ClientsService', () => {
         cfFormAssignment: {
           findFirst: jest.fn().mockResolvedValue(assignment),
           update: jest.fn().mockResolvedValue({ ...assignment, secureLinkToken: 'new-hash' }),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         },
         cfFormTemplate: {
           findMany: jest.fn().mockResolvedValue([{ id: 'master-template-1' }]),
@@ -402,14 +404,29 @@ describe('ClientsService', () => {
           secureLink: null,
           // A resend restarts the due date and expiry so the new link isn't born expired.
           dueAt: expect.any(Date),
+          dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
           expiresAt: expect.any(Date),
         },
       }));
+      // Once n8n accepts it, the assignment records when it went out.
+      expect(prisma.cfFormAssignment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'assignment-1', organizationId: 'org-1', submittedAt: null },
+        data: { sentAt: new Date('2030-01-01T00:00:00.000Z') },
+      });
       const created = (prisma.cfCommunication.create.mock.calls as [{ data: { id: string; eventId: string } }][])[0][0].data;
       expect(created.eventId).toBe(`intake.send:assignment-1:${created.id}`);
       expect(n8n.sendIntake).toHaveBeenCalledWith(created.eventId, expect.objectContaining({
         formUrl: expect.stringMatching(/^https:\/\/clientflow\.example\.com\/s\/[A-Za-z0-9_-]{43}$/),
         sentByUserId: 'admin-1',
+      }));
+    });
+
+    it('reopens an expired intake so the new link works', async () => {
+      const { service, prisma } = build();
+      prisma.cfFormAssignment.findFirst.mockResolvedValue({ ...assignment, status: 'expired' });
+      await service.sendIntakeNow('org-1', 'client-1', { actor });
+      expect(prisma.cfFormAssignment.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: 'sent' }),
       }));
     });
 

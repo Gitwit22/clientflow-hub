@@ -199,6 +199,16 @@ export class ClientflowCompatibilityController {
     return this.storage;
   }
 
+  /** Runs a program automation trigger after the change it describes; a failure never undoes that. */
+  private async fireTrigger(request: Parameters<ProgramAutomationService['runTrigger']>[0]) {
+    if (!this.automation) return;
+    try {
+      await this.automation.runTrigger(request);
+    } catch (error) {
+      this.logger.warn(`Automation ${request.trigger} failed for client ${request.clientId}: ${(error as Error).message}`);
+    }
+  }
+
   private requireWorkflowConfig(): WorkflowConfigService {
     if (!this.workflowConfig) throw this.scaffold.notImplemented('ClientFlow workflow configuration');
     return this.workflowConfig;
@@ -1139,24 +1149,19 @@ export class ClientflowCompatibilityController {
       });
       return enrollment;
     });
-    if (this.automation
-      && String(current.status).toLowerCase() !== 'approved'
-      && String(updated.status).toLowerCase() === 'approved') {
-      try {
-        await this.automation.runTrigger({
-          organizationId: orgId,
-          clientId: updated.clientId,
-          trigger: 'enrollment.approved',
-          programIds: [updated.programId],
-          enrollmentIdsByProgramId: { [updated.programId]: updated.id },
-          actorUserId: admin.id,
-          actorDisplayName: changedByDisplayName,
-          idempotencySeed: `compat.enrollment.approved:${updated.id}`,
-          payload: { enrollmentStatus: updated.status },
-        });
-      } catch (error) {
-        this.logger.warn(`Enrollment approval automation failed for ${updated.id}: ${(error as Error).message}`);
-      }
+    for (const trigger of ['approved', 'completed'] as const) {
+      if (String(current.status) === trigger || String(updated.status) !== trigger) continue;
+      await this.fireTrigger({
+        organizationId: orgId,
+        clientId: updated.clientId,
+        trigger: trigger === 'approved' ? 'enrollment.approved' : 'program.completed',
+        programIds: [updated.programId],
+        enrollmentIdsByProgramId: { [updated.programId]: updated.id },
+        actorUserId: admin.id,
+        actorDisplayName: changedByDisplayName,
+        idempotencySeed: `compat.enrollment.${trigger}:${updated.id}`,
+        payload: { enrollmentStatus: updated.status },
+      });
     }
     return updated;
   }
@@ -1549,7 +1554,7 @@ export class ClientflowCompatibilityController {
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
     });
-    return this.requirePrisma().cfDocument.update({
+    const completed = await this.requirePrisma().cfDocument.update({
       where: { id: document.id },
       data: {
         url: storage.getObjectPublicUrl(storedFile.storageKey) ?? '',
@@ -1558,6 +1563,28 @@ export class ClientflowCompatibilityController {
         uploadStatus: 'ready',
       },
     });
+    // A document filed for an enrollment triggers that program's rules; one filed on the client
+    // triggers the rules of each program the client is still in. Only the first completion counts.
+    if (document.uploadStatus !== 'ready') {
+      const enrollments = await this.requirePrisma().cfProgramEnrollment.findMany({
+        where: document.enrollmentId
+          ? { id: document.enrollmentId, organizationId: orgId }
+          : { organizationId: orgId, clientId: document.clientId, status: { notIn: ['completed', 'declined', 'withdrawn'] } },
+        select: { id: true, programId: true },
+      });
+      if (enrollments.length) {
+        await this.fireTrigger({
+          organizationId: orgId,
+          clientId: document.clientId,
+          trigger: 'document.uploaded',
+          programIds: enrollments.map((enrollment) => enrollment.programId),
+          enrollmentIdsByProgramId: Object.fromEntries(enrollments.map((enrollment) => [enrollment.programId, enrollment.id])),
+          idempotencySeed: `compat.document.uploaded:${document.id}`,
+          payload: { documentId: document.id, documentType: document.type },
+        });
+      }
+    }
+    return completed;
   }
   @Get('documents/:id/download') async downloadDocument(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);

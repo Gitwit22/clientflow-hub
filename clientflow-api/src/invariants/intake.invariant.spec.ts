@@ -42,7 +42,7 @@ function setup(assignmentOverrides: Record<string, unknown> = {}) {
     cfNotification: [],
   };
   const db = inMemoryDb(rows) as unknown as PrismaService;
-  const automation = { runTrigger: jest.fn().mockResolvedValue({ ran: true }) };
+  const automation = { runTrigger: jest.fn<Promise<unknown>, [{ trigger: string; programIds: string[]; idempotencySeed: string }]>().mockResolvedValue({ ran: true }) };
   const service = new IntakeWorkflowService(db, new EnrollmentsService(db), automation as unknown as ProgramAutomationService);
   const counts = () => Object.fromEntries(Object.entries(rows).map(([table, list]) => [table, list.length]));
   return { rows, service, automation, counts };
@@ -75,10 +75,13 @@ describe('INVARIANT: a retried intake submission creates nothing new', () => {
       status: 'PROGRAM_SELECTED', programId: 'p-grant', intake: { referralSource: 'event', programOfInterest: 'Grant' },
     }));
     expect(rows.cfNotification).toHaveLength(1);
-    expect(automation.runTrigger).toHaveBeenCalledTimes(1);
-    expect(automation.runTrigger).toHaveBeenCalledWith(expect.objectContaining({
-      idempotencySeed: `intake.submitted:${result.submissionId}`,
-    }));
+    // Automation after commit: intake rules for both programs, "enrollment created" only for the
+    // enrollment this submission created (coaching already existed).
+    const triggers = automation.runTrigger.mock.calls.map(([request]: [{ trigger: string; programIds: string[]; idempotencySeed: string }]) => request);
+    expect(triggers).toEqual([
+      expect.objectContaining({ trigger: 'intake.submitted', programIds: ['p-grant', 'p-coach'], idempotencySeed: `intake.submitted:${result.submissionId}` }),
+      expect.objectContaining({ trigger: 'enrollment.created', programIds: ['p-grant'], idempotencySeed: `enrollment.created:${result.submissionId}` }),
+    ]);
   });
 
   it.each([
@@ -95,7 +98,7 @@ describe('INVARIANT: a retried intake submission creates nothing new', () => {
       submissionId: first.submissionId, enrollmentIds: first.enrollmentIds, replayed: true,
     }));
     expect(counts()).toEqual(before);
-    expect(automation.runTrigger).toHaveBeenCalledTimes(1);
+    expect(automation.runTrigger).toHaveBeenCalledTimes(2); // only the first submission's triggers
   });
 
   it('refuses a different submission on an already-submitted form', async () => {
