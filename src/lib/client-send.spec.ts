@@ -6,6 +6,7 @@ import {
   contractSendState,
   currentContract,
   describeDelivery,
+  describeDeliveryReason,
   isDefinitiveFailure,
   newIdempotencyKey,
   sendAvailability,
@@ -133,6 +134,19 @@ describe("delivery helpers", () => {
     });
     expect(describeDelivery({ status: "skipped", reason: "not_configured" }).message).toContain("not configured");
     expect(describeDelivery({ status: "pending" }).ok).toBe(false);
+  });
+
+  it("explains an n8n HTTP failure instead of showing the raw code", () => {
+    expect(describeDelivery({ status: "failed", reason: "n8n_http_500" }).message).toBe(
+      "The email was not sent (n8n could not run the email workflow, HTTP 500; check the n8n account and plan).",
+    );
+    expect(describeDeliveryReason("n8n_http_403")).toBe(
+      "n8n refused ClientFlow's credentials, HTTP 403",
+    );
+    expect(describeDeliveryReason("n8n_http_404")).toBe(
+      "the n8n email workflow is not active, HTTP 404",
+    );
+    expect(describeDeliveryReason("not_configured")).toBe("not configured");
   });
 
   it("isDefinitiveFailure is true only when the server answered", () => {

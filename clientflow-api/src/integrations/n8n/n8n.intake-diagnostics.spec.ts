@@ -25,7 +25,7 @@ describe('temporary intake diagnostics', () => {
       organizationId: 'org-1', clientId: 'client-1', formId: 'form-1',
       recipientEmail: 'private@example.com', clientName: 'Private Client', formName: 'General Intake Form',
       formUrl: 'https://app.example.com/s/private-form-token', dueDate: '2030-01-01T00:00:00.000Z', sentByUserId: 'system',
-    })).resolves.toEqual({ status: 'failed', reason: 'rejected' });
+    })).resolves.toEqual({ status: 'failed', reason: 'n8n_http_401' });
 
     const entries = log.mock.calls.map(([entry]) => JSON.parse(String(entry)));
     expect(entries).toEqual(expect.arrayContaining([

@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { N8nService } from '../../integrations/n8n/n8n.service';
+import { N8nHttpError, N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   attemptEventId,
@@ -219,7 +219,9 @@ export class FormDeliveryService {
         occurredAt: now.toISOString(),
       });
     } catch (error) {
-      const reason = error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'rejected';
+      const reason = error instanceof N8nHttpError
+        ? error.reason
+        : error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'rejected';
       await this.recordFailure(organizationId, actor, assignment, form.name, communication.id, reason);
       throw error;
     }

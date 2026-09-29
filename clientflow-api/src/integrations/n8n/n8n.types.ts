@@ -149,10 +149,13 @@ export interface IntakeEmailPayload {
   sentByUserId: string;
 }
 
+/** n8n answered with this HTTP status instead of accepting the event (e.g. `n8n_http_500`). */
+export type N8nHttpFailureReason = `n8n_http_${number}`;
+
 export type IntakeEmailDeliveryResult =
   | { status: 'sent'; sentAt: string }
   | { status: 'skipped'; reason: 'disabled' | 'not_configured' }
-  | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' | 'disabled' | 'not_configured' };
+  | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' | 'disabled' | 'not_configured' | N8nHttpFailureReason };
 
 export interface ContractEmailPayload {
   organizationId: string;

@@ -5,7 +5,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { N8nService } from '../../integrations/n8n/n8n.service';
+import { N8nHttpError, type N8nService } from '../../integrations/n8n/n8n.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { FormDeliveryService } from './form-delivery.service';
 
@@ -217,6 +217,15 @@ describe('FormDeliveryService.send', () => {
       data: expect.objectContaining({ action: 'FORM_EMAIL_FAILED', user: 'Jordan Lee' }),
     });
     expect(prisma.$transaction).not.toHaveBeenCalled(); // the assignment is NOT marked sent
+  });
+
+  it("records n8n's HTTP status so staff can see why the email failed", async () => {
+    const rejected = new N8nHttpError(500);
+    const { service, prisma } = build({}, { deliver: jest.fn().mockRejectedValue(rejected) });
+    await expect(service.send('org-1', actor, 'assign-1', input)).rejects.toThrow('n8n rejected the event (HTTP 500).');
+    expect(prisma.cfCommunication.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED', errorCode: 'n8n_http_500' }),
+    }));
   });
 
   it('records a timeout distinctly', async () => {

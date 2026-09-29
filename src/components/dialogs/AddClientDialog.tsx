@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { acfCreateClient } from "@/lib/apiClient";
 import { refreshClientProfile } from "@/lib/api";
+import { describeDeliveryReason } from "@/lib/client-send";
 import { useAppState } from "@/lib/store";
 
 export function AddClientDialog({
@@ -75,7 +76,7 @@ export function AddClientDialog({
         toast.success("Client added. Intake email is saved as deferred — send it when ready.");
       } else {
         toast.error(
-          `Client added, but the intake email was not sent (${emailDelivery.reason ?? emailDelivery.status}). You can resend it from the client profile.`,
+          `Client added, but the intake email was not sent (${emailDelivery.reason ? describeDeliveryReason(emailDelivery.reason) : emailDelivery.status}). You can resend it from the client profile.`,
         );
       }
       reset();
