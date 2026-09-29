@@ -38,4 +38,20 @@ describe('environmentSchema', () => {
       ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT: 'true',
     })).toThrow('Unauthenticated contract management cannot be enabled in production.');
   });
+
+  it('refuses to start without JWT secrets in every environment except test', () => {
+    for (const NODE_ENV of ['development', 'production', undefined]) {
+      expect(() => environmentSchema.parse({ NODE_ENV, DATABASE_URL: 'postgresql://localhost/clientflow' }))
+        .toThrow('JWT_ACCESS_SECRET is required');
+    }
+    expect(() => environmentSchema.parse({ NODE_ENV: 'test' })).not.toThrow();
+  });
+
+  it('requires different access and refresh secrets', () => {
+    expect(() => environmentSchema.parse({
+      NODE_ENV: 'development',
+      JWT_ACCESS_SECRET: 'a'.repeat(32),
+      JWT_REFRESH_SECRET: 'a'.repeat(32),
+    })).toThrow('JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET.');
+  });
 });

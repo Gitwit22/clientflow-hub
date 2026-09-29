@@ -103,7 +103,10 @@ describe('contract controllers', () => {
   it('delegates public contract opening and completion with request metadata', async () => {
     const service = {
       openPublicContract: jest.fn().mockResolvedValue({ contract: { status: 'OPENED' } }),
-      completePublicContract: jest.fn().mockResolvedValue({ contract: { status: 'COMPLETED' } }),
+      completePublicContract: jest.fn().mockResolvedValue({
+        contract: { id: 'contract-1', status: 'COMPLETED' },
+        client: { id: 'client-1', status: 'ONBOARDING' },
+      }),
     };
     const automation = { runTrigger: jest.fn() } as unknown as ProgramAutomationService;
     const controller = new PublicContractsController(service as unknown as ContractsService, automation);
@@ -187,9 +190,14 @@ describe('contract controllers', () => {
       get: jest.fn().mockReturnValue('Contract Browser'),
     } as never);
 
-    expect(result).toEqual(expect.objectContaining({
-      automation: expect.objectContaining({ status: 'failed' }),
-    }));
+    // The anonymous signer sees only the outcome: no org/enrollment ids and no internal error text.
+    expect(result).toEqual({
+      contract: { id: 'contract-1', status: 'COMPLETED', completedAt: undefined },
+      client: { id: 'client-1', status: 'ONBOARDING' },
+      automation: { status: 'failed' },
+    });
+    expect(JSON.stringify(result)).not.toContain('automation unavailable');
+    expect(JSON.stringify(result)).not.toContain('org-1');
   });
 
   it('requires a valid signer identity and explicit agreement', async () => {

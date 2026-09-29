@@ -326,7 +326,10 @@ describe('ClientsService', () => {
           findFirst: jest.fn().mockResolvedValue(assignment),
           update: jest.fn().mockResolvedValue({ ...assignment, secureLinkToken: 'new-hash' }),
         },
-        cfFormTemplate: { findMany: jest.fn().mockResolvedValue([{ id: 'master-template-1' }]) },
+        cfFormTemplate: {
+          findMany: jest.fn().mockResolvedValue([{ id: 'master-template-1' }]),
+          findFirst: jest.fn().mockResolvedValue({ dueInDays: 7 }),
+        },
         cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
         cfCommunication: {
           findFirst: jest.fn().mockResolvedValue(null),
@@ -349,6 +352,24 @@ describe('ClientsService', () => {
       return { service, prisma, n8n };
     }
 
+    it('keeps the client\'s current link when email delivery is unavailable', async () => {
+      const { service, prisma, n8n } = build();
+      n8n.getIntakeAvailability.mockReturnValue('disabled');
+
+      await service.sendIntakeNow('org-1', 'client-1', { actor });
+
+      expect(prisma.cfFormAssignment.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to resend an intake the client already submitted', async () => {
+      const { service, n8n } = build({
+        cfFormAssignment: { findFirst: jest.fn().mockResolvedValue({ ...assignment, submittedAt: new Date() }), update: jest.fn() },
+      });
+
+      await expect(service.sendIntakeNow('org-1', 'client-1', { actor })).rejects.toThrow('already submitted');
+      expect(n8n.sendIntake).not.toHaveBeenCalled();
+    });
+
     it('rotates a fresh token and sends with a communication-based event id', async () => {
       const { service, prisma, n8n } = build();
 
@@ -356,7 +377,13 @@ describe('ClientsService', () => {
 
       expect(prisma.cfFormAssignment.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: 'assignment-1' },
-        data: { secureLinkToken: expect.stringMatching(/^[a-f0-9]{64}$/) },
+        data: {
+          secureLinkToken: expect.stringMatching(/^[a-f0-9]{64}$/),
+          secureLink: null,
+          // A resend restarts the due date and expiry so the new link isn't born expired.
+          dueAt: expect.any(Date),
+          expiresAt: expect.any(Date),
+        },
       }));
       const created = (prisma.cfCommunication.create.mock.calls as [{ data: { id: string; eventId: string } }][])[0][0].data;
       expect(created.eventId).toBe(`intake.send:assignment-1:${created.id}`);

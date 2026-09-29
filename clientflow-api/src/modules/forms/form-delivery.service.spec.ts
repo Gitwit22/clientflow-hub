@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -136,13 +137,16 @@ describe('FormDeliveryService.createAssignment', () => {
     });
   });
 
-  it('creates a draft with a secure link whose token is stored only as a hash', async () => {
+  it('stores only the token hash and returns the working link once, in the response', async () => {
     const { service, prisma } = build();
-    await service.createAssignment('org-1', actor, body);
+    const created = await service.createAssignment('org-1', actor, body);
     const data = prisma.cfFormAssignment.create.mock.calls[0][0].data;
-    expect(data.secureLink).toMatch(/\/s\/[A-Za-z0-9_-]{43}$/);
+    expect(data.secureLink).toBeNull();
     expect(data.secureLinkToken).toMatch(/^[a-f0-9]{64}$/);
-    expect(data.secureLink).not.toContain(data.secureLinkToken);
+    expect(created.secureLink).toMatch(/\/s\/[A-Za-z0-9_-]{43}$/);
+    expect(created).not.toHaveProperty('secureLinkToken');
+    const rawToken = (created.secureLink as string).split('/s/')[1];
+    expect(createHash('sha256').update(rawToken).digest('hex')).toBe(data.secureLinkToken);
   });
 });
 
@@ -168,7 +172,8 @@ describe('FormDeliveryService.send', () => {
     expect(n8n.deliver).toHaveBeenCalledWith(expect.objectContaining({
       eventId: created.eventId,
       eventType: 'form.send',
-      formUrl: 'https://app.example.com/s/token',
+      // Each send issues a fresh link; the stored raw link (if any) is never reused.
+      formUrl: expect.stringMatching(/\/s\/[A-Za-z0-9_-]{43}$/),
       personalMessage: 'Hello',
       sentByUserId: 'admin-1',
     }));

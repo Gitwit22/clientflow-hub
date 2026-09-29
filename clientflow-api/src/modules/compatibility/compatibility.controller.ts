@@ -31,6 +31,8 @@ import { ProgramAutomationService } from '../automation/program-automation.servi
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { AUTOMATED_CLIENT_STATUSES, buildClientProfileUpdate } from '../clients/client-profile-update';
+import { resolvePublicFormLink } from '../forms/public-form-link';
+import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
   assertCanGrantRole,
@@ -73,7 +75,11 @@ const ENROLLMENT_TRANSITIONS: Record<string, string[]> = {
 
 function readJwtSecret(type: 'access' | 'refresh'): string {
   const key = type === 'access' ? 'JWT_ACCESS_SECRET' : 'JWT_REFRESH_SECRET';
-  return process.env[key] ?? process.env.JWT_SECRET ?? 'development-clientflow-secret';
+  // No fallback (not JWT_SECRET, not a built-in string): the env schema refuses to start without
+  // both secrets, and signing or verifying with a guessable secret must be impossible.
+  const secret = process.env[key];
+  if (!secret) throw new ServiceUnavailableException('Authentication is not configured.');
+  return secret;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -1148,7 +1154,8 @@ export class ClientflowCompatibilityController {
   }
   @Get('form-assignments') async listFormAssignments(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFormAssignment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    const assignments = await this.requirePrisma().cfFormAssignment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return assignments.map(withoutLinkSecrets);
   }
   @Post('form-assignments') async createFormAssignment(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
@@ -1167,10 +1174,11 @@ export class ClientflowCompatibilityController {
   }
   @Patch('form-assignments/:id') async updateFormAssignment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFormAssignment.update({
+    const updated = await this.requirePrisma().cfFormAssignment.update({
       where: { id, organizationId: orgId },
       data: pickFields(body, FORM_ASSIGNMENT_UPDATE_FIELDS),
     });
+    return withoutLinkSecrets(updated);
   }
   @Get('intake-submissions') async listIntakeSubmissions(@Req() request: Request, @Query('clientId') clientId?: string, @Query('programId') programId?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1209,7 +1217,7 @@ export class ClientflowCompatibilityController {
       prisma.cfIntakeSubmissionSnapshot.findFirst({ where: { intakeSubmissionId: id, organizationId: orgId } }),
       prisma.cfIntakeSubmissionProgram.findMany({ where: { intakeSubmissionId: id, organizationId: orgId } }),
     ]);
-    return { ...submission, client: client ?? null, assignment: assignment ?? null, snapshot: snapshot ?? null, programs };
+    return { ...submission, client: client ?? null, assignment: assignment ? withoutLinkSecrets(assignment) : null, snapshot: snapshot ?? null, programs };
   }
 
   @Get('notifications') async listNotifications(@Req() request: Request) {
@@ -1736,13 +1744,8 @@ export class PublicFormCompatibilityController {
   }
 
   @Get(':token') async getForm(@Param('token') token: string) {
-    const formAssignment = await this.requirePrisma().cfFormAssignment.findUnique({
-      where: { secureLinkToken: createHash('sha256').update(token).digest('hex') },
-    });
-    if (!formAssignment) throw new NotFoundException('This form link is invalid or unavailable.');
-    const client = await this.requirePrisma().cfClient.findUnique({ where: { id: formAssignment.clientId } });
-    const template = await this.requirePrisma().cfFormTemplate.findFirst({ where: { id: formAssignment.formId, organizationId: formAssignment.organizationId, isActive: true } });
-    if (!template) throw new NotFoundException('This form link is invalid or unavailable.');
+    // Adapter: link rules (cancelled / expired / archived client) live in forms/public-form-link.
+    const { assignment: formAssignment, client, template } = await resolvePublicFormLink(this.requirePrisma(), token, 'view');
 
     if (formAssignment.status === 'sent' || formAssignment.status === 'delivered') {
       await this.requirePrisma().cfFormAssignment.update({ where: { id: formAssignment.id }, data: { status: 'opened', openedAt: new Date() } });
@@ -1820,10 +1823,8 @@ export class PublicFormCompatibilityController {
 
   @Post(':token/submit') async submitForm(@Param('token') token: string, @Body() body: Record<string, unknown>) {
     const prisma = this.requirePrisma();
-    const formAssignment = await prisma.cfFormAssignment.findUnique({
-      where: { secureLinkToken: createHash('sha256').update(token).digest('hex') },
-    });
-    if (!formAssignment) throw new NotFoundException('This form link is invalid or unavailable.');
+    // A cancelled, expired or already-submitted link can never change workflow state.
+    const { assignment: formAssignment } = await resolvePublicFormLink(prisma, token, 'submit');
     const configurationToken = typeof body.configurationToken === 'string' ? body.configurationToken : undefined;
     let renderSession: Awaited<ReturnType<typeof prisma.cfIntakeRenderSession.findUnique>> = null;
     if (configurationToken) {
