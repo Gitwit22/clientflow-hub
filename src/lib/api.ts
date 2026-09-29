@@ -108,13 +108,20 @@ export async function refreshClientProfile(clientId: string) {
     clients: state.clients.some((existing) => existing.id === clientId)
       ? state.clients.map((existing) => (existing.id === clientId ? client : existing))
       : [client, ...state.clients],
+    // Replace this client's rows; drop any row that also arrives in the fresh list (no duplicates).
     formAssignments: [
       ...assignments,
-      ...state.formAssignments.filter((assignment) => assignment.clientId !== clientId),
+      ...state.formAssignments.filter(
+        (assignment) =>
+          assignment.clientId !== clientId && !assignments.some(({ id }) => id === assignment.id),
+      ),
     ],
     enrollments: [
       ...enrollments,
-      ...state.enrollments.filter((enrollment) => enrollment.clientId !== clientId),
+      ...state.enrollments.filter(
+        (enrollment) =>
+          enrollment.clientId !== clientId && !enrollments.some(({ id }) => id === enrollment.id),
+      ),
     ],
   }));
   return client;

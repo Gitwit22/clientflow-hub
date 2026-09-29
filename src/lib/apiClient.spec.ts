@@ -37,6 +37,26 @@ describe("paginated ClientFlow lists", () => {
     expect(fetchMock.mock.calls[1][0]).toMatch(/terms\?limit=500&offset=500$/);
   });
 
+  it("stops when the server ignores paging and repeats the same rows", async () => {
+    const everything = Array.from({ length: 500 }, (_, index) => ({ id: `term-${index}` }));
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse(everything));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await cfListAllTerms();
+
+    expect(result).toHaveLength(500);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops when the server returns more rows than the page size", async () => {
+    const everything = Array.from({ length: 750 }, (_, index) => ({ id: `term-${index}` }));
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse(everything));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(cfListAllTerms()).resolves.toHaveLength(750);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects instead of returning a partial collection when a later page fails", async () => {
     const firstPage = Array.from({ length: 500 }, (_, index) => ({ id: `term-${index}` }));
     const fetchMock = vi

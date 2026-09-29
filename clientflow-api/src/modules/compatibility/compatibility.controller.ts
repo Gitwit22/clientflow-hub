@@ -980,9 +980,16 @@ export class ClientflowCompatibilityController {
     });
   }
 
-  @Get('enrollments') async listEnrollments(@Req() request: Request) {
+  @Get('enrollments') async listEnrollments(
+    @Req() request: Request,
+    @Query('clientId') clientId?: string,
+    @Query('programId') programId?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfProgramEnrollment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfProgramEnrollment.findMany({
+      where: { organizationId: orgId, ...(clientId ? { clientId } : {}), ...(programId ? { programId } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
   }
   @Get('enrollments/:id') async getEnrollment(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1175,9 +1182,12 @@ export class ClientflowCompatibilityController {
     await this.requirePrisma().cfFormTemplate.update({ where: { id, organizationId: orgId }, data: { isActive: false } });
     return { id, unlinkedProgramIds: [], cancelledAssignments: 0 };
   }
-  @Get('form-assignments') async listFormAssignments(@Req() request: Request) {
+  @Get('form-assignments') async listFormAssignments(@Req() request: Request, @Query('clientId') clientId?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const assignments = await this.requirePrisma().cfFormAssignment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    const assignments = await this.requirePrisma().cfFormAssignment.findMany({
+      where: { organizationId: orgId, ...(clientId ? { clientId } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
     return assignments.map(withoutLinkSecrets);
   }
   @Post('form-assignments') async createFormAssignment(@Req() request: Request, @Body() body: Record<string, unknown>) {
@@ -1243,36 +1253,73 @@ export class ClientflowCompatibilityController {
     return { ...submission, client: client ?? null, assignment: assignment ? withoutLinkSecrets(assignment) : null, snapshot: snapshot ?? null, programs };
   }
 
-  @Get('notifications') async listNotifications(@Req() request: Request) {
+  @Get('notifications') async listNotifications(@Req() request: Request, @Query('limit') limit?: string) {
     const { admin } = await this.requireOrgFromRequest(request);
-    return { items: await this.requirePrisma().cfNotification.findMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id }, orderBy: { createdAt: 'desc' }, take: 30 }), unreadCount: 0 };
+    const mine = { organizationId: admin.organizationId, recipientAdminId: admin.id };
+    const parsedLimit = Number.parseInt(limit ?? '30', 10);
+    const take = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 30;
+    const prisma = this.requirePrisma();
+    const [items, unreadCount] = await Promise.all([
+      prisma.cfNotification.findMany({ where: mine, orderBy: { createdAt: 'desc' }, take }),
+      // The badge counts every unread notification, not just the ones on this page.
+      prisma.cfNotification.count({ where: { ...mine, readAt: null } }),
+    ]);
+    return { items, unreadCount };
   }
   @Patch('notifications/read-all') async markAllNotificationsRead(@Req() request: Request) {
     const { admin } = await this.requireOrgFromRequest(request);
-    await this.requirePrisma().cfNotification.updateMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id, readAt: null }, data: { readAt: new Date() } });
-    return { updated: 0 };
+    const { count } = await this.requirePrisma().cfNotification.updateMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id, readAt: null }, data: { readAt: new Date() } });
+    return { updated: count };
   }
   @Patch('notifications/:id/read') async markNotificationRead(@Req() request: Request, @Param('id') id: string) {
     const { admin } = await this.requireOrgFromRequest(request);
-    await this.requirePrisma().cfNotification.updateMany({ where: { id, organizationId: admin.organizationId, recipientAdminId: admin.id }, data: { readAt: new Date() } });
+    const mine = { id, organizationId: admin.organizationId, recipientAdminId: admin.id };
+    const { count } = await this.requirePrisma().cfNotification.updateMany({ where: { ...mine, readAt: null }, data: { readAt: new Date() } });
+    if (count === 0 && !(await this.requirePrisma().cfNotification.findFirst({ where: mine, select: { id: true } }))) {
+      throw new NotFoundException('Notification not found.');
+    }
     return { id, read: true };
   }
 
-  @Get('terms') async listAllTerms(@Req() request: Request) {
+  @Get('terms') async listAllTerms(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfTerms.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfTerms.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
   @Get('monitoring') async listAllMonitoring(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfEnrollmentMonitoring.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
   }
-  @Get('contracts') async listAllContracts(@Req() request: Request) {
+  @Get('contracts') async listAllContracts(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfContract.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
-  @Get('documents') async listAllDocuments(@Req() request: Request) {
+  @Get('documents') async listAllDocuments(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfDocument.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
   @Post('files/upload-intent') async createStoredFileUploadIntent(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
@@ -1343,20 +1390,23 @@ export class ClientflowCompatibilityController {
     @Query('offset') offsetQuery?: string,
   ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const parsedLimit = Number.parseInt(limitQuery ?? '100', 10);
-    const parsedOffset = Number.parseInt(offsetQuery ?? '0', 10);
-    const take = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 500) : 100;
-    const skip = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
     return this.requirePrisma().cfCommunication.findMany({
       where: { organizationId: orgId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take,
-      skip,
+      ...listPage(limitQuery ?? '100', offsetQuery),
     });
   }
-  @Get('final-reports') async listAllFinalReports(@Req() request: Request) {
+  @Get('final-reports') async listAllFinalReports(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFinalReport.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfFinalReport.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
   @Get('clients/:clientId/terms') async listTerms(@Req() request: Request, @Param('clientId') clientId: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -2162,4 +2212,20 @@ export class FutureApiBoundaryController {
   constructor(private readonly scaffold: ScaffoldService) {}
 
   @All('*') futureBoundary() { return this.scaffold.notImplemented('Normalized ClientFlow API'); }
+}
+
+const MAX_LIST_PAGE = 500;
+
+/**
+ * `?limit=&offset=` for the org-wide lists the app pages through. Without a limit the whole list is
+ * returned (older callers); with one, pages are bounded so a client loop always terminates.
+ */
+function listPage(limit?: string, offset?: string): { take?: number; skip?: number } {
+  if (limit === undefined) return {};
+  const parsedLimit = Number.parseInt(limit, 10);
+  const parsedOffset = Number.parseInt(offset ?? '0', 10);
+  return {
+    take: Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), MAX_LIST_PAGE) : MAX_LIST_PAGE,
+    skip: Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0,
+  };
 }

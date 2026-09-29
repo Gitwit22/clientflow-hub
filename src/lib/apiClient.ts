@@ -523,18 +523,29 @@ async function publicRequest<T = unknown>(
 const CF = "/api/v1/admin/cf";
 const MAX_PAGE_SIZE = 500;
 
-async function listAllPages<T>(path: string): Promise<T[]> {
-  const records: T[] = [];
+/** Hard stop: 200 pages of 500 is far beyond any organization's data. */
+const MAX_PAGES = 200;
 
-  for (let offset = 0; ; offset += MAX_PAGE_SIZE) {
+async function listAllPages<T extends { id?: string }>(path: string): Promise<T[]> {
+  const records: T[] = [];
+  const seen = new Set<string>();
+
+  for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
     const separator = path.includes("?") ? "&" : "?";
     const page = await apiRequest<T[]>(
-      `${path}${separator}limit=${MAX_PAGE_SIZE}&offset=${offset}`,
+      `${path}${separator}limit=${MAX_PAGE_SIZE}&offset=${pageIndex * MAX_PAGE_SIZE}`,
     );
-    records.push(...page);
+    // A server that ignores paging returns everything (or the same page) every time: take what's
+    // new and stop, instead of requesting forever.
+    const fresh = page.filter((record) => !record.id || !seen.has(record.id));
+    fresh.forEach((record) => record.id && seen.add(record.id));
+    records.push(...fresh);
 
-    if (page.length < MAX_PAGE_SIZE) return records;
+    if (page.length < MAX_PAGE_SIZE || page.length > MAX_PAGE_SIZE || fresh.length < page.length) {
+      return records;
+    }
   }
+  return records;
 }
 
 export async function cfListClients() {
