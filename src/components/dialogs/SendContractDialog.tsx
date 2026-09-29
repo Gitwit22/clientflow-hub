@@ -69,7 +69,10 @@ export function SendContractDialog({
   }, [open, needsTemplate, program?.id]);
 
   async function refresh() {
-    await Promise.allSettled([refreshClientContracts(client.id), refreshClientCommunications(client.id)]);
+    await Promise.allSettled([
+      refreshClientContracts(client.id),
+      refreshClientCommunications(client.id),
+    ]);
   }
 
   async function run(action: "send" | "copy") {
@@ -79,7 +82,8 @@ export function SendContractDialog({
           return acfSendContractCopy(client.id, state.contract.id, { idempotencyKey });
         }
         // Reuse the contract already drafted/sent; only draft a new one when there isn't one.
-        const existing = "contract" in state && state.kind !== "closed" ? state.contract : undefined;
+        const existing =
+          "contract" in state && state.kind !== "closed" ? state.contract : undefined;
         const contractId =
           existing?.id ??
           (
@@ -89,7 +93,10 @@ export function SendContractDialog({
               enrollmentId: enrollment.id,
             })
           ).contract.id;
-        return acfSendContract(client.id, contractId, { enrollmentId: enrollment.id, idempotencyKey });
+        return acfSendContract(client.id, contractId, {
+          enrollmentId: enrollment.id,
+          idempotencyKey,
+        });
       });
       if (!result) return;
       void refresh();
@@ -132,8 +139,8 @@ export function SendContractDialog({
                 {state.contract.contractType}
               </p>
               <p className="text-muted-foreground">
-                Sending a copy emails a download link for the signed agreement. The signing link is not
-                reissued.
+                Sending a copy emails a download link for the signed agreement. The signing link is
+                not reissued.
               </p>
               {!state.contract.executedStoredFileId && (
                 <p className="text-muted-foreground">The signed copy is not available yet.</p>
@@ -152,7 +159,10 @@ export function SendContractDialog({
               </p>
             </>
           ) : state.kind === "draft" ? (
-            <p>A draft contract is ready: {state.contract.contractType}. Sending emails the signing link.</p>
+            <p>
+              A draft contract is ready: {state.contract.contractType}. Sending emails the signing
+              link.
+            </p>
           ) : templateReady === false ? (
             <div className="space-y-2">
               <p role="alert" className="text-destructive">
@@ -177,7 +187,12 @@ export function SendContractDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+          >
             Close
           </Button>
           {state.kind === "signed" ? (
@@ -187,8 +202,11 @@ export function SendContractDialog({
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    void downloadExecutedContract(client.id, state.contract.id).catch((error: unknown) =>
-                      toast.error(error instanceof Error ? error.message : "Contract download failed."),
+                    void downloadExecutedContract(client.id, state.contract.id).catch(
+                      (error: unknown) =>
+                        toast.error(
+                          error instanceof Error ? error.message : "Contract download failed.",
+                        ),
                     );
                   }}
                 >

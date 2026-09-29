@@ -53,7 +53,10 @@ export function currentContract(
   enrollmentId: string | undefined,
 ): Contract | undefined {
   return [...contracts]
-    .filter((contract) => !contract.enrollmentId || !enrollmentId || contract.enrollmentId === enrollmentId)
+    .filter(
+      (contract) =>
+        !contract.enrollmentId || !enrollmentId || contract.enrollmentId === enrollmentId,
+    )
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 }
 
@@ -92,10 +95,16 @@ export function welcomeSendState(
   communications: readonly Communication[],
 ): WelcomeSendState {
   if (!contract || contract.status !== "COMPLETED") {
-    return { kind: "blocked", reason: "The contract must be signed before the welcome email can be sent." };
+    return {
+      kind: "blocked",
+      reason: "The contract must be signed before the welcome email can be sent.",
+    };
   }
   const attempts = communications
-    .filter((communication) => communication.type === "welcome_email" && communication.contractId === contract.id)
+    .filter(
+      (communication) =>
+        communication.type === "welcome_email" && communication.contractId === contract.id,
+    )
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
   const sent = attempts.find((communication) => communication.status === "SENT");
   if (sent) return { kind: "sent", sentAt: sent.sentAt ?? sent.date ?? null };
@@ -132,7 +141,10 @@ export function describeDelivery(delivery: { status: string; reason?: string }):
 } {
   if (delivery.status === "sent") return { ok: true, message: "Sent." };
   if (delivery.status === "pending") {
-    return { ok: false, message: "This send is still in progress. Check the Communications tab shortly." };
+    return {
+      ok: false,
+      message: "This send is still in progress. Check the Communications tab shortly.",
+    };
   }
   const reason = delivery.reason ? ` (${describeDeliveryReason(delivery.reason)})` : "";
   return { ok: false, message: `The email was not sent${reason}.` };

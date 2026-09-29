@@ -35,7 +35,12 @@ describe("ClientProgramBadges", () => {
   });
 
   it("shows the simplified enrollment status label", () => {
-    render(<ClientProgramBadges enrollments={[enrollment("e1", "p1", "interested")]} programName={programName} />);
+    render(
+      <ClientProgramBadges
+        enrollments={[enrollment("e1", "p1", "interested")]}
+        programName={programName}
+      />,
+    );
     expect(screen.getByText("New")).toBeTruthy();
   });
 });

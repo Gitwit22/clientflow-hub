@@ -75,19 +75,21 @@ export const Route = createFileRoute("/clients/")({
 });
 
 function ClientsPage() {
-  const { authenticatedAdmin, clients, programs, contracts, enrollments, monitoring } = useAppState();
+  const { authenticatedAdmin, clients, programs, contracts, enrollments, monitoring } =
+    useAppState();
   const { members } = useOrganizationMembers();
   const [q, setQ] = useState("");
   const [program, setProgram] = useState("all");
   const [staff, setStaff] = useState("all");
-  const [lifecycleView, setLifecycleView] = useState<(typeof LIFECYCLE_TABS)[number]["value"]>("all");
+  const [lifecycleView, setLifecycleView] =
+    useState<(typeof LIFECYCLE_TABS)[number]["value"]>("all");
   const [relationship, setRelationship] = useState<RelationshipType | "all">("all");
   const [sendTo, setSendTo] = useState<Client | null>(null);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [addClientOpen, setAddClientOpen] = useState(false);
-  const canDelete = authenticatedAdmin?.role === "org_admin"
-    || authenticatedAdmin?.role === "super_admin";
+  const canDelete =
+    authenticatedAdmin?.role === "org_admin" || authenticatedAdmin?.role === "super_admin";
 
   const programName = (id: string | null) =>
     programs.find((p) => p.id === id)?.name ?? "Unassigned";
@@ -102,7 +104,9 @@ function ClientsPage() {
     if (latestContract?.status === "DRAFT") return "Send contract";
     if (latestContract?.status === "SENT") return "Awaiting signature";
     const enrollmentIds = new Set(
-      enrollments.filter((enrollment) => enrollment.clientId === c.id).map((enrollment) => enrollment.id),
+      enrollments
+        .filter((enrollment) => enrollment.clientId === c.id)
+        .map((enrollment) => enrollment.id),
     );
     const dueMonitoring = monitoring
       .filter((item) => enrollmentIds.has(item.enrollmentId) && item.active && item.nextReviewAt)
@@ -116,9 +120,13 @@ function ClientsPage() {
 
   const rows = clients.filter((c) => {
     const clientEnrollments = enrollments.filter((enrollment) => enrollment.clientId === c.id);
-    if (lifecycleView !== "all" && lifecycleBucket(c, clientEnrollments) !== lifecycleView) return false;
+    if (lifecycleView !== "all" && lifecycleBucket(c, clientEnrollments) !== lifecycleView)
+      return false;
     if (relationship !== "all" && c.relationshipType !== relationship) return false;
-    if (program !== "all" && !clientEnrollments.some((enrollment) => enrollment.programId === program)) {
+    if (
+      program !== "all" &&
+      !clientEnrollments.some((enrollment) => enrollment.programId === program)
+    ) {
       return false;
     }
     if (staff !== "all" && c.assignedUserId !== staff) return false;
@@ -191,7 +199,10 @@ function ClientsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={relationship} onValueChange={(v) => setRelationship(v as RelationshipType | "all")}>
+          <Select
+            value={relationship}
+            onValueChange={(v) => setRelationship(v as RelationshipType | "all")}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Relationship" />
             </SelectTrigger>
@@ -329,7 +340,9 @@ function ClientsPage() {
                     setDeletingClient(null);
                   })
                   .catch((error: unknown) => {
-                    toast.error(error instanceof Error ? error.message : "Unable to delete client.");
+                    toast.error(
+                      error instanceof Error ? error.message : "Unable to delete client.",
+                    );
                   })
                   .finally(() => setIsDeleting(false));
               }}

@@ -31,12 +31,31 @@ const assignment = {
 } as unknown as FormAssignment;
 
 const changes = [
-  { key: "email", label: "Email", target: "top", currentValue: "old@x.test", newValue: "new@x.test" },
-  { key: "businessDescription", label: "Business description", target: "intake", currentValue: "", newValue: "Fresh" },
+  {
+    key: "email",
+    label: "Email",
+    target: "top",
+    currentValue: "old@x.test",
+    newValue: "new@x.test",
+  },
+  {
+    key: "businessDescription",
+    label: "Business description",
+    target: "intake",
+    currentValue: "",
+    newValue: "Fresh",
+  },
 ];
 
 function renderDialog(onOpenChange = vi.fn()) {
-  render(<MergeResponsesDialog assignment={assignment} client={client} open onOpenChange={onOpenChange} />);
+  render(
+    <MergeResponsesDialog
+      assignment={assignment}
+      client={client}
+      open
+      onOpenChange={onOpenChange}
+    />,
+  );
   return onOpenChange;
 }
 
@@ -49,7 +68,12 @@ beforeEach(() => {
   applyFormResponsesToProfile.mockResolvedValue({ applied: ["email", "businessDescription"] });
   // Detect any full-page navigation or reload.
   assignSpy = vi.fn();
-  vi.stubGlobal("location", { ...window.location, assign: assignSpy, reload: assignSpy, replace: assignSpy });
+  vi.stubGlobal("location", {
+    ...window.location,
+    assign: assignSpy,
+    reload: assignSpy,
+    replace: assignSpy,
+  });
 });
 
 afterEach(() => {
@@ -87,7 +111,9 @@ describe("MergeResponsesDialog", () => {
   });
 
   it("on failure stays open, shows an error toast, and does not reload or navigate", async () => {
-    applyFormResponsesToProfile.mockRejectedValueOnce(new Error("The client profile changed while applying."));
+    applyFormResponsesToProfile.mockRejectedValueOnce(
+      new Error("The client profile changed while applying."),
+    );
     const onOpenChange = renderDialog();
     await screen.findByText("Email");
 
@@ -103,9 +129,13 @@ describe("MergeResponsesDialog", () => {
   });
 
   it("shows an error, not a crash, when the preview cannot be loaded", async () => {
-    previewFormResponsesForProfile.mockRejectedValueOnce(new Error("Form assignment not found for this client."));
+    previewFormResponsesForProfile.mockRejectedValueOnce(
+      new Error("Form assignment not found for this client."),
+    );
     renderDialog();
-    expect((await screen.findByRole("alert")).textContent).toBe("Form assignment not found for this client.");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Form assignment not found for this client.",
+    );
     expect(toastError).toHaveBeenCalled();
     expect(applyButton().disabled).toBe(true);
   });

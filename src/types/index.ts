@@ -678,7 +678,8 @@ export const ARCHIVE_DECISIONS = [
 
 // ─── Billing & payments ───────────────────────────────────────────────────────
 
-export type BillingFrequency = "one_time" | "weekly" | "monthly" | "quarterly" | "annually" | "custom";
+export type BillingFrequency =
+  "one_time" | "weekly" | "monthly" | "quarterly" | "annually" | "custom";
 export type BillingAgreementStatus = "active" | "ended";
 export type PaymentMethod = "cash" | "check" | "ach" | "card" | "other";
 export type PaymentSource = "manual" | "legacy_backfill";

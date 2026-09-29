@@ -23,12 +23,7 @@ import {
   useOrganizationMembers,
 } from "@/hooks/use-organization-members";
 import { createClient, createFormAssignment, sendFormEmail } from "@/lib/api";
-import {
-  type Client,
-  type ProfileSource,
-  type ProfileType,
-  type RelationshipType,
-} from "@/types";
+import { type Client, type ProfileSource, type ProfileType, type RelationshipType } from "@/types";
 
 export const Route = createFileRoute("/intake")({
   head: () => ({
@@ -50,8 +45,7 @@ export const Route = createFileRoute("/intake")({
   component: IntakePage,
 });
 
-type IntakeStep =
-  "search" | "select" | "create" | "choose-method" | "configure-link" | "done";
+type IntakeStep = "search" | "select" | "create" | "choose-method" | "configure-link" | "done";
 
 const STEP_LABELS = ["Profile", "Deliver", "Confirm"] as const;
 const stepProgress: Record<IntakeStep, number> = {
@@ -74,7 +68,9 @@ function StepIndicator({ step }: { step: IntakeStep }) {
           >
             {i < current ? <CheckCircle className="size-3.5" /> : i + 1}
           </span>
-          <span className={`font-mono text-[10.5px] uppercase tracking-wide ${i === current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+          <span
+            className={`font-mono text-[10.5px] uppercase tracking-wide ${i === current ? "font-semibold text-foreground" : "text-muted-foreground"}`}
+          >
             {label}
           </span>
           {i < STEP_LABELS.length - 1 && <span className="mx-1 text-muted-foreground">›</span>}
@@ -87,13 +83,11 @@ function StepIndicator({ step }: { step: IntakeStep }) {
 function IntakePage() {
   const { clients, formTemplates, programs, authenticatedAdmin } = useAppState();
   const { activeMembers } = useOrganizationMembers();
-  const signedInMemberId = activeMembers.find(
-    (member) => member.id === authenticatedAdmin?.id,
-  )?.id;
+  const signedInMemberId = activeMembers.find((member) => member.id === authenticatedAdmin?.id)?.id;
   const navigate = useNavigate();
-  const masterTemplate = formTemplates.find(
-    (template) => template.scope === "master_core" && template.isActive,
-  ) ?? formTemplates.find((template) => template.id === "form-interest" && template.isActive);
+  const masterTemplate =
+    formTemplates.find((template) => template.scope === "master_core" && template.isActive) ??
+    formTemplates.find((template) => template.id === "form-interest" && template.isActive);
 
   const [step, setStep] = useState<IntakeStep>("search");
   const [searchEmail, setSearchEmail] = useState("");
@@ -129,9 +123,7 @@ function IntakePage() {
         ? { ...current, assignedUserId: signedInMemberId }
         : current,
     );
-    setAssignedUserId((current) =>
-      current === "__unassigned" ? signedInMemberId : current,
-    );
+    setAssignedUserId((current) => (current === "__unassigned" ? signedInMemberId : current));
   }, [signedInMemberId]);
 
   function handleSearch() {
@@ -170,9 +162,7 @@ function IntakePage() {
       toast.error("Contact name and email are required");
       return;
     }
-    const selectedMember = activeMembers.find(
-      (member) => member.id === newProfile.assignedUserId,
-    );
+    const selectedMember = activeMembers.find((member) => member.id === newProfile.assignedUserId);
     const created = await createClient({
       organizationId: "org_ea_management",
       businessName: newProfile.businessName || newProfile.primaryContactName,
@@ -264,7 +254,9 @@ function IntakePage() {
       toast.success(`${result.message} Sent to ${result.recipientEmail}`);
       setStep("done");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to send form. Please try again.",
+      );
     } finally {
       setIsSending(false);
     }
@@ -473,9 +465,7 @@ function IntakePage() {
                 <Label>Assigned staff</Label>
                 <Select
                   value={newProfile.assignedUserId}
-                  onValueChange={(value) =>
-                    setNewProfile({ ...newProfile, assignedUserId: value })
-                  }
+                  onValueChange={(value) => setNewProfile({ ...newProfile, assignedUserId: value })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -675,7 +665,6 @@ function IntakePage() {
           </CardContent>
         </Card>
       )}
-
     </div>
   );
 }

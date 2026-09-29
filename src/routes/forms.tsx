@@ -16,12 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { emailTemplateBody } from "@/data/defaults";
 import { deleteFormTemplate } from "@/lib/api";
 import { useAppState } from "@/lib/store";
@@ -37,9 +32,14 @@ function displayAnswer(value: unknown): string {
 }
 
 function fieldLabel(field: FormTemplate["fields"][number]): string {
-  return field.label.trim()
-    || field.id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").trim()
-    || "Form field";
+  return (
+    field.label.trim() ||
+    field.id
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[-_]+/g, " ")
+      .trim() ||
+    "Form field"
+  );
 }
 
 export const Route = createFileRoute("/forms")({
@@ -180,11 +180,15 @@ function FormsPage() {
                       <p className="text-sm text-muted-foreground">{t.description}</p>
                     </div>
                     <StatusBadge
-                      status={t.scope === "master_core"
-                        ? (t.isActive ? "Active" : "Inactive")
-                        : (programs.find((program) => program.id === t.programId)?.isActive
+                      status={
+                        t.scope === "master_core"
+                          ? t.isActive
                             ? "Active"
-                            : "Inactive")}
+                            : "Inactive"
+                          : programs.find((program) => program.id === t.programId)?.isActive
+                            ? "Active"
+                            : "Inactive"
+                      }
                     />
                   </div>
                   <div>
@@ -311,7 +315,11 @@ function FormsPage() {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setReviewingSubmission(submission)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReviewingSubmission(submission)}
+                    >
                       Review answers
                     </Button>
                     <Button size="sm" variant="outline" asChild>
@@ -344,9 +352,9 @@ function FormsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this form?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deletingTemplate?.name} will be permanently deleted. Linked programs will be
-              made inactive until another form is selected. Unfinished form links will be
-              cancelled, while submitted intake history will be preserved.
+              {deletingTemplate?.name} will be permanently deleted. Linked programs will be made
+              inactive until another form is selected. Unfinished form links will be cancelled,
+              while submitted intake history will be preserved.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -387,12 +395,18 @@ function FormsPage() {
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold">Shared information</h3>
                 <dl className="divide-y divide-border rounded-md border border-border px-4">
-                  {(reviewingSubmission.snapshot?.renderedSections.find(
-                    (section) => section.kind === "core",
-                  )?.fields ?? []).map((field) => (
+                  {(
+                    reviewingSubmission.snapshot?.renderedSections.find(
+                      (section) => section.kind === "core",
+                    )?.fields ?? []
+                  ).map((field) => (
                     <div key={field.id} className="grid gap-1 py-2 sm:grid-cols-[180px_1fr]">
                       <dt className="text-xs text-muted-foreground">{fieldLabel(field)}</dt>
-                      <dd className={field.type === "signature" ? "font-signature text-2xl" : "text-sm"}>
+                      <dd
+                        className={
+                          field.type === "signature" ? "font-signature text-2xl" : "text-sm"
+                        }
+                      >
                         {displayAnswer(reviewingSubmission.responsePayload[field.id]) || "—"}
                       </dd>
                     </div>
@@ -401,21 +415,29 @@ function FormsPage() {
               </section>
               {reviewingSubmission.programs.map((link) => {
                 const section = reviewingSubmission.snapshot?.renderedSections.find(
-                  (candidate) => candidate.kind === "program" && candidate.programId === link.programId,
+                  (candidate) =>
+                    candidate.kind === "program" && candidate.programId === link.programId,
                 );
                 if (!section) return null;
                 const responses = link.responsePayload ?? {};
                 return (
                   <section key={link.id} className="space-y-2">
                     <h3 className="text-sm font-semibold">
-                      {programs.find((program) => program.id === link.programId)?.name ?? section.title}
+                      {programs.find((program) => program.id === link.programId)?.name ??
+                        section.title}
                     </h3>
                     <dl className="divide-y divide-border rounded-md border border-border px-4">
                       {section.fields.map((field) => (
                         <div key={field.id} className="grid gap-1 py-2 sm:grid-cols-[180px_1fr]">
                           <dt className="text-xs text-muted-foreground">{fieldLabel(field)}</dt>
-                          <dd className={field.type === "signature" ? "font-signature text-2xl" : "text-sm"}>
-                            {displayAnswer(responses[field.id] ?? reviewingSubmission.responsePayload[field.id]) || "—"}
+                          <dd
+                            className={
+                              field.type === "signature" ? "font-signature text-2xl" : "text-sm"
+                            }
+                          >
+                            {displayAnswer(
+                              responses[field.id] ?? reviewingSubmission.responsePayload[field.id],
+                            ) || "—"}
                           </dd>
                         </div>
                       ))}

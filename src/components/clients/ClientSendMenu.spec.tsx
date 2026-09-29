@@ -9,7 +9,8 @@ function openMenu() {
   fireEvent.keyDown(screen.getByRole("button", { name: /Send/ }), { key: "Enter" });
 }
 const item = (name: RegExp) => screen.getByRole("menuitem", { name });
-const disabled = (el: HTMLElement) => el.getAttribute("aria-disabled") === "true" || el.hasAttribute("data-disabled");
+const disabled = (el: HTMLElement) =>
+  el.getAttribute("aria-disabled") === "true" || el.hasAttribute("data-disabled");
 
 describe("ClientSendMenu", () => {
   it("offers every send action in one menu", () => {
@@ -66,7 +67,8 @@ describe("SendToClientPanel", () => {
 
     const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
     expect(button("General Form").disabled).toBe(false);
-    for (const name of ["Program Form", "Contract", "Welcome Email"]) expect(button(name).disabled).toBe(true);
+    for (const name of ["Program Form", "Contract", "Welcome Email"])
+      expect(button(name).disabled).toBe(true);
     expect(screen.getByText(PROGRAM_REQUIRED_REASON)).toBeTruthy();
 
     fireEvent.click(button("General Form"));

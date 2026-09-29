@@ -17,10 +17,34 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/store", () => ({
   useAppState: () => ({
     formTemplates: [
-      { id: "form-master", name: "Master Intake", isActive: true, scope: "master_core", programId: null },
-      { id: "form-general", name: "General Feedback Form", isActive: true, scope: "legacy", programId: null },
-      { id: "form-p1", name: "Inspired Detroit Questions", isActive: true, scope: "program_section", programId: "p1" },
-      { id: "form-p2", name: "Grant Questions", isActive: true, scope: "program_section", programId: "p2" },
+      {
+        id: "form-master",
+        name: "Master Intake",
+        isActive: true,
+        scope: "master_core",
+        programId: null,
+      },
+      {
+        id: "form-general",
+        name: "General Feedback Form",
+        isActive: true,
+        scope: "legacy",
+        programId: null,
+      },
+      {
+        id: "form-p1",
+        name: "Inspired Detroit Questions",
+        isActive: true,
+        scope: "program_section",
+        programId: "p1",
+      },
+      {
+        id: "form-p2",
+        name: "Grant Questions",
+        isActive: true,
+        scope: "program_section",
+        programId: "p2",
+      },
     ],
     programs: [
       { id: "p1", name: "The Inspired Detroit Initiative" },
@@ -31,15 +55,34 @@ vi.mock("@/lib/store", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) },
+  toast: {
+    success: (...a: unknown[]) => toastSuccess(...a),
+    error: (...a: unknown[]) => toastError(...a),
+  },
 }));
 
 const client = {
-  id: "client-1", primaryContactName: "Jordan Lee", businessName: "North Star", email: "jordan@example.com",
-  phone: "555", assignedUserId: "admin-1", intake: { programOfInterest: "" },
+  id: "client-1",
+  primaryContactName: "Jordan Lee",
+  businessName: "North Star",
+  email: "jordan@example.com",
+  phone: "555",
+  assignedUserId: "admin-1",
+  intake: { programOfInterest: "" },
 } as Client;
-const enrollment = { id: "e1", programId: "p1", clientId: "client-1", status: "active" } as ProgramEnrollment;
-const sent = { success: true, status: "SENT", message: "Email accepted for delivery", provider: "N8N_GMAIL", recipientEmail: "jordan@example.com" };
+const enrollment = {
+  id: "e1",
+  programId: "p1",
+  clientId: "client-1",
+  status: "active",
+} as ProgramEnrollment;
+const sent = {
+  success: true,
+  status: "SENT",
+  message: "Email accepted for delivery",
+  provider: "N8N_GMAIL",
+  recipientEmail: "jordan@example.com",
+};
 
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
@@ -51,10 +94,20 @@ afterEach(cleanup);
 
 describe("SendFormDialog: program form", () => {
   it("sends the form for the SELECTED enrollment's program and ties the assignment to that enrollment", async () => {
-    render(<SendFormDialog client={client} kind="program" enrollment={enrollment} open onOpenChange={vi.fn()} />);
+    render(
+      <SendFormDialog
+        client={client}
+        kind="program"
+        enrollment={enrollment}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
 
     expect(screen.getByText("Send program form")).toBeTruthy();
-    expect((screen.getByDisplayValue("Inspired Detroit Questions") as HTMLInputElement).readOnly).toBe(true);
+    expect(
+      (screen.getByDisplayValue("Inspired Detroit Questions") as HTMLInputElement).readOnly,
+    ).toBe(true);
 
     fireEvent.click(button("Send form"));
 
@@ -70,7 +123,15 @@ describe("SendFormDialog: program form", () => {
   });
 
   it("never offers another program's form or a general form", () => {
-    render(<SendFormDialog client={client} kind="program" enrollment={enrollment} open onOpenChange={vi.fn()} />);
+    render(
+      <SendFormDialog
+        client={client}
+        kind="program"
+        enrollment={enrollment}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
     expect(screen.queryByDisplayValue("Grant Questions")).toBeNull();
     expect(screen.queryByDisplayValue("Master Intake")).toBeNull();
   });
@@ -90,7 +151,15 @@ describe("SendFormDialog: program form", () => {
   });
 
   it("cannot send a program form without an enrollment", () => {
-    render(<SendFormDialog client={client} kind="program" enrollment={null} open onOpenChange={vi.fn()} />);
+    render(
+      <SendFormDialog
+        client={client}
+        kind="program"
+        enrollment={null}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
     expect(button("Send form").disabled).toBe(true);
     expect(createFormAssignment).not.toHaveBeenCalled();
   });
@@ -117,9 +186,19 @@ describe("SendFormDialog: general form", () => {
 
 describe("SendFormDialog: failures", () => {
   it("shows the error, stays open, and a server error makes the next click a new attempt", async () => {
-    sendFormEmail.mockRejectedValueOnce(Object.assign(new Error("Email delivery is unavailable."), { status: 503 }));
+    sendFormEmail.mockRejectedValueOnce(
+      Object.assign(new Error("Email delivery is unavailable."), { status: 503 }),
+    );
     const onOpenChange = vi.fn();
-    render(<SendFormDialog client={client} kind="program" enrollment={enrollment} open onOpenChange={onOpenChange} />);
+    render(
+      <SendFormDialog
+        client={client}
+        kind="program"
+        enrollment={enrollment}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
 
     fireEvent.click(button("Send form"));
     await waitFor(() => expect(toastError).toHaveBeenCalledWith("Email delivery is unavailable."));
@@ -135,7 +214,15 @@ describe("SendFormDialog: failures", () => {
 
   it("after a lost response the retry reuses the same key, so the client is not emailed twice", async () => {
     sendFormEmail.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    render(<SendFormDialog client={client} kind="program" enrollment={enrollment} open onOpenChange={vi.fn()} />);
+    render(
+      <SendFormDialog
+        client={client}
+        kind="program"
+        enrollment={enrollment}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
 
     fireEvent.click(button("Send form"));
     await waitFor(() => expect(toastError).toHaveBeenCalled());

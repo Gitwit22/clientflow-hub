@@ -1,9 +1,5 @@
 import { StatusBadge } from "@/components/StatusBadge";
-import type {
-  ProgramDetailAnswer,
-  ProgramDetailAnswerGroup,
-  ProgramDetailForm,
-} from "@/types";
+import type { ProgramDetailAnswer, ProgramDetailAnswerGroup, ProgramDetailForm } from "@/types";
 
 function displayAnswer(value: unknown): string {
   if (Array.isArray(value)) return value.map(displayAnswer).filter(Boolean).join(", ");
@@ -23,11 +19,16 @@ function AnswerList({ answers }: { answers: ProgramDetailAnswer[] }) {
       {answers.map((answer) => (
         <div key={answer.fieldId} className="border-b border-border py-2 last:border-0">
           <dt className="font-mono text-[10px] uppercase text-muted-foreground">{answer.label}</dt>
-          <dd className={answer.type === "signature"
-            ? "font-signature mt-0.5 wrap-break-word text-2xl"
-            : "mt-0.5 wrap-break-word text-sm"}
+          <dd
+            className={
+              answer.type === "signature"
+                ? "font-signature mt-0.5 wrap-break-word text-2xl"
+                : "mt-0.5 wrap-break-word text-sm"
+            }
           >
-            {displayAnswer(answer.value) || <span className="text-muted-foreground">Not answered</span>}
+            {displayAnswer(answer.value) || (
+              <span className="text-muted-foreground">Not answered</span>
+            )}
           </dd>
         </div>
       ))}

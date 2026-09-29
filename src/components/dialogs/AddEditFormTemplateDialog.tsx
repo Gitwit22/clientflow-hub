@@ -67,10 +67,32 @@ const CANONICAL_FIELDS: Array<{ key: NonNullable<FormField["prefillKey"]>; label
 ];
 
 const SHARED_FIELD_IDS = new Set([
-  "name", "fullName", "applicant", "business", "bizName", "brandName", "sponsor",
-  "contact", "email", "phone", "website", "description", "assistance", "businessType",
-  "bizType", "industry", "program", "budget", "contact_pref", "heard", "comments",
-  "facebookUrl", "instagramUrl", "linkedinUrl", "tiktokUrl", "youtubeUrl",
+  "name",
+  "fullName",
+  "applicant",
+  "business",
+  "bizName",
+  "brandName",
+  "sponsor",
+  "contact",
+  "email",
+  "phone",
+  "website",
+  "description",
+  "assistance",
+  "businessType",
+  "bizType",
+  "industry",
+  "program",
+  "budget",
+  "contact_pref",
+  "heard",
+  "comments",
+  "facebookUrl",
+  "instagramUrl",
+  "linkedinUrl",
+  "tiktokUrl",
+  "youtubeUrl",
   "socialLinks",
 ]);
 
@@ -188,8 +210,8 @@ export function AddEditFormTemplateDialog({
     const activeFields = fields
       .filter((row) => row.label.trim())
       .map((row) => ({ ...row, id: row.id.trim() || toSlug(row.label) }));
-    const duplicateId = activeFields.find((row, index) =>
-      activeFields.findIndex((candidate) => candidate.id === row.id) !== index,
+    const duplicateId = activeFields.find(
+      (row, index) => activeFields.findIndex((candidate) => candidate.id === row.id) !== index,
     );
     if (duplicateId) {
       toast.error(`Duplicate field ID: ${duplicateId.id}.`);
@@ -197,9 +219,7 @@ export function AddEditFormTemplateDialog({
     }
     const scope = template?.scope ?? "program_section";
     if (scope === "program_section") {
-      const repeated = activeFields.find((row) =>
-        row.prefillKey || SHARED_FIELD_IDS.has(row.id),
-      );
+      const repeated = activeFields.find((row) => row.prefillKey || SHARED_FIELD_IDS.has(row.id));
       if (repeated) {
         toast.error(`${repeated.label} belongs in the Master Intake form.`);
         return;

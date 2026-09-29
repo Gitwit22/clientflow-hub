@@ -33,25 +33,26 @@ const SOCIAL_SITES: Record<string, { prefix: string; baseUrl: string; hosts: str
 export function findSocialLink(fieldId: string, links?: string[]): string {
   const site = SOCIAL_SITES[fieldId];
   if (!site) return "";
-  return links?.find((link) =>
-    site.hosts.some((host) => link.toLowerCase().includes(host)),
-  ) ?? "";
+  return links?.find((link) => site.hosts.some((host) => link.toLowerCase().includes(host))) ?? "";
 }
 
 function getEntry(fieldId: string, value: string): string {
   const site = SOCIAL_SITES[fieldId];
   if (!site || !value) return value;
 
-  const withoutProtocol = value.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  const withoutProtocol = value
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "");
   const matchedHost = site.hosts.find((host) => withoutProtocol.toLowerCase().startsWith(host));
   const path = matchedHost
     ? withoutProtocol.slice(matchedHost.length).replace(/^\//, "")
     : withoutProtocol;
   const expectedPrefix = new URL(site.baseUrl).pathname.replace(/^\//, "");
-  const withoutExpectedPrefix = expectedPrefix
-    && path.toLowerCase().startsWith(expectedPrefix.toLowerCase())
-    ? path.slice(expectedPrefix.length)
-    : path;
+  const withoutExpectedPrefix =
+    expectedPrefix && path.toLowerCase().startsWith(expectedPrefix.toLowerCase())
+      ? path.slice(expectedPrefix.length)
+      : path;
 
   return withoutExpectedPrefix.replace(/^@/, "");
 }

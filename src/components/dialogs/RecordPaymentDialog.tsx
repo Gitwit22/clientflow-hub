@@ -58,10 +58,14 @@ export function RecordPaymentDialog({
       .then((all) => {
         const openOnes = all.filter((p) => p.status !== "paid");
         setPeriods(openOnes);
-        setSelectedPeriodKey(openOnes[0] ? `${openOnes[0].billingPeriodStart}|${openOnes[0].billingPeriodEnd}` : "");
+        setSelectedPeriodKey(
+          openOnes[0] ? `${openOnes[0].billingPeriodStart}|${openOnes[0].billingPeriodEnd}` : "",
+        );
       })
       .catch((error: unknown) => {
-        toast.error(error instanceof Error ? error.message : "Unable to load open billing periods.");
+        toast.error(
+          error instanceof Error ? error.message : "Unable to load open billing periods.",
+        );
       })
       .finally(() => setLoadingPeriods(false));
   }, [open, clientId, enrollmentId, agreementAmount]);
@@ -97,23 +101,38 @@ export function RecordPaymentDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-display">Record payment</DialogTitle>
-          <DialogDescription>Saved as an immutable ledger entry — corrections are made by voiding, not editing.</DialogDescription>
+          <DialogDescription>
+            Saved as an immutable ledger entry — corrections are made by voiding, not editing.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Applies to period</Label>
-            <Select value={selectedPeriodKey} onValueChange={setSelectedPeriodKey} disabled={loadingPeriods}>
+            <Select
+              value={selectedPeriodKey}
+              onValueChange={setSelectedPeriodKey}
+              disabled={loadingPeriods}
+            >
               <SelectTrigger>
-                <SelectValue placeholder={loadingPeriods ? "Loading periods..." : "Select a period"} />
+                <SelectValue
+                  placeholder={loadingPeriods ? "Loading periods..." : "Select a period"}
+                />
               </SelectTrigger>
               <SelectContent>
                 {periods.map((period) => {
                   const key = `${period.billingPeriodStart}|${period.billingPeriodEnd}`;
                   return (
                     <SelectItem key={key} value={key}>
-                      {new Date(period.dueDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })}
-                      {period.status === "overdue" ? " (overdue)" : period.status === "partial" ? " (partial)" : ""}
+                      {new Date(period.dueDate).toLocaleDateString(undefined, {
+                        month: "short",
+                        year: "numeric",
+                      })}
+                      {period.status === "overdue"
+                        ? " (overdue)"
+                        : period.status === "partial"
+                          ? " (partial)"
+                          : ""}
                     </SelectItem>
                   );
                 })}
@@ -122,11 +141,20 @@ export function RecordPaymentDialog({
           </div>
           <div className="space-y-1.5">
             <Label>Amount</Label>
-            <Input type="number" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input
+              type="number"
+              min="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Payment date</Label>
-            <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
+            <Input
+              type="date"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Method</Label>
@@ -145,7 +173,12 @@ export function RecordPaymentDialog({
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Note</Label>
-            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
+            <Textarea
+              rows={2}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Optional"
+            />
           </div>
         </div>
 

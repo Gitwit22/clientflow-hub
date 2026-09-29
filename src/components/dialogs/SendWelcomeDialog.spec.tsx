@@ -15,21 +15,40 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/lib/apiClient", () => ({ acfSendWelcome: (...a: unknown[]) => acfSendWelcome(...a) }));
 vi.mock("sonner", () => ({
-  toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) },
+  toast: {
+    success: (...a: unknown[]) => toastSuccess(...a),
+    error: (...a: unknown[]) => toastError(...a),
+  },
 }));
 
 const client = { id: "c1", email: "client@example.com" } as Client;
 const enrollment = { id: "e1", programId: "p1", clientId: "c1" } as ProgramEnrollment;
 const program = { id: "p1", name: "The Inspired Detroit Initiative" } as Program;
 const contract = (status: string) =>
-  ({ id: "k1", clientId: "c1", enrollmentId: "e1", status, createdAt: "2026-09-01T00:00:00.000Z" }) as Contract;
+  ({
+    id: "k1",
+    clientId: "c1",
+    enrollmentId: "e1",
+    status,
+    createdAt: "2026-09-01T00:00:00.000Z",
+  }) as Contract;
 const welcomeComm = (overrides: Partial<Communication> = {}) =>
   ({
-    id: "m1", clientId: "c1", type: "welcome_email", contractId: "k1", status: "SENT",
-    date: "2026-09-21T00:00:00.000Z", sentAt: "2026-09-21T00:00:01.000Z", ...overrides,
+    id: "m1",
+    clientId: "c1",
+    type: "welcome_email",
+    contractId: "k1",
+    status: "SENT",
+    date: "2026-09-21T00:00:00.000Z",
+    sentAt: "2026-09-21T00:00:01.000Z",
+    ...overrides,
   }) as Communication;
 
-function renderDialog(contracts: Contract[], communications: Communication[] = [], onOpenChange = vi.fn()) {
+function renderDialog(
+  contracts: Contract[],
+  communications: Communication[] = [],
+  onOpenChange = vi.fn(),
+) {
   render(
     <SendWelcomeDialog
       client={client}
@@ -46,9 +65,15 @@ function renderDialog(contracts: Contract[], communications: Communication[] = [
 const button = (name: RegExp | string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
 beforeEach(() => {
-  getProgramWorkflow.mockResolvedValue({ welcomeEmail: { activeTemplate: { name: "Inspired Detroit Welcome" } } });
+  getProgramWorkflow.mockResolvedValue({
+    welcomeEmail: { activeTemplate: { name: "Inspired Detroit Welcome" } },
+  });
   refreshClientCommunications.mockResolvedValue([]);
-  acfSendWelcome.mockResolvedValue({ contractId: "k1", emailDelivery: { status: "sent" }, replayed: false });
+  acfSendWelcome.mockResolvedValue({
+    contractId: "k1",
+    emailDelivery: { status: "sent" },
+    replayed: false,
+  });
 });
 afterEach(cleanup);
 
@@ -84,9 +109,11 @@ describe("SendWelcomeDialog", () => {
 
     fireEvent.click(button("Send welcome email"));
 
-    await waitFor(() => expect(acfSendWelcome).toHaveBeenCalledWith("c1", "e1", {
-      idempotencyKey: expect.stringMatching(/^[A-Za-z0-9._:-]{8,128}$/),
-    }));
+    await waitFor(() =>
+      expect(acfSendWelcome).toHaveBeenCalledWith("c1", "e1", {
+        idempotencyKey: expect.stringMatching(/^[A-Za-z0-9._:-]{8,128}$/),
+      }),
+    );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(toastSuccess).toHaveBeenCalledWith("Welcome email sent to client@example.com.");
     expect(refreshClientCommunications).toHaveBeenCalledWith("c1");
@@ -101,23 +128,34 @@ describe("SendWelcomeDialog", () => {
     fireEvent.click(button("Resend welcome email"));
     await waitFor(() => expect(acfSendWelcome).toHaveBeenCalledTimes(2));
 
-    const keys = acfSendWelcome.mock.calls.map((call) => (call[2] as { idempotencyKey: string }).idempotencyKey);
+    const keys = acfSendWelcome.mock.calls.map(
+      (call) => (call[2] as { idempotencyKey: string }).idempotencyKey,
+    );
     expect(keys[0]).not.toBe(keys[1]);
   });
 
   it("shows a previous failure so staff know a retry is needed", () => {
-    renderDialog([contract("COMPLETED")], [welcomeComm({ status: "FAILED", errorCode: "timeout", sentAt: null })]);
+    renderDialog(
+      [contract("COMPLETED")],
+      [welcomeComm({ status: "FAILED", errorCode: "timeout", sentAt: null })],
+    );
     expect(screen.getByText("Last attempt failed: timeout")).toBeTruthy();
     expect(button("Send welcome email").disabled).toBe(false);
   });
 
   it("a failed delivery is an error toast, the dialog stays open, and nothing navigates", async () => {
-    acfSendWelcome.mockResolvedValueOnce({ contractId: "k1", emailDelivery: { status: "failed", reason: "rejected" }, replayed: false });
+    acfSendWelcome.mockResolvedValueOnce({
+      contractId: "k1",
+      emailDelivery: { status: "failed", reason: "rejected" },
+      replayed: false,
+    });
     const onOpenChange = renderDialog([contract("COMPLETED")]);
 
     fireEvent.click(button("Send welcome email"));
 
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith("The email was not sent (rejected)."));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("The email was not sent (rejected)."),
+    );
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(button("Send welcome email").disabled).toBe(false);
@@ -125,14 +163,19 @@ describe("SendWelcomeDialog", () => {
 
   it("an API error (e.g. unsigned contract on the server) is shown, not thrown", async () => {
     acfSendWelcome.mockRejectedValueOnce(
-      Object.assign(new Error("The contract must be signed before the welcome email can be sent."), { status: 400 }),
+      Object.assign(
+        new Error("The contract must be signed before the welcome email can be sent."),
+        { status: 400 },
+      ),
     );
     const onOpenChange = renderDialog([contract("COMPLETED")]);
 
     fireEvent.click(button("Send welcome email"));
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("The contract must be signed before the welcome email can be sent."),
+      expect(toastError).toHaveBeenCalledWith(
+        "The contract must be signed before the welcome email can be sent.",
+      ),
     );
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });

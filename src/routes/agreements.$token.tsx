@@ -85,8 +85,8 @@ function PublicContractPage() {
         <div className="max-w-md space-y-2 text-center">
           <h1 className="font-display text-xl font-semibold">Link not found</h1>
           <p className="text-sm text-muted-foreground">
-            This agreement link is invalid, expired, or already completed. Please contact us if
-            you need a new link.
+            This agreement link is invalid, expired, or already completed. Please contact us if you
+            need a new link.
           </p>
         </div>
       </div>

@@ -29,10 +29,10 @@ export function isTerminalEnrollmentStatus(status: string): boolean {
 
 export function isOnboardingEnrollmentStatus(status: string): boolean {
   return (
-    status === "interested"
-    || status === "pending_review"
-    || status === "approved"
-    || status === "onboarding"
+    status === "interested" ||
+    status === "pending_review" ||
+    status === "approved" ||
+    status === "onboarding"
   );
 }
 

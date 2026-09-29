@@ -54,11 +54,7 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Brand */}
       <div className="flex items-center gap-3 border-b border-sidebar-border px-5.5 py-6.5">
-        <img
-          src="/logo.svg"
-          alt="ClientFlow"
-          className="size-8.5 shrink-0 rounded-lg"
-        />
+        <img src="/logo.svg" alt="ClientFlow" className="size-8.5 shrink-0 rounded-lg" />
         <div className="leading-tight">
           <p className="font-display text-[16.5px] font-semibold tracking-[0.2px] text-white">
             ClientFlow
@@ -143,7 +139,9 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               {displayName}
             </p>
             <p className="font-mono text-[10.5px] capitalize text-sidebar-foreground/60">
-              {authenticatedAdmin?.jobTitle || authenticatedAdmin?.role?.replace("_", " ") || "Admin"}
+              {authenticatedAdmin?.jobTitle ||
+                authenticatedAdmin?.role?.replace("_", " ") ||
+                "Admin"}
             </p>
           </div>
           <button

@@ -51,7 +51,8 @@ export function MergeResponsesDialog({
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        const message = error instanceof Error ? error.message : "Unable to load the submitted answers.";
+        const message =
+          error instanceof Error ? error.message : "Unable to load the submitted answers.";
         setLoadError(message);
         toast.error(message);
       });
@@ -70,7 +71,9 @@ export function MergeResponsesDialog({
   }
 
   async function handleApply() {
-    const fields = (changes ?? []).filter((change) => selected.has(change.key)).map((change) => change.key);
+    const fields = (changes ?? [])
+      .filter((change) => selected.has(change.key))
+      .map((change) => change.key);
     if (fields.length === 0) {
       onOpenChange(false);
       return;
@@ -83,7 +86,9 @@ export function MergeResponsesDialog({
       onOpenChange(false);
     } catch (error) {
       // Stay on the page with the dialog open so staff can retry; nothing navigates or reloads.
-      toast.error(error instanceof Error ? error.message : "Unable to apply the responses to the profile.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to apply the responses to the profile.",
+      );
     } finally {
       setApplying(false);
     }
@@ -104,7 +109,9 @@ export function MergeResponsesDialog({
         </DialogHeader>
 
         {loading ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">Loading submitted answers…</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            Loading submitted answers…
+          </p>
         ) : loadError ? (
           <p role="alert" className="py-4 text-center text-sm text-destructive">
             {loadError}
@@ -155,7 +162,9 @@ export function MergeResponsesDialog({
             onClick={handleApply}
             disabled={applying || loading || !!loadError || count === 0}
           >
-            {applying ? "Applying…" : `Apply ${count > 0 ? `${count} ` : ""}field${count !== 1 ? "s" : ""}`}
+            {applying
+              ? "Applying…"
+              : `Apply ${count > 0 ? `${count} ` : ""}field${count !== 1 ? "s" : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>

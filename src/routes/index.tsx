@@ -60,7 +60,9 @@ function Dashboard() {
 
   const missingProgramClients = clients.filter((c) => !c.isArchived && !c.programId);
   const draftContractClientIds = new Set(
-    contracts.filter((contract) => contract.status === "DRAFT").map((contract) => contract.clientId),
+    contracts
+      .filter((contract) => contract.status === "DRAFT")
+      .map((contract) => contract.clientId),
   );
   const draftContractClients = clients.filter((c) => draftContractClientIds.has(c.id));
   const failedDeliveryClientIds = new Set(
@@ -75,7 +77,10 @@ function Dashboard() {
     { key: "contract", label: "Contract awaiting staff action", items: draftContractClients },
     { key: "delivery", label: "Failed email delivery", items: failedDeliveryClients },
   ].filter((category) => category.items.length > 0);
-  const attentionTotal = attentionCategories.reduce((sum, category) => sum + category.items.length, 0);
+  const attentionTotal = attentionCategories.reduce(
+    (sum, category) => sum + category.items.length,
+    0,
+  );
 
   const followUps = clients
     .filter((c) => !c.isArchived && c.nextFollowUpDate)
@@ -133,8 +138,12 @@ function Dashboard() {
       {/* Needs Attention */}
       <div>
         <div className="mb-3.5 flex items-baseline justify-between">
-          <h2 className="font-display text-[19px] font-semibold text-foreground">Needs Attention</h2>
-          <span className="font-mono text-[11.5px] text-muted-foreground">{attentionTotal} flagged</span>
+          <h2 className="font-display text-[19px] font-semibold text-foreground">
+            Needs Attention
+          </h2>
+          <span className="font-mono text-[11.5px] text-muted-foreground">
+            {attentionTotal} flagged
+          </span>
         </div>
         {attentionCategories.length === 0 ? (
           <p className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">

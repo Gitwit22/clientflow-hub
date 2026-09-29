@@ -27,7 +27,10 @@ export const Route = createFileRoute("/payments")({
   head: () => ({
     meta: [
       { title: "Payments — ClientFlow" },
-      { name: "description", content: "Revenue dashboard, expected payments, and billing setup queue." },
+      {
+        name: "description",
+        content: "Revenue dashboard, expected payments, and billing setup queue.",
+      },
     ],
   }),
   component: PaymentsPage,
@@ -52,7 +55,8 @@ function PaymentsPage() {
         if (!cancelled) setDashboard(result);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Unable to load the billing dashboard.");
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Unable to load the billing dashboard.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -101,7 +105,9 @@ function PaymentsPage() {
             <CardTitle className="font-display text-sm text-muted-foreground">Received</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="font-display text-2xl font-semibold">{loading ? "—" : money(revenue?.received ?? 0)}</p>
+            <p className="font-display text-2xl font-semibold">
+              {loading ? "—" : money(revenue?.received ?? 0)}
+            </p>
           </CardContent>
         </Card>
         <Card className="shadow-card">
@@ -109,20 +115,28 @@ function PaymentsPage() {
             <CardTitle className="font-display text-sm text-muted-foreground">Expected</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="font-display text-2xl font-semibold">{loading ? "—" : money(revenue?.expected ?? 0)}</p>
+            <p className="font-display text-2xl font-semibold">
+              {loading ? "—" : money(revenue?.expected ?? 0)}
+            </p>
           </CardContent>
         </Card>
         <Card className="shadow-card">
           <CardHeader>
-            <CardTitle className="font-display text-sm text-muted-foreground">Outstanding</CardTitle>
+            <CardTitle className="font-display text-sm text-muted-foreground">
+              Outstanding
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="font-display text-2xl font-semibold">{loading ? "—" : money(revenue?.outstanding ?? 0)}</p>
+            <p className="font-display text-2xl font-semibold">
+              {loading ? "—" : money(revenue?.outstanding ?? 0)}
+            </p>
           </CardContent>
         </Card>
         <Card className="shadow-card">
           <CardHeader>
-            <CardTitle className="font-display text-sm text-muted-foreground">Active recurring revenue</CardTitle>
+            <CardTitle className="font-display text-sm text-muted-foreground">
+              Active recurring revenue
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="font-display text-2xl font-semibold">
@@ -137,7 +151,8 @@ function PaymentsPage() {
           <CardHeader>
             <CardTitle className="font-display text-base">Needs Billing Setup</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {dashboard.needsBillingSetup.length} client{dashboard.needsBillingSetup.length === 1 ? "" : "s"} need payment setup.
+              {dashboard.needsBillingSetup.length} client
+              {dashboard.needsBillingSetup.length === 1 ? "" : "s"} need payment setup.
             </p>
           </CardHeader>
           <CardContent>

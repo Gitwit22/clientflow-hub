@@ -138,10 +138,15 @@ export function SendFormFlowDialog({
       : (["Profile", "Form", "Send"] as const);
 
   const stepIdx =
-    step === "profile" ? 0
-    : step === "form" ? (preselectedClient ? 0 : 1)
-    : step === "send" ? STEPS.length - 1
-    : STEPS.length;
+    step === "profile"
+      ? 0
+      : step === "form"
+        ? preselectedClient
+          ? 0
+          : 1
+        : step === "send"
+          ? STEPS.length - 1
+          : STEPS.length;
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -241,7 +246,9 @@ export function SendFormFlowDialog({
       );
       setStep("done");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send form. Please try again.");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to send form. Please try again.",
+      );
     } finally {
       setIsSending(false);
     }
@@ -301,9 +308,7 @@ export function SendFormFlowDialog({
                 >
                   {label}
                 </span>
-                {i < STEPS.length - 1 && (
-                  <span className="text-xs text-muted-foreground">›</span>
-                )}
+                {i < STEPS.length - 1 && <span className="text-xs text-muted-foreground">›</span>}
               </div>
             ))}
           </div>
@@ -329,29 +334,29 @@ export function SendFormFlowDialog({
               </div>
 
               <div className="max-h-52 space-y-2 overflow-y-auto">
-                  {visibleClientResults.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No matching profiles found.</p>
-                  ) : (
-                    visibleClientResults.map((c) => (
-                      <div
-                        key={c.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{c.businessName}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {c.primaryContactName} · {c.email}
-                          </p>
-                          <div className="mt-1 flex flex-wrap gap-1.5">
-                            <StatusBadge status={c.status} />
-                          </div>
+                {visibleClientResults.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No matching profiles found.</p>
+                ) : (
+                  visibleClientResults.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{c.businessName}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {c.primaryContactName} · {c.email}
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          <StatusBadge status={c.status} />
                         </div>
-                        <Button size="sm" onClick={() => handlePickClient(c)}>
-                          Select
-                        </Button>
                       </div>
-                    ))
-                  )}
+                      <Button size="sm" onClick={() => handlePickClient(c)}>
+                        Select
+                      </Button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -453,8 +458,7 @@ export function SendFormFlowDialog({
               </p>
               {template && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Form:{" "}
-                  <span className="font-medium text-foreground">{template.name}</span>
+                  Form: <span className="font-medium text-foreground">{template.name}</span>
                 </p>
               )}
             </div>
@@ -470,11 +474,7 @@ export function SendFormFlowDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Due date</Label>
-                <Input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                />
+                <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
               </div>
             </div>
 

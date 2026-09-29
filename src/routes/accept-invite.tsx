@@ -15,9 +15,7 @@ export const Route = createFileRoute("/accept-invite")({
 
 function AcceptInvitePage() {
   const navigate = useNavigate();
-  const search = new URLSearchParams(
-    typeof window !== "undefined" ? window.location.search : "",
-  );
+  const search = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const token = search.get("token") ?? "";
 
   const [status, setStatus] = useState<"loading" | "valid" | "invalid">("loading");
@@ -71,11 +69,7 @@ function AcceptInvitePage() {
       await acceptInvite(token, password);
       await navigate({ to: "/", replace: true });
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -135,7 +129,8 @@ function AcceptInvitePage() {
               {prefillName ? `Welcome, ${prefillName}` : "Set up your account"}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create a password for <span className="font-medium text-foreground">{prefillEmail}</span>
+              Create a password for{" "}
+              <span className="font-medium text-foreground">{prefillEmail}</span>
             </p>
           </div>
 

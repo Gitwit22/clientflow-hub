@@ -67,7 +67,10 @@ export function AddClientDialog({
       try {
         await refreshClientProfile(result.client.id);
       } catch (refreshError) {
-        console.warn("Client was created but the client list could not be refreshed.", refreshError);
+        console.warn(
+          "Client was created but the client list could not be refreshed.",
+          refreshError,
+        );
       }
       const { emailDelivery } = result;
       if (emailDelivery.status === "sent") {
@@ -144,8 +147,8 @@ export function AddClientDialog({
               onCheckedChange={(checked) => setSendIntakeImmediately(checked === true)}
             />
             <Label htmlFor="add-client-send-intake" className="text-sm font-normal leading-snug">
-              Send the General Intake email immediately. Uncheck to review and send it manually
-              from the client profile later.
+              Send the General Intake email immediately. Uncheck to review and send it manually from
+              the client profile later.
             </Label>
           </div>
         </form>

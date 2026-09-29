@@ -50,15 +50,22 @@ export function PaymentLedgerDialog({
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="font-display">Payment ledger</DialogTitle>
-          <DialogDescription>Every recorded payment, including voided entries. Nothing is ever deleted.</DialogDescription>
+          <DialogDescription>
+            Every recorded payment, including voided entries. Nothing is ever deleted.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="divide-y divide-border">
           {payments.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No payments recorded yet.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No payments recorded yet.
+            </p>
           ) : (
             payments.map((payment) => (
-              <div key={payment.id} className={cn("space-y-1.5 py-3", payment.voidedAt && "opacity-60")}>
+              <div
+                key={payment.id}
+                className={cn("space-y-1.5 py-3", payment.voidedAt && "opacity-60")}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className={cn("text-sm font-medium", payment.voidedAt && "line-through")}>
                     ${payment.amount.toLocaleString()} · {payment.paymentMethod.toUpperCase()} ·{" "}
@@ -82,7 +89,9 @@ export function PaymentLedgerDialog({
                       placeholder="Reason to void this payment"
                       className="min-h-8 flex-1"
                       value={reasonById[payment.id] ?? ""}
-                      onChange={(e) => setReasonById({ ...reasonById, [payment.id]: e.target.value })}
+                      onChange={(e) =>
+                        setReasonById({ ...reasonById, [payment.id]: e.target.value })
+                      }
                     />
                     <Button
                       variant="outline"

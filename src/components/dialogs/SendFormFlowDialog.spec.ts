@@ -31,10 +31,7 @@ const program = (overrides: Partial<Program>): Program => ({
 
 describe("getAvailableSendForms", () => {
   it("shows an active program through its default form even when programId is missing", () => {
-    const choices = getAvailableSendForms(
-      [template({ scope: "master_core" })],
-      [program({})],
-    );
+    const choices = getAvailableSendForms([template({ scope: "master_core" })], [program({})]);
 
     expect(choices).toHaveLength(1);
     expect(choices[0]).toMatchObject({
