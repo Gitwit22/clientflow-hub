@@ -145,6 +145,8 @@ describe('ProgramAutomationService', () => {
 
   it('creates an enrollment and logs ENROLLMENT_CREATED activity for create_enrollment rules', async () => {
     const transaction = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1' }) },
       cfProgramEnrollment: { create: jest.fn().mockResolvedValue({ id: 'enroll-new' }) },
       cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-new' }) },
       cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-new' }) },
@@ -400,6 +402,7 @@ describe('ProgramAutomationService', () => {
     });
 
     expect(contracts.issueContractForProgram).toHaveBeenCalledWith(
+      'org-1',
       'client-1',
       'program-1',
       expect.objectContaining({

@@ -11,6 +11,7 @@ import {
   type AuthenticatedRequest,
   ClientflowAdminOnlyGuard,
   ClientflowAuthGuard,
+  requireAdmin,
 } from '../../common/guards/clientflow-auth.guard';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { ContractsService, type StaffSigner } from './contracts.service';
@@ -19,8 +20,9 @@ import { SendContractDto } from './dto/send-contract.dto';
 import { SendWelcomeDto } from './dto/send-welcome.dto';
 
 /** The signed-in staff member behind a request, used for signatures and the audit trail. */
-function staffActor(request: AuthenticatedRequest): StaffSigner | null {
-  return request.adminUser ? { id: request.adminUser.id, name: request.adminUser.displayName } : null;
+function staffActor(request: AuthenticatedRequest): StaffSigner {
+  const admin = requireAdmin(request);
+  return { id: admin.id, name: admin.displayName };
 }
 
 @ApiTags('contracts')
@@ -51,10 +53,9 @@ export class ContractsController {
   @ApiNotFoundResponse({ description: 'Client or selected program was not found.' })
   @ApiBadRequestResponse({ description: 'The selected program has no usable contract template.' })
   generate(@Req() request: AuthenticatedRequest, @Param('id') clientId: string, @Body() dto: GenerateContractDto) {
-    const signer = request.adminUser
-      ? { id: request.adminUser.id, name: request.adminUser.displayName }
-      : { id: dto.staffSignerId ?? null, name: dto.staffSignerName ?? '' };
-    return this.contracts.generateForStaff(clientId, signer, { enrollmentId: dto.enrollmentId ?? null });
+    return this.contracts.generateForStaff(requireAdmin(request).organizationId, clientId, staffActor(request), {
+      enrollmentId: dto.enrollmentId ?? null,
+    });
   }
 
   @Post('send')
@@ -78,7 +79,7 @@ export class ContractsController {
     @Body() dto: SendContractDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.contracts.sendForStaff(clientId, dto.contractId, {
+    return this.contracts.sendForStaff(requireAdmin(request).organizationId, clientId, dto.contractId, {
       enrollmentId: dto.enrollmentId ?? null,
       actor: staffActor(request),
       idempotencyKey: parseIdempotencyKey(idempotencyKey),
@@ -102,7 +103,7 @@ export class ContractsController {
     @Param('contractId') contractId: string,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.contracts.sendExecutedCopy(clientId, contractId, {
+    return this.contracts.sendExecutedCopy(requireAdmin(request).organizationId, clientId, contractId, {
       actor: staffActor(request),
       idempotencyKey: parseIdempotencyKey(idempotencyKey),
     });
@@ -132,7 +133,7 @@ export class WelcomeController {
     @Body() dto: SendWelcomeDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.contracts.sendWelcomeForEnrollment(clientId, {
+    return this.contracts.sendWelcomeForEnrollment(requireAdmin(request).organizationId, clientId, {
       enrollmentId: dto.enrollmentId,
       actor: staffActor(request),
       idempotencyKey: parseIdempotencyKey(idempotencyKey),

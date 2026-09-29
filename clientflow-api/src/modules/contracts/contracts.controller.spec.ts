@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { ContractsController, WelcomeController } from './contracts.controller';
 import type { ContractsService } from './contracts.service';
 import { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
@@ -6,98 +7,93 @@ import { validate } from 'class-validator';
 import type { ProgramAutomationService } from '../automation/program-automation.service';
 
 describe('contract controllers', () => {
-  it('delegates generate and send endpoints using the requested client and contract IDs', async () => {
+  const admin = { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin', organizationId: 'org-1' };
+  const signedIn = { adminUser: admin } as never;
+
+  it("scopes generate and send to the signed-in admin's organization", async () => {
     const service = {
       generateForStaff: jest.fn().mockResolvedValue({ contract: { id: 'contract-1' } }),
       sendForStaff: jest.fn().mockResolvedValue({ contract: { id: 'contract-1', status: 'SENT' } }),
     };
     const controller = new ContractsController(service as unknown as ContractsService);
-    const request = {} as never;
 
-    await controller.generate(request, 'client-1', { staffSignerName: 'Jordan Staff' });
-    await controller.send(request, 'client-1', { contractId: 'contract-1' });
-
-    expect(service.generateForStaff).toHaveBeenCalledWith(
-      'client-1',
-      { id: null, name: 'Jordan Staff' },
-      { enrollmentId: null },
-    );
-    expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1', {
-      enrollmentId: null,
-      actor: null,
-      idempotencyKey: null,
-    });
-  });
-
-  it('passes the enrollment, the staff actor and the idempotency key through to generate and send', async () => {
-    const service = {
-      generateForStaff: jest.fn().mockResolvedValue({}),
-      sendForStaff: jest.fn().mockResolvedValue({}),
-    };
-    const controller = new ContractsController(service as unknown as ContractsService);
-    const request = { adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin' } } as never;
-
-    await controller.generate(request, 'client-1', { enrollmentId: 'enroll-1' });
-    await controller.send(request, 'client-1', { contractId: 'contract-1', enrollmentId: 'enroll-1' }, 'attempt-key-0001');
+    await controller.generate(signedIn, 'client-1', { enrollmentId: 'enroll-1' });
+    await controller.send(signedIn, 'client-1', { contractId: 'contract-1', enrollmentId: 'enroll-1' }, 'attempt-key-0001');
 
     expect(service.generateForStaff).toHaveBeenCalledWith(
+      'org-1',
       'client-1',
       { id: 'admin-1', name: 'Jordan Real' },
       { enrollmentId: 'enroll-1' },
     );
-    expect(service.sendForStaff).toHaveBeenCalledWith('client-1', 'contract-1', {
+    expect(service.sendForStaff).toHaveBeenCalledWith('org-1', 'client-1', 'contract-1', {
       enrollmentId: 'enroll-1',
       actor: { id: 'admin-1', name: 'Jordan Real' },
       idempotencyKey: 'attempt-key-0001',
     });
   });
 
+  it('refuses every staff contract action without an authenticated session', () => {
+    const service = {
+      generateForStaff: jest.fn(),
+      sendForStaff: jest.fn(),
+      sendExecutedCopy: jest.fn(),
+      sendWelcomeForEnrollment: jest.fn(),
+    };
+    const contracts = new ContractsController(service as unknown as ContractsService);
+    const welcome = new WelcomeController(service as unknown as ContractsService);
+    const anonymous = {} as never;
+
+    expect(() => contracts.generate(anonymous, 'client-1', { staffSignerName: 'Jordan Staff' })).toThrow(UnauthorizedException);
+    expect(() => contracts.send(anonymous, 'client-1', { contractId: 'contract-1' })).toThrow(UnauthorizedException);
+    expect(() => contracts.sendCopy(anonymous, 'client-1', 'contract-1')).toThrow(UnauthorizedException);
+    expect(() => welcome.send(anonymous, 'client-1', { enrollmentId: 'enroll-1' })).toThrow(UnauthorizedException);
+    for (const call of Object.values(service)) expect(call).not.toHaveBeenCalled();
+  });
+
   it('rejects a malformed Idempotency-Key before doing anything', () => {
     const service = { sendForStaff: jest.fn() };
     const controller = new ContractsController(service as unknown as ContractsService);
-    expect(() => controller.send({} as never, 'client-1', { contractId: 'c' }, 'bad key!')).toThrow(
+    expect(() => controller.send(signedIn, 'client-1', { contractId: 'c' }, 'bad key!')).toThrow(
       'Idempotency-Key must be 8-128 characters',
     );
     expect(service.sendForStaff).not.toHaveBeenCalled();
   });
 
-  it('delegates send-copy and the manual welcome with the staff actor and idempotency key', async () => {
+  it('delegates send-copy and the manual welcome with the organization, staff actor and idempotency key', async () => {
     const service = {
       sendExecutedCopy: jest.fn().mockResolvedValue({}),
       sendWelcomeForEnrollment: jest.fn().mockResolvedValue({}),
     };
-    const request = { adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin' } } as never;
 
     await new ContractsController(service as unknown as ContractsService).sendCopy(
-      request, 'client-1', 'contract-1', 'copy-attempt-0001',
+      signedIn, 'client-1', 'contract-1', 'copy-attempt-0001',
     );
     await new WelcomeController(service as unknown as ContractsService).send(
-      request, 'client-1', { enrollmentId: 'enroll-1' }, 'welcome-attempt-0001',
+      signedIn, 'client-1', { enrollmentId: 'enroll-1' }, 'welcome-attempt-0001',
     );
 
-    expect(service.sendExecutedCopy).toHaveBeenCalledWith('client-1', 'contract-1', {
+    expect(service.sendExecutedCopy).toHaveBeenCalledWith('org-1', 'client-1', 'contract-1', {
       actor: { id: 'admin-1', name: 'Jordan Real' },
       idempotencyKey: 'copy-attempt-0001',
     });
-    expect(service.sendWelcomeForEnrollment).toHaveBeenCalledWith('client-1', {
+    expect(service.sendWelcomeForEnrollment).toHaveBeenCalledWith('org-1', 'client-1', {
       enrollmentId: 'enroll-1',
       actor: { id: 'admin-1', name: 'Jordan Real' },
       idempotencyKey: 'welcome-attempt-0001',
     });
   });
 
-  it('derives the staff signer from the authenticated session instead of trusting the request body', async () => {
+  it('derives the staff signer from the authenticated session and ignores a body-supplied signer', async () => {
     const service = {
       generateForStaff: jest.fn().mockResolvedValue({ contract: { id: 'contract-1' } }),
     };
     const controller = new ContractsController(service as unknown as ContractsService);
-    const request = {
-      adminUser: { id: 'admin-1', displayName: 'Jordan Real', role: 'org_admin' },
-    } as never;
 
-    await controller.generate(request, 'client-1', { staffSignerName: 'Someone Else' });
+    await controller.generate(signedIn, 'client-1', { staffSignerName: 'Someone Else', staffSignerId: 'other-admin' });
 
     expect(service.generateForStaff).toHaveBeenCalledWith(
+      'org-1',
       'client-1',
       { id: 'admin-1', name: 'Jordan Real' },
       { enrollmentId: null },
@@ -107,7 +103,10 @@ describe('contract controllers', () => {
   it('delegates public contract opening and completion with request metadata', async () => {
     const service = {
       openPublicContract: jest.fn().mockResolvedValue({ contract: { status: 'OPENED' } }),
-      completePublicContract: jest.fn().mockResolvedValue({ contract: { status: 'COMPLETED' } }),
+      completePublicContract: jest.fn().mockResolvedValue({
+        contract: { id: 'contract-1', status: 'COMPLETED' },
+        client: { id: 'client-1', status: 'ONBOARDING' },
+      }),
     };
     const automation = { runTrigger: jest.fn() } as unknown as ProgramAutomationService;
     const controller = new PublicContractsController(service as unknown as ContractsService, automation);
@@ -191,9 +190,14 @@ describe('contract controllers', () => {
       get: jest.fn().mockReturnValue('Contract Browser'),
     } as never);
 
-    expect(result).toEqual(expect.objectContaining({
-      automation: expect.objectContaining({ status: 'failed' }),
-    }));
+    // The anonymous signer sees only the outcome: no org/enrollment ids and no internal error text.
+    expect(result).toEqual({
+      contract: { id: 'contract-1', status: 'COMPLETED', completedAt: undefined },
+      client: { id: 'client-1', status: 'ONBOARDING' },
+      automation: { status: 'failed' },
+    });
+    expect(JSON.stringify(result)).not.toContain('automation unavailable');
+    expect(JSON.stringify(result)).not.toContain('org-1');
   });
 
   it('requires a valid signer identity and explicit agreement', async () => {

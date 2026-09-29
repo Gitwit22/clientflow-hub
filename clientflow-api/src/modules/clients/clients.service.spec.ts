@@ -44,7 +44,7 @@ describe('ClientsService', () => {
     const n8n = { getIntakeAvailability: jest.fn().mockReturnValue('ready'), sendIntake: jest.fn() };
     const service = new ClientsService(prisma, configService(), n8n as unknown as N8nService, contractsServiceMock());
     try {
-      await expect(service.create({ organizationId: 'org-1', contactName: 'Private Client', email: 'private@example.com' }))
+      await expect(service.create('org-1', { organizationId: 'org-1', contactName: 'Private Client', email: 'private@example.com' }))
         .rejects.toBe(failure);
       expect(n8n.sendIntake).not.toHaveBeenCalled();
       const errors = errorLog.mock.calls.map(([entry]) => JSON.parse(String(entry)));
@@ -104,7 +104,7 @@ describe('ClientsService', () => {
     } as unknown as N8nService;
     const service = new ClientsService(prisma, configService(), n8n, contractsServiceMock());
 
-    const result = await service.create({
+    const result = await service.create('org-1', {
       organizationId: 'org-1',
       contactName: ' Alicia Owner ',
       businessName: ' Alicia Studio ',
@@ -170,7 +170,7 @@ describe('ClientsService', () => {
     } as unknown as N8nService;
     const service = new ClientsService(prisma, configService(), n8n, contractsServiceMock());
 
-    const result = await service.create({
+    const result = await service.create('org-1', {
       organizationId: 'org-1',
       contactName: 'Alicia Owner',
       email: 'alicia@example.com',
@@ -219,7 +219,7 @@ describe('ClientsService', () => {
     } as unknown as PrismaService;
     const service = new ClientsService(prisma, configService(), {} as N8nService, contractsServiceMock());
 
-    await expect(service.getOne('missing')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getOne('org-1', 'missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('returns the executed document URL alongside the contract once archived', async () => {
@@ -262,7 +262,7 @@ describe('ClientsService', () => {
     } as unknown as PrismaService;
     const service = new ClientsService(prisma, configService(), {} as N8nService, contractsServiceMock());
 
-    const result = await service.getOne('client-1');
+    const result = await service.getOne('org-1', 'client-1');
 
     expect(result.contract).toEqual(expect.objectContaining({
       documentUrl: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.txt',
@@ -290,13 +290,13 @@ describe('ClientsService', () => {
     const contracts = contractsServiceMock();
     const service = new ClientsService(prisma, configService(), {} as N8nService, contracts);
 
-    const result = await service.updateProgram('client-1', 'program-2');
+    const result = await service.updateProgram('org-1', 'client-1', 'program-2');
 
     expect(transaction.cfClient.update).toHaveBeenCalledWith({
       where: { id: 'client-1' },
       data: { programId: 'program-2' },
     });
-    expect(contracts.handlePostIntakeProgramSelection).toHaveBeenCalledWith('client-1', 'program-2');
+    expect(contracts.handlePostIntakeProgramSelection).toHaveBeenCalledWith('org-1', 'client-1', 'program-2');
     expect(result).toEqual(expect.objectContaining({ clientStatus: 'PENDING_STAFF_REVIEW' }));
   });
 
@@ -326,7 +326,10 @@ describe('ClientsService', () => {
           findFirst: jest.fn().mockResolvedValue(assignment),
           update: jest.fn().mockResolvedValue({ ...assignment, secureLinkToken: 'new-hash' }),
         },
-        cfFormTemplate: { findMany: jest.fn().mockResolvedValue([{ id: 'master-template-1' }]) },
+        cfFormTemplate: {
+          findMany: jest.fn().mockResolvedValue([{ id: 'master-template-1' }]),
+          findFirst: jest.fn().mockResolvedValue({ dueInDays: 7 }),
+        },
         cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
         cfCommunication: {
           findFirst: jest.fn().mockResolvedValue(null),
@@ -349,14 +352,38 @@ describe('ClientsService', () => {
       return { service, prisma, n8n };
     }
 
+    it('keeps the client\'s current link when email delivery is unavailable', async () => {
+      const { service, prisma, n8n } = build();
+      n8n.getIntakeAvailability.mockReturnValue('disabled');
+
+      await service.sendIntakeNow('org-1', 'client-1', { actor });
+
+      expect(prisma.cfFormAssignment.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to resend an intake the client already submitted', async () => {
+      const { service, n8n } = build({
+        cfFormAssignment: { findFirst: jest.fn().mockResolvedValue({ ...assignment, submittedAt: new Date() }), update: jest.fn() },
+      });
+
+      await expect(service.sendIntakeNow('org-1', 'client-1', { actor })).rejects.toThrow('already submitted');
+      expect(n8n.sendIntake).not.toHaveBeenCalled();
+    });
+
     it('rotates a fresh token and sends with a communication-based event id', async () => {
       const { service, prisma, n8n } = build();
 
-      await service.sendIntakeNow('client-1', { actor, idempotencyKey: 'attempt-0001-abcd' });
+      await service.sendIntakeNow('org-1', 'client-1', { actor, idempotencyKey: 'attempt-0001-abcd' });
 
       expect(prisma.cfFormAssignment.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: 'assignment-1' },
-        data: { secureLinkToken: expect.stringMatching(/^[a-f0-9]{64}$/) },
+        data: {
+          secureLinkToken: expect.stringMatching(/^[a-f0-9]{64}$/),
+          secureLink: null,
+          // A resend restarts the due date and expiry so the new link isn't born expired.
+          dueAt: expect.any(Date),
+          expiresAt: expect.any(Date),
+        },
       }));
       const created = (prisma.cfCommunication.create.mock.calls as [{ data: { id: string; eventId: string } }][])[0][0].data;
       expect(created.eventId).toBe(`intake.send:assignment-1:${created.id}`);
@@ -368,7 +395,7 @@ describe('ClientsService', () => {
 
     it('only ever resends the general-intake assignment, never a newer program form', async () => {
       const { service, prisma } = build();
-      await service.sendIntakeNow('client-1', { actor });
+      await service.sendIntakeNow('org-1', 'client-1', { actor });
       const where = (prisma.cfFormAssignment.findFirst.mock.calls as [{ where: { formId: { in: string[] } } }][])[0][0].where;
       expect(where.formId.in).toEqual(expect.arrayContaining(['master-template-1']));
       expect(where.formId.in).toHaveLength(2); // generated general-intake id + master_core templates
@@ -380,7 +407,7 @@ describe('ClientsService', () => {
 
     it('records the attempt: communication row, staff activity and source', async () => {
       const { service, prisma } = build();
-      await service.sendIntakeNow('client-1', { actor, idempotencyKey: 'attempt-0001-abcd' });
+      await service.sendIntakeNow('org-1', 'client-1', { actor, idempotencyKey: 'attempt-0001-abcd' });
 
       expect(prisma.cfCommunication.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -403,7 +430,7 @@ describe('ClientsService', () => {
 
     it('records a skipped/failed delivery instead of losing it', async () => {
       const { service, prisma } = build({}, { status: 'skipped', reason: 'disabled' });
-      const result = await service.sendIntakeNow('client-1', { actor });
+      const result = await service.sendIntakeNow('org-1', 'client-1', { actor });
 
       expect(result.emailDelivery).toEqual({ status: 'skipped', reason: 'disabled' });
       expect(prisma.cfCommunication.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -423,7 +450,7 @@ describe('ClientsService', () => {
         cfCommunication: { findFirst: jest.fn().mockResolvedValue(prior), create: jest.fn(), update: jest.fn() },
       });
 
-      const result = await service.sendIntakeNow('client-1', { actor, idempotencyKey: 'attempt-0001-abcd' });
+      const result = await service.sendIntakeNow('org-1', 'client-1', { actor, idempotencyKey: 'attempt-0001-abcd' });
 
       expect(result).toEqual({
         emailDelivery: { status: 'sent', sentAt: '2030-01-01T00:00:00.000Z' },
@@ -438,7 +465,7 @@ describe('ClientsService', () => {
       const { service, n8n } = build({
         cfFormAssignment: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
       });
-      await expect(service.sendIntakeNow('client-1', { actor })).rejects.toThrow(
+      await expect(service.sendIntakeNow('org-1', 'client-1', { actor })).rejects.toThrow(
         'No General Intake assignment found for this client.',
       );
       expect(n8n.sendIntake).not.toHaveBeenCalled();

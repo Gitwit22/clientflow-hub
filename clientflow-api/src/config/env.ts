@@ -42,11 +42,23 @@ export const environmentSchema = z.object({
   N8N_FORM_EMAIL_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   N8N_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 }).superRefine((environment, context) => {
-  if (environment.NODE_ENV === 'production') {
-    for (const key of ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
+  if (environment.NODE_ENV === 'production' && !environment.DATABASE_URL) {
+    context.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'DATABASE_URL is required in production.' });
+  }
+  // Sessions are signed with these; there is no built-in fallback, so every environment except
+  // automated tests must configure them (a missing NODE_ENV defaults to development, not test).
+  if (environment.NODE_ENV !== 'test') {
+    for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
       if (!environment[key]) {
-        context.addIssue({ code: 'custom', path: [key], message: `${key} is required in production.` });
+        context.addIssue({ code: 'custom', path: [key], message: `${key} is required (32+ characters).` });
       }
+    }
+    if (environment.JWT_ACCESS_SECRET && environment.JWT_ACCESS_SECRET === environment.JWT_REFRESH_SECRET) {
+      context.addIssue({
+        code: 'custom',
+        path: ['JWT_REFRESH_SECRET'],
+        message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET.',
+      });
     }
   }
   const n8nEnabled = environment.N8N_ENABLED === 'true'

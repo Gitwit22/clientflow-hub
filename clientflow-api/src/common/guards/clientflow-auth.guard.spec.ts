@@ -6,7 +6,7 @@ import type { Environment } from '../../config/env';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ClientflowAdminOnlyGuard, ClientflowAuthGuard } from './clientflow-auth.guard';
 
-const SECRET = 'development-clientflow-secret';
+const SECRET = 'test-access-secret-that-is-at-least-32-chars';
 
 function contextWithRequest(request: Record<string, unknown>): ExecutionContext {
   return {
@@ -16,8 +16,7 @@ function contextWithRequest(request: Record<string, unknown>): ExecutionContext 
 
 function config(overrides: Record<string, string> = {}): ConfigService<Environment, true> {
   const values: Record<string, string> = {
-    ALLOW_UNAUTHENTICATED_CLIENT_CREATION: 'false',
-    ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT: 'false',
+    JWT_ACCESS_SECRET: SECRET,
     ...overrides,
   };
   return { get: jest.fn((key: string) => values[key]) } as unknown as ConfigService<Environment, true>;
@@ -34,21 +33,24 @@ const admin = {
 };
 
 describe('ClientflowAuthGuard', () => {
-  it('rejects requests with no session when unauthenticated bypass is disabled', async () => {
-    const guard = new ClientflowAuthGuard({} as unknown as PrismaService, config());
+  it('rejects requests with no session, even when a legacy bypass flag is set', async () => {
+    const guard = new ClientflowAuthGuard(
+      {} as unknown as PrismaService,
+      config({ ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT: 'true', ALLOW_UNAUTHENTICATED_CLIENT_CREATION: 'true' }),
+    );
     const context = contextWithRequest({ headers: {} });
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('allows requests with no session when a bypass flag is enabled', async () => {
-    const guard = new ClientflowAuthGuard(
-      {} as unknown as PrismaService,
-      config({ ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT: 'true' }),
-    );
-    const context = contextWithRequest({ headers: {} });
+  it('never accepts sessions when no access secret is configured (no built-in fallback)', async () => {
+    const token = sign({ organizationId: 'org-1' }, 'development-clientflow-secret', { subject: 'admin-1' });
+    const prisma = { adminUser: { findUnique: jest.fn().mockResolvedValue(admin) } };
+    const guard = new ClientflowAuthGuard(prisma as unknown as PrismaService, config({ JWT_ACCESS_SECRET: '' }));
+    const request = { headers: { authorization: `Bearer ${token}` } };
 
-    await expect(guard.canActivate(context)).resolves.toBe(true);
+    await expect(guard.canActivate(contextWithRequest(request))).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.adminUser.findUnique).not.toHaveBeenCalled();
   });
 
   it('attaches the authenticated admin from a valid bearer token', async () => {
@@ -109,10 +111,9 @@ describe('ClientflowAdminOnlyGuard', () => {
     expect(() => guard.canActivate(contextWithRequest(request))).toThrow(ForbiddenException);
   });
 
-  it('allows an unauthenticated bypass request through (already validated upstream)', () => {
+  it('fails closed when there is no authenticated admin', () => {
     const guard = new ClientflowAdminOnlyGuard();
-    const request = {};
 
-    expect(guard.canActivate(contextWithRequest(request))).toBe(true);
+    expect(() => guard.canActivate(contextWithRequest({}))).toThrow(UnauthorizedException);
   });
 });

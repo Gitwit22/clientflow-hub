@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { findClientForOrg, findProgramForOrg } from '../../common/tenancy/org-scoped.repository';
 import { isPrismaUniqueViolation } from '../../common/prisma-errors';
 
 /** Enrollment statuses considered closed — assignment changes should no longer cascade to these. */
@@ -161,6 +162,10 @@ export class EnrollmentsService {
   /** Shared creation: enrollment + status history + ENROLLMENT_CREATED activity, one transaction. */
   private async createEnrollment(input: CreateEnrollmentArgs) {
     return this.prisma.$transaction(async (transaction) => {
+      // Both ids must belong to the organization: a foreign client or program is a 404, and can
+      // never occupy the global [clientId, programId] slot for another organization.
+      await findClientForOrg(transaction, input.organizationId, input.clientId, { includeArchived: true });
+      await findProgramForOrg(transaction, input.organizationId, input.programId);
       const enrollment = await transaction.cfProgramEnrollment.create({
         data: {
           organizationId: input.organizationId,

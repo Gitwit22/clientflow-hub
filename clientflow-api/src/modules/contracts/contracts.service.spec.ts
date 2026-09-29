@@ -185,7 +185,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
+    const result = await service.handlePostIntakeProgramSelection('org-1', 'client-1', 'program-1');
 
     expect(transaction.cfClient.update).toHaveBeenCalledWith({
       where: { id: 'client-1' },
@@ -227,7 +227,7 @@ describe('ContractsService', () => {
     const n8n = n8nDisabled();
     const service = contractsServiceTestContext(prisma, n8n);
 
-    const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
+    const result = await service.handlePostIntakeProgramSelection('org-1', 'client-1', 'program-1');
 
     expect(prisma.cfContract.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -278,7 +278,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
+    const result = await service.handlePostIntakeProgramSelection('org-1', 'client-1', 'program-1');
 
     expect(prisma.cfContract.create).not.toHaveBeenCalled();
     expect(transaction.cfClient.update).toHaveBeenCalledWith({
@@ -333,7 +333,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.handlePostIntakeProgramSelection('client-1', 'program-1');
+    const result = await service.handlePostIntakeProgramSelection('org-1', 'client-1', 'program-1');
 
     expect(transaction.cfClient.update).toHaveBeenCalledWith({
       where: { id: 'client-1' },
@@ -377,7 +377,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    await expect(service.issueContractForProgram('client-1', 'program-1', { enrollmentId: 'enroll-1' }))
+    await expect(service.issueContractForProgram('org-1', 'client-1', 'program-1', { enrollmentId: 'enroll-1' }))
       .rejects.toEqual(new BadRequestException('The selected program does not have an active contract template.'));
     expect(prisma.cfContract.create).not.toHaveBeenCalled();
   });
@@ -396,7 +396,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' });
+    const result = await service.generateForStaff('org-1', 'client-1', { id: 'staff-1', name: 'Jordan Staff' });
 
     expect(result.publicContractUrl).toMatch(/^https:\/\/clientflow\.example\.com\/agreements\/[A-Za-z0-9_-]{43}$/);
     expect(result.contract).toEqual(expect.objectContaining({ id: 'contract-1', status: 'DRAFT' }));
@@ -417,7 +417,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    await service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' });
+    await service.generateForStaff('org-1', 'client-1', { id: 'staff-1', name: 'Jordan Staff' });
 
     expect(prisma.cfContract.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -439,7 +439,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    await expect(service.generateForStaff('client-1', { id: 'staff-1', name: 'Jordan Staff' })).rejects.toEqual(
+    await expect(service.generateForStaff('org-1', 'client-1', { id: 'staff-1', name: 'Jordan Staff' })).rejects.toEqual(
       new BadRequestException('The selected program does not have an active contract template.'),
     );
   });
@@ -462,7 +462,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.sendForStaff('client-1', 'contract-1');
+    const result = await service.sendForStaff('org-1', 'client-1', 'contract-1');
 
     expect(transaction.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ description: 'Contract sent' }),
@@ -497,7 +497,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8n);
 
-    const result = await service.sendForStaff('client-1', canonicalContract.id);
+    const result = await service.sendForStaff('org-1', 'client-1', canonicalContract.id);
 
     expect(n8n.sendContract).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       contractName: 'IDI Membership Agreement',
@@ -524,7 +524,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.sendForStaff('client-1', canonicalSentContract.id);
+    const result = await service.sendForStaff('org-1', 'client-1', canonicalSentContract.id);
 
     expect(result.emailDelivery).toEqual({ status: 'failed', reason: 'disabled' });
   });
@@ -554,7 +554,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8n);
 
-    await service.sendForStaff('client-1', 'contract-1');
+    await service.sendForStaff('org-1', 'client-1', 'contract-1');
 
     expect(transaction.cfCommunication.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'REQUESTED', errorCode: null }),
@@ -594,7 +594,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    await service.sendForStaff('client-1', 'contract-1');
+    await service.sendForStaff('org-1', 'client-1', 'contract-1');
 
     expect(transaction.cfProgramEnrollment.update).toHaveBeenCalledWith({
       where: { id: 'enroll-1' },
@@ -623,7 +623,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    await expect(service.sendForStaff('client-1', 'contract-1')).resolves.toBeDefined();
+    await expect(service.sendForStaff('org-1', 'client-1', 'contract-1')).resolves.toBeDefined();
   });
 
   it('opens a sent public contract once without exposing token or signer internals', async () => {
@@ -1121,7 +1121,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8n);
 
-    await service.sendForStaff('client-1', 'contract-1');
+    await service.sendForStaff('org-1', 'client-1', 'contract-1');
 
     const [, contractPayload] = n8n.sendContract.mock.calls[0] as [string, Record<string, unknown>];
     expect(contractPayload).not.toHaveProperty('headerImageUrl');
@@ -1298,7 +1298,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.approveReview('client-1', { id: 'staff-1', name: 'Jordan Staff' });
+    const result = await service.approveReview('org-1', 'client-1', { id: 'staff-1', name: 'Jordan Staff' });
 
     expect(prisma.cfContract.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -1320,14 +1320,14 @@ describe('ContractsService', () => {
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     await expect(
-      service.approveReview('client-1', { id: 'staff-1', name: 'Jordan Staff' }),
+      service.approveReview('org-1', 'client-1', { id: 'staff-1', name: 'Jordan Staff' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects approval when no staff signer name is provided', async () => {
     const service = contractsServiceTestContext({}, n8nDisabled());
 
-    await expect(service.approveReview('client-1', { id: null, name: '  ' })).rejects.toBeInstanceOf(
+    await expect(service.approveReview('org-1', 'client-1', { id: null, name: '  ' })).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
@@ -1344,7 +1344,7 @@ describe('ContractsService', () => {
     };
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
-    const result = await service.declineReview('client-1', 'No longer eligible');
+    const result = await service.declineReview('org-1', 'client-1', 'No longer eligible');
 
     expect(transaction.cfClient.update).toHaveBeenCalledWith({
       where: { id: 'client-1' },

@@ -1,10 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import type { IntakeEmailDeliveryResult } from '../../integrations/n8n/n8n.types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { findClientForOrg } from '../../common/tenancy/org-scoped.repository';
 import {
   attemptEventId,
   COMMUNICATION_STATUS,
@@ -37,7 +38,7 @@ export class ClientsService {
     private readonly contracts: ContractsService,
   ) {}
 
-  async create(dto: CreateClientDto) {
+  async create(organizationId: string, dto: CreateClientDto) {
     // Temporary intake diagnosis: never log the DTO, SQL, error message, or public token.
     const traceId = randomUUID();
     let eventId: string | null = null;
@@ -61,7 +62,7 @@ export class ClientsService {
       sendIntakeImmediately: dto.sendIntakeImmediately !== false,
     }));
     const organization = await traceStep('organization.lookup', () => this.prisma.organization.findFirst({
-      where: { id: dto.organizationId, status: 'active' },
+      where: { id: organizationId, status: 'active' },
       select: { id: true },
     }));
     if (!organization) throw new NotFoundException('Organization not found.');
@@ -262,9 +263,8 @@ export class ClientsService {
     return clients.map((client) => this.safeClient(client));
   }
 
-  async getOne(id: string) {
-    const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
-    if (!client) throw new NotFoundException('Client not found.');
+  async getOne(organizationId: string, id: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, id);
 
     const [program, contract, monitoringTask, executedDocument] = await Promise.all([
       client.programId
@@ -316,9 +316,8 @@ export class ClientsService {
     };
   }
 
-  async updateProgram(id: string, programId: string) {
-    const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
-    if (!client) throw new NotFoundException('Client not found.');
+  async updateProgram(organizationId: string, id: string, programId: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, id);
 
     const program = await this.prisma.cfProgram.findFirst({
       where: { id: programId, organizationId: client.organizationId, isActive: true },
@@ -342,7 +341,7 @@ export class ClientsService {
       });
     });
 
-    return this.contracts.handlePostIntakeProgramSelection(client.id, program.id);
+    return this.contracts.handlePostIntakeProgramSelection(client.organizationId, client.id, program.id);
   }
 
   /**
@@ -351,11 +350,11 @@ export class ClientsService {
    * a communication row and an activity row with the staff member and source.
    */
   async sendIntakeNow(
+    organizationId: string,
     id: string,
     options: { actor?: { id: string | null; name: string } | null; idempotencyKey?: string | null } = {},
   ) {
-    const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
-    if (!client) throw new NotFoundException('Client not found.');
+    const client = await findClientForOrg(this.prisma, organizationId, id);
 
     // A retried request (same Idempotency-Key) returns the first attempt instead of emailing twice.
     if (options.idempotencyKey) {
@@ -381,6 +380,9 @@ export class ClientsService {
       orderBy: { createdAt: 'desc' },
     });
     if (!assignment) throw new NotFoundException('No General Intake assignment found for this client.');
+    if (assignment.submittedAt) {
+      throw new ConflictException('This client has already submitted their intake.');
+    }
 
     const manual = DELIVERY_SOURCE.manual;
     const staffName = options.actor?.name?.trim() || 'staff';
@@ -424,12 +426,25 @@ export class ClientsService {
       throw error;
     }
 
-    // secureLinkToken only ever stores a hash, so a fresh raw token must be rotated in to link the client.
+    // secureLinkToken only ever stores a hash, so a fresh raw token must be rotated in to link the
+    // client. Only rotate when the email can actually go out: rotating while delivery is down would
+    // kill the link the client already has and send nothing. A resend also restarts the due date
+    // and expiry, so the new link isn't born expired.
     const rawToken = generatePublicToken();
-    await this.prisma.cfFormAssignment.update({
-      where: { id: assignment.id },
-      data: { secureLinkToken: hashPublicToken(rawToken) },
-    });
+    let dueAt = assignment.dueAt;
+    let expiresAt = assignment.expiresAt;
+    if (availability === 'ready') {
+      const template = await this.prisma.cfFormTemplate.findFirst({
+        where: { id: assignment.formId, organizationId: client.organizationId },
+        select: { dueInDays: true },
+      });
+      dueAt = new Date(now.getTime() + (template?.dueInDays ?? 7) * 86_400_000);
+      expiresAt = dueAt;
+      await this.prisma.cfFormAssignment.update({
+        where: { id: assignment.id },
+        data: { secureLinkToken: hashPublicToken(rawToken), secureLink: null, dueAt, expiresAt },
+      });
+    }
 
     const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/$/, '');
     const publicFormUrl = `${appUrl}/s/${rawToken}`;
@@ -447,8 +462,8 @@ export class ClientsService {
       clientName: client.primaryContactName,
       formName: 'General Intake Form',
       formUrl: publicFormUrl,
-      dueDate: (assignment.dueAt ?? new Date()).toISOString(),
-      expiresAt: assignment.expiresAt?.toISOString() ?? null,
+      dueDate: (dueAt ?? now).toISOString(),
+      expiresAt: expiresAt?.toISOString() ?? null,
       sentByUserId: options.actor?.id ?? client.assignedUserId ?? 'system',
     });
     const failureReason = emailDelivery.status === 'sent' ? null : emailDelivery.reason;

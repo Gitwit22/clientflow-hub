@@ -28,6 +28,8 @@ describe('EnrollmentsService', () => {
         cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn(async (callback: (tx: unknown) => unknown) =>
           callback({
+            cfClient: { findFirst: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+            cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1' }) },
             cfProgramEnrollment: { create: jest.fn().mockResolvedValue({ id: 'enroll-1', status: 'interested' }) },
             cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
             cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
@@ -38,6 +40,8 @@ describe('EnrollmentsService', () => {
       const createSpy = jest.fn();
       (prisma.$transaction as jest.Mock).mockImplementation(async (callback: (tx: unknown) => unknown) =>
         callback({
+          cfClient: { findFirst: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+          cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1' }) },
           cfProgramEnrollment: { create: createSpy.mockResolvedValue({ id: 'enroll-1', status: 'interested' }) },
           cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
           cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },

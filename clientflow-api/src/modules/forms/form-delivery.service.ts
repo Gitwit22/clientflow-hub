@@ -84,7 +84,7 @@ export class FormDeliveryService {
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
     const appUrl = (process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev').replace(/\/$/, '');
     const dueDate = text(body.dueDate);
-    return this.prisma.cfFormAssignment.create({
+    const created = await this.prisma.cfFormAssignment.create({
       data: {
         organizationId,
         clientId,
@@ -100,11 +100,14 @@ export class FormDeliveryService {
         dueDate,
         expiresAt: dueDate ? new Date(dueDate) : null,
         sentAt: null,
-        secureLink: `${appUrl}/s/${rawToken}`,
+        // Only the hash is stored. The working link is returned once, in this response, so staff
+        // can open it right away; a database read or an admin list can never reveal a live link.
+        secureLink: null,
         secureLinkToken: tokenHash,
         createdByUserId: actor.id,
       },
     });
+    return { ...withoutLinkSecrets(created), secureLink: `${appUrl}/s/${rawToken}` };
   }
 
   async send(
@@ -135,16 +138,14 @@ export class FormDeliveryService {
     ]);
     if (!client || !form) throw new NotFoundException('Form assignment details not found.');
 
-    let formUrl = assignment.secureLink;
-    if (!formUrl) {
-      const rawToken = randomBytes(32).toString('base64url');
-      const appUrl = (process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev').replace(/\/$/, '');
-      formUrl = `${appUrl}/s/${rawToken}`;
-      await this.prisma.cfFormAssignment.update({
-        where: { id: assignment.id },
-        data: { secureLink: formUrl, secureLinkToken: createHash('sha256').update(rawToken).digest('hex') },
-      });
-    }
+    // Raw links are never stored, so each send issues a fresh one (the previous link stops working).
+    const rawToken = randomBytes(32).toString('base64url');
+    const appUrl = (process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev').replace(/\/$/, '');
+    const formUrl = `${appUrl}/s/${rawToken}`;
+    await this.prisma.cfFormAssignment.update({
+      where: { id: assignment.id },
+      data: { secureLink: null, secureLinkToken: createHash('sha256').update(rawToken).digest('hex') },
+    });
 
     const availability = this.n8n.getIntakeAvailability();
     const now = new Date();
@@ -307,4 +308,14 @@ export class FormDeliveryService {
     }
     throw new ConflictException('This send is already in progress.');
   }
+}
+
+/** Form assignment rows as returned to staff: never the link hash or a stored raw link. */
+export function withoutLinkSecrets<T extends { secureLink?: string | null; secureLinkToken?: string | null }>(
+  assignment: T,
+): Omit<T, 'secureLink' | 'secureLinkToken'> {
+  const rest: Partial<T> = { ...assignment };
+  delete rest.secureLink;
+  delete rest.secureLinkToken;
+  return rest as Omit<T, 'secureLink' | 'secureLinkToken'>;
 }

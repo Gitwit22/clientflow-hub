@@ -27,7 +27,19 @@ const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production'
 const ADMIN_ROLES = ['org_admin', 'super_admin'];
 
 function readAccessSecret(config: ConfigService<Environment, true>): string {
-  return config.get('JWT_ACCESS_SECRET', { infer: true }) ?? 'development-clientflow-secret';
+  const secret = config.get('JWT_ACCESS_SECRET', { infer: true });
+  // No built-in fallback: a missing secret must never let anyone sign valid sessions.
+  if (!secret) throw new UnauthorizedException('Authentication is not configured.');
+  return secret;
+}
+
+/**
+ * The signed-in admin behind a request. The organization every query is scoped to comes from
+ * here, never from a body or query string (docs/ARCHITECTURE_RULES.md).
+ */
+export function requireAdmin(request: AuthenticatedRequest): AuthenticatedAdmin {
+  if (!request.adminUser) throw new UnauthorizedException('Missing authenticated session.');
+  return request.adminUser;
 }
 
 function getCookieValue(request: Request, name: string): string | undefined {
@@ -39,11 +51,7 @@ function getCookieValue(request: Request, name: string): string | undefined {
   return undefined;
 }
 
-/**
- * Verifies the same JWT session cookie/bearer token issued by the compatibility login route.
- * Falls back to unauthenticated access only while the temporary ALLOW_UNAUTHENTICATED_* flags
- * are enabled (never true in production, per environment validation).
- */
+/** Verifies the same JWT session cookie/bearer token issued by the compatibility login route. */
 @Injectable()
 export class ClientflowAuthGuard implements CanActivate {
   constructor(
@@ -58,10 +66,7 @@ export class ClientflowAuthGuard implements CanActivate {
       : undefined;
     const token = bearerToken ?? getCookieValue(request, ACCESS_COOKIE_NAME);
 
-    if (!token) {
-      if (this.bypassAllowed()) return true;
-      throw new UnauthorizedException('Missing authenticated session.');
-    }
+    if (!token) throw new UnauthorizedException('Missing authenticated session.');
 
     let payload: Record<string, unknown> & { sub?: string; organizationId?: string };
     try {
@@ -99,20 +104,15 @@ export class ClientflowAuthGuard implements CanActivate {
     return true;
   }
 
-  private bypassAllowed(): boolean {
-    return (
-      this.config.get('ALLOW_UNAUTHENTICATED_CLIENT_CREATION', { infer: true }) === 'true'
-      || this.config.get('ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT', { infer: true }) === 'true'
-    );
-  }
 }
 
-/** Must run after ClientflowAuthGuard. Only blocks when a real session is present and non-admin. */
+/** Must run after ClientflowAuthGuard. Fails closed: no session, or a non-admin role, is refused. */
 @Injectable()
 export class ClientflowAdminOnlyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    if (request.adminUser && !ADMIN_ROLES.includes(request.adminUser.role)) {
+    if (!request.adminUser) throw new UnauthorizedException('Missing authenticated session.');
+    if (!ADMIN_ROLES.includes(request.adminUser.role)) {
       throw new ForbiddenException('Only organization admins can perform this action.');
     }
     return true;

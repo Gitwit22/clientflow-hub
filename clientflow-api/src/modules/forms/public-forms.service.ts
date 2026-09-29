@@ -1,17 +1,16 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/clientflow';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { PublicAnswer, SubmitPublicFormDto } from './dto/submit-public-form.dto';
+import { type PublicFormLinkMode, resolvePublicFormLink } from './public-form-link';
 import {
   CLIENT_STATUS,
   FORM_STATUS,
-  hashPublicToken,
   isProgramOption,
   publicIntakeFields,
 } from './intake-lifecycle';
 
-const SAFE_NOT_FOUND_MESSAGE = 'This form link is invalid or unavailable.';
 
 function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -54,7 +53,7 @@ export class PublicFormsService {
   }
 
   async submit(token: string, dto: SubmitPublicFormDto) {
-    const { assignment, client, template } = await this.resolveToken(token);
+    const { assignment, client, template } = await this.resolveToken(token, 'submit');
     if (assignment.status === FORM_STATUS.submitted || assignment.submittedAt) {
       throw new ConflictException('This form has already been submitted.');
     }
@@ -162,26 +161,8 @@ export class PublicFormsService {
     };
   }
 
-  private async resolveToken(token: string) {
-    if (!/^[A-Za-z0-9_-]{40,128}$/.test(token)) throw new NotFoundException(SAFE_NOT_FOUND_MESSAGE);
-    const assignment = await this.prisma.cfFormAssignment.findUnique({
-      where: { secureLinkToken: hashPublicToken(token) },
-    });
-    if (!assignment || assignment.cancelledAt || !assignment.expiresAt
-      || assignment.expiresAt.getTime() < Date.now()) {
-      throw new NotFoundException(SAFE_NOT_FOUND_MESSAGE);
-    }
-
-    const [client, template] = await Promise.all([
-      this.prisma.cfClient.findFirst({
-        where: { id: assignment.clientId, organizationId: assignment.organizationId, isArchived: false },
-      }),
-      this.prisma.cfFormTemplate.findFirst({
-        where: { id: assignment.formId, organizationId: assignment.organizationId, isActive: true },
-      }),
-    ]);
-    if (!client || !template) throw new NotFoundException(SAFE_NOT_FOUND_MESSAGE);
-    return { assignment, client, template };
+  private async resolveToken(token: string, mode: PublicFormLinkMode = 'view') {
+    return resolvePublicFormLink(this.prisma, token, mode);
   }
 
   private validateAnswer(

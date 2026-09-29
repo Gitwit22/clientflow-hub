@@ -158,7 +158,7 @@ const storageReady = () => ({
 describe('ContractsService: generate for an enrollment', () => {
   it('resolves the program from the enrollment (not the legacy client.programId) and stores the enrollment id', async () => {
     const { service, prisma } = build({}, readyN8n());
-    await service.generateForStaff('client-1', staff, { enrollmentId: 'enroll-1' });
+    await service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'enroll-1' });
 
     expect(prisma.cfProgramEnrollment.findFirst).toHaveBeenCalledWith({
       where: { id: 'enroll-1', clientId: 'client-1', organizationId: 'org-1' },
@@ -170,7 +170,7 @@ describe('ContractsService: generate for an enrollment', () => {
 
   it("rejects another client's enrollment", async () => {
     const { service, prisma } = build({ cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null) } }, readyN8n());
-    await expect(service.generateForStaff('client-1', staff, { enrollmentId: 'not-mine' })).rejects.toThrow(
+    await expect(service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'not-mine' })).rejects.toThrow(
       'Program enrollment not found for this client.',
     );
     expect(prisma.cfContract.create).not.toHaveBeenCalled();
@@ -182,7 +182,7 @@ describe('ContractsService: generate for an enrollment', () => {
       create: jest.fn(),
       update: jest.fn().mockImplementation(async ({ data }) => ({ ...draft, ...data })),
     } }, readyN8n());
-    await service.generateForStaff('client-1', staff, { enrollmentId: 'enroll-1' });
+    await service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'enroll-1' });
     expect(prisma.cfContract.create).not.toHaveBeenCalled();
   });
 
@@ -193,7 +193,7 @@ describe('ContractsService: generate for an enrollment', () => {
       update: jest.fn(),
     } }, readyN8n());
 
-    const result = await service.generateForStaff('client-1', staff, { enrollmentId: 'enroll-1' });
+    const result = await service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'enroll-1' });
 
     expect(prisma.cfContract.create).not.toHaveBeenCalled();
     expect(prisma.cfContract.update).not.toHaveBeenCalled(); // token untouched
@@ -214,7 +214,7 @@ describe('ContractsService: manual contract send / resend', () => {
     const n8n = readyN8n();
     const { service, transaction } = build(draftLookup(), n8n);
 
-    await service.sendForStaff('client-1', 'contract-1', sendOptions);
+    await service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions);
 
     const created = transaction.cfCommunication.create.mock.calls[0][0].data;
     expect(created).toEqual(expect.objectContaining({
@@ -245,7 +245,7 @@ describe('ContractsService: manual contract send / resend', () => {
       n8n,
     );
 
-    const result = await service.sendForStaff('client-1', 'contract-1', sendOptions);
+    const result = await service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions);
 
     expect(result).toEqual(expect.objectContaining({
       replayed: true,
@@ -259,8 +259,8 @@ describe('ContractsService: manual contract send / resend', () => {
   it('a deliberate resend (new key) is a new attempt with its own event id', async () => {
     const n8n = readyN8n();
     const { service, transaction } = build(draftLookup(), n8n);
-    await service.sendForStaff('client-1', 'contract-1', sendOptions);
-    await service.sendForStaff('client-1', 'contract-1', { ...sendOptions, idempotencyKey: 'attempt-0002-abcd' });
+    await service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions);
+    await service.sendForStaff('org-1', 'client-1', 'contract-1', { ...sendOptions, idempotencyKey: 'attempt-0002-abcd' });
 
     const ids = transaction.cfCommunication.create.mock.calls.map((call: any) => call[0].data.eventId);
     expect(new Set(ids).size).toBe(2);
@@ -270,7 +270,7 @@ describe('ContractsService: manual contract send / resend', () => {
   it('rejects a contract that belongs to a different enrollment', async () => {
     const { service } = build(draftLookup(), readyN8n());
     await expect(
-      service.sendForStaff('client-1', 'contract-1', { ...sendOptions, enrollmentId: 'other-enrollment' }),
+      service.sendForStaff('org-1', 'client-1', 'contract-1', { ...sendOptions, enrollmentId: 'other-enrollment' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -279,11 +279,11 @@ describe('ContractsService: manual contract send / resend', () => {
     const n8n = readyN8n();
     const { service, prisma } = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(opened), create: jest.fn(), update: jest.fn() } }, n8n);
 
-    await service.sendForStaff('client-1', 'contract-1', sendOptions);
+    await service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions);
     expect(n8n.sendContract).toHaveBeenCalledTimes(1);
 
     // Generating while an OPENED contract exists must not create a second contract or rotate its link.
-    const generated = await service.generateForStaff('client-1', staff, { enrollmentId: 'enroll-1' });
+    const generated = await service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'enroll-1' });
     expect(prisma.cfContract.create).not.toHaveBeenCalled();
     expect(prisma.cfContract.update).not.toHaveBeenCalled();
     expect(generated.publicContractUrl).toBeNull();
@@ -291,7 +291,7 @@ describe('ContractsService: manual contract send / resend', () => {
 
   it('refuses to push a signed contract back through the signing-link flow', async () => {
     const { service } = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(completed) } }, readyN8n());
-    await expect(service.sendForStaff('client-1', 'contract-1', sendOptions)).rejects.toThrow(
+    await expect(service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions)).rejects.toThrow(
       'The contract cannot be sent in its current status.',
     );
   });
@@ -301,7 +301,7 @@ describe('ContractsService: manual contract send / resend', () => {
     const { service, transaction } = build({
       cfContract: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue(draft), update: jest.fn() },
     }, n8n);
-    await service.issueContractForProgram('client-1', 'program-1', { enrollmentId: 'enroll-1' });
+    await service.issueContractForProgram('org-1', 'client-1', 'program-1', { enrollmentId: 'enroll-1' });
 
     const created = transaction.cfCommunication.create.mock.calls[0][0].data;
     expect(created.eventId).toMatch(/^contract\.send:contract-1:[a-f0-9]{16}$/);
@@ -320,7 +320,7 @@ describe('ContractsService: send the signed copy', () => {
 
   it.each([['DRAFT', draft], ['SENT', sent]])('rejects a %s contract: only a signed contract has a copy', async (_name, contract) => {
     const { service, prisma } = build(completedLookup(contract), readyN8n(), storageReady());
-    await expect(service.sendExecutedCopy('client-1', 'contract-1', copyOptions)).rejects.toThrow(
+    await expect(service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions)).rejects.toThrow(
       'Only a signed contract can be sent as a copy.',
     );
     expect(prisma.cfCommunication.create).not.toHaveBeenCalled();
@@ -330,7 +330,7 @@ describe('ContractsService: send the signed copy', () => {
     const { service, prisma } = build(
       completedLookup({ ...completed, executedStoredFileId: null }), readyN8n(), storageReady(),
     );
-    await expect(service.sendExecutedCopy('client-1', 'contract-1', copyOptions)).rejects.toThrow(
+    await expect(service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions)).rejects.toThrow(
       'The signed copy is not available yet.',
     );
     expect(prisma.cfCommunication.create).not.toHaveBeenCalled();
@@ -341,7 +341,7 @@ describe('ContractsService: send the signed copy', () => {
     const storage = storageReady();
     const { service, prisma } = build(completedLookup(), n8n, storage);
 
-    const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+    const result = await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions);
 
     expect(storage.createPresignedDownloadUrl).toHaveBeenCalledWith(
       'contracts/org-1/client-1/c-executed.pdf', 7 * 24 * 60 * 60,
@@ -401,7 +401,7 @@ describe('ContractsService: send the signed copy', () => {
       cfDocument: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     }, n8n, storage);
 
-    await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+    await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions);
 
     const [key, pdf, mime] = storage.uploadBuffer.mock.calls[0];
     expect(key).toBe('contracts/org-1/client-1/contract-1-executed.pdf');
@@ -423,7 +423,7 @@ describe('ContractsService: send the signed copy', () => {
     const n8n = readyN8n({ sendContractCopy: jest.fn().mockResolvedValue({ status: 'failed', reason: 'rejected' }) });
     const { service, prisma } = build(completedLookup(), n8n, storageReady());
 
-    const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+    const result = await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions);
 
     expect(result.emailDelivery).toEqual({ status: 'failed', reason: 'rejected' });
     expect(prisma.cfCommunication.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -445,7 +445,7 @@ describe('ContractsService: send the signed copy', () => {
       cfStoredFile: { findFirst: jest.fn().mockResolvedValue(null) },
     }, n8n, storage);
 
-    const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+    const result = await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions);
 
     expect(result.emailDelivery.status).toBe('failed');
     expect(n8n.sendContractCopy).not.toHaveBeenCalled();
@@ -461,7 +461,7 @@ describe('ContractsService: send the signed copy', () => {
     storage.createPresignedDownloadUrl.mockResolvedValue({ url: 'http://storage.example.com/executed.txt' });
     const { service, prisma } = build(completedLookup(), n8n, storage);
 
-    const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+    const result = await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions);
 
     expect(result.emailDelivery.status).toBe('failed');
     expect(n8n.sendContractCopy).not.toHaveBeenCalled();
@@ -482,7 +482,7 @@ describe('ContractsService: send the signed copy', () => {
       cfCommunication: { findFirst: jest.fn().mockResolvedValue(prior), create: jest.fn(), update: jest.fn() },
     }, n8n, storageReady());
 
-    const result = await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
+    const result = await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions);
 
     expect(result.replayed).toBe(true);
     expect(n8n.sendContractCopy).not.toHaveBeenCalled();
@@ -492,8 +492,8 @@ describe('ContractsService: send the signed copy', () => {
   it('a new key is a new attempt with a different event id', async () => {
     const n8n = readyN8n();
     const { service, prisma } = build(completedLookup(), n8n, storageReady());
-    await service.sendExecutedCopy('client-1', 'contract-1', copyOptions);
-    await service.sendExecutedCopy('client-1', 'contract-1', { ...copyOptions, idempotencyKey: 'copy-attempt-0002' });
+    await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', copyOptions);
+    await service.sendExecutedCopy('org-1', 'client-1', 'contract-1', { ...copyOptions, idempotencyKey: 'copy-attempt-0002' });
     const ids = prisma.cfCommunication.create.mock.calls.map((call: any) => call[0].data.eventId);
     expect(new Set(ids).size).toBe(2);
     expect(n8n.sendContractCopy).toHaveBeenCalledTimes(2);
@@ -507,7 +507,7 @@ describe('ContractsService: manual welcome email', () => {
   it('keeps the signature gate: refuses until the enrollment contract is COMPLETED', async () => {
     for (const contract of [null, draft, sent]) {
       const { service, prisma } = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(contract) } }, readyN8n());
-      await expect(service.sendWelcomeForEnrollment('client-1', welcomeOptions)).rejects.toThrow(
+      await expect(service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions)).rejects.toThrow(
         'The contract must be signed before the welcome email can be sent.',
       );
       expect(prisma.cfCommunication.create).not.toHaveBeenCalled();
@@ -520,7 +520,7 @@ describe('ContractsService: manual welcome email', () => {
       { cfContract: { findFirst: jest.fn().mockResolvedValue(completed) } }, n8n,
     );
 
-    const result = await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+    const result = await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
     const created = prisma.cfCommunication.create.mock.calls[0][0].data;
     expect(created).toEqual(expect.objectContaining({
@@ -549,7 +549,7 @@ describe('ContractsService: manual welcome email', () => {
     const n8n = readyN8n({ sendWelcome: jest.fn().mockResolvedValue({ status: 'failed', reason: 'timeout' }) });
     const { service, prisma } = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(completed) } }, n8n);
 
-    const result = await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+    const result = await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
     expect(result.emailDelivery).toEqual({ status: 'failed', reason: 'timeout' });
     expect(prisma.cfCommunication.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -571,13 +571,13 @@ describe('ContractsService: manual welcome email', () => {
       cfContract: { findFirst: jest.fn().mockResolvedValue(completed) },
       cfCommunication: { findFirst: jest.fn().mockResolvedValue(prior), create: jest.fn(), update: jest.fn() },
     }, n8n);
-    const replayed = await replay.service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+    const replayed = await replay.service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
     expect(replayed.replayed).toBe(true);
     expect(n8n.sendWelcome).not.toHaveBeenCalled();
 
     const fresh = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(completed) } }, n8n);
-    await fresh.service.sendWelcomeForEnrollment('client-1', welcomeOptions);
-    await fresh.service.sendWelcomeForEnrollment('client-1', { ...welcomeOptions, idempotencyKey: 'welcome-attempt-02' });
+    await fresh.service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
+    await fresh.service.sendWelcomeForEnrollment('org-1', 'client-1', { ...welcomeOptions, idempotencyKey: 'welcome-attempt-02' });
     const ids = fresh.prisma.cfCommunication.create.mock.calls.map((call: any) => call[0].data.eventId);
     expect(new Set(ids).size).toBe(2);
     expect(n8n.sendWelcome).toHaveBeenCalledTimes(2);
@@ -585,7 +585,7 @@ describe('ContractsService: manual welcome email', () => {
 
   it("rejects another client's enrollment", async () => {
     const { service } = build({ cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null) } }, readyN8n());
-    await expect(service.sendWelcomeForEnrollment('client-1', { ...welcomeOptions, enrollmentId: 'not-mine' }))
+    await expect(service.sendWelcomeForEnrollment('org-1', 'client-1', { ...welcomeOptions, enrollmentId: 'not-mine' }))
       .rejects.toThrow('Program enrollment not found for this client.');
   });
 });
@@ -754,7 +754,7 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
     const n8n = readyN8n();
     const { service, prisma } = build({ ...withContract(), ...activeVersionModels() }, n8n);
 
-    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+    await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
     const payload = sentPayload(n8n);
     expect(payload.subject).toBe('Welcome to Brand Awareness Subscription');
@@ -791,7 +791,7 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
       cfProgram: { findFirst: jest.fn().mockResolvedValue({ ...program, welcomeMessage: 'Hi {{client.firstName}}, welcome aboard.' }) },
     }, n8n);
 
-    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+    await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
     const payload = sentPayload(n8n);
     expect(payload.body).toBe('Hi John, welcome aboard.');
@@ -805,7 +805,7 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
     const n8n = readyN8n();
     const { service } = build(withContract(), n8n);
 
-    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+    await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
     const payload = sentPayload(n8n);
     expect(payload.body).toBe('Your onboarding has started. A team member will follow up with you soon.');
@@ -832,10 +832,10 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
         storage,
       );
 
-      await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+      await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
       expect(prisma.cfStoredFile.findFirst).toHaveBeenCalledWith({
-        where: { id: 'guide-1' },
+        where: { id: 'guide-1', organizationId: 'org-1' },
         select: { storageKey: true, originalFileName: true, mimeType: true },
       });
       expect(storage.createPresignedDownloadUrl).toHaveBeenCalledWith('program-workflow/welcome-guides/8f3a.pdf', 900);
@@ -853,7 +853,7 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
         storageReady(),
       );
 
-      await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+      await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
       const { attachmentFileName } = sentPayload(n8n);
       expect(attachmentFileName).toBe('.._.._etc_passwd_evil.pdf');
@@ -863,14 +863,14 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
     it('omits a filename or type that is empty, and the whole attachment when there is no guide', async () => {
       const blank = readyN8n();
       await build(withGuide({ storageKey: 'k', originalFileName: '  ', mimeType: '' }), blank, storageReady())
-        .service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+        .service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
       const payload = sentPayload(blank);
       expect(payload.attachmentUrl).toBe('https://r2.example.com/signed?sig=1');
       expect(payload).toHaveProperty('attachmentFileName', undefined);
       expect(payload).toHaveProperty('attachmentMimeType', undefined);
 
       const none = readyN8n();
-      await build(withContract(), none, storageReady()).service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+      await build(withContract(), none, storageReady()).service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
       expect(sentPayload(none).attachmentUrl).toBeUndefined();
       expect(sentPayload(none).attachmentFileName).toBeUndefined();
       expect(sentPayload(none).attachmentMimeType).toBeUndefined();
@@ -878,7 +878,7 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
 
     it('sends no attachment when the guide file no longer exists', async () => {
       const n8n = readyN8n();
-      await build(withGuide(null), n8n, storageReady()).service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+      await build(withGuide(null), n8n, storageReady()).service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
       expect(sentPayload(n8n).attachmentUrl).toBeUndefined();
       expect(sentPayload(n8n).attachmentFileName).toBeUndefined();
     });
@@ -896,7 +896,7 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
       },
     }, n8n);
 
-    await service.sendWelcomeForEnrollment('client-1', welcomeOptions);
+    await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
 
     const payload = sentPayload(n8n);
     expect(payload.body).not.toBe('Other body');

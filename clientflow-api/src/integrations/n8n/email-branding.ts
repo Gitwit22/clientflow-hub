@@ -15,11 +15,12 @@ export function logoStoredFileIdFromSettings(settings: unknown): string | null {
 export async function publicLogoUrl(
   prisma: PrismaService,
   storage: StorageService,
+  organizationId: string,
   storedFileId: string | null,
 ): Promise<string | undefined> {
   if (!storedFileId || !storage.isEnabled()) return undefined;
   const storedFile = await prisma.cfStoredFile.findFirst({
-    where: { id: storedFileId },
+    where: { id: storedFileId, organizationId },
     select: { storageKey: true },
   });
   if (!storedFile) return undefined;
@@ -35,5 +36,5 @@ export async function organizationHeaderImageUrl(
     where: { id: organizationId },
     select: { settings: true },
   });
-  return publicLogoUrl(prisma, storage, logoStoredFileIdFromSettings(organization?.settings));
+  return publicLogoUrl(prisma, storage, organizationId, logoStoredFileIdFromSettings(organization?.settings));
 }

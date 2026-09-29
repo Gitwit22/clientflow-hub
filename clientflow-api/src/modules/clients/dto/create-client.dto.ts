@@ -2,10 +2,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateClientDto {
-  @ApiProperty({ example: 'org_ea_management' })
+  @ApiPropertyOptional({
+    example: 'org_ea_management',
+    description: "Ignored: the client is always created in the signed-in admin's organization.",
+  })
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  organizationId!: string;
+  organizationId?: string;
 
   @ApiProperty({ example: 'Jordan Taylor' })
   @IsString()

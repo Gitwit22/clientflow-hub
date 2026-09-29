@@ -37,7 +37,7 @@ export class PublicContractsController {
       signerIp: request.ip || request.socket.remoteAddress || null,
       userAgent: request.get('user-agent')?.slice(0, 1000) || null,
     });
-    let automation: { status: 'skipped' | 'completed' | 'failed'; error?: string; execution?: unknown } = { status: 'skipped' };
+    let automation: { status: 'skipped' | 'completed' | 'failed'; execution?: unknown } = { status: 'skipped' };
     if (result.programId) {
       try {
         const execution = await this.automation.runTrigger({
@@ -56,9 +56,15 @@ export class PublicContractsController {
         automation = { status: executedAnyActions ? 'completed' : 'skipped', execution };
       } catch (error) {
         this.logger.warn(`Contract automation failed for ${result.contract.id}: ${(error as Error).message}`);
-        automation = { status: 'failed', error: (error as Error).message };
+        automation = { status: 'failed' };
       }
     }
-    return { ...result, automation };
+    // The signer is anonymous: return only what their page needs. No organization, enrollment or
+    // staff ids, and never internal error text (it is logged above instead).
+    return {
+      contract: { id: result.contract.id, status: result.contract.status, completedAt: result.contract.completedAt },
+      client: { id: result.client.id, status: result.client.status },
+      automation: { status: automation.status },
+    };
   }
 }
