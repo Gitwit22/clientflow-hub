@@ -279,15 +279,19 @@ function PipelineClientDetailPage() {
             {client.monitoringTask && (
               <Card className="shadow-card lg:col-span-2">
                 <CardHeader>
-                  <CardTitle className="font-display text-base">First monitoring task</CardTitle>
+                  <CardTitle className="font-display text-base">Monitoring</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <dl className="grid gap-x-6 sm:grid-cols-3">
                     <Row label="Type" value={client.monitoringTask.type} />
                     <Row label="Status" value={client.monitoringTask.status} />
                     <Row
-                      label="Due"
-                      value={new Date(client.monitoringTask.dueDate).toLocaleDateString()}
+                      label="Next review"
+                      value={
+                        client.monitoringTask.dueDate
+                          ? new Date(client.monitoringTask.dueDate).toLocaleDateString()
+                          : "Not scheduled"
+                      }
                     />
                   </dl>
                 </CardContent>

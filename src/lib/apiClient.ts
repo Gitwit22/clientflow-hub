@@ -974,7 +974,11 @@ export async function cfListFinalReports(clientId: string) {
   return apiRequest<FinalReport[]>(`${CF}/clients/${clientId}/final-reports`);
 }
 export async function cfCreateFinalReport(clientId: string, data: Record<string, unknown>) {
-  return apiRequest<{ id: string }>(`${CF}/clients/${clientId}/final-reports`, {
+  return apiRequest<{
+    id: string;
+    /** What the archive decision did: completed/withdrew the enrollment, archived the client, or nothing. */
+    outcome?: { applied: "completed" | "withdrawn" | "archived" | null; reason?: string };
+  }>(`${CF}/clients/${clientId}/final-reports`, {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -1070,7 +1074,8 @@ export interface AutomatedClientDetail extends AutomatedClient {
     /** R2-hosted download link for the archived executed document, once storage archival succeeds. */
     documentUrl: string | null;
   } | null;
-  monitoringTask: { id: string; type: string; status: string; dueDate: string } | null;
+  /** The client's latest monitoring item (enrollment monitoring; older clients may show a legacy task). */
+  monitoringTask: { id: string; type: string; status: string; dueDate: string | null } | null;
 }
 
 export interface CreateAutomatedClientPayload {

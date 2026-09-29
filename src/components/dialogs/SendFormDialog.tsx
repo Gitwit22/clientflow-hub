@@ -93,13 +93,14 @@ export function SendFormDialog({
         !["completed", "declined", "withdrawn"].includes(candidate.status),
     );
   const program = programs.find((candidate) => candidate.id === contextEnrollment?.programId);
-  const secureLink = "https://forms.clientflow.app/s/{{generated-on-send}}";
+  const secureLink = "(a secure link is created when the form is sent)";
 
   const body = useMemo(
     () =>
       renderEmailBody({
         contactName: client?.primaryContactName ?? "{{contactName}}",
-        programName: program?.name ?? "{{programName}}",
+        // A form sent outside any program still reads naturally ("…for the selected program").
+        programName: program?.name ?? "selected",
         dueDate,
         secureFormLink: secureLink,
       }),

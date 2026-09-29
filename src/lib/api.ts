@@ -625,11 +625,12 @@ export const renderEmailBody = (vars: {
   dueDate: string;
   secureFormLink: string;
 }) =>
+  // Every occurrence, not just the first.
   emailTemplateBody
-    .replace("{{contactName}}", vars.contactName)
-    .replace("{{programName}}", vars.programName)
-    .replace("{{dueDate}}", vars.dueDate)
-    .replace("{{secureFormLink}}", vars.secureFormLink);
+    .replaceAll("{{contactName}}", vars.contactName)
+    .replaceAll("{{programName}}", vars.programName)
+    .replaceAll("{{dueDate}}", vars.dueDate)
+    .replaceAll("{{secureFormLink}}", vars.secureFormLink);
 
 /* ----------------------------------- Terms ---------------------------------- */
 
@@ -729,6 +730,14 @@ export async function createFinalReport(clientId: string, data: FinalReportDraft
   const report: FinalReport = { ...data, id: backend.id, clientId };
   setState((s) => ({ ...s, finalReports: [report, ...s.finalReports] }));
   await log(clientId, "Final report completed", `Outcome recorded: ${data.clientOutcome}.`);
+  // The archive decision may have completed/withdrawn the enrollment or archived the client.
+  if (backend.outcome?.applied) {
+    try {
+      await refreshClientProfile(clientId);
+    } catch (error) {
+      console.warn("Final report saved, but the client could not be refreshed.", error);
+    }
+  }
   return delay(report);
 }
 
