@@ -31,7 +31,7 @@ const program = {
   welcomeMessage: null,
   isActive: true,
 };
-const enrollment = { id: 'enroll-1', clientId: 'client-1', organizationId: 'org-1', programId: 'program-1' };
+const enrollment = { id: 'enroll-1', clientId: 'client-1', organizationId: 'org-1', programId: 'program-1', status: 'onboarding', isArchived: false };
 const workflowConfig = {
   id: 'workflow-1',
   organizationId: 'org-1',

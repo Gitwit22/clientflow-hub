@@ -39,9 +39,18 @@ import {
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
-import { findClientForOrg } from '../../common/tenancy/org-scoped.repository';
+import { findClientForOrg, findEnrollmentForOrg } from '../../common/tenancy/org-scoped.repository';
+import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { transitionContract } from '../lifecycle/contract-state';
-import { canTransitionEnrollment, isClosedEnrollment, transitionEnrollment } from '../lifecycle/enrollment-state';
+import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
+import {
+  CLOSED_ENROLLMENT_STATUSES,
+  ENROLLMENT_STATUSES,
+  canTransitionEnrollment,
+  isClosedEnrollment,
+  isEnrollmentStatus,
+  transitionEnrollment,
+} from '../lifecycle/enrollment-state';
 import {
   EXECUTED_CONTRACT_MIME_TYPE,
   EXECUTED_STORED_FILE_SELECT,
@@ -54,6 +63,16 @@ import {
 const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract processing.';
 const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contract template.';
 const SAFE_PUBLIC_CONTRACT_ERROR = 'The contract link is invalid or unavailable.';
+const NOT_ENROLLED_ERROR = 'The client is not enrolled in this program.';
+const CLOSED_ENROLLMENT_ERROR = 'This program enrollment is closed; a contract can no longer be issued for it.';
+/** Enrollments a contract may be generated for. */
+const OPEN_ENROLLMENT_STATUSES: readonly string[] = ENROLLMENT_STATUSES.filter(
+  (status) => !CLOSED_ENROLLMENT_STATUSES.includes(status),
+);
+/** Enrollments waiting on a staff review decision. */
+const REVIEWABLE_ENROLLMENT_STATUSES: readonly string[] = ['interested', 'pending_review', 'approved'];
+/** Enrollments that move to onboarding when their contract is sent. */
+const PRE_CONTRACT_ENROLLMENT_STATUSES: readonly string[] = ['interested', 'pending_review', 'approved'];
 const COMMUNICATION_STATUS = {
   requested: 'REQUESTED',
   sending: 'SENDING',
@@ -109,6 +128,7 @@ export class ContractsService {
     private readonly n8n: N8nService,
     private readonly workflowConfig: WorkflowConfigService,
     private readonly storage: StorageService = { isEnabled: () => false } as unknown as StorageService,
+    private readonly enrollments: EnrollmentsService = new EnrollmentsService(prisma),
   ) {}
 
   async prepareProgramSelection(organizationId: string, programName: string) {
@@ -127,18 +147,52 @@ export class ContractsService {
     return { program, rule, template };
   }
 
-  async handlePostIntakeProgramSelection(organizationId: string, clientId: string, programId: string) {
+  /**
+   * Routes a client's program selection (intake choice or staff correction) to staff review or an
+   * automatic contract. The client/program relationship is the enrollment: it is created here if
+   * the selection is new, and every contract issued from here carries its id.
+   */
+  async handlePostIntakeProgramSelection(
+    organizationId: string,
+    clientId: string,
+    programId: string,
+    actor: { id: string | null; name: string } | null = null,
+  ) {
     const client = await findClientForOrg(this.prisma, organizationId, clientId);
-    if (client.programId !== programId) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
     const program = await this.prisma.cfProgram.findFirst({
       where: { id: programId, organizationId: client.organizationId, isActive: true },
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
+    const { enrollmentId } = await this.enrollments.ensureEnrollment({
+      organizationId: client.organizationId,
+      clientId: client.id,
+      programId: program.id,
+      programName: program.name,
+      assignedUserId: client.assignedUserId,
+      assignedStaff: client.assignedStaff,
+      actorUserId: actor?.id ?? null,
+      actorDisplayName: actor?.name ?? 'system',
+      isDemo: client.isDemo,
+    });
+    const enrollment = await findEnrollmentForOrg(this.prisma, client.organizationId, enrollmentId);
+    if (isClosedEnrollment(enrollment.status) || enrollment.isArchived) {
+      throw new BadRequestException(CLOSED_ENROLLMENT_ERROR);
+    }
+
     const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
     if (!workflow.enabled || !workflow.sendContractAfterIntake) {
       await this.prisma.$transaction(async (transaction) => {
+        if (enrollment.status === 'interested') {
+          await transitionEnrollment(transaction, {
+            organizationId: client.organizationId,
+            enrollmentId: enrollment.id,
+            from: 'interested',
+            to: 'pending_review',
+            history: { changedByUserId: actor?.id ?? null, changedByDisplayName: actor?.name ?? 'system', reason: 'Awaiting staff review.' },
+          });
+        }
         await transaction.cfClient.update({
           where: { id: client.id },
           data: { status: CONTRACT_CLIENT_STATUS.pendingStaffReview },
@@ -178,7 +232,7 @@ export class ContractsService {
         ? client.assignedStaff
         : 'EA Management Team',
     };
-    const generated = await this.generateInternal(client, program, template, defaultSigner);
+    const generated = await this.generateInternal(client, program, template, defaultSigner, enrollment.id);
     const issued = await this.issueContract(client, program, template, generated.contract.id);
     return {
       nextAction: 'CONTRACT_SENT' as const,
@@ -194,12 +248,12 @@ export class ContractsService {
     programId: string,
     options?: { enrollmentId?: string | null; staffSigner?: StaffSigner },
   ) {
-    const client = await findClientForOrg(this.prisma, organizationId, clientId);
-
-    const program = await this.prisma.cfProgram.findFirst({
-      where: { id: programId, organizationId: client.organizationId, isActive: true },
-    });
-    if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+    const { client, program, enrollmentId } = await this.resolveProgramEnrollment(
+      organizationId,
+      clientId,
+      programId,
+      options?.enrollmentId ?? null,
+    );
 
     const template = await this.resolveTemplate(program);
     const defaultSigner: StaffSigner = options?.staffSigner && options.staffSigner.name.trim()
@@ -215,7 +269,7 @@ export class ContractsService {
       program,
       template,
       defaultSigner,
-      options?.enrollmentId ?? null,
+      enrollmentId,
     );
     return this.issueContract(client, program, template, generated.contract.id);
   }
@@ -226,11 +280,10 @@ export class ContractsService {
     staffSigner: StaffSigner,
     options?: { enrollmentId?: string | null },
   ) {
-    // Program context comes from the enrollment when one is given; the legacy single client.programId
-    // is only a fallback for older callers that don't send an enrollment.
+    // Program context always comes from an enrollment: the one given, or the client's only open one.
     const { client, program, enrollmentId } = options?.enrollmentId
-      ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId)
-      : { ...(await this.resolveClientProgram(organizationId, clientId)), enrollmentId: null };
+      ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId, OPEN_ENROLLMENT_STATUSES)
+      : await this.resolveSingleEnrollment(organizationId, clientId, OPEN_ENROLLMENT_STATUSES, 'generate a contract for');
     const template = await this.resolveTemplate(program);
     const generated = await this.generateInternal(client, program, template, staffSigner, enrollmentId);
     return {
@@ -670,23 +723,26 @@ export class ContractsService {
     return welcomeDelivery;
   }
 
-  async approveReview(organizationId: string, clientId: string, staffSigner: StaffSigner) {
+  async approveReview(
+    organizationId: string,
+    clientId: string,
+    staffSigner: StaffSigner,
+    options: { enrollmentId?: string | null } = {},
+  ) {
     if (!staffSigner.name.trim()) {
       throw new BadRequestException('A staff signer name is required to approve and sign this contract.');
     }
-    const client = await findClientForOrg(this.prisma, organizationId, clientId);
-    if (client.status !== CONTRACT_CLIENT_STATUS.pendingStaffReview) {
+    const existing = await findClientForOrg(this.prisma, organizationId, clientId);
+    if (existing.status !== CONTRACT_CLIENT_STATUS.pendingStaffReview) {
       throw new BadRequestException('Client is not pending staff review.');
     }
-    if (!client.programId) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-
-    const program = await this.prisma.cfProgram.findFirst({
-      where: { id: client.programId, organizationId: client.organizationId, isActive: true },
-    });
-    if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
+    // The program under review is the enrollment awaiting a decision, never the legacy client.programId.
+    const { client, program, enrollmentId } = options.enrollmentId
+      ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId, REVIEWABLE_ENROLLMENT_STATUSES)
+      : await this.resolveSingleEnrollment(organizationId, clientId, REVIEWABLE_ENROLLMENT_STATUSES, 'approve');
 
     const template = await this.resolveTemplate(program);
-    const generated = await this.generateInternal(client, program, template, staffSigner);
+    const generated = await this.generateInternal(client, program, template, staffSigner, enrollmentId);
     const issued = await this.issueContract(client, program, template, generated.contract.id);
     return {
       nextAction: 'CONTRACT_SENT' as const,
@@ -696,13 +752,46 @@ export class ContractsService {
     };
   }
 
-  async declineReview(organizationId: string, clientId: string, reason?: string) {
+  async declineReview(
+    organizationId: string,
+    clientId: string,
+    reason?: string,
+    options: { enrollmentId?: string | null; actor?: StaffSigner | null } = {},
+  ) {
     const client = await findClientForOrg(this.prisma, organizationId, clientId);
     if (client.status !== CONTRACT_CLIENT_STATUS.pendingStaffReview) {
       throw new BadRequestException('Client is not pending staff review.');
     }
+    // Declining closes the enrollments that were waiting on this review (or just the one named),
+    // which also cancels their open contracts and forms.
+    const pending = await this.prisma.cfProgramEnrollment.findMany({
+      where: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        status: { in: ['interested', 'pending_review'] },
+        ...(options.enrollmentId ? { id: options.enrollmentId } : {}),
+      },
+    });
+    if (options.enrollmentId && pending.length === 0) {
+      throw new NotFoundException('Program enrollment not found for this client.');
+    }
 
     const updated = await this.prisma.$transaction(async (transaction) => {
+      const now = new Date();
+      for (const enrollment of pending) {
+        await transitionEnrollment(transaction, {
+          organizationId: client.organizationId,
+          enrollmentId: enrollment.id,
+          from: enrollment.status,
+          to: 'declined',
+          history: {
+            changedByUserId: options.actor?.id ?? null,
+            changedByDisplayName: options.actor?.name ?? 'staff',
+            reason: reason ? `Staff review declined: ${reason}` : 'Staff review declined.',
+          },
+        });
+        await applyEnrollmentClosure(transaction, { ...enrollment, status: 'declined' }, now);
+      }
       const result = await transaction.cfClient.update({
         where: { id: client.id },
         data: { status: CONTRACT_CLIENT_STATUS.reviewDeclined },
@@ -1018,28 +1107,72 @@ export class ContractsService {
     }
   }
 
-  private async resolveClientProgram(organizationId: string, clientId: string) {
-    const client = await findClientForOrg(this.prisma, organizationId, clientId);
-    if (!client.programId) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-    const program = await this.prisma.cfProgram.findFirst({
-      where: { id: client.programId, organizationId: client.organizationId, isActive: true },
-    });
-    if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
-    return { client, program };
-  }
-
   /** The client's enrollment and the program it points at: the only source of program context. */
-  private async resolveEnrollmentProgram(organizationId: string, clientId: string, enrollmentId: string) {
+  private async resolveEnrollmentProgram(
+    organizationId: string,
+    clientId: string,
+    enrollmentId: string,
+    // Contract paths pass the statuses they may act on; read-only uses (welcome) pass none.
+    allowedStatuses: readonly string[] | null = null,
+  ) {
     const client = await findClientForOrg(this.prisma, organizationId, clientId);
     const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
       where: { id: enrollmentId, clientId: client.id, organizationId: client.organizationId },
     });
     if (!enrollment) throw new NotFoundException('Program enrollment not found for this client.');
+    if (allowedStatuses && (enrollment.isArchived || !allowedStatuses.includes(enrollment.status))) {
+      throw new BadRequestException(CLOSED_ENROLLMENT_ERROR);
+    }
     const program = await this.prisma.cfProgram.findFirst({
       where: { id: enrollment.programId, organizationId: client.organizationId, isActive: true },
     });
     if (!program) throw new BadRequestException(SAFE_PROGRAM_ERROR);
     return { client, program, enrollmentId: enrollment.id };
+  }
+
+  /** The enrollment for a known program (automation): the one given must match it, else the client's. */
+  private async resolveProgramEnrollment(
+    organizationId: string,
+    clientId: string,
+    programId: string,
+    enrollmentId: string | null,
+  ) {
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
+    const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
+      where: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        programId,
+        ...(enrollmentId ? { id: enrollmentId } : {}),
+      },
+    });
+    if (!enrollment) throw new BadRequestException(NOT_ENROLLED_ERROR);
+    return this.resolveEnrollmentProgram(organizationId, clientId, enrollment.id, OPEN_ENROLLMENT_STATUSES);
+  }
+
+  /** Without an explicit enrollment, the client must have exactly one enrollment in `statuses`. */
+  private async resolveSingleEnrollment(
+    organizationId: string,
+    clientId: string,
+    statuses: readonly string[],
+    purpose: string,
+  ) {
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
+    const candidates = await this.prisma.cfProgramEnrollment.findMany({
+      where: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        isArchived: false,
+        status: { in: statuses.filter(isEnrollmentStatus) },
+      },
+      select: { id: true },
+      take: 2,
+    });
+    if (candidates.length === 0) throw new BadRequestException(NOT_ENROLLED_ERROR);
+    if (candidates.length > 1) {
+      throw new BadRequestException(`This client has more than one program enrollment. Choose which one to ${purpose}.`);
+    }
+    return this.resolveEnrollmentProgram(organizationId, clientId, candidates[0].id, statuses);
   }
 
   private async resolvePublicContract(rawToken: string) {
@@ -1143,7 +1276,8 @@ export class ContractsService {
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
     template: { id: string; name: string; content: string },
     staffSigner: StaffSigner,
-    enrollmentId: string | null = null,
+    // Required: a contract never exists without the enrollment it belongs to.
+    enrollmentId: string,
   ) {
     const now = new Date();
     const rawToken = generateContractToken();
@@ -1272,11 +1406,11 @@ export class ContractsService {
         if (enrollment && isClosedEnrollment(enrollment.status)) {
           throw new BadRequestException('This enrollment is closed; its contract can no longer be sent.');
         }
-        if (enrollment?.status === 'interested') {
+        if (enrollment && PRE_CONTRACT_ENROLLMENT_STATUSES.includes(enrollment.status)) {
           await transitionEnrollment(transaction, {
             organizationId: client.organizationId,
             enrollmentId: contract.enrollmentId,
-            from: 'interested',
+            from: enrollment.status,
             to: 'onboarding',
             data: { lastProgressUpdate: now },
             history: { changedByUserId: null, changedByDisplayName: 'system', reason: 'Contract sent.' },

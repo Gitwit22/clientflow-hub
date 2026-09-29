@@ -95,6 +95,14 @@ const draftContract = {
   createdAt: now,
   updatedAt: now,
 };
+const pendingEnrollment = {
+  id: 'enroll-1',
+  organizationId: 'org-1',
+  clientId: 'client-1',
+  programId: 'program-1',
+  status: 'pending_review',
+  isArchived: false,
+};
 const sentContract = {
   ...draftContract,
   status: 'SENT',
@@ -126,6 +134,15 @@ function contractsServiceTestContext(
   n8n: unknown,
   overrides: { storage?: unknown } = {},
 ): ContractsService {
+  // Contracts are always issued for an enrollment: tests that don't set one up get the client's
+  // single pending enrollment in program-1.
+  const withEnrollments = prisma as Record<string, unknown>;
+  if (withEnrollments && !withEnrollments.cfProgramEnrollment) {
+    withEnrollments.cfProgramEnrollment = {
+      findFirst: jest.fn().mockResolvedValue(pendingEnrollment),
+      findMany: jest.fn().mockResolvedValue([pendingEnrollment]),
+    };
+  }
   const workflowConfig = new WorkflowConfigService(prisma as unknown as PrismaService);
   return new ContractsService(
     prisma as unknown as PrismaService,
@@ -1380,6 +1397,11 @@ describe('ContractsService', () => {
     const transaction = {
       cfClient: { update: jest.fn().mockResolvedValue({ ...pendingClient, status: 'REVIEW_DECLINED' }) },
       cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfProgramEnrollment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfFormAssignment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      cfEnrollmentBillingAgreement: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     };
     const prisma = {
       cfClient: { findFirst: jest.fn().mockResolvedValue(pendingClient) },
@@ -1388,6 +1410,16 @@ describe('ContractsService', () => {
     const service = contractsServiceTestContext(prisma, n8nDisabled());
 
     const result = await service.declineReview('org-1', 'client-1', 'No longer eligible');
+
+    // The enrollment awaiting review is declined, which cancels its open contracts.
+    expect(transaction.cfProgramEnrollment.updateMany).toHaveBeenCalledWith({
+      where: { id: 'enroll-1', organizationId: 'org-1', status: 'pending_review' },
+      data: { status: 'declined' },
+    });
+    expect(transaction.cfContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ enrollmentId: 'enroll-1' }),
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    }));
 
     expect(transaction.cfClient.update).toHaveBeenCalledWith({
       where: { id: 'client-1' },
