@@ -57,6 +57,7 @@ import {
 } from '../contracts/executed-contract-file';
 import { FormDeliveryService } from '../forms/form-delivery.service';
 import { FormProfileService } from '../forms/form-profile.service';
+import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
@@ -1750,8 +1751,7 @@ export class PublicFormCompatibilityController {
   constructor(
     private readonly scaffold: ScaffoldService,
     private readonly prisma?: PrismaService,
-    private readonly automation?: ProgramAutomationService,
-    private readonly enrollments?: EnrollmentsService,
+    private readonly intake?: IntakeWorkflowService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -1759,9 +1759,9 @@ export class PublicFormCompatibilityController {
     return this.prisma;
   }
 
-  private requireEnrollments(): EnrollmentsService {
-    if (!this.enrollments) throw this.scaffold.notImplemented('Public forms enrollments');
-    return this.enrollments;
+  private requireIntake(): IntakeWorkflowService {
+    if (!this.intake) throw this.scaffold.notImplemented('Public form submission');
+    return this.intake;
   }
 
   @Get(':token') async getForm(@Param('token') token: string) {
@@ -1842,130 +1842,25 @@ export class PublicFormCompatibilityController {
     };
   }
 
+  /** Adapter: translates the form page's request and hands it to the intake workflow. */
   @Post(':token/submit') async submitForm(@Param('token') token: string, @Body() body: Record<string, unknown>) {
-    const prisma = this.requirePrisma();
-    // A cancelled, expired or already-submitted link can never change workflow state.
-    const { assignment: formAssignment } = await resolvePublicFormLink(prisma, token, 'submit');
-    const configurationToken = typeof body.configurationToken === 'string' ? body.configurationToken : undefined;
-    let renderSession: Awaited<ReturnType<typeof prisma.cfIntakeRenderSession.findUnique>> = null;
-    if (configurationToken) {
-      renderSession = await prisma.cfIntakeRenderSession.findUnique({ where: { configurationToken } });
-      if (!renderSession || renderSession.formAssignmentId !== formAssignment.id || renderSession.expiresAt <= new Date()) {
-        throw new ConflictException('This form has changed. Reload the form to use the latest version.');
-      }
-    }
-
-    const coreResponses = isRecord(body.coreResponses) ? body.coreResponses : {};
-    const programResponses = isRecord(body.programResponses) ? body.programResponses as Record<string, Record<string, unknown>> : {};
-    const selectedProgramIds = Array.isArray(body.selectedProgramIds)
-      ? body.selectedProgramIds.filter((id): id is string => typeof id === 'string')
-      : [];
-
-    const client = await prisma.cfClient.findFirst({ where: { id: formAssignment.clientId, organizationId: formAssignment.organizationId } });
-
-    // Ensure (or reuse) an enrollment per selected program so the client shows up on the program's member list.
-    const selectedPrograms = selectedProgramIds.length > 0
-      ? await prisma.cfProgram.findMany({
-          where: { organizationId: formAssignment.organizationId, id: { in: selectedProgramIds } },
-          select: { id: true, name: true },
-        })
-      : [];
-    const programNameById = new Map(selectedPrograms.map((program) => [program.id, program.name]));
-    const enrollmentIds: string[] = [];
-    const enrollmentIdsByProgramId: Record<string, string> = {};
-    for (const programId of selectedProgramIds) {
-      const { enrollmentId } = await this.requireEnrollments().ensureEnrollment({
-        organizationId: formAssignment.organizationId,
-        clientId: formAssignment.clientId,
-        programId,
-        programName: programNameById.get(programId) ?? 'the selected program',
-        assignedUserId: client?.assignedUserId ?? null,
-        assignedStaff: client?.assignedStaff ?? null,
-        actorDisplayName: 'Client submission',
-        isDemo: client?.isDemo ?? false,
-      });
-      enrollmentIds.push(enrollmentId);
-      enrollmentIdsByProgramId[programId] = enrollmentId;
-    }
-
-    const submission = await prisma.cfIntakeSubmission.create({
-      data: {
-        organizationId: formAssignment.organizationId,
-        clientId: formAssignment.clientId,
-        formAssignmentId: formAssignment.id,
-        idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : randomBytes(16).toString('hex'),
-        requestHash: createHash('sha256').update(JSON.stringify({ coreResponses, programResponses, selectedProgramIds })).digest('hex'),
-        configurationToken: configurationToken ?? '',
-        responsePayload: coreResponses as unknown as object,
-        resultPayload: { success: true, enrollmentIds } as unknown as object,
-        source: formAssignment.deliveryMethod ?? 'secure_link',
-        submitterEmail: formAssignment.recipientEmail,
-        isDemo: client?.isDemo ?? false,
-      },
+    const result = await this.requireIntake().submit(token, {
+      coreResponses: isRecord(body.coreResponses) ? body.coreResponses : {},
+      programResponses: isRecord(body.programResponses)
+        ? body.programResponses as Record<string, Record<string, unknown>>
+        : {},
+      selectedProgramIds: Array.isArray(body.selectedProgramIds)
+        ? body.selectedProgramIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      configurationToken: typeof body.configurationToken === 'string' ? body.configurationToken : undefined,
+      idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined,
     });
-    if (selectedProgramIds.length > 0) {
-      await prisma.cfIntakeSubmissionSnapshot.create({
-        data: {
-          organizationId: formAssignment.organizationId,
-          intakeSubmissionId: submission.id,
-          coreTemplateId: formAssignment.formId,
-          coreTemplateVersion: 1,
-          selectedProgramIds,
-          renderedSections: (renderSession?.renderedSections ?? []) as unknown as object,
-        },
-      });
-      await prisma.cfIntakeSubmissionProgram.createMany({
-        data: selectedProgramIds.map((programId, index) => ({
-          organizationId: formAssignment.organizationId,
-          intakeSubmissionId: submission.id,
-          programId,
-          enrollmentId: enrollmentIds[index],
-          responsePayload: (programResponses[programId] ?? {}) as unknown as object,
-        })),
-      });
-    }
-
-    await prisma.cfFormAssignment.update({
-      where: { id: formAssignment.id },
-      data: { status: 'submitted', submittedAt: new Date(), responses: { core: coreResponses, programs: programResponses, selectedProgramIds } as unknown as object },
-    });
-    await prisma.cfActivityLog.create({
-      data: {
-        organizationId: formAssignment.organizationId,
-        clientId: formAssignment.clientId,
-        action: 'INTAKE_SUBMITTED',
-        description: selectedProgramIds.length > 0
-          ? `Intake submitted for ${selectedProgramIds.length} program(s).`
-          : 'Intake submitted without a program selection.',
-        user: 'client',
-      },
-    });
-
-    const primaryProgramId = selectedProgramIds[0];
-    if (client && primaryProgramId) {
-      await prisma.cfClient.update({ where: { id: client.id }, data: { programId: primaryProgramId } });
-    }
-
-    let automation = null;
-    if (client && selectedProgramIds.length > 0 && this.automation) {
-      try {
-        automation = await this.automation.runTrigger({
-          organizationId: formAssignment.organizationId,
-          clientId: client.id,
-          trigger: 'intake.submitted',
-          programIds: selectedProgramIds,
-          enrollmentIdsByProgramId,
-          actorDisplayName: 'Client submission',
-          idempotencySeed: `compat.intake.submitted:${submission.id}`,
-          payload: { selectedProgramIds },
-        });
-      } catch (error) {
-        this.logger.warn(`Intake automation failed for submission ${submission.id}: ${(error as Error).message}`);
-        automation = null;
-      }
-    }
-
-    return { success: true, enrollmentIds, automation };
+    return {
+      success: true,
+      enrollmentIds: result.enrollmentIds,
+      automation: result.automation,
+      ...(result.replayed ? { replayed: true } : {}),
+    };
   }
 }
 

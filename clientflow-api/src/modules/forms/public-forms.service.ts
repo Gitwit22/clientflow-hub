@@ -1,8 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
-import { Prisma } from '../../generated/clientflow';
-import { ProgramAutomationService } from '../automation/program-automation.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { PublicAnswer, SubmitPublicFormDto } from './dto/submit-public-form.dto';
+import { IntakeWorkflowService } from './intake-workflow.service';
 import { type PublicFormLinkMode, resolvePublicFormLink } from './public-form-link';
 import {
   CLIENT_STATUS,
@@ -12,17 +11,12 @@ import {
 } from './intake-lifecycle';
 
 
-function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value
-    : {};
-}
 
 @Injectable()
 export class PublicFormsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly automation: ProgramAutomationService,
+    private readonly intake: IntakeWorkflowService,
   ) {}
 
   async getByToken(token: string) {
@@ -82,7 +76,6 @@ export class PublicFormsService {
       throw new BadRequestException('Selected program is invalid.');
     }
     const program = isProgramOption(selectedProgram) ? selectedProgram : null;
-    const status = program ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted;
     const selectedDbProgram = program
       ? await this.prisma.cfProgram.findFirst({
           where: { organizationId: assignment.organizationId, name: program, isActive: true },
@@ -90,74 +83,22 @@ export class PublicFormsService {
         })
       : null;
     if (program && !selectedDbProgram) throw new BadRequestException('Selected program is invalid.');
-    const submittedAt = new Date();
 
-    await this.prisma.$transaction(async (transaction) => {
-      const updated = await transaction.cfFormAssignment.updateMany({
-        where: { id: assignment.id, submittedAt: null },
-        data: { responses: dto.answers, status: FORM_STATUS.submitted, submittedAt },
-      });
-      if (updated.count !== 1) throw new ConflictException('This form has already been submitted.');
-
-      await transaction.cfClient.update({
-        where: { id: client.id },
-        data: {
-          status,
-          programId: selectedDbProgram?.id ?? null,
-          intake: {
-            ...jsonObject(client.intake),
-            ...(program ? { programOfInterest: program } : {}),
-          },
-        },
-      });
-      await transaction.cfActivityLog.create({
-        data: {
-          organizationId: assignment.organizationId,
-          clientId: client.id,
-          action: 'INTAKE_SUBMITTED',
-          description: program
-            ? `General Intake submitted with program selection: ${program}.`
-            : 'General Intake submitted without a program selection.',
-          user: 'public form',
-        },
-      });
+    // Adapter: the intake workflow records the submission (one transaction, idempotent).
+    const result = await this.intake.submit(token, {
+      coreResponses: dto.answers,
+      selectedProgramIds: selectedDbProgram ? [selectedDbProgram.id] : [],
+      actorDisplayName: 'public form',
     });
-
-    await this.createAdminNotifications({
-      organizationId: assignment.organizationId,
-      clientId: client.id,
-      submissionId: assignment.id,
-      sourceType: 'intake_submission',
-      sourceId: assignment.id,
-      type: 'INTAKE_SUBMITTED',
-      title: 'Intake submitted',
-      message: program
-        ? `${client.primaryContactName} submitted intake and selected ${program}.`
-        : `${client.primaryContactName} submitted intake without choosing a program.`,
-      actionUrl: `/clients/${client.id}?tab=forms`,
-      isDemo: client.isDemo,
-    });
-
-    const automation = selectedDbProgram
-      ? await this.automation.runTrigger({
-          organizationId: assignment.organizationId,
-          clientId: client.id,
-          trigger: 'intake.submitted',
-          programIds: [selectedDbProgram.id],
-          actorDisplayName: 'public form',
-          idempotencySeed: `public-form-intake:${assignment.id}:${submittedAt.toISOString()}`,
-          payload: { selectedProgramIds: [selectedDbProgram.id] },
-        })
-      : null;
 
     return {
       success: true,
       clientId: client.id,
       assignmentId: assignment.id,
-      status,
+      status: program ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted,
       selectedProgram: program,
       program: selectedDbProgram ?? null,
-      automation,
+      automation: result.automation,
     };
   }
 
@@ -198,66 +139,5 @@ export class PublicFormsService {
     if (type === 'select' && options && (typeof value !== 'string' || !options.includes(value))) {
       throw new BadRequestException(`Answer for ${fieldId} is not an allowed option.`);
     }
-  }
-
-  private async createAdminNotifications(payload: {
-    organizationId: string;
-    clientId: string;
-    submissionId: string;
-    sourceType: string;
-    sourceId: string;
-    type: string;
-    title: string;
-    message: string;
-    actionUrl: string;
-    isDemo: boolean;
-  }) {
-    const adminModel = (this.prisma as unknown as {
-      adminUser?: { findMany: (args: unknown) => Promise<Array<{ id: string }>> };
-      cfNotification?: {
-        createMany?: (args: unknown) => Promise<unknown>;
-        create?: (args: unknown) => Promise<unknown>;
-      };
-    }).adminUser;
-    const notificationModel = (this.prisma as unknown as {
-      cfNotification?: {
-        createMany?: (args: unknown) => Promise<unknown>;
-        create?: (args: unknown) => Promise<unknown>;
-      };
-    }).cfNotification;
-    if (!adminModel || !notificationModel) return;
-    const admins = await adminModel.findMany({
-      where: {
-        organizationId: payload.organizationId,
-        isActive: true,
-        role: { in: ['org_admin', 'super_admin'] },
-      },
-      select: { id: true },
-    });
-    if (admins.length === 0) return;
-    const data = admins.map((admin) => ({
-      organizationId: payload.organizationId,
-      recipientAdminId: admin.id,
-      type: payload.type,
-      title: payload.title,
-      message: payload.message,
-      actionUrl: payload.actionUrl,
-      sourceType: payload.sourceType,
-      sourceId: payload.sourceId,
-      clientId: payload.clientId,
-      submissionId: payload.submissionId,
-      isDemo: payload.isDemo,
-    }));
-    if (notificationModel.createMany) {
-      await notificationModel.createMany({ data, skipDuplicates: true });
-      return;
-    }
-    await Promise.all(data.map(async (item) => {
-      try {
-        await notificationModel.create?.({ data: item });
-      } catch {
-        // ignore duplicates in minimal mocks
-      }
-    }));
   }
 }
