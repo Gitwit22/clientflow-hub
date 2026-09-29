@@ -5,6 +5,7 @@ import type { Environment } from '../../config/env';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import type { IntakeEmailDeliveryResult } from '../../integrations/n8n/n8n.types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { findClientForOrg } from '../../common/tenancy/org-scoped.repository';
 import {
   attemptEventId,
   COMMUNICATION_STATUS,
@@ -37,7 +38,7 @@ export class ClientsService {
     private readonly contracts: ContractsService,
   ) {}
 
-  async create(dto: CreateClientDto) {
+  async create(organizationId: string, dto: CreateClientDto) {
     // Temporary intake diagnosis: never log the DTO, SQL, error message, or public token.
     const traceId = randomUUID();
     let eventId: string | null = null;
@@ -61,7 +62,7 @@ export class ClientsService {
       sendIntakeImmediately: dto.sendIntakeImmediately !== false,
     }));
     const organization = await traceStep('organization.lookup', () => this.prisma.organization.findFirst({
-      where: { id: dto.organizationId, status: 'active' },
+      where: { id: organizationId, status: 'active' },
       select: { id: true },
     }));
     if (!organization) throw new NotFoundException('Organization not found.');
@@ -262,9 +263,8 @@ export class ClientsService {
     return clients.map((client) => this.safeClient(client));
   }
 
-  async getOne(id: string) {
-    const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
-    if (!client) throw new NotFoundException('Client not found.');
+  async getOne(organizationId: string, id: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, id);
 
     const [program, contract, monitoringTask, executedDocument] = await Promise.all([
       client.programId
@@ -316,9 +316,8 @@ export class ClientsService {
     };
   }
 
-  async updateProgram(id: string, programId: string) {
-    const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
-    if (!client) throw new NotFoundException('Client not found.');
+  async updateProgram(organizationId: string, id: string, programId: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, id);
 
     const program = await this.prisma.cfProgram.findFirst({
       where: { id: programId, organizationId: client.organizationId, isActive: true },
@@ -342,7 +341,7 @@ export class ClientsService {
       });
     });
 
-    return this.contracts.handlePostIntakeProgramSelection(client.id, program.id);
+    return this.contracts.handlePostIntakeProgramSelection(client.organizationId, client.id, program.id);
   }
 
   /**
@@ -351,11 +350,11 @@ export class ClientsService {
    * a communication row and an activity row with the staff member and source.
    */
   async sendIntakeNow(
+    organizationId: string,
     id: string,
     options: { actor?: { id: string | null; name: string } | null; idempotencyKey?: string | null } = {},
   ) {
-    const client = await this.prisma.cfClient.findFirst({ where: { id, isArchived: false } });
-    if (!client) throw new NotFoundException('Client not found.');
+    const client = await findClientForOrg(this.prisma, organizationId, id);
 
     // A retried request (same Idempotency-Key) returns the first attempt instead of emailing twice.
     if (options.idempotencyKey) {

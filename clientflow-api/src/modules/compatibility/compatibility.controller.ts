@@ -32,6 +32,12 @@ import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { buildClientProfileUpdate } from '../clients/client-profile-update';
 import {
+  assertEnrollmentForClient,
+  findClientForOrg,
+  findEnrollmentForOrg,
+  findProgramForOrg,
+} from '../../common/tenancy/org-scoped.repository';
+import {
   EXECUTED_CONTRACT_MIME_TYPE,
   EXECUTED_STORED_FILE_SELECT,
   ensureExecutedContractPdf,
@@ -500,6 +506,7 @@ export class ClientflowCompatibilityController {
   }
   @Patch('programs/:id/workflow') async updateProgramWorkflowConfig(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, id);
     await this.requirePrisma().cfProgram.findFirstOrThrow({
       where: { id, organizationId: orgId },
       select: { id: true },
@@ -596,6 +603,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:id/workflow/contracts/templates') async createProgramWorkflowContractTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, id);
     const template = await this.requirePrisma().cfProgramContractTemplate.create({
       data: {
         organizationId: orgId,
@@ -625,6 +633,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:programId/workflow/contracts/templates/:templateId/versions') async createProgramWorkflowContractVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const template = await this.requirePrisma().cfProgramContractTemplate.findFirst({
       where: { id: templateId, organizationId: orgId, programId },
       select: { id: true },
@@ -656,6 +665,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:id/workflow/emails/templates') async createProgramWorkflowWelcomeTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, id);
     const template = await this.requirePrisma().cfProgramWelcomeEmailTemplate.create({
       data: {
         organizationId: orgId,
@@ -682,6 +692,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:programId/workflow/emails/templates/:templateId/versions') async createProgramWorkflowWelcomeVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const template = await this.requirePrisma().cfProgramWelcomeEmailTemplate.findFirst({
       where: { id: templateId, organizationId: orgId, programId },
       select: { id: true },
@@ -732,6 +743,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:id/automation/rules') async createProgramAutomationRule(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, id);
     if (body.trigger === undefined) throw new BadRequestException('Automation trigger is required.');
     if (body.action === undefined) throw new BadRequestException('Automation action is required.');
     const trigger = parseProgramTrigger(body.trigger);
@@ -753,6 +765,7 @@ export class ClientflowCompatibilityController {
   }
   @Patch('programs/:programId/automation/rules/:ruleId') async updateProgramAutomationRule(@Req() request: Request, @Param('programId') programId: string, @Param('ruleId') ruleId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const existing = await this.requirePrisma().cfProgramAutomationRule.findFirst({
       where: { id: ruleId, organizationId: orgId, programId },
       select: { id: true },
@@ -782,6 +795,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:id/documents/templates') async createProgramDocumentTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, id);
     const trigger = body.trigger === undefined || body.trigger === null || body.trigger === ''
       ? null
       : parseProgramTrigger(body.trigger);
@@ -804,6 +818,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs/:programId/documents/templates/:templateId/versions') async createProgramDocumentVersion(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const prisma = this.requirePrisma();
     const template = await prisma.cfProgramDocumentTemplate.findFirst({ where: { id: templateId, organizationId: orgId, programId } });
     if (!template) throw new NotFoundException('Program document template not found.');
@@ -865,6 +880,7 @@ export class ClientflowCompatibilityController {
   }
   @Patch('programs/:programId/documents/templates/:templateId') async updateProgramDocumentTemplate(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const template = await this.requirePrisma().cfProgramDocumentTemplate.findFirst({ where: { id: templateId, organizationId: orgId, programId } });
     if (!template) throw new NotFoundException('Program document template not found.');
     let triggerUpdate: CfProgramTrigger | null | undefined;
@@ -1258,6 +1274,8 @@ export class ClientflowCompatibilityController {
   }
   @Post('clients/:clientId/terms') async createTerms(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    await findClientForOrg(this.requirePrisma(), orgId, clientId, { includeArchived: true });
+    if (body.programId) await findProgramForOrg(this.requirePrisma(), orgId, String(body.programId));
     return this.requirePrisma().cfTerms.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), supportType: String(body.supportType ?? 'Service'), resourceDescription: String(body.resourceDescription ?? ''), grantAmount: Number(body.grantAmount ?? 0), loanAmount: Number(body.loanAmount ?? 0), investmentAmount: Number(body.investmentAmount ?? 0), forgivableAmount: Number(body.forgivableAmount ?? 0), repaymentRequired: Boolean(body.repaymentRequired ?? false), repaymentSchedule: String(body.repaymentSchedule ?? ''), interestDescription: String(body.interestDescription ?? ''), milestones: String(body.milestones ?? ''), reportingRequirements: String(body.reportingRequirements ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), monitoringFrequency: String(body.monitoringFrequency ?? 'Monthly'), specialConditions: String(body.specialConditions ?? ''), fundingAmount: Number(body.fundingAmount ?? 0) } });
   }
   @Patch('terms/:id') async updateTerms(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
@@ -1266,6 +1284,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('enrollments/:enrollmentId/monitoring') async createMonitoring(@Req() request: Request, @Param('enrollmentId') enrollmentId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    await findEnrollmentForOrg(this.requirePrisma(), orgId, enrollmentId);
     return this.requirePrisma().cfEnrollmentMonitoring.create({ data: { organizationId: orgId, enrollmentId, name: String(body.name ?? 'Monitoring Review'), description: body.description ? String(body.description) : null, frequency: String(body.frequency ?? 'monthly') as any, customIntervalDays: body.customIntervalDays ? Number(body.customIntervalDays) : null, expectedValue: body.expectedValue ? Number(body.expectedValue) : null, actualValue: body.actualValue ? Number(body.actualValue) : null, unit: body.unit ? String(body.unit) : null, complianceStatus: String(body.status ?? 'pending') as any, lastReviewedAt: body.lastReviewedAt ? new Date(String(body.lastReviewedAt)) : null, nextReviewAt: body.nextReviewAt ? new Date(String(body.nextReviewAt)) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), assignedReviewerId: body.assignedStaffId ? String(body.assignedStaffId) : null, followUpRequired: Boolean(body.followUpRequired ?? false), evidenceRequired: Boolean(body.evidenceRequired ?? false), notes: String(body.notes ?? ''), active: true } as any });
   }
   @Post('enrollment-monitoring/:id/results') async recordMonitoringResult(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
@@ -1348,7 +1367,12 @@ export class ClientflowCompatibilityController {
       data: {
         organizationId: orgId,
         clientId,
-        enrollmentId: body.enrollmentId ? String(body.enrollmentId) : null,
+        enrollmentId: await assertEnrollmentForClient(
+          this.requirePrisma(),
+          orgId,
+          body.enrollmentId ? String(body.enrollmentId) : null,
+          clientId,
+        ),
         name: originalFileName,
         type: mimeType,
         url: '',
@@ -1427,7 +1451,8 @@ export class ClientflowCompatibilityController {
   }
   @Post('activity') async createActivity(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfActivityLog.create({ data: { organizationId: orgId, clientId: String(body.clientId ?? ''), action: String(body.action ?? 'NOTE'), description: String(body.description ?? ''), user: String(body.user ?? 'system') } });
+    const client = await findClientForOrg(this.requirePrisma(), orgId, String(body.clientId ?? ''), { includeArchived: true });
+    return this.requirePrisma().cfActivityLog.create({ data: { organizationId: orgId, clientId: client.id, action: String(body.action ?? 'NOTE'), description: String(body.description ?? ''), user: String(body.user ?? 'system') } });
   }
   @Get('demo-status') async getDemoStatus(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);

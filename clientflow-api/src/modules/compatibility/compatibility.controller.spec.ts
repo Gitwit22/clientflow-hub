@@ -28,6 +28,8 @@ describe('compatibility route scaffold', () => {
         status: 'interested',
       };
       const transaction = {
+        cfClient: { findFirst: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+        cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1' }) },
         cfProgramEnrollment: { create: jest.fn().mockResolvedValue(enrollment) },
         cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
         cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
@@ -405,6 +407,7 @@ describe('compatibility route scaffold', () => {
         cfProgramDocumentTemplate: { update: jest.fn().mockResolvedValue({ id: 'template-1' }) },
       };
       const prisma = {
+        cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1' }) },
         cfProgramDocumentTemplate: { findFirst: jest.fn().mockResolvedValue({ id: 'template-1' }) },
         $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
       };

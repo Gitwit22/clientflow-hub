@@ -39,6 +39,7 @@ import {
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
+import { findClientForOrg } from '../../common/tenancy/org-scoped.repository';
 import {
   EXECUTED_CONTRACT_MIME_TYPE,
   EXECUTED_STORED_FILE_SELECT,
@@ -124,11 +125,8 @@ export class ContractsService {
     return { program, rule, template };
   }
 
-  async handlePostIntakeProgramSelection(clientId: string, programId: string) {
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+  async handlePostIntakeProgramSelection(organizationId: string, clientId: string, programId: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
     if (client.programId !== programId) throw new BadRequestException(SAFE_PROGRAM_ERROR);
 
     const program = await this.prisma.cfProgram.findFirst({
@@ -189,14 +187,12 @@ export class ContractsService {
   }
 
   async issueContractForProgram(
+    organizationId: string,
     clientId: string,
     programId: string,
     options?: { enrollmentId?: string | null; staffSigner?: StaffSigner },
   ) {
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
 
     const program = await this.prisma.cfProgram.findFirst({
       where: { id: programId, organizationId: client.organizationId, isActive: true },
@@ -223,6 +219,7 @@ export class ContractsService {
   }
 
   async generateForStaff(
+    organizationId: string,
     clientId: string,
     staffSigner: StaffSigner,
     options?: { enrollmentId?: string | null },
@@ -230,8 +227,8 @@ export class ContractsService {
     // Program context comes from the enrollment when one is given; the legacy single client.programId
     // is only a fallback for older callers that don't send an enrollment.
     const { client, program, enrollmentId } = options?.enrollmentId
-      ? await this.resolveEnrollmentProgram(clientId, options.enrollmentId)
-      : { ...(await this.resolveClientProgram(clientId)), enrollmentId: null };
+      ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId)
+      : { ...(await this.resolveClientProgram(organizationId, clientId)), enrollmentId: null };
     const template = await this.resolveTemplate(program);
     const generated = await this.generateInternal(client, program, template, staffSigner, enrollmentId);
     return {
@@ -242,14 +239,12 @@ export class ContractsService {
   }
 
   async sendForStaff(
+    organizationId: string,
     clientId: string,
     contractId: string,
     options?: { enrollmentId?: string | null; actor?: StaffSigner | null; idempotencyKey?: string | null },
   ) {
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
 
     const contract = await this.prisma.cfContract.findFirst({
       where: { id: contractId, clientId: client.id, organizationId: client.organizationId },
@@ -310,14 +305,12 @@ export class ContractsService {
    * the signing link: it never rotates a token and never touches the contract's status.
    */
   async sendExecutedCopy(
+    organizationId: string,
     clientId: string,
     contractId: string,
     options?: { actor?: StaffSigner | null; idempotencyKey?: string | null },
   ) {
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
     const contract = await this.prisma.cfContract.findFirst({
       where: { id: contractId, clientId: client.id, organizationId: client.organizationId },
     });
@@ -350,10 +343,15 @@ export class ContractsService {
    * uses is preserved: the enrollment's latest contract must be COMPLETED.
    */
   async sendWelcomeForEnrollment(
+    organizationId: string,
     clientId: string,
     options: { enrollmentId: string; actor?: StaffSigner | null; idempotencyKey?: string | null },
   ) {
-    const { client, program, enrollmentId } = await this.resolveEnrollmentProgram(clientId, options.enrollmentId);
+    const { client, program, enrollmentId } = await this.resolveEnrollmentProgram(
+      organizationId,
+      clientId,
+      options.enrollmentId,
+    );
 
     if (options.idempotencyKey) {
       const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
@@ -644,7 +642,7 @@ export class ContractsService {
       + `trigger=${input.delivery.source}`,
     );
     const attachment = availability === 'ready'
-      ? await this.resolveWelcomeAttachment(welcomeConfig.guideStoredFileId)
+      ? await this.resolveWelcomeAttachment(client.organizationId, welcomeConfig.guideStoredFileId)
       : undefined;
     const welcomeDelivery: WelcomeEmailDeliveryResult = availability !== 'ready'
       ? { status: 'failed', reason: availability }
@@ -670,14 +668,11 @@ export class ContractsService {
     return welcomeDelivery;
   }
 
-  async approveReview(clientId: string, staffSigner: StaffSigner) {
+  async approveReview(organizationId: string, clientId: string, staffSigner: StaffSigner) {
     if (!staffSigner.name.trim()) {
       throw new BadRequestException('A staff signer name is required to approve and sign this contract.');
     }
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
     if (client.status !== CONTRACT_CLIENT_STATUS.pendingStaffReview) {
       throw new BadRequestException('Client is not pending staff review.');
     }
@@ -699,11 +694,8 @@ export class ContractsService {
     };
   }
 
-  async declineReview(clientId: string, reason?: string) {
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+  async declineReview(organizationId: string, clientId: string, reason?: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
     if (client.status !== CONTRACT_CLIENT_STATUS.pendingStaffReview) {
       throw new BadRequestException('Client is not pending staff review.');
     }
@@ -1026,11 +1018,8 @@ export class ContractsService {
     }
   }
 
-  private async resolveClientProgram(clientId: string) {
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+  private async resolveClientProgram(organizationId: string, clientId: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
     if (!client.programId) throw new BadRequestException(SAFE_PROGRAM_ERROR);
     const program = await this.prisma.cfProgram.findFirst({
       where: { id: client.programId, organizationId: client.organizationId, isActive: true },
@@ -1040,11 +1029,8 @@ export class ContractsService {
   }
 
   /** The client's enrollment and the program it points at: the only source of program context. */
-  private async resolveEnrollmentProgram(clientId: string, enrollmentId: string) {
-    const client = await this.prisma.cfClient.findFirst({
-      where: { id: clientId, isArchived: false },
-    });
-    if (!client) throw new NotFoundException('Client not found.');
+  private async resolveEnrollmentProgram(organizationId: string, clientId: string, enrollmentId: string) {
+    const client = await findClientForOrg(this.prisma, organizationId, clientId);
     const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
       where: { id: enrollmentId, clientId: client.id, organizationId: client.organizationId },
     });
@@ -1372,7 +1358,7 @@ export class ContractsService {
         : Promise.resolve(null),
     ]);
     const logoStoredFileId = logoStoredFileIdFromSettings(organization?.settings);
-    const headerImageUrl = await this.resolveOrganizationLogoUrl(logoStoredFileId);
+    const headerImageUrl = await this.resolveOrganizationLogoUrl(input.organizationId, logoStoredFileId);
 
     const context = {
       client: {
@@ -1484,11 +1470,12 @@ export class ContractsService {
    * presigned URL; it downloads the URL and attaches the file under this name and type.
    */
   private async resolveWelcomeAttachment(
+    organizationId: string,
     storedFileId: string | null,
   ): Promise<{ url: string; fileName?: string; mimeType?: string } | undefined> {
     if (!storedFileId || !this.storage.isEnabled()) return undefined;
     const storedFile = await this.prisma.cfStoredFile.findFirst({
-      where: { id: storedFileId },
+      where: { id: storedFileId, organizationId },
       select: { storageKey: true, originalFileName: true, mimeType: true },
     });
     if (!storedFile) return undefined;
@@ -1505,10 +1492,13 @@ export class ContractsService {
   // Header logo is embedded inline and must stay resolvable whenever the email is reopened later,
   // so this uses the permanent public URL, never the short-lived presigned attachment URL. Purely
   // cosmetic: any failure here must not throw or otherwise affect welcome delivery.
-  private async resolveOrganizationLogoUrl(storedFileId: string | null): Promise<string | undefined> {
+  private async resolveOrganizationLogoUrl(
+    organizationId: string,
+    storedFileId: string | null,
+  ): Promise<string | undefined> {
     if (!storedFileId || !this.storage.isEnabled()) return undefined;
     try {
-      return await publicLogoUrl(this.prisma, this.storage, storedFileId);
+      return await publicLogoUrl(this.prisma, this.storage, organizationId, storedFileId);
     } catch (error) {
       this.logger.warn(`Unable to resolve organization header logo ${storedFileId}: ${(error as Error).message}`);
       return undefined;

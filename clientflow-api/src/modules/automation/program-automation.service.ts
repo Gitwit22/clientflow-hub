@@ -420,7 +420,7 @@ export class ProgramAutomationService {
 
     let issued;
     try {
-      issued = await this.contracts.issueContractForProgram(context.client.id, context.program.id, {
+      issued = await this.contracts.issueContractForProgram(context.organizationId, context.client.id, context.program.id, {
         enrollmentId: context.enrollmentId,
         staffSigner: {
           id: context.client.assignedUserId,

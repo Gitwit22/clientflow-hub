@@ -4,7 +4,7 @@ import { IsOptional, IsString, MinLength } from 'class-validator';
 export class GenerateContractDto {
   @ApiPropertyOptional({
     example: 'Jordan Staff',
-    description: 'Typed electronic signature of the staff member generating this contract. Only used when there is no authenticated session.',
+    description: 'Ignored: the signer is always the signed-in admin. Accepted so older clients keep working.',
   })
   @IsOptional()
   @IsString()

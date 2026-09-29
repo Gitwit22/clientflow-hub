@@ -4,7 +4,7 @@ import { IsOptional, IsString } from 'class-validator';
 export class ApproveReviewDto {
   @ApiPropertyOptional({
     example: 'Jordan Staff',
-    description: 'Typed electronic signature of the approving staff member. Only used when there is no authenticated session.',
+    description: 'Ignored: the signer is always the signed-in admin. Accepted so older clients keep working.',
   })
   @IsOptional()
   @IsString()
