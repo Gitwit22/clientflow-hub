@@ -1,6 +1,6 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { CfEnrollmentStatus, CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
+import { CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clientflow';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isPrismaUniqueViolation } from '../../common/prisma-errors';
@@ -8,6 +8,8 @@ import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-l
 import { ContractsService } from '../contracts/contracts.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
+import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
+import { canTransitionEnrollment, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 
 type AutomationTrigger =
   | 'intake.submitted'
@@ -594,26 +596,40 @@ export class ProgramAutomationService {
     });
     if (!current) return { skipped: true, reason: 'enrollment_missing' };
 
-    const updateResult = await this.prisma.cfProgramEnrollment.updateMany({
-      where: { id: context.enrollmentId, organizationId: context.organizationId },
-      data: {
-        status: nextStatus as CfEnrollmentStatus,
-        lastModifiedByUserId: context.actorUserId,
-        lastModifiedByDisplayName: context.actorDisplayName,
-      },
-    });
-    if (updateResult.count !== 1) return { skipped: true, reason: 'enrollment_not_updated' };
-    await this.prisma.cfEnrollmentStatusHistory.create({
-      data: {
-        organizationId: context.organizationId,
-        enrollmentId: context.enrollmentId,
-        previousStatus: current.status,
-        newStatus: nextStatus as CfEnrollmentStatus,
-        changedByUserId: context.actorUserId,
-        changedByDisplayName: context.actorDisplayName,
-        reason: 'Updated by program automation.',
-      },
-    });
+    // Automation follows the same state machine as staff, minus reinstating withdrawn members:
+    // a rule can never reopen a closed enrollment or jump to a state the table doesn't allow.
+    if (!isEnrollmentStatus(nextStatus) || !canTransitionEnrollment(current.status, nextStatus)) {
+      return { skipped: true, reason: 'transition_not_allowed', from: current.status, to: nextStatus };
+    }
+    const enrollmentId = context.enrollmentId;
+    try {
+      await this.prisma.$transaction(async (transaction) => {
+        await transitionEnrollment(transaction, {
+          organizationId: context.organizationId,
+          enrollmentId,
+          from: current.status,
+          to: nextStatus,
+          data: {
+            lastModifiedByUserId: context.actorUserId,
+            lastModifiedByDisplayName: context.actorDisplayName,
+          },
+          history: {
+            changedByUserId: context.actorUserId ?? null,
+            changedByDisplayName: context.actorDisplayName,
+            reason: 'Updated by program automation.',
+          },
+        });
+        await applyEnrollmentClosure(transaction, {
+          id: enrollmentId,
+          organizationId: context.organizationId,
+          clientId: context.client.id,
+          status: nextStatus,
+        });
+      });
+    } catch (error) {
+      if (error instanceof ConflictException) return { skipped: true, reason: 'enrollment_not_updated' };
+      throw error;
+    }
 
     return { enrollmentId: context.enrollmentId, status: nextStatus };
   }

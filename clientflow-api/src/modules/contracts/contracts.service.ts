@@ -40,6 +40,8 @@ import {
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
 import { findClientForOrg } from '../../common/tenancy/org-scoped.repository';
+import { transitionContract } from '../lifecycle/contract-state';
+import { canTransitionEnrollment, isClosedEnrollment, transitionEnrollment } from '../lifecycle/enrollment-state';
 import {
   EXECUTED_CONTRACT_MIME_TYPE,
   EXECUTED_STORED_FILE_SELECT,
@@ -856,21 +858,19 @@ export class ContractsService {
           where: { id: contract.enrollmentId, organizationId: client.organizationId },
           select: { status: true },
         });
-        if (enrollment && !['completed', 'declined', 'withdrawn', 'active'].includes(enrollment.status)) {
-          await transaction.cfProgramEnrollment.update({
-            where: { id: contract.enrollmentId },
-            data: { status: 'active', lastProgressUpdate: now },
-          });
-          await transaction.cfEnrollmentStatusHistory.create({
-            data: {
-              organizationId: client.organizationId,
-              enrollmentId: contract.enrollmentId,
-              previousStatus: enrollment.status as any,
-              newStatus: 'active',
-              changedByUserId: null,
-              changedByDisplayName: 'system',
-              reason: 'Contract signed by client.',
-            },
+        // A closed enrollment can never be onboarded by signing (checked again here, inside the
+        // transaction, in case it closed after the link was resolved).
+        if (enrollment && isClosedEnrollment(enrollment.status)) {
+          throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
+        }
+        if (enrollment && canTransitionEnrollment(enrollment.status, 'active')) {
+          await transitionEnrollment(transaction, {
+            organizationId: client.organizationId,
+            enrollmentId: contract.enrollmentId,
+            from: enrollment.status,
+            to: 'active',
+            data: { lastProgressUpdate: now },
+            history: { changedByUserId: null, changedByDisplayName: 'system', reason: 'Contract signed by client.' },
           });
         }
       }
@@ -1050,14 +1050,29 @@ export class ContractsService {
       where: { secureTokenHash: hashContractToken(rawToken) },
     });
     const now = new Date();
-    if (
-      !contract
-      || ![CONTRACT_STATUS.sent, CONTRACT_STATUS.opened].includes(contract.status as 'SENT' | 'OPENED')
-      || !contract.secureTokenExpiresAt
-      || contract.secureTokenExpiresAt <= now
-      || contract.completedAt
-    ) {
+    const actionable = contract
+      && [CONTRACT_STATUS.sent, CONTRACT_STATUS.opened].includes(contract.status as 'SENT' | 'OPENED')
+      && !contract.completedAt;
+    if (contract && actionable && (!contract.secureTokenExpiresAt || contract.secureTokenExpiresAt <= now)) {
+      // The link lapsed: record it, so staff see EXPIRED (and can re-issue) instead of a SENT
+      // contract that silently no longer works.
+      await this.prisma.cfContract.updateMany({
+        where: { id: contract.id, status: { in: [CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] } },
+        data: { status: CONTRACT_STATUS.expired },
+      });
       throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
+    }
+    if (!contract || !actionable) {
+      throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
+    }
+    if (contract.enrollmentId) {
+      const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
+        where: { id: contract.enrollmentId, organizationId: contract.organizationId },
+        select: { status: true, isArchived: true },
+      });
+      if (!enrollment || enrollment.isArchived || isClosedEnrollment(enrollment.status)) {
+        throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
+      }
     }
     const [client, program] = await Promise.all([
       this.prisma.cfClient.findFirst({
@@ -1222,14 +1237,16 @@ export class ContractsService {
     const staffName = delivery.actor?.name?.trim() || 'system';
 
     const issued = await this.prisma.$transaction(async (transaction) => {
-      const contract = await transaction.cfContract.update({
-        where: { id: contractId },
-        data: {
-          status: CONTRACT_STATUS.sent,
-          secureTokenHash,
-          secureTokenExpiresAt,
-          sentAt: now,
-        },
+      // Conditional: only DRAFT/SENT/OPENED/EXPIRED may be (re)issued. A contract signed or
+      // cancelled meanwhile makes this throw 409 instead of reverting it to SENT.
+      await transitionContract(transaction, {
+        organizationId: client.organizationId,
+        contractId,
+        to: CONTRACT_STATUS.sent,
+        data: { secureTokenHash, secureTokenExpiresAt, sentAt: now },
+      });
+      const contract = await transaction.cfContract.findFirstOrThrow({
+        where: { id: contractId, organizationId: client.organizationId },
       });
       await transaction.cfClient.update({
         where: { id: client.id },
@@ -1249,24 +1266,20 @@ export class ContractsService {
       });
       if (contract.enrollmentId) {
         const enrollment = await transaction.cfProgramEnrollment.findFirst({
-          where: { id: contract.enrollmentId, organizationId: client.organizationId, status: 'interested' },
+          where: { id: contract.enrollmentId, organizationId: client.organizationId },
           select: { status: true },
         });
-        if (enrollment) {
-          await transaction.cfProgramEnrollment.update({
-            where: { id: contract.enrollmentId },
-            data: { status: 'onboarding', lastProgressUpdate: now },
-          });
-          await transaction.cfEnrollmentStatusHistory.create({
-            data: {
-              organizationId: client.organizationId,
-              enrollmentId: contract.enrollmentId,
-              previousStatus: 'interested',
-              newStatus: 'onboarding',
-              changedByUserId: null,
-              changedByDisplayName: 'system',
-              reason: 'Contract sent.',
-            },
+        if (enrollment && isClosedEnrollment(enrollment.status)) {
+          throw new BadRequestException('This enrollment is closed; its contract can no longer be sent.');
+        }
+        if (enrollment?.status === 'interested') {
+          await transitionEnrollment(transaction, {
+            organizationId: client.organizationId,
+            enrollmentId: contract.enrollmentId,
+            from: 'interested',
+            to: 'onboarding',
+            data: { lastProgressUpdate: now },
+            history: { changedByUserId: null, changedByDisplayName: 'system', reason: 'Contract sent.' },
           });
         }
       }

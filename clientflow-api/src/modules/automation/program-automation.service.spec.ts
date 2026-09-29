@@ -203,7 +203,7 @@ describe('ProgramAutomationService', () => {
   });
 
   it('changes enrollment status and writes status history for change_status rules', async () => {
-    const prisma = {
+    const prisma: Record<string, any> = {
       cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },
       cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
       cfProgramAutomationRule: {
@@ -225,6 +225,10 @@ describe('ProgramAutomationService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      cfFormAssignment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      cfEnrollmentBillingAgreement: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      $transaction: jest.fn(async (callback: (tx: unknown) => unknown): Promise<unknown> => callback(prisma)),
     };
 
     const service = programAutomationTestContext(
@@ -244,7 +248,8 @@ describe('ProgramAutomationService', () => {
     });
 
     expect(prisma.cfProgramEnrollment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'enroll-1', organizationId: 'org-1' },
+      // Conditional on the state it was read in, so a concurrent change can't be overwritten.
+      where: { id: 'enroll-1', organizationId: 'org-1', status: 'approved' },
       data: expect.objectContaining({ status: 'onboarding' }),
     }));
     expect(prisma.cfEnrollmentStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({

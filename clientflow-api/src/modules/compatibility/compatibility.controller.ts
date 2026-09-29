@@ -32,6 +32,8 @@ import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { AUTOMATED_CLIENT_STATUSES, buildClientProfileUpdate } from '../clients/client-profile-update';
 import { resolvePublicFormLink } from '../forms/public-form-link';
+import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
+import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
@@ -61,17 +63,6 @@ const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clien
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
 const ACCESS_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const ENROLLMENT_TRANSITIONS: Record<string, string[]> = {
-  interested: ['pending_review', 'approved', 'onboarding', 'active', 'declined', 'withdrawn'],
-  pending_review: ['approved', 'declined', 'withdrawn'],
-  approved: ['onboarding', 'active', 'on_hold', 'withdrawn'],
-  onboarding: ['active', 'on_hold', 'withdrawn'],
-  active: ['on_hold', 'completed', 'withdrawn'],
-  on_hold: ['active', 'completed', 'withdrawn'],
-  completed: [],
-  declined: [],
-  withdrawn: ['active'],
-};
 
 function readJwtSecret(type: 'access' | 'refresh'): string {
   const key = type === 'access' ? 'JWT_ACCESS_SECRET' : 'JWT_REFRESH_SECRET';
@@ -1061,17 +1052,19 @@ export class ClientflowCompatibilityController {
     if (!current) throw new NotFoundException('Enrollment not found.');
     const target = this.enrollmentTransition(body.status);
     if (!target) throw new BadRequestException('A target enrollment status is required.');
-    const allowed = ENROLLMENT_TRANSITIONS[String(current.status).toLowerCase()] ?? [];
-    if (!allowed.includes(target)) {
-      throw new BadRequestException(`Enrollment cannot transition from ${current.status} to ${target}.`);
-    }
+    if (!isEnrollmentStatus(target)) throw new BadRequestException(`Unknown enrollment status: ${target}.`);
+    // Staff may reinstate a withdrawn member; nothing else leaves a closed state.
+    assertEnrollmentTransition(String(current.status), target, { byStaff: true });
     const now = new Date();
     const changedByDisplayName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
     const updated = await prisma.$transaction(async (transaction) => {
-      const enrollment = await transaction.cfProgramEnrollment.update({
-        where: { id, organizationId: orgId },
+      await transitionEnrollment(transaction, {
+        organizationId: orgId,
+        enrollmentId: id,
+        from: String(current.status),
+        to: target,
+        byStaff: true,
         data: {
-          status: target as any,
           progressPercentage: this.progressForEnrollmentStatus(target),
           nextAction: body.nextAction !== undefined ? (body.nextAction ? String(body.nextAction) : null) : current.nextAction,
           nextActionDate: body.nextActionDate !== undefined
@@ -1083,19 +1076,16 @@ export class ClientflowCompatibilityController {
           completedAt: target === 'completed' ? now : current.completedAt,
           withdrawnAt: target === 'withdrawn' ? now : target === 'active' ? null : current.withdrawnAt,
           onHoldReason: body.statusReason ? String(body.statusReason) : target === 'on_hold' ? current.onHoldReason : null,
-        } as any,
-      });
-      await transaction.cfEnrollmentStatusHistory.create({
-        data: {
-          organizationId: orgId,
-          enrollmentId: id,
-          previousStatus: current.status,
-          newStatus: enrollment.status,
+        },
+        history: {
           changedByUserId: admin.id,
           changedByDisplayName,
           reason: body.statusReason ? String(body.statusReason) : null,
         },
       });
+      const enrollment = await transaction.cfProgramEnrollment.findFirstOrThrow({ where: { id, organizationId: orgId } });
+      // A closed enrollment leaves nothing actionable behind: open contracts, forms and billing end.
+      await applyEnrollmentClosure(transaction, enrollment, now);
       await transaction.cfActivityLog.create({
         data: {
           organizationId: orgId,

@@ -80,7 +80,11 @@ function config(): ConfigService<Environment, true> {
 
 function build(prismaOverrides: Record<string, unknown>, n8n: Record<string, unknown>, storage?: unknown) {
   const transaction: Record<string, any> = {
-    cfContract: { update: jest.fn().mockImplementation(async ({ data }) => ({ ...sent, ...data })) },
+    cfContract: {
+      update: jest.fn().mockImplementation(async ({ data }) => ({ ...sent, ...data })),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirstOrThrow: jest.fn().mockResolvedValue(sent),
+    },
     cfClient: { update: jest.fn().mockResolvedValue(client) },
     cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
     cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
