@@ -21,7 +21,7 @@ describe('ClientsController.approveReview', () => {
     expect(contracts.approveReview).toHaveBeenCalledWith('org-1', 'client-1', {
       id: 'admin-1',
       name: 'Jordan Real',
-    });
+    }, { enrollmentId: null });
   });
 
   it('refuses without an authenticated session instead of trusting a body-supplied signer', async () => {

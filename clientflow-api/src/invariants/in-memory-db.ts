@@ -27,6 +27,8 @@ function table(rows: Row[]) {
   return {
     findFirst: ({ where }: { where?: Row } = {}) => first(where),
     findUnique: ({ where }: { where?: Row } = {}) => first(where),
+    findFirstOrThrow: ({ where }: { where?: Row } = {}) => first(where).then((row) => row
+      ?? Promise.reject(Object.assign(new Error('No record found.'), { code: 'P2025' }))),
     findMany: ({ where }: { where?: Row } = {}) => Promise.resolve(rows.filter((row) => matches(row, where))),
     count: ({ where }: { where?: Row } = {}) => Promise.resolve(rows.filter((row) => matches(row, where)).length),
     update: ({ where, data }: { where: Row; data: Row }) => {

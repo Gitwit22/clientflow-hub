@@ -281,10 +281,19 @@ describe('ClientsService', () => {
     const transaction = {
       cfClient: { update: jest.fn().mockResolvedValue({ ...client, programId: 'program-2' }) },
       cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+      cfProgramEnrollment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfFormAssignment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      cfEnrollmentBillingAgreement: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    const previousEnrollment = {
+      id: 'enroll-old', organizationId: 'org-1', clientId: 'client-1', programId: 'program-1', status: 'pending_review',
     };
     const prisma = {
       cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
       cfProgram: { findFirst: jest.fn().mockResolvedValue(program) },
+      cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(previousEnrollment) },
       $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     } as unknown as PrismaService;
     const contracts = contractsServiceMock();
@@ -292,11 +301,21 @@ describe('ClientsService', () => {
 
     const result = await service.updateProgram('org-1', 'client-1', 'program-2');
 
+    // The mistaken program's enrollment is withdrawn and its open contract cancelled.
+    expect(transaction.cfProgramEnrollment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'enroll-old', organizationId: 'org-1', status: 'pending_review' },
+      data: expect.objectContaining({ status: 'withdrawn' }),
+    }));
+    expect(transaction.cfContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ enrollmentId: 'enroll-old' }),
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    }));
+
     expect(transaction.cfClient.update).toHaveBeenCalledWith({
       where: { id: 'client-1' },
       data: { programId: 'program-2' },
     });
-    expect(contracts.handlePostIntakeProgramSelection).toHaveBeenCalledWith('org-1', 'client-1', 'program-2');
+    expect(contracts.handlePostIntakeProgramSelection).toHaveBeenCalledWith('org-1', 'client-1', 'program-2', null);
     expect(result).toEqual(expect.objectContaining({ clientStatus: 'PENDING_STAFF_REVIEW' }));
   });
 

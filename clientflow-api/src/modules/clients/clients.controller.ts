@@ -49,7 +49,8 @@ export class ClientsController {
   @ApiOperation({ summary: "Correct a client's selected program and re-run the contract rule engine" })
   @ApiOkResponse({ description: 'The re-evaluated contract rule outcome for the corrected program.' })
   updateProgram(@Req() request: AuthenticatedRequest, @Param('id') id: string, @Body() dto: UpdateClientProgramDto) {
-    return this.clients.updateProgram(requireAdmin(request).organizationId, id, dto.programId);
+    const admin = requireAdmin(request);
+    return this.clients.updateProgram(admin.organizationId, id, dto.programId, { id: admin.id, name: admin.displayName });
   }
 
   @Post(':id/intake/send')
@@ -74,18 +75,29 @@ export class ClientsController {
   approveReview(
     @Req() request: AuthenticatedRequest,
     @Param('id') id: string,
+    // Needed only when the client has more than one enrollment awaiting review.
+    @Query('enrollmentId') enrollmentId?: string,
   ) {
     // Older clients may still send staffSigner* fields in the body; the signer is always the
     // signed-in admin, so the body is not read.
     const admin = requireAdmin(request);
-    return this.contracts.approveReview(admin.organizationId, id, { id: admin.id, name: admin.displayName });
+    return this.contracts.approveReview(admin.organizationId, id, { id: admin.id, name: admin.displayName }, { enrollmentId: enrollmentId || null });
   }
 
   @Post(':id/review/decline')
   @UseGuards(ClientflowAdminOnlyGuard)
   @ApiOperation({ summary: 'Decline a staff-review client without creating a contract' })
   @ApiOkResponse({ description: 'The updated client status.' })
-  declineReview(@Req() request: AuthenticatedRequest, @Param('id') id: string, @Body() dto: DeclineReviewDto) {
-    return this.contracts.declineReview(requireAdmin(request).organizationId, id, dto.reason);
+  declineReview(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: DeclineReviewDto,
+    @Query('enrollmentId') enrollmentId?: string,
+  ) {
+    const admin = requireAdmin(request);
+    return this.contracts.declineReview(admin.organizationId, id, dto.reason, {
+      enrollmentId: enrollmentId || null,
+      actor: { id: admin.id, name: admin.displayName },
+    });
   }
 }

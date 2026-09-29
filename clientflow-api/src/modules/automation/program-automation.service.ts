@@ -387,6 +387,8 @@ export class ProgramAutomationService {
     context: ProgramExecutionContext,
     actionConfig: Record<string, unknown>,
   ): Promise<Prisma.JsonObject> {
+    // The client/program relationship is the enrollment: without one there is nothing to contract.
+    if (!context.enrollmentId) return { skipped: true, reason: 'enrollment_required' };
     const requiresStaffApproval = actionConfig.requireStaffApproval === true;
     if (requiresStaffApproval) {
       await this.prisma.cfClient.update({
