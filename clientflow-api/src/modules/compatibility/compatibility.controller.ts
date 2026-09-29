@@ -30,7 +30,8 @@ import { StorageService } from '../../integrations/storage/storage.service';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
-import { buildClientProfileUpdate } from '../clients/client-profile-update';
+import { AUTOMATED_CLIENT_STATUSES, buildClientProfileUpdate } from '../clients/client-profile-update';
+import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
   assertCanGrantRole,
   assertCanManageMember,
@@ -41,6 +42,7 @@ import {
   assertEnrollmentForClient,
   findClientForOrg,
   findEnrollmentForOrg,
+  findFormTemplateForOrg,
   findProgramForOrg,
   findStoredFileForOrg,
 } from '../../common/tenancy/org-scoped.repository';
@@ -353,7 +355,37 @@ export class ClientflowCompatibilityController {
   }
   @Post('clients') async createClient(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfClient.create({ data: { ...body, organizationId: orgId, businessName: String(body.businessName ?? 'Untitled Client'), primaryContactName: String(body.primaryContactName ?? 'Unknown Contact'), email: String(body.email ?? ''), phone: String(body.phone ?? ''), assignedStaff: String(body.assignedStaff ?? 'Unassigned'), intake: (isRecord(body.intake) ? body.intake : {}) as any, socialLinks: Array.isArray(body.socialLinks) ? body.socialLinks : [], status: String(body.status ?? 'New Intake'), lifecycleStatus: String(body.lifecycleStatus ?? 'intake_pending'), source: String(body.source ?? 'admin_created'), intakeSource: String(body.intakeSource ?? 'admin_created'), } as any });
+    const prisma = this.requirePrisma();
+    const optional = pickFields(body, CLIENT_CREATE_FIELDS);
+    if (typeof optional.assignedUserId === 'string') {
+      const assignee = await prisma.adminUser.findFirst({ where: { id: optional.assignedUserId, organizationId: orgId } });
+      if (!assignee) throw new NotFoundException('Assigned staff member not found.');
+    }
+    // Legacy mirror only (enrollment is canonical); still must belong to this organization.
+    const programId = typeof body.programId === 'string' && body.programId
+      ? (await findProgramForOrg(prisma, orgId, body.programId)).id
+      : null;
+    const status = String(body.status ?? 'New Intake');
+    if (AUTOMATED_CLIENT_STATUSES.has(status)) {
+      throw new BadRequestException('Client workflow statuses are set by the intake and contract workflow.');
+    }
+    return prisma.cfClient.create({
+      data: {
+        ...optional,
+        organizationId: orgId,
+        programId,
+        businessName: String(body.businessName ?? 'Untitled Client'),
+        primaryContactName: String(body.primaryContactName ?? 'Unknown Contact'),
+        email: String(body.email ?? ''),
+        phone: String(body.phone ?? ''),
+        assignedStaff: String(body.assignedStaff ?? 'Unassigned'),
+        intake: (isRecord(body.intake) ? body.intake : {}) as any,
+        socialLinks: Array.isArray(body.socialLinks) ? body.socialLinks.filter((link) => typeof link === 'string') : [],
+        status,
+        lifecycleStatus: 'intake_pending',
+        intakeSource: String(body.intakeSource ?? 'admin_created'),
+      } as any,
+    });
   }
   @Patch('clients/:id') async updateClient(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -505,7 +537,11 @@ export class ClientflowCompatibilityController {
   }
   @Patch('programs/:id') async updateProgram(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfProgram.update({ where: { id, organizationId: orgId }, data: body });
+    const data = pickFields(body, PROGRAM_UPDATE_FIELDS);
+    if (typeof data.defaultFormTemplateId === 'string' && data.defaultFormTemplateId) {
+      await findFormTemplateForOrg(this.requirePrisma(), orgId, data.defaultFormTemplateId);
+    }
+    return this.requirePrisma().cfProgram.update({ where: { id, organizationId: orgId }, data });
   }
   @Get('programs/:id/workflow') async getProgramWorkflowConfig(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -939,8 +975,9 @@ export class ClientflowCompatibilityController {
       status: initialStatus,
       assignedUserId: body.assignedUserId ? String(body.assignedUserId) : null,
       assignedStaff: body.assignedStaff ? String(body.assignedStaff) : null,
-      lastModifiedByUserId: body.lastModifiedByUserId ? String(body.lastModifiedByUserId) : admin.id,
-      lastModifiedByDisplayName: body.lastModifiedByDisplayName ? String(body.lastModifiedByDisplayName) : actorDisplayName,
+      // The audit trail always names the signed-in admin, never a body-supplied actor.
+      lastModifiedByUserId: admin.id,
+      lastModifiedByDisplayName: actorDisplayName,
       startDate: body.startDate ? new Date(String(body.startDate)) : null,
       nextAction: body.nextAction ? String(body.nextAction) : null,
       nextActionDate: body.nextActionDate ? new Date(String(body.nextActionDate)) : null,
@@ -981,7 +1018,15 @@ export class ClientflowCompatibilityController {
     if (body.status !== undefined) {
       throw new BadRequestException('Enrollment status changes must use the transition endpoint.');
     }
-    const updated = await prisma.cfProgramEnrollment.update({ where: { id, organizationId: orgId }, data: body });
+    const data = pickFields(body, ENROLLMENT_UPDATE_FIELDS);
+    if (typeof data.assignedUserId === 'string') {
+      const assignee = await prisma.adminUser.findFirst({ where: { id: data.assignedUserId, organizationId: orgId } });
+      if (!assignee) throw new NotFoundException('Assigned staff member not found.');
+    }
+    const updated = await prisma.cfProgramEnrollment.update({
+      where: { id, organizationId: orgId },
+      data: { ...data, lastModifiedByUserId: admin.id, lastModifiedByDisplayName: [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email },
+    });
     if (this.automation
       && String(current.status).toLowerCase() !== 'approved'
       && String(updated.status).toLowerCase() === 'approved') {
@@ -1090,7 +1135,11 @@ export class ClientflowCompatibilityController {
   }
   @Patch('form-templates/:id') async updateFormTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFormTemplate.update({ where: { id, organizationId: orgId }, data: body });
+    const data = pickFields(body, FORM_TEMPLATE_UPDATE_FIELDS);
+    if (typeof data.programId === 'string' && data.programId) {
+      await findProgramForOrg(this.requirePrisma(), orgId, data.programId);
+    }
+    return this.requirePrisma().cfFormTemplate.update({ where: { id, organizationId: orgId }, data });
   }
   @Delete('form-templates/:id') async deleteFormTemplate(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1118,7 +1167,10 @@ export class ClientflowCompatibilityController {
   }
   @Patch('form-assignments/:id') async updateFormAssignment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFormAssignment.update({ where: { id, organizationId: orgId }, data: body });
+    return this.requirePrisma().cfFormAssignment.update({
+      where: { id, organizationId: orgId },
+      data: pickFields(body, FORM_ASSIGNMENT_UPDATE_FIELDS),
+    });
   }
   @Get('intake-submissions') async listIntakeSubmissions(@Req() request: Request, @Query('clientId') clientId?: string, @Query('programId') programId?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1287,7 +1339,7 @@ export class ClientflowCompatibilityController {
   }
   @Patch('terms/:id') async updateTerms(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfTerms.update({ where: { id, organizationId: orgId }, data: body });
+    return this.requirePrisma().cfTerms.update({ where: { id, organizationId: orgId }, data: pickFields(body, TERMS_UPDATE_FIELDS) });
   }
   @Post('enrollments/:enrollmentId/monitoring') async createMonitoring(@Req() request: Request, @Param('enrollmentId') enrollmentId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1481,6 +1533,99 @@ export class ClientflowCompatibilityController {
     return { liveMode: true, demoRemovedAt: new Date().toISOString(), principalAdminId: null, removed: {} };
   }
 }
+
+/*
+ * Explicit write allowlists for generic PATCH/POST routes (docs/ARCHITECTURE_RULES.md rule 5).
+ * Identifiers, ownership columns, tokens and demo flags are never listed.
+ */
+const PROGRAM_UPDATE_FIELDS: FieldSpec = {
+  name: 'string',
+  description: 'string',
+  isActive: 'boolean',
+  financialTrackingEnabled: 'boolean',
+  defaultFormTemplateId: 'string',
+  defaultMonitoringFrequency: 'string',
+  defaultContractTemplateId: 'string',
+  defaultWorkflow: 'stringArray',
+  requiredDocuments: 'stringArray',
+  statusPipeline: 'stringArray',
+  welcomeMessage: 'nullableString',
+};
+
+const ENROLLMENT_UPDATE_FIELDS: FieldSpec = {
+  assignedUserId: 'nullableString',
+  assignedStaff: 'nullableString',
+  startDate: 'nullableDate',
+  nextAction: 'nullableString',
+  nextActionDate: 'nullableDate',
+  progressPercentage: 'int',
+  targetCompletionDate: 'nullableDate',
+  currentGoalId: 'nullableString',
+  clientResponsiveness: { oneOf: ['responsive', 'inconsistent', 'unresponsive', 'unknown'] },
+  currentBlockers: 'nullableString',
+  riskLevel: { oneOf: ['low', 'medium', 'high', 'critical'] },
+  staffProgressNotes: 'nullableString',
+  meetingsAttended: 'int',
+  outcomeAchieved: { oneOf: ['yes', 'partial', 'no', 'pending'] },
+  finalOutcomeSummary: 'nullableString',
+  onHoldReason: 'nullableString',
+};
+
+const FORM_TEMPLATE_UPDATE_FIELDS: FieldSpec = {
+  name: 'string',
+  description: 'string',
+  fields: 'jsonArray',
+  emailTemplate: 'string',
+  internalNotes: 'nullableString',
+  dueInDays: 'int',
+  isActive: 'boolean',
+  sortOrder: 'int',
+  scope: { oneOf: ['master_core', 'program_section'] },
+  programId: 'nullableString',
+};
+
+const FORM_ASSIGNMENT_UPDATE_FIELDS: FieldSpec = {
+  status: {
+    oneOf: ['draft', 'sent', 'delivered', 'opened', 'in_progress', 'submitted', 'under_review', 'approved', 'cancelled', 'expired'],
+  },
+  responses: 'jsonObject',
+  editHistory: 'jsonArray',
+  startedAt: 'nullableDate',
+  submittedAt: 'nullableDate',
+  cancelledAt: 'nullableDate',
+};
+
+const TERMS_UPDATE_FIELDS: FieldSpec = {
+  supportType: 'string',
+  fundingAmount: 'number',
+  resourceDescription: 'string',
+  grantAmount: 'number',
+  loanAmount: 'number',
+  investmentAmount: 'number',
+  forgivableAmount: 'number',
+  repaymentRequired: 'boolean',
+  repaymentSchedule: 'string',
+  interestDescription: 'string',
+  milestones: 'string',
+  reportingRequirements: 'string',
+  startDate: 'string',
+  endDate: 'string',
+  monitoringFrequency: 'string',
+  specialConditions: 'string',
+  approvalStatus: 'string',
+};
+
+/** Client columns staff may set when creating a client (workflow/ownership columns are server-set). */
+const CLIENT_CREATE_FIELDS: FieldSpec = {
+  website: 'nullableString',
+  profileType: 'nullableString',
+  relationshipType: 'nullableString',
+  assignedUserId: 'nullableString',
+  source: 'nullableString',
+  nextFollowUpDate: 'nullableDate',
+  convertedAt: 'nullableDate',
+  snapchat: 'jsonObject',
+};
 
 /** The organization settings staff may change. Anything else in the request body is ignored. */
 function pickOrganizationSettings(body: Record<string, unknown>): Record<string, unknown> {
