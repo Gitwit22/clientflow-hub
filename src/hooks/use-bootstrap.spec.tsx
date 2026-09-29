@@ -35,7 +35,11 @@ describe("useBootstrap", () => {
       programs: [],
     }));
 
-    vi.mocked(api.cfGetDemoStatus).mockResolvedValue({ liveMode: true });
+    vi.mocked(api.cfGetDemoStatus).mockResolvedValue({
+      liveMode: true,
+      demoRemovedAt: null,
+      principalAdminId: null,
+    });
     vi.mocked(api.cfListClients).mockResolvedValue([]);
     vi.mocked(api.cfListPrograms).mockResolvedValue([]);
     vi.mocked(api.cfListEnrollments).mockResolvedValue([]);

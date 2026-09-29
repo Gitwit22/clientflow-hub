@@ -33,7 +33,7 @@ import {
   updateOrganizationSettings,
 } from "@/lib/apiClient";
 import { uploadStoredFile } from "@/lib/api";
-import { useAppState } from "@/lib/store";
+import { useAppState, retryBootstrap } from "@/lib/store";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
@@ -108,7 +108,7 @@ function MemberStatusBadge({ member }: { member: OrgMember }) {
 // ─── Settings page ────────────────────────────────────────────────────────────
 
 function SettingsPage() {
-  const { programs, formTemplates, authenticatedAdmin, retryBootstrap } = useAppState();
+  const { programs, formTemplates, authenticatedAdmin } = useAppState();
   const orgId = authenticatedAdmin?.organizationId ?? null;
   const selfId = authenticatedAdmin?.id ?? null;
   const canRemoveDemoPermanently =
@@ -385,10 +385,7 @@ function SettingsPage() {
     }
   }
 
-  async function handleTemplateToggle(
-    key: keyof typeof templateToggles,
-    enabled: boolean,
-  ) {
+  async function handleTemplateToggle(key: keyof typeof templateToggles, enabled: boolean) {
     if (!orgId) return;
     const previous = templateToggles[key];
     setTemplateToggles((current) => ({ ...current, [key]: enabled }));
@@ -632,9 +629,7 @@ function SettingsPage() {
               <Button
                 type="submit"
                 size="sm"
-                disabled={
-                  passwordSaving || !currentPassword || !newPassword || !confirmPassword
-                }
+                disabled={passwordSaving || !currentPassword || !newPassword || !confirmPassword}
               >
                 {passwordSaving ? "Changing…" : "Change password"}
               </Button>
@@ -836,7 +831,7 @@ function SettingsPage() {
               <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
                 {liveMode
                   ? `Demo data permanently removed${demoRemovedAt ? ` ${new Date(demoRemovedAt).toLocaleDateString()}` : ""}`
-                    : "Only organization administrators can permanently remove demo data"}
+                  : "Only organization administrators can permanently remove demo data"}
               </p>
             )}
           </CardContent>
