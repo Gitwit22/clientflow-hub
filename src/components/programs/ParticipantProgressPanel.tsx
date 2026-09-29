@@ -128,7 +128,10 @@ export function ParticipantProgressPanel({
         ) : (
           <ol className="mt-3 divide-y divide-border">
             {[...statusHistory].reverse().map((item) => (
-              <li key={item.id} className="grid gap-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+              <li
+                key={item.id}
+                className="grid gap-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+              >
                 <StatusBadge status={item.newStatus} />
                 <div className="text-sm">
                   <span>Changed by {item.changedByDisplayName || "Unknown user"}</span>

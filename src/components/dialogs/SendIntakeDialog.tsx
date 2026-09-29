@@ -28,7 +28,9 @@ export function SendIntakeDialog({
 
   async function handleSend() {
     try {
-      const result = await attempt.run((idempotencyKey) => acfSendIntakeNow(client.id, { idempotencyKey }));
+      const result = await attempt.run((idempotencyKey) =>
+        acfSendIntakeNow(client.id, { idempotencyKey }),
+      );
       if (!result) return;
       const outcome = describeDelivery(result.emailDelivery);
       void refreshClientCommunications(client.id).catch(() => undefined);
@@ -49,7 +51,8 @@ export function SendIntakeDialog({
         <DialogHeader>
           <DialogTitle className="font-display">Send intake email</DialogTitle>
           <DialogDescription>
-            Emails a fresh secure link to the General Intake form. Any earlier intake link stops working.
+            Emails a fresh secure link to the General Intake form. Any earlier intake link stops
+            working.
           </DialogDescription>
         </DialogHeader>
         <dl className="space-y-1 text-sm">
@@ -59,7 +62,12 @@ export function SendIntakeDialog({
           </div>
         </dl>
         <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={attempt.sending}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={attempt.sending}
+          >
             Cancel
           </Button>
           <Button type="button" onClick={handleSend} disabled={attempt.sending}>

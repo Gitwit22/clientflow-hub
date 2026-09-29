@@ -27,6 +27,8 @@ function table(rows: Row[]) {
   return {
     findFirst: ({ where }: { where?: Row } = {}) => first(where),
     findUnique: ({ where }: { where?: Row } = {}) => first(where),
+    findFirstOrThrow: ({ where }: { where?: Row } = {}) => first(where).then((row) => row
+      ?? Promise.reject(Object.assign(new Error('No record found.'), { code: 'P2025' }))),
     findMany: ({ where }: { where?: Row } = {}) => Promise.resolve(rows.filter((row) => matches(row, where))),
     count: ({ where }: { where?: Row } = {}) => Promise.resolve(rows.filter((row) => matches(row, where)).length),
     update: ({ where, data }: { where: Row; data: Row }) => {
@@ -39,6 +41,13 @@ function table(rows: Row[]) {
       const hits = rows.filter((row) => matches(row, where));
       hits.forEach((row) => Object.assign(row, data));
       return Promise.resolve({ count: hits.length });
+    },
+    deleteMany: ({ where }: { where?: Row } = {}) => {
+      const before = rows.length;
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        if (matches(rows[index], where)) rows.splice(index, 1);
+      }
+      return Promise.resolve({ count: before - rows.length });
     },
     create: ({ data }: { data: Row }) => {
       const row = { id: Math.random().toString(36).slice(2), ...data };

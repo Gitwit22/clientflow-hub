@@ -6,6 +6,11 @@ import { N8nService } from '../../integrations/n8n/n8n.service';
 import type { IntakeEmailDeliveryResult } from '../../integrations/n8n/n8n.types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { findClientForOrg } from '../../common/tenancy/org-scoped.repository';
+import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
+import { transitionEnrollment } from '../lifecycle/enrollment-state';
+
+/** Enrollments a program correction may withdraw: nothing has been signed or started yet. */
+const CORRECTABLE_ENROLLMENT_STATUSES: readonly string[] = ['interested', 'pending_review', 'approved', 'onboarding'];
 import {
   attemptEventId,
   COMMUNICATION_STATUS,
@@ -316,7 +321,12 @@ export class ClientsService {
     };
   }
 
-  async updateProgram(organizationId: string, id: string, programId: string) {
+  async updateProgram(
+    organizationId: string,
+    id: string,
+    programId: string,
+    actor: { id: string | null; name: string } | null = null,
+  ) {
     const client = await findClientForOrg(this.prisma, organizationId, id);
 
     const program = await this.prisma.cfProgram.findFirst({
@@ -324,8 +334,32 @@ export class ClientsService {
     });
     if (!program) throw new NotFoundException('Program not found.');
 
+    // client.programId is only the legacy mirror of the selection being corrected. The enrollment
+    // it pointed at is withdrawn if it never got past onboarding (its open contracts and forms are
+    // cancelled with it); an enrollment that is already active is a real membership and stays.
     const previousProgramId = client.programId;
+    const previous = previousProgramId && previousProgramId !== programId
+      ? await this.prisma.cfProgramEnrollment.findFirst({
+          where: { organizationId: client.organizationId, clientId: client.id, programId: previousProgramId },
+        })
+      : null;
     await this.prisma.$transaction(async (transaction) => {
+      if (previous && CORRECTABLE_ENROLLMENT_STATUSES.includes(previous.status)) {
+        const now = new Date();
+        await transitionEnrollment(transaction, {
+          organizationId: client.organizationId,
+          enrollmentId: previous.id,
+          from: previous.status,
+          to: 'withdrawn',
+          data: { withdrawnAt: now },
+          history: {
+            changedByUserId: actor?.id ?? null,
+            changedByDisplayName: actor?.name ?? 'staff',
+            reason: `Program corrected to ${program.name}.`,
+          },
+        });
+        await applyEnrollmentClosure(transaction, { ...previous, status: 'withdrawn' }, now);
+      }
       await transaction.cfClient.update({ where: { id: client.id }, data: { programId } });
       await transaction.cfActivityLog.create({
         data: {
@@ -341,7 +375,7 @@ export class ClientsService {
       });
     });
 
-    return this.contracts.handlePostIntakeProgramSelection(client.organizationId, client.id, program.id);
+    return this.contracts.handlePostIntakeProgramSelection(client.organizationId, client.id, program.id, actor);
   }
 
   /**

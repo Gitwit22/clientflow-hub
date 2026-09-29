@@ -2,12 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { createEnrollment, reactivateEnrollment } from "@/lib/api";
 import { useAppState } from "@/lib/store";
@@ -115,11 +110,7 @@ export function ManageProgramMembersDialog({
                   onClick={() => void addMember(client.id)}
                 >
                   <UserPlus className="mr-2 h-4 w-4" />
-                  {savingClientId === client.id
-                    ? "Saving..."
-                    : enrollment
-                      ? "Reactivate"
-                      : "Add"}
+                  {savingClientId === client.id ? "Saving..." : enrollment ? "Reactivate" : "Add"}
                 </Button>
               </div>
             ))

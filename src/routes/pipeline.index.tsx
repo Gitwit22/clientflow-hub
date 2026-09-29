@@ -18,12 +18,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { acfListClients, ApiError, type AutomatedClient, type AutomatedClientStatus } from "@/lib/apiClient";
+import {
+  acfListClients,
+  ApiError,
+  type AutomatedClient,
+  type AutomatedClientStatus,
+} from "@/lib/apiClient";
 import { useAppState } from "@/lib/store";
 
 export const Route = createFileRoute("/pipeline/")({
   validateSearch: (search: Record<string, unknown>) => ({
-    status: typeof search.status === "string" ? (search.status as AutomatedClientStatus) : undefined,
+    status:
+      typeof search.status === "string" ? (search.status as AutomatedClientStatus) : undefined,
   }),
   head: () => ({
     meta: [
@@ -80,7 +86,10 @@ function PipelinePage() {
         title="Pipeline"
         description="Every client moving through the automated intake, program and contract workflow."
         actions={
-          <Select value={status} onValueChange={(value) => setStatus(value as AutomatedClientStatus | "all")}>
+          <Select
+            value={status}
+            onValueChange={(value) => setStatus(value as AutomatedClientStatus | "all")}
+          >
             <SelectTrigger className="w-56">
               <SelectValue />
             </SelectTrigger>
@@ -101,7 +110,9 @@ function PipelinePage() {
         ) : error ? (
           <p className="py-8 text-center text-sm text-destructive">{error}</p>
         ) : clients.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No clients match this filter.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No clients match this filter.
+          </p>
         ) : (
           <Table>
             <TableHeader>

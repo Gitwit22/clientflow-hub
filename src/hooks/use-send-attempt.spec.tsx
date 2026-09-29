@@ -19,10 +19,12 @@ describe("useSendAttempt", () => {
     const { result } = renderHook(() => useSendAttempt());
     const keys: string[] = [];
     await act(async () => {
-      await result.current.run(async (key) => {
-        keys.push(key);
-        throw networkError();
-      }).catch(() => undefined);
+      await result.current
+        .run(async (key) => {
+          keys.push(key);
+          throw networkError();
+        })
+        .catch(() => undefined);
     });
     await act(async () => void (await result.current.run(async (key) => keys.push(key))));
     expect(keys[0]).toBe(keys[1]);
@@ -32,10 +34,12 @@ describe("useSendAttempt", () => {
     const { result } = renderHook(() => useSendAttempt());
     const keys: string[] = [];
     await act(async () => {
-      await result.current.run(async (key) => {
-        keys.push(key);
-        throw serverError();
-      }).catch(() => undefined);
+      await result.current
+        .run(async (key) => {
+          keys.push(key);
+          throw serverError();
+        })
+        .catch(() => undefined);
     });
     await act(async () => void (await result.current.run(async (key) => keys.push(key))));
     expect(keys[0]).not.toBe(keys[1]);
@@ -45,9 +49,10 @@ describe("useSendAttempt", () => {
     const { result } = renderHook(() => useSendAttempt());
     let release!: () => void;
     const action = vi.fn(
-      () => new Promise<string>((resolve) => {
-        release = () => resolve("done");
-      }),
+      () =>
+        new Promise<string>((resolve) => {
+          release = () => resolve("done");
+        }),
     );
 
     let first!: Promise<string | undefined>;

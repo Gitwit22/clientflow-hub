@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { acfCreateClient } from "@/lib/apiClient";
 import { refreshClientProfile } from "@/lib/api";
+import { describeDeliveryReason } from "@/lib/client-send";
 import { useAppState } from "@/lib/store";
 
 export function AddClientDialog({
@@ -66,7 +67,10 @@ export function AddClientDialog({
       try {
         await refreshClientProfile(result.client.id);
       } catch (refreshError) {
-        console.warn("Client was created but the client list could not be refreshed.", refreshError);
+        console.warn(
+          "Client was created but the client list could not be refreshed.",
+          refreshError,
+        );
       }
       const { emailDelivery } = result;
       if (emailDelivery.status === "sent") {
@@ -75,7 +79,7 @@ export function AddClientDialog({
         toast.success("Client added. Intake email is saved as deferred — send it when ready.");
       } else {
         toast.error(
-          `Client added, but the intake email was not sent (${emailDelivery.reason ?? emailDelivery.status}). You can resend it from the client profile.`,
+          `Client added, but the intake email was not sent (${emailDelivery.reason ? describeDeliveryReason(emailDelivery.reason) : emailDelivery.status}). You can resend it from the client profile.`,
         );
       }
       reset();
@@ -143,8 +147,8 @@ export function AddClientDialog({
               onCheckedChange={(checked) => setSendIntakeImmediately(checked === true)}
             />
             <Label htmlFor="add-client-send-intake" className="text-sm font-normal leading-snug">
-              Send the General Intake email immediately. Uncheck to review and send it manually
-              from the client profile later.
+              Send the General Intake email immediately. Uncheck to review and send it manually from
+              the client profile later.
             </Label>
           </div>
         </form>

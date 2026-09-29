@@ -26,7 +26,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { changeAssignmentStatus, saveFormDraft, saveFormEdits, submitFormResponse } from "@/lib/api";
+import {
+  changeAssignmentStatus,
+  saveFormDraft,
+  saveFormEdits,
+  submitFormResponse,
+} from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import type {
   Client,
@@ -67,6 +72,13 @@ const STATUS_TRANSITIONS: Partial<Record<FormAssignmentStatus, FormAssignmentSta
   submitted: ["under_review", "approved", "cancelled"],
   under_review: ["approved", "cancelled"],
 };
+
+/** A stored answer as text-input contents: lists are joined, and empty or yes/no answers show nothing. */
+function inputText(value: PublicFormResponseValue): string | number {
+  if (Array.isArray(value)) return value.join(", ");
+  if (value === null || typeof value === "boolean") return "";
+  return value;
+}
 
 function FieldInput({
   field,
@@ -150,7 +162,7 @@ function FieldInput({
       <div className="space-y-3">
         <Input
           id={`field-${field.id}`}
-          value={value}
+          value={inputText(value)}
           onChange={(event) => onChange(event.target.value)}
           maxLength={200}
           placeholder="Type your full legal name"
@@ -171,13 +183,13 @@ function FieldInput({
             ? "email"
             : field.type === "url"
               ? "url"
-            : field.type === "number"
-              ? "number"
-              : field.type === "date"
-                ? "date"
-                : "text"
+              : field.type === "number"
+                ? "number"
+                : field.type === "date"
+                  ? "date"
+                  : "text"
       }
-      value={value}
+      value={inputText(value)}
       onChange={(e) => onChange(e.target.value)}
       placeholder={`Enter ${field.label.toLowerCase()}…`}
     />
@@ -259,16 +271,16 @@ export function FormRendererDialog({
   const requiredFields = template.fields.filter((f) => f.required);
   const missingRequired = requiredFields.filter((field) => {
     const value = responses[field.id];
-    return value === undefined
-      || value === null
-      || (typeof value === "string" && !value.trim())
-      || (Array.isArray(value) && value.length === 0);
+    return (
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && !value.trim()) ||
+      (Array.isArray(value) && value.length === 0)
+    );
   });
   const completedRequired = requiredFields.length - missingRequired.length;
   const progressPct =
-    requiredFields.length > 0
-      ? Math.round((completedRequired / requiredFields.length) * 100)
-      : 100;
+    requiredFields.length > 0 ? Math.round((completedRequired / requiredFields.length) * 100) : 100;
 
   const availableStatuses = STATUS_TRANSITIONS[assignment.status] ?? [];
 
@@ -330,9 +342,7 @@ export function FormRendererDialog({
         <DialogHeader>
           <DialogTitle className="font-display">{template.name}</DialogTitle>
           <DialogDescription>
-            {readOnly
-              ? `Submitted responses for ${client.businessName}`
-              : template.description}
+            {readOnly ? `Submitted responses for ${client.businessName}` : template.description}
           </DialogDescription>
         </DialogHeader>
 
@@ -355,12 +365,14 @@ export function FormRendererDialog({
               field.id === "program" || field.prefillKey === "programOfInterest"
                 ? {
                     ...field,
-                    options: programs.filter((program) => program.isActive).map((program) => program.name),
+                    options: programs
+                      .filter((program) => program.isActive)
+                      .map((program) => program.name),
                   }
                 : field;
             return (
               <div key={field.id} className="space-y-1.5">
-                <Label htmlFor={(readOnly && !editing) ? undefined : `field-${field.id}`}>
+                <Label htmlFor={readOnly && !editing ? undefined : `field-${field.id}`}>
                   {field.label}
                   {!(readOnly && !editing) && field.required && (
                     <span className="ml-1 text-destructive" aria-hidden>
@@ -368,12 +380,20 @@ export function FormRendererDialog({
                     </span>
                   )}
                 </Label>
-                {(readOnly && !editing) ? (
-                  <p className={`whitespace-pre-line text-sm ${value ? "" : "italic text-muted-foreground"}`}>
-                    {Array.isArray(value) ? value.join("\n") || "(not answered)" : String(value || "(not answered)")}
+                {readOnly && !editing ? (
+                  <p
+                    className={`whitespace-pre-line text-sm ${value ? "" : "italic text-muted-foreground"}`}
+                  >
+                    {Array.isArray(value)
+                      ? value.join("\n") || "(not answered)"
+                      : String(value || "(not answered)")}
                   </p>
                 ) : (
-                  <FieldInput field={renderedField} value={value} onChange={(v) => set(field.id, v)} />
+                  <FieldInput
+                    field={renderedField}
+                    value={value}
+                    onChange={(v) => set(field.id, v)}
+                  />
                 )}
               </div>
             );
@@ -438,7 +458,10 @@ export function FormRendererDialog({
             <>
               <Button
                 variant="ghost"
-                onClick={() => { setResponses(originalResponses); setEditing(false); }}
+                onClick={() => {
+                  setResponses(originalResponses);
+                  setEditing(false);
+                }}
                 disabled={savingEdits}
               >
                 Cancel Edit
@@ -458,7 +481,11 @@ export function FormRendererDialog({
                 </Button>
               ) : (
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleSaveDraft} disabled={saving || submitting}>
+                  <Button
+                    variant="outline"
+                    onClick={handleSaveDraft}
+                    disabled={saving || submitting}
+                  >
                     {saving ? "Saving…" : "Save Draft"}
                   </Button>
                   <Button onClick={handleSubmit} disabled={saving || submitting}>

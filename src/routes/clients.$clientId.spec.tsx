@@ -53,18 +53,23 @@ vi.mock("@/components/dialogs/SendFormDialog", () => ({
     open ? <div data-testid={`dialog-form-${kind ?? "legacy"}`} /> : null,
 }));
 vi.mock("@/components/dialogs/SendContractDialog", () => ({
-  SendContractDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="dialog-contract" /> : null),
+  SendContractDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="dialog-contract" /> : null,
 }));
 vi.mock("@/components/dialogs/SendWelcomeDialog", () => ({
-  SendWelcomeDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="dialog-welcome" /> : null),
+  SendWelcomeDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="dialog-welcome" /> : null,
 }));
 vi.mock("@/components/dialogs/SendIntakeDialog", () => ({
-  SendIntakeDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="dialog-intake" /> : null),
+  SendIntakeDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="dialog-intake" /> : null,
 }));
 vi.mock("@/components/dialogs/TermsDialog", () => ({ TermsDialog: () => null }));
 vi.mock("@/components/dialogs/SetUpPaymentsDialog", () => ({ SetUpPaymentsDialog: () => null }));
 vi.mock("@/components/dialogs/RecordPaymentDialog", () => ({ RecordPaymentDialog: () => null }));
-vi.mock("@/components/dialogs/BringAccountCurrentDialog", () => ({ BringAccountCurrentDialog: () => null }));
+vi.mock("@/components/dialogs/BringAccountCurrentDialog", () => ({
+  BringAccountCurrentDialog: () => null,
+}));
 vi.mock("@/components/dialogs/PaymentLedgerDialog", () => ({ PaymentLedgerDialog: () => null }));
 
 import { Route as ClientRoute } from "./clients.$clientId";
@@ -128,8 +133,22 @@ function seed({ enrollments }: { enrollments: ReturnType<typeof enrollment>[] })
       { id: "a2", clientId: "c1", enrollmentId: "e2", formId: "f2", status: "draft" },
     ] as never,
     contracts: [
-      { id: "k1", clientId: "c1", enrollmentId: "e1", contractType: "Contract P1", status: "SENT", generatedContent: "" },
-      { id: "k2", clientId: "c1", enrollmentId: "e2", contractType: "Contract P2", status: "SENT", generatedContent: "" },
+      {
+        id: "k1",
+        clientId: "c1",
+        enrollmentId: "e1",
+        contractType: "Contract P1",
+        status: "SENT",
+        generatedContent: "",
+      },
+      {
+        id: "k2",
+        clientId: "c1",
+        enrollmentId: "e2",
+        contractType: "Contract P2",
+        status: "SENT",
+        generatedContent: "",
+      },
     ] as never,
     monitoring: [
       { id: "m1", enrollmentId: "e1", name: "Monitor P1", complianceStatus: "compliant" },
@@ -169,7 +188,8 @@ function mountRouter(initialUrl: string) {
 
 const tabNames = () => screen.getAllByRole("tab").map((tab) => tab.textContent);
 const selectedTab = () =>
-  screen.getAllByRole("tab").find((tab) => tab.getAttribute("aria-selected") === "true")?.textContent;
+  screen.getAllByRole("tab").find((tab) => tab.getAttribute("aria-selected") === "true")
+    ?.textContent;
 const openTab = (label: string) =>
   fireEvent.mouseDown(screen.getByRole("tab", { name: label }), { button: 0, ctrlKey: false });
 
@@ -367,7 +387,9 @@ describe("canonical client profile: client with no enrollments", () => {
     expect(await screen.findByText("No program enrollment")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Enroll client" })).toBeTruthy();
     expect(tabNames()).toEqual(TAB_LABELS);
-    expect(await screen.findByText("Enroll this client in a program to use this tab.")).toBeTruthy();
+    expect(
+      await screen.findByText("Enroll this client in a program to use this tab."),
+    ).toBeTruthy();
     expect(cfGetEnrollmentBillingSummary).not.toHaveBeenCalled();
     expect(router.state.location.search.enrollmentId).toBeUndefined();
   });
@@ -390,7 +412,13 @@ describe("one Send workflow in the client header", () => {
     expect(screen.getByRole("button", { name: "Move to archive" })).toBeTruthy();
 
     // The old standalone header actions are gone.
-    for (const name of ["Create terms", "Generate contract", "Schedule follow-up", "Resend intake email", "Send program form"]) {
+    for (const name of [
+      "Create terms",
+      "Generate contract",
+      "Schedule follow-up",
+      "Resend intake email",
+      "Send program form",
+    ]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
   });
@@ -424,7 +452,9 @@ describe("one Send workflow in the client header", () => {
     expect(isDisabled(menuItem(/Send program form/))).toBe(true);
     expect(isDisabled(menuItem(/Send contract/))).toBe(true);
     expect(isDisabled(menuItem(/Send \/ resend welcome email/))).toBe(true);
-    expect(screen.getByText("Assign the client to a program before sending program-specific materials.")).toBeTruthy();
+    expect(
+      screen.getByText("Assign the client to a program before sending program-specific materials."),
+    ).toBeTruthy();
     expect(isDisabled(menuItem(/Send \/ resend intake/))).toBe(false);
     expect(isDisabled(menuItem(/Send general form/))).toBe(false);
 
@@ -450,9 +480,15 @@ describe("one Send workflow in the client header", () => {
     seed({ enrollments: [] });
     mountRouter("/clients/c1?tab=forms");
     await screen.findByText("Send something to this client");
-    expect((screen.getByRole("button", { name: "General Form" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Program Form" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Welcome Email" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "General Form" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Program Form" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Welcome Email" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("relocated actions: terms live on the Program tab, contracts on Contracts, follow-up on Overview", async () => {
@@ -478,7 +514,17 @@ describe("one Send workflow in the client header", () => {
     setState((state) => ({
       ...state,
       contracts: [
-        { id: "k1", clientId: "c1", enrollmentId: "e1", contractType: "Contract P1", status: "COMPLETED", signedAt: "2026-09-20T00:00:00.000Z", executedStoredFileId: "f1", generatedContent: "", createdAt: "2026-09-01T00:00:00.000Z" },
+        {
+          id: "k1",
+          clientId: "c1",
+          enrollmentId: "e1",
+          contractType: "Contract P1",
+          status: "COMPLETED",
+          signedAt: "2026-09-20T00:00:00.000Z",
+          executedStoredFileId: "f1",
+          generatedContent: "",
+          createdAt: "2026-09-01T00:00:00.000Z",
+        },
       ] as never,
     }));
     mountRouter("/clients/c1?enrollmentId=e1&tab=contracts");

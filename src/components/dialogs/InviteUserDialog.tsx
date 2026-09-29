@@ -56,8 +56,7 @@ export function InviteUserDialog({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setIsSubmitting(true);
-    const backendRole =
-      roleLabel === "Admin" || roleLabel === "Manager" ? "org_admin" : "reviewer";
+    const backendRole = roleLabel === "Admin" || roleLabel === "Manager" ? "org_admin" : "reviewer";
     try {
       await inviteMember(organizationId, {
         email: email.trim(),
@@ -79,13 +78,17 @@ export function InviteUserDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) reset();
+        onOpenChange(v);
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-display">Invite team member</DialogTitle>
-          <DialogDescription>
-            They'll receive an email to set up their password.
-          </DialogDescription>
+          <DialogDescription>They'll receive an email to set up their password.</DialogDescription>
         </DialogHeader>
         <form id="invite-form" onSubmit={handleSubmit} className="space-y-4 py-2">
           <div className="grid grid-cols-2 gap-3">
@@ -137,7 +140,14 @@ export function InviteUserDialog({
           </div>
         </form>
         <DialogFooter>
-          <Button variant="outline" onClick={() => { reset(); onOpenChange(false); }} disabled={isSubmitting}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              reset();
+              onOpenChange(false);
+            }}
+            disabled={isSubmitting}
+          >
             Cancel
           </Button>
           <Button type="submit" form="invite-form" disabled={isSubmitting}>

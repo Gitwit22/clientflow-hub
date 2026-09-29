@@ -9,7 +9,11 @@ import {
 } from "./client-profile";
 import { uniqueEnrollments } from "./enrollment-status";
 
-const enrollment = (id: string, programId: string, status = "active") => ({ id, programId, status });
+const enrollment = (id: string, programId: string, status = "active") => ({
+  id,
+  programId,
+  status,
+});
 
 describe("CLIENT_TABS", () => {
   it("is the canonical ten-tab set, in order, with a label for each", () => {
@@ -107,9 +111,9 @@ describe("resolveSelectedEnrollmentId", () => {
   });
 
   it("treats duplicate copies of the same enrollment as one", () => {
-    expect(
-      resolveSelectedEnrollmentId([enrollment("e1", "p1"), enrollment("e1", "p1")], {}),
-    ).toBe("e1");
+    expect(resolveSelectedEnrollmentId([enrollment("e1", "p1"), enrollment("e1", "p1")], {})).toBe(
+      "e1",
+    );
   });
 });
 

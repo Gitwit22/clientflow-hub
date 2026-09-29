@@ -114,11 +114,24 @@ export function SendWelcomeDialog({
         )}
 
         <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={attempt.sending}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={attempt.sending}
+          >
             Close
           </Button>
-          <Button type="button" onClick={handleSend} disabled={attempt.sending || state.kind === "blocked"}>
-            {attempt.sending ? "Sending…" : state.kind === "sent" ? "Resend welcome email" : "Send welcome email"}
+          <Button
+            type="button"
+            onClick={handleSend}
+            disabled={attempt.sending || state.kind === "blocked"}
+          >
+            {attempt.sending
+              ? "Sending…"
+              : state.kind === "sent"
+                ? "Resend welcome email"
+                : "Send welcome email"}
           </Button>
         </DialogFooter>
       </DialogContent>

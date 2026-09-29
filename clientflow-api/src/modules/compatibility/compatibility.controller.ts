@@ -32,6 +32,8 @@ import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { AUTOMATED_CLIENT_STATUSES, buildClientProfileUpdate } from '../clients/client-profile-update';
 import { resolvePublicFormLink } from '../forms/public-form-link';
+import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
+import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
@@ -61,17 +63,6 @@ const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clien
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
 const ACCESS_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const ENROLLMENT_TRANSITIONS: Record<string, string[]> = {
-  interested: ['pending_review', 'approved', 'onboarding', 'active', 'declined', 'withdrawn'],
-  pending_review: ['approved', 'declined', 'withdrawn'],
-  approved: ['onboarding', 'active', 'on_hold', 'withdrawn'],
-  onboarding: ['active', 'on_hold', 'withdrawn'],
-  active: ['on_hold', 'completed', 'withdrawn'],
-  on_hold: ['active', 'completed', 'withdrawn'],
-  completed: [],
-  declined: [],
-  withdrawn: ['active'],
-};
 
 function readJwtSecret(type: 'access' | 'refresh'): string {
   const key = type === 'access' ? 'JWT_ACCESS_SECRET' : 'JWT_REFRESH_SECRET';
@@ -349,13 +340,18 @@ export class ClientflowCompatibilityController {
     };
   }
 
-  @Get('clients') async listClients(@Req() request: Request) {
+  /** Active clients by default; `?archived=true` lists the archive (they are never mixed). */
+  @Get('clients') async listClients(@Req() request: Request, @Query('archived') archived?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfClient.findMany({ where: { organizationId: orgId, isArchived: false }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfClient.findMany({
+      where: { organizationId: orgId, isArchived: archived === 'true' },
+      orderBy: archived === 'true' ? { archivedAt: 'desc' } : { createdAt: 'desc' },
+    });
   }
+  // An archived client stays viewable (the profile shows it as archived and offers Restore).
   @Get('clients/:id') async getClient(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const client = await this.requirePrisma().cfClient.findFirst({ where: { id, organizationId: orgId, isArchived: false } });
+    const client = await this.requirePrisma().cfClient.findFirst({ where: { id, organizationId: orgId } });
     if (!client) throw new NotFoundException('Client not found.');
     return client;
   }
@@ -397,7 +393,33 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     // Explicit allowlist: the request body is never passed to Prisma directly.
     const data = buildClientProfileUpdate(body);
-    const updated = await this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data });
+    const prisma = this.requirePrisma();
+    const previous = await findClientForOrg(prisma, orgId, id, { includeArchived: true });
+    const archiving = data.isArchived === true && !previous.isArchived;
+    const restoring = data.isArchived === false && previous.isArchived;
+    const previousArchivedAt = previous.archivedAt;
+    if (archiving && !data.archivedAt) data.archivedAt = new Date();
+    // Restoring returns the client to the active caseload: the archive details no longer apply.
+    if (restoring) Object.assign(data, { archivedAt: null, archiveReason: null, finalStatus: null });
+    const updated = await prisma.$transaction(async (transaction) => {
+      const client = await transaction.cfClient.update({ where: { id, organizationId: orgId }, data });
+      // Archive and restore cascade to the client's enrollments on the server, so every page
+      // (and every other session) sees the same state. Restore only brings back the enrollments
+      // archived together with the client, not ones archived on their own earlier.
+      if (archiving) {
+        await transaction.cfProgramEnrollment.updateMany({
+          where: { organizationId: orgId, clientId: id, isArchived: false },
+          data: { isArchived: true, archivedAt: client.archivedAt },
+        });
+      }
+      if (restoring && previousArchivedAt) {
+        await transaction.cfProgramEnrollment.updateMany({
+          where: { organizationId: orgId, clientId: id, isArchived: true, archivedAt: previousArchivedAt },
+          data: { isArchived: false, archivedAt: null },
+        });
+      }
+      return client;
+    });
     if (this.enrollments && (data.assignedUserId !== undefined || data.assignedStaff !== undefined)) {
       await this.enrollments.syncAssignmentToActiveEnrollments(
         orgId,
@@ -1061,17 +1083,19 @@ export class ClientflowCompatibilityController {
     if (!current) throw new NotFoundException('Enrollment not found.');
     const target = this.enrollmentTransition(body.status);
     if (!target) throw new BadRequestException('A target enrollment status is required.');
-    const allowed = ENROLLMENT_TRANSITIONS[String(current.status).toLowerCase()] ?? [];
-    if (!allowed.includes(target)) {
-      throw new BadRequestException(`Enrollment cannot transition from ${current.status} to ${target}.`);
-    }
+    if (!isEnrollmentStatus(target)) throw new BadRequestException(`Unknown enrollment status: ${target}.`);
+    // Staff may reinstate a withdrawn member; nothing else leaves a closed state.
+    assertEnrollmentTransition(String(current.status), target, { byStaff: true });
     const now = new Date();
     const changedByDisplayName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
     const updated = await prisma.$transaction(async (transaction) => {
-      const enrollment = await transaction.cfProgramEnrollment.update({
-        where: { id, organizationId: orgId },
+      await transitionEnrollment(transaction, {
+        organizationId: orgId,
+        enrollmentId: id,
+        from: String(current.status),
+        to: target,
+        byStaff: true,
         data: {
-          status: target as any,
           progressPercentage: this.progressForEnrollmentStatus(target),
           nextAction: body.nextAction !== undefined ? (body.nextAction ? String(body.nextAction) : null) : current.nextAction,
           nextActionDate: body.nextActionDate !== undefined
@@ -1083,19 +1107,16 @@ export class ClientflowCompatibilityController {
           completedAt: target === 'completed' ? now : current.completedAt,
           withdrawnAt: target === 'withdrawn' ? now : target === 'active' ? null : current.withdrawnAt,
           onHoldReason: body.statusReason ? String(body.statusReason) : target === 'on_hold' ? current.onHoldReason : null,
-        } as any,
-      });
-      await transaction.cfEnrollmentStatusHistory.create({
-        data: {
-          organizationId: orgId,
-          enrollmentId: id,
-          previousStatus: current.status,
-          newStatus: enrollment.status,
+        },
+        history: {
           changedByUserId: admin.id,
           changedByDisplayName,
           reason: body.statusReason ? String(body.statusReason) : null,
         },
       });
+      const enrollment = await transaction.cfProgramEnrollment.findFirstOrThrow({ where: { id, organizationId: orgId } });
+      // A closed enrollment leaves nothing actionable behind: open contracts, forms and billing end.
+      await applyEnrollmentClosure(transaction, enrollment, now);
       await transaction.cfActivityLog.create({
         data: {
           organizationId: orgId,

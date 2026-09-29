@@ -25,10 +25,15 @@ vi.mock("@/lib/apiClient", () => ({
   acfSendContractCopy: (...a: unknown[]) => acfSendContractCopy(...a),
 }));
 vi.mock("sonner", () => ({
-  toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) },
+  toast: {
+    success: (...a: unknown[]) => toastSuccess(...a),
+    error: (...a: unknown[]) => toastError(...a),
+  },
 }));
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: unknown; to: string }) => <a href={to}>{children as never}</a>,
+  Link: ({ children, to }: { children: unknown; to: string }) => (
+    <a href={to}>{children as never}</a>
+  ),
 }));
 
 const client = { id: "c1", email: "client@example.com" } as Client;
@@ -47,7 +52,11 @@ const contract = (overrides: Partial<Contract> = {}) =>
     ...overrides,
   }) as Contract;
 
-const sentOk = { contract: { id: "k1" }, publicContractUrl: null, emailDelivery: { status: "sent", sentAt: "2026-09-28T00:00:00.000Z" } };
+const sentOk = {
+  contract: { id: "k1" },
+  publicContractUrl: null,
+  emailDelivery: { status: "sent", sentAt: "2026-09-28T00:00:00.000Z" },
+};
 
 function renderDialog(contracts: Contract[], onOpenChange = vi.fn()) {
   render(
@@ -70,9 +79,16 @@ beforeEach(() => {
   getProgramWorkflow.mockResolvedValue({ contract: { activeVersion: { id: "v1" } } });
   refreshClientContracts.mockResolvedValue([]);
   refreshClientCommunications.mockResolvedValue([]);
-  acfGenerateContract.mockResolvedValue({ contract: { id: "k-new" }, publicContractUrl: "https://x/agreements/t" });
+  acfGenerateContract.mockResolvedValue({
+    contract: { id: "k-new" },
+    publicContractUrl: "https://x/agreements/t",
+  });
   acfSendContract.mockResolvedValue(sentOk);
-  acfSendContractCopy.mockResolvedValue({ contractId: "k1", emailDelivery: { status: "sent" }, replayed: false });
+  acfSendContractCopy.mockResolvedValue({
+    contractId: "k1",
+    emailDelivery: { status: "sent" },
+    replayed: false,
+  });
 });
 
 afterEach(cleanup);
@@ -118,27 +134,45 @@ describe("SendContractDialog: an existing contract is never duplicated", () => {
     renderDialog([contract({ status: "DRAFT" })]);
     fireEvent.click(button("Send contract"));
     await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(1));
-    expect(acfSendContract).toHaveBeenCalledWith("c1", "k1", expect.objectContaining({ enrollmentId: "e1" }));
+    expect(acfSendContract).toHaveBeenCalledWith(
+      "c1",
+      "k1",
+      expect.objectContaining({ enrollmentId: "e1" }),
+    );
     expect(acfGenerateContract).not.toHaveBeenCalled();
     expect(getProgramWorkflow).not.toHaveBeenCalled(); // no template needed for an existing draft
   });
 
-  it.each(["SENT", "OPENED"])("%s: warns the old link stops working and resends the same contract", async (status) => {
-    renderDialog([contract({ status, sentAt: "2026-09-10T00:00:00.000Z" })]);
-    expect(screen.getByText(/The previous link stops working/)).toBeTruthy();
+  it.each(["SENT", "OPENED"])(
+    "%s: warns the old link stops working and resends the same contract",
+    async (status) => {
+      renderDialog([contract({ status, sentAt: "2026-09-10T00:00:00.000Z" })]);
+      expect(screen.getByText(/The previous link stops working/)).toBeTruthy();
 
-    fireEvent.click(button("Resend signing link"));
+      fireEvent.click(button("Resend signing link"));
 
-    await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(1));
-    expect(acfSendContract).toHaveBeenCalledWith("c1", "k1", expect.objectContaining({ enrollmentId: "e1" }));
-    expect(acfGenerateContract).not.toHaveBeenCalled();
-    expect(acfSendContractCopy).not.toHaveBeenCalled();
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Contract resent to client@example.com."));
-  });
+      await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(1));
+      expect(acfSendContract).toHaveBeenCalledWith(
+        "c1",
+        "k1",
+        expect.objectContaining({ enrollmentId: "e1" }),
+      );
+      expect(acfGenerateContract).not.toHaveBeenCalled();
+      expect(acfSendContractCopy).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(toastSuccess).toHaveBeenCalledWith("Contract resent to client@example.com."),
+      );
+    },
+  );
 });
 
 describe("SendContractDialog: signed contract", () => {
-  const signed = () => contract({ status: "COMPLETED", signedAt: "2026-09-20T00:00:00.000Z", executedStoredFileId: "file-1" });
+  const signed = () =>
+    contract({
+      status: "COMPLETED",
+      signedAt: "2026-09-20T00:00:00.000Z",
+      executedStoredFileId: "file-1",
+    });
 
   it("only offers the signed copy, never the signing link", async () => {
     renderDialog([signed()]);
@@ -154,7 +188,9 @@ describe("SendContractDialog: signed contract", () => {
     });
     expect(acfSendContract).not.toHaveBeenCalled();
     expect(acfGenerateContract).not.toHaveBeenCalled();
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Signed copy sent to client@example.com."));
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith("Signed copy sent to client@example.com."),
+    );
   });
 
   it("lets staff view the executed contract", () => {
@@ -165,7 +201,13 @@ describe("SendContractDialog: signed contract", () => {
   });
 
   it("explains and disables Send copy when the signed file was not archived", () => {
-    renderDialog([contract({ status: "COMPLETED", signedAt: "2026-09-20T00:00:00.000Z", executedStoredFileId: null })]);
+    renderDialog([
+      contract({
+        status: "COMPLETED",
+        signedAt: "2026-09-20T00:00:00.000Z",
+        executedStoredFileId: null,
+      }),
+    ]);
     expect(screen.getByText("The signed copy is not available yet.")).toBeTruthy();
     expect(button("Send copy").disabled).toBe(true);
   });
@@ -173,22 +215,33 @@ describe("SendContractDialog: signed contract", () => {
 
 describe("SendContractDialog: failures stay on the page", () => {
   it("a failed delivery shows an error, keeps the dialog open and the next click is a new attempt", async () => {
-    acfSendContract.mockResolvedValueOnce({ ...sentOk, emailDelivery: { status: "failed", reason: "timeout" } });
+    acfSendContract.mockResolvedValueOnce({
+      ...sentOk,
+      emailDelivery: { status: "failed", reason: "timeout" },
+    });
     const onOpenChange = renderDialog([contract({ status: "DRAFT" })]);
 
     fireEvent.click(button("Send contract"));
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith("The email was not sent (timeout)."));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("The email was not sent (timeout)."),
+    );
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(toastSuccess).not.toHaveBeenCalled();
 
     fireEvent.click(button("Send contract"));
     await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(2));
-    const keys = acfSendContract.mock.calls.map((call) => (call[2] as { idempotencyKey: string }).idempotencyKey);
+    const keys = acfSendContract.mock.calls.map(
+      (call) => (call[2] as { idempotencyKey: string }).idempotencyKey,
+    );
     expect(keys[0]).not.toBe(keys[1]);
   });
 
   it("an API error is shown as a toast and does not close the dialog or navigate", async () => {
-    acfSendContract.mockRejectedValueOnce(Object.assign(new Error("The contract cannot be sent in its current status."), { status: 400 }));
+    acfSendContract.mockRejectedValueOnce(
+      Object.assign(new Error("The contract cannot be sent in its current status."), {
+        status: 400,
+      }),
+    );
     const onOpenChange = renderDialog([contract({ status: "DRAFT" })]);
 
     fireEvent.click(button("Send contract"));
@@ -209,7 +262,9 @@ describe("SendContractDialog: failures stay on the page", () => {
     fireEvent.click(button("Send contract"));
     await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(2));
 
-    const keys = acfSendContract.mock.calls.map((call) => (call[2] as { idempotencyKey: string }).idempotencyKey);
+    const keys = acfSendContract.mock.calls.map(
+      (call) => (call[2] as { idempotencyKey: string }).idempotencyKey,
+    );
     expect(keys[0]).toBe(keys[1]);
   });
 });

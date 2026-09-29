@@ -366,8 +366,7 @@ function PublicFormPage() {
                     field={field}
                     inputId={`field-${section.id}-${field.id}`}
                     value={
-                      responsesFor(section)[field.id] ??
-                      (field.type === "social_links" ? [] : "")
+                      responsesFor(section)[field.id] ?? (field.type === "social_links" ? [] : "")
                     }
                     onChange={(value) => set(section, field.id, value)}
                     disabled={status === "submitting"}

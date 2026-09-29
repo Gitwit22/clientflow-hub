@@ -91,7 +91,9 @@ function PipelineClientDetailPage() {
       toast.success("Contract signed and sent to the client.");
       await refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Unable to generate or send this contract.");
+      toast.error(
+        err instanceof ApiError ? err.message : "Unable to generate or send this contract.",
+      );
     } finally {
       setBusy(false);
       setConfirmingGenerate(false);
@@ -124,7 +126,9 @@ function PipelineClientDetailPage() {
       setProgramToAssign("");
       await refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Unable to assign a program to this client.");
+      toast.error(
+        err instanceof ApiError ? err.message : "Unable to assign a program to this client.",
+      );
     } finally {
       setBusy(false);
     }
@@ -133,7 +137,7 @@ function PipelineClientDetailPage() {
   return (
     <div className="space-y-6">
       <Button variant="ghost" size="sm" asChild>
-        <Link to="/pipeline">
+        <Link to="/pipeline" search={{ status: undefined }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Pipeline
         </Link>
@@ -208,7 +212,11 @@ function PipelineClientDetailPage() {
                     <Row label="Status" value={client.contract.status} />
                     <Row
                       label="Sent"
-                      value={client.contract.sentAt ? new Date(client.contract.sentAt).toLocaleString() : undefined}
+                      value={
+                        client.contract.sentAt
+                          ? new Date(client.contract.sentAt).toLocaleString()
+                          : undefined
+                      }
                     />
                     <Row
                       label="Signed for organization by"
@@ -277,26 +285,35 @@ function PipelineClientDetailPage() {
                   <dl className="grid gap-x-6 sm:grid-cols-3">
                     <Row label="Type" value={client.monitoringTask.type} />
                     <Row label="Status" value={client.monitoringTask.status} />
-                    <Row label="Due" value={new Date(client.monitoringTask.dueDate).toLocaleDateString()} />
+                    <Row
+                      label="Due"
+                      value={new Date(client.monitoringTask.dueDate).toLocaleDateString()}
+                    />
                   </dl>
                 </CardContent>
               </Card>
             )}
           </div>
 
-          <AlertDialog open={confirmingGenerate} onOpenChange={(open) => !open && setConfirmingGenerate(false)}>
+          <AlertDialog
+            open={confirmingGenerate}
+            onOpenChange={(open) => !open && setConfirmingGenerate(false)}
+          >
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Sign and send this contract?</AlertDialogTitle>
                 <AlertDialogDescription>
                   You are electronically signing this agreement for the organization as{" "}
-                  <strong>{staffSignerName || "your account"}</strong>. The client will then receive it
-                  to review and sign.
+                  <strong>{staffSignerName || "your account"}</strong>. The client will then receive
+                  it to review and sign.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void handleGenerateAndSend()} disabled={!staffSignerName || busy}>
+                <AlertDialogAction
+                  onClick={() => void handleGenerateAndSend()}
+                  disabled={!staffSignerName || busy}
+                >
                   Sign & send
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -307,4 +324,3 @@ function PipelineClientDetailPage() {
     </div>
   );
 }
-

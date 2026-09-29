@@ -53,7 +53,10 @@ export function currentContract(
   enrollmentId: string | undefined,
 ): Contract | undefined {
   return [...contracts]
-    .filter((contract) => !contract.enrollmentId || !enrollmentId || contract.enrollmentId === enrollmentId)
+    .filter(
+      (contract) =>
+        !contract.enrollmentId || !enrollmentId || contract.enrollmentId === enrollmentId,
+    )
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 }
 
@@ -92,10 +95,16 @@ export function welcomeSendState(
   communications: readonly Communication[],
 ): WelcomeSendState {
   if (!contract || contract.status !== "COMPLETED") {
-    return { kind: "blocked", reason: "The contract must be signed before the welcome email can be sent." };
+    return {
+      kind: "blocked",
+      reason: "The contract must be signed before the welcome email can be sent.",
+    };
   }
   const attempts = communications
-    .filter((communication) => communication.type === "welcome_email" && communication.contractId === contract.id)
+    .filter(
+      (communication) =>
+        communication.type === "welcome_email" && communication.contractId === contract.id,
+    )
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
   const sent = attempts.find((communication) => communication.status === "SENT");
   if (sent) return { kind: "sent", sentAt: sent.sentAt ?? sent.date ?? null };
@@ -111,6 +120,20 @@ export function newIdempotencyKey(): string {
   return `attempt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+/**
+ * A delivery failure reason → words staff can act on. `n8n_http_NNN` means n8n answered with that
+ * HTTP status instead of sending (for example, a 500 when the n8n plan has ended).
+ */
+export function describeDeliveryReason(reason: string): string {
+  const httpStatus = /^n8n_http_(\d{3})$/.exec(reason)?.[1];
+  if (!httpStatus) return reason.replace(/_/g, " ");
+  if (httpStatus === "401" || httpStatus === "403") {
+    return `n8n refused ClientFlow's credentials, HTTP ${httpStatus}`;
+  }
+  if (httpStatus === "404") return "the n8n email workflow is not active, HTTP 404";
+  return `n8n could not run the email workflow, HTTP ${httpStatus}; check the n8n account and plan`;
+}
+
 /** A delivery result → the message staff should see. Anything but `sent` is a failure to surface. */
 export function describeDelivery(delivery: { status: string; reason?: string }): {
   ok: boolean;
@@ -118,9 +141,12 @@ export function describeDelivery(delivery: { status: string; reason?: string }):
 } {
   if (delivery.status === "sent") return { ok: true, message: "Sent." };
   if (delivery.status === "pending") {
-    return { ok: false, message: "This send is still in progress. Check the Communications tab shortly." };
+    return {
+      ok: false,
+      message: "This send is still in progress. Check the Communications tab shortly.",
+    };
   }
-  const reason = delivery.reason ? ` (${delivery.reason.replace(/_/g, " ")})` : "";
+  const reason = delivery.reason ? ` (${describeDeliveryReason(delivery.reason)})` : "";
   return { ok: false, message: `The email was not sent${reason}.` };
 }
 

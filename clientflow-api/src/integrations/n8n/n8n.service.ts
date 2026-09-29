@@ -16,12 +16,25 @@ import type {
   IntakeEmailDeliveryResult,
   IntakeEmailPayload,
   N8nDeliveryReceipt,
+  N8nHttpFailureReason,
   WelcomeEmailDeliveryResult,
   WelcomeEmailPayload,
   WelcomeSendLifecyclePayload,
 } from './n8n.types';
 
 const HEADER_IMAGE_CACHE_MS = 5 * 60 * 1000;
+
+/** n8n answered with a non-2xx status: the status is kept so staff can see why, never the body. */
+export class N8nHttpError extends ServiceUnavailableException {
+  constructor(readonly httpStatus: number) {
+    super(`n8n rejected the event (HTTP ${httpStatus}).`);
+  }
+
+  /** The failure reason recorded on the communication and shown to staff, e.g. `n8n_http_500`. */
+  get reason(): N8nHttpFailureReason {
+    return `n8n_http_${this.httpStatus}`;
+  }
+}
 
 @Injectable()
 export class N8nService {
@@ -160,7 +173,7 @@ export class N8nService {
   ): Promise<
     | { status: 'sent'; sentAt: string }
     | { status: 'skipped'; reason: 'disabled' | 'not_configured' }
-    | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' }
+    | { status: 'failed'; reason: 'timeout' | 'rejected' | 'unavailable' | N8nHttpFailureReason }
   > {
     if (availability !== 'ready') {
       this.traceIntake('sendViaDeliver.skipped', { eventType: payload.eventType, eventId }, false, null, availability);
@@ -175,6 +188,7 @@ export class N8nService {
       return { status: 'sent', sentAt: receipt.sentAt };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return { status: 'failed', reason: 'timeout' };
+      if (error instanceof N8nHttpError) return { status: 'failed', reason: error.reason };
       if (error instanceof ServiceUnavailableException && /rejected|invalid receipt/.test(error.message)) {
         return { status: 'failed', reason: 'rejected' };
       }
@@ -269,7 +283,7 @@ export class N8nService {
         await response.text().catch(() => '');
         // A response may echo credentials: record status only, never its body.
         console.error(`[n8n.deliver] rejected eventId=${payload.eventId} status=${response.status}`);
-        throw new ServiceUnavailableException('n8n rejected the event.');
+        throw new N8nHttpError(response.status);
       }
       const receipt = await response.json() as Partial<N8nDeliveryReceipt>;
       if (receipt.success !== true || receipt.eventId !== payload.eventId || !receipt.sentAt) {
@@ -285,7 +299,8 @@ export class N8nService {
         ? 'timeout'
         : typeof causeCode === 'string' && safeNetworkCodes.includes(causeCode)
           ? causeCode
-          : error instanceof ServiceUnavailableException ? 'rejected' : 'unavailable';
+          : error instanceof N8nHttpError ? error.reason
+            : error instanceof ServiceUnavailableException ? 'rejected' : 'unavailable';
       this.traceIntake('outbound.failed', payload, outboundFetchStarted, outboundStatus, errorCode);
       throw error;
     } finally {

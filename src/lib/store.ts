@@ -143,8 +143,8 @@ export function clearAuthSession() {
   }));
 }
 
-  export function retryBootstrap() {
-    setState((current) => ({ ...current, bootstrapStatus: "idle", bootstrapError: null }));
-  }
+export function retryBootstrap() {
+  setState((current) => ({ ...current, bootstrapStatus: "idle", bootstrapError: null }));
+}
 
 export const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;

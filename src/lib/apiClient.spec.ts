@@ -46,7 +46,7 @@ describe("paginated ClientFlow lists", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(cfListAllTerms()).rejects.toEqual(
-      expect.objectContaining<ApiError>({ status: 503, message: "Database unavailable" }),
+      expect.objectContaining({ status: 503, message: "Database unavailable" }),
     );
   });
 });
@@ -64,15 +64,19 @@ describe("ClientFlow partition routing", () => {
       headers: { "X-App-Partition": "fba-app" },
     });
 
-    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
-      headers: expect.objectContaining({ "X-App-Partition": "clientflow" }),
-    }));
+    expect(fetchMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-App-Partition": "clientflow" }),
+      }),
+    );
   });
 
   it("does not retry an ambiguous form-email server failure", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ error: { code: "BAD_GATEWAY", message: "Delivery unconfirmed" } }, 502),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ error: { code: "BAD_GATEWAY", message: "Delivery unconfirmed" } }, 502),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(cfSendFormAssignment("assignment-1", {})).rejects.toEqual(
@@ -85,7 +89,9 @@ describe("ClientFlow partition routing", () => {
 describe("public form errors", () => {
   it("identifies stale form conflicts as recoverable", () => {
     expect(isStalePublicFormError(new ApiError(409, "CONFLICT", "Reload the form."))).toBe(true);
-    expect(isStalePublicFormError(new ApiError(500, "INTERNAL_SERVER_ERROR", "Failed"))).toBe(false);
+    expect(isStalePublicFormError(new ApiError(500, "INTERNAL_SERVER_ERROR", "Failed"))).toBe(
+      false,
+    );
     expect(isStalePublicFormError(new Error("Failed"))).toBe(false);
   });
 
@@ -143,18 +149,22 @@ describe("public form errors", () => {
   });
 
   it("does not retry validation failures", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ error: { code: "BAD_REQUEST", message: "Please complete the form." } }, 400),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ error: { code: "BAD_REQUEST", message: "Please complete the form." } }, 400),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(submitPublicForm("token-1", {
-      coreResponses: {},
-      programResponses: {},
-      selectedProgramIds: [],
-      configurationToken: "configuration-1",
-      idempotencyKey: "request-1",
-    })).rejects.toEqual(expect.objectContaining({ status: 400 }));
+    await expect(
+      submitPublicForm("token-1", {
+        coreResponses: {},
+        programResponses: {},
+        selectedProgramIds: [],
+        configurationToken: "configuration-1",
+        idempotencyKey: "request-1",
+      }),
+    ).rejects.toEqual(expect.objectContaining({ status: 400 }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

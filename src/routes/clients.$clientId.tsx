@@ -7,7 +7,12 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, SendToClientPanel } from "@/components/clients/ClientSendMenu";
 import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
 import { toText } from "@/lib/answer-text";
-import { contractSendState, currentContract, newIdempotencyKey, type SendKind } from "@/lib/client-send";
+import {
+  contractSendState,
+  currentContract,
+  newIdempotencyKey,
+  type SendKind,
+} from "@/lib/client-send";
 import {
   CLIENT_TABS,
   CLIENT_TAB_LABELS,
@@ -46,7 +51,10 @@ import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { SendIntakeDialog } from "@/components/dialogs/SendIntakeDialog";
 import { SendWelcomeDialog } from "@/components/dialogs/SendWelcomeDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
-import { SetUpPaymentsDialog, type InitialPaymentStatus } from "@/components/dialogs/SetUpPaymentsDialog";
+import {
+  SetUpPaymentsDialog,
+  type InitialPaymentStatus,
+} from "@/components/dialogs/SetUpPaymentsDialog";
 import { RecordPaymentDialog } from "@/components/dialogs/RecordPaymentDialog";
 import { BringAccountCurrentDialog } from "@/components/dialogs/BringAccountCurrentDialog";
 import { PaymentLedgerDialog } from "@/components/dialogs/PaymentLedgerDialog";
@@ -68,10 +76,7 @@ import {
   updateClient,
   uploadDocument,
 } from "@/lib/api";
-import {
-  cfGetEnrollmentBillingSummary,
-  cfGetProgramBillingConfig,
-} from "@/lib/apiClient";
+import { cfGetEnrollmentBillingSummary, cfGetProgramBillingConfig } from "@/lib/apiClient";
 import {
   ARCHIVE_DECISIONS,
   type EnrollmentBillingSummary,
@@ -142,13 +147,11 @@ const PROFILE_FIELD_IDS = new Set([
   "youtubeUrl",
 ]);
 
-function submittedCoreFields(
-  submission: IntakeSubmission | undefined,
-) {
+function submittedCoreFields(submission: IntakeSubmission | undefined) {
   const coreSection = submission?.snapshot?.renderedSections.find(
     (section) => section.kind === "core",
   );
-  if (!coreSection) return null;
+  if (!submission || !coreSection) return null;
 
   return coreSection.fields
     .filter(
@@ -162,10 +165,7 @@ function submittedCoreFields(
 
 // Mirrors the ClientFlow intake field keys so we can tell whether a
 // mapped client.intake value still corresponds to a field on the form that was actually sent.
-const INTAKE_KEY_ALIASES: Record<
-  Exclude<keyof IntakeDetails, "uploadedFiles">,
-  string[]
-> = {
+const INTAKE_KEY_ALIASES: Record<Exclude<keyof IntakeDetails, "uploadedFiles">, string[]> = {
   businessDescription: ["businessdescription", "description"],
   businessType: ["businesstype", "biztype", "industry"],
   assistanceRequested: ["assistancerequested", "assistance"],
@@ -217,13 +217,17 @@ function ClientProfile() {
 
   // Billing & payments (fetched on-demand per selected enrollment, not part of the global store)
   const [billingSummary, setBillingSummary] = useState<EnrollmentBillingSummary | null>(null);
-  const [billingProgramConfig, setBillingProgramConfig] = useState<ProgramBillingConfig | null>(null);
+  const [billingProgramConfig, setBillingProgramConfig] = useState<ProgramBillingConfig | null>(
+    null,
+  );
   const [loadingBilling, setLoadingBilling] = useState(false);
   const [billingRefreshVersion, setBillingRefreshVersion] = useState(0);
   const [setUpPaymentsOpen, setSetUpPaymentsOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const [bringCurrentOpen, setBringCurrentOpen] = useState(false);
-  const [bringCurrentMode, setBringCurrentMode] = useState<"current" | "partial_unknown">("current");
+  const [bringCurrentMode, setBringCurrentMode] = useState<"current" | "partial_unknown">(
+    "current",
+  );
   const [ledgerOpen, setLedgerOpen] = useState(false);
 
   const [note, setNote] = useState("");
@@ -336,7 +340,8 @@ function ClientProfile() {
         setBillingProgramConfig(config);
       })
       .catch((error: unknown) => {
-        if (!cancelled) toast.error(error instanceof Error ? error.message : "Unable to load billing details.");
+        if (!cancelled)
+          toast.error(error instanceof Error ? error.message : "Unable to load billing details.");
       })
       .finally(() => {
         if (!cancelled) setLoadingBilling(false);
@@ -350,9 +355,16 @@ function ClientProfile() {
     return (
       <div className="space-y-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/clients"><ArrowLeft className="mr-2 h-4 w-4" />Clients</Link>
+          <Link to="/clients">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Clients
+          </Link>
         </Button>
-        <Card className="shadow-card"><CardContent className="py-12 text-center text-sm text-muted-foreground">Loading client profile...</CardContent></Card>
+        <Card className="shadow-card">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            Loading client profile...
+          </CardContent>
+        </Card>
       </div>
     );
 
@@ -389,7 +401,9 @@ function ClientProfile() {
       ? item.enrollmentId === selectedEnrollment.id
       : enrollments.some((enrollment) => enrollment.id === item.enrollmentId),
   );
-  const docs = s.documents.filter((d) => d.clientId === client.id && d.type !== "contract" && inScope(d));
+  const docs = s.documents.filter(
+    (d) => d.clientId === client.id && d.type !== "contract" && inScope(d),
+  );
   const comms = s.communications.filter((c) => c.clientId === client.id && inScope(c));
   const contracts = s.contracts.filter((c) => c.clientId === client.id && inScope(c));
   const executedContractDocs = s.documents.filter(
@@ -411,52 +425,57 @@ function ClientProfile() {
   const latestCoreFieldTokens = latestCoreSubmission
     ? new Set(
         (
-          latestCoreSubmission.snapshot?.renderedSections.find(
-            (section) => section.kind === "core",
-          )?.fields ?? []
+          latestCoreSubmission.snapshot?.renderedSections.find((section) => section.kind === "core")
+            ?.fields ?? []
         ).flatMap((field) => [field.id.toLowerCase(), field.prefillKey?.toLowerCase() ?? ""]),
       )
     : null;
   // No submission on record (e.g. manually created client) — keep showing whatever is on file.
   const hasActiveIntakeField = (key: Exclude<keyof IntakeDetails, "uploadedFiles">) =>
-    !latestCoreFieldTokens || INTAKE_KEY_ALIASES[key].some((alias) => latestCoreFieldTokens.has(alias));
+    !latestCoreFieldTokens ||
+    INTAKE_KEY_ALIASES[key].some((alias) => latestCoreFieldTokens.has(alias));
   // Program tab: only forms that belong to this enrollment/program (client-wide forms stay on Forms).
   const selectedProgramAssignments = selectedEnrollment
     ? assignments.filter(
         (assignment) =>
-          assignment.enrollmentId || templateProgramId(assignment.formId) === selectedEnrollment.programId,
+          assignment.enrollmentId ||
+          templateProgramId(assignment.formId) === selectedEnrollment.programId,
       )
     : [];
   const selectedProgramMonitoring = selectedEnrollment ? monitoring : [];
-  const programAnswerGroups = (selectedEnrollment ? [selectedEnrollment] : enrollments).flatMap((enrollment) => {
-    for (const submission of intakeSubmissions) {
-      const link = submission.programs.find(
-        (candidate) =>
-          candidate.enrollmentId === enrollment.id || candidate.programId === enrollment.programId,
-      );
-      const section = submission.snapshot?.renderedSections.find(
-        (candidate) => candidate.kind === "program" && candidate.programId === enrollment.programId,
-      );
-      if (!link || !section) continue;
-      const storedResponses = link.responsePayload ?? {};
-      const responses =
-        Object.keys(storedResponses).length > 0
-          ? storedResponses
-          : Object.fromEntries(
-              section.fields.map((field) => [field.id, submission.responsePayload[field.id]]),
-            );
-      return [
-        {
-          enrollment,
-          program: s.programs.find((candidate) => candidate.id === enrollment.programId),
-          section,
-          responses,
-          submittedAt: submission.submittedAt,
-        },
-      ];
-    }
-    return [];
-  });
+  const programAnswerGroups = (selectedEnrollment ? [selectedEnrollment] : enrollments).flatMap(
+    (enrollment) => {
+      for (const submission of intakeSubmissions) {
+        const link = submission.programs.find(
+          (candidate) =>
+            candidate.enrollmentId === enrollment.id ||
+            candidate.programId === enrollment.programId,
+        );
+        const section = submission.snapshot?.renderedSections.find(
+          (candidate) =>
+            candidate.kind === "program" && candidate.programId === enrollment.programId,
+        );
+        if (!link || !section) continue;
+        const storedResponses = link.responsePayload ?? {};
+        const responses =
+          Object.keys(storedResponses).length > 0
+            ? storedResponses
+            : Object.fromEntries(
+                section.fields.map((field) => [field.id, submission.responsePayload[field.id]]),
+              );
+        return [
+          {
+            enrollment,
+            program: s.programs.find((candidate) => candidate.id === enrollment.programId),
+            section,
+            responses,
+            submittedAt: submission.submittedAt,
+          },
+        ];
+      }
+      return [];
+    },
+  );
 
   const openSend = (kind: SendKind) => setSendDialog(kind);
   const closeSend = (nextOpen: boolean) => {
@@ -593,8 +612,7 @@ function ClientProfile() {
           <p className="font-medium">Archived</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Reason: {client.archiveReason ?? "—"} · Final status: {client.finalStatus ?? "—"} ·
-            Archived{" "}
-            {client.archivedAt ? new Date(client.archivedAt).toLocaleDateString() : "—"}
+            Archived {client.archivedAt ? new Date(client.archivedAt).toLocaleDateString() : "—"}
           </p>
           <Button
             size="sm"
@@ -627,7 +645,9 @@ function ClientProfile() {
             await selectEnrollment(enrollment.id);
           } catch (error) {
             toast.error(
-              error instanceof Error ? error.message : "Unable to enroll this client in the program.",
+              error instanceof Error
+                ? error.message
+                : "Unable to enroll this client in the program.",
             );
           }
         }}
@@ -652,162 +672,172 @@ function ClientProfile() {
             noEnrollmentNotice
           ) : (
             <>
-            <div className="grid gap-4 lg:grid-cols-3">
-              <Card className="shadow-card lg:col-span-2">
+              <div className="grid gap-4 lg:grid-cols-3">
+                <Card className="shadow-card lg:col-span-2">
+                  <CardHeader>
+                    <CardTitle className="font-display text-base">{selectedProgram.name}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-x-8 sm:grid-cols-2">
+                    <dl>
+                      <Row
+                        label="Enrollment status"
+                        value={displayEnrollmentStatus(selectedEnrollment.status)}
+                      />
+                      <Row
+                        label="Assigned staff"
+                        value={selectedEnrollment.assignedStaff ?? undefined}
+                      />
+                      <Row
+                        label="Start date"
+                        value={
+                          selectedEnrollment.startDate
+                            ? new Date(selectedEnrollment.startDate).toLocaleDateString()
+                            : undefined
+                        }
+                      />
+                    </dl>
+                    <dl>
+                      <Row label="Next action" value={selectedEnrollment.nextAction ?? undefined} />
+                      <Row
+                        label="Next action date"
+                        value={
+                          selectedEnrollment.nextActionDate
+                            ? new Date(selectedEnrollment.nextActionDate).toLocaleDateString()
+                            : undefined
+                        }
+                      />
+                      <Row
+                        label="Open monitoring items"
+                        value={String(
+                          selectedProgramMonitoring.filter((item) => item.active).length,
+                        )}
+                      />
+                    </dl>
+                  </CardContent>
+                </Card>
+                <Card className="shadow-card">
+                  <CardHeader>
+                    <CardTitle className="font-display text-base">Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <StatusBadge status={displayEnrollmentStatus(selectedEnrollment.status)} />
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card className="shadow-card">
                 <CardHeader>
-                  <CardTitle className="font-display text-base">{selectedProgram.name}</CardTitle>
+                  <CardTitle className="font-display text-base">Funding & service terms</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {terms.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No terms have been drafted for this program yet.
+                    </p>
+                  ) : (
+                    terms.map((t) => (
+                      <div
+                        key={t.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
+                      >
+                        <span className="font-medium">
+                          {t.supportType} · ${t.fundingAmount.toLocaleString()}
+                        </span>
+                        <StatusBadge status={t.approvalStatus} />
+                      </div>
+                    ))
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTermsOpen(true)}
+                  >
+                    Create terms
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle className="font-display text-base">Master intake answers</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-x-8 sm:grid-cols-2">
                   <dl>
-                    <Row
-                      label="Enrollment status"
-                      value={displayEnrollmentStatus(selectedEnrollment.status)}
-                    />
-                    <Row
-                      label="Assigned staff"
-                      value={selectedEnrollment.assignedStaff ?? undefined}
-                    />
-                    <Row
-                      label="Start date"
-                      value={
-                        selectedEnrollment.startDate
-                          ? new Date(selectedEnrollment.startDate).toLocaleDateString()
-                          : undefined
-                      }
-                    />
+                    <Row label="Business description" value={client.intake?.businessDescription} />
+                    <Row label="Assistance requested" value={client.intake?.assistanceRequested} />
+                    <Row label="Program of interest" value={client.intake?.programOfInterest} />
+                    <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
                   </dl>
                   <dl>
-                    <Row label="Next action" value={selectedEnrollment.nextAction ?? undefined} />
+                    <Row label="Preferred contact" value={client.intake?.preferredContact} />
+                    <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
+                    <Row label="Additional comments" value={client.intake?.additionalComments} />
                     <Row
-                      label="Next action date"
-                      value={
-                        selectedEnrollment.nextActionDate
-                          ? new Date(selectedEnrollment.nextActionDate).toLocaleDateString()
-                          : undefined
-                      }
-                    />
-                    <Row
-                      label="Open monitoring items"
-                      value={String(
-                        selectedProgramMonitoring.filter((item) => item.status !== "Completed")
-                          .length,
-                      )}
+                      label="Uploaded files"
+                      value={(client.intake?.uploadedFiles ?? []).join(", ")}
                     />
                   </dl>
                 </CardContent>
               </Card>
+
               <Card className="shadow-card">
                 <CardHeader>
-                  <CardTitle className="font-display text-base">Status</CardTitle>
+                  <CardTitle className="font-display text-base">Program questions</CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <StatusBadge status={displayEnrollmentStatus(selectedEnrollment.status)} />
+                <CardContent className="space-y-5">
+                  {selectedProgramAssignments.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      No program forms have been assigned to this client yet.
+                    </p>
+                  ) : (
+                    selectedProgramAssignments.map((assignment) => {
+                      const template = s.formTemplates.find(
+                        (candidate) => candidate.id === assignment.formId,
+                      );
+                      return (
+                        <section
+                          key={assignment.id}
+                          className="border-b border-border pb-5 last:border-0 last:pb-0"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <h3 className="text-sm font-medium">
+                                {template?.name ?? assignment.formId}
+                              </h3>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {assignment.submittedAt
+                                  ? `Submitted ${new Date(assignment.submittedAt).toLocaleDateString()}`
+                                  : "Not submitted"}
+                              </p>
+                            </div>
+                            <StatusBadge status={assignment.status} />
+                          </div>
+                          {!assignment.responses ||
+                          Object.keys(assignment.responses).length === 0 ? (
+                            <p className="mt-4 text-sm text-muted-foreground">
+                              No answers recorded.
+                            </p>
+                          ) : (
+                            <dl className="mt-3 grid gap-x-8 sm:grid-cols-2">
+                              {Object.entries(assignment.responses).map(([fieldId, answer]) => (
+                                <Row
+                                  key={fieldId}
+                                  label={
+                                    template?.fields.find((field) => field.id === fieldId)?.label ??
+                                    fieldId
+                                  }
+                                  value={toText(answer) || undefined}
+                                />
+                              ))}
+                            </dl>
+                          )}
+                        </section>
+                      );
+                    })
+                  )}
                 </CardContent>
               </Card>
-            </div>
-
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-base">Funding & service terms</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {terms.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No terms have been drafted for this program yet.
-                  </p>
-                ) : (
-                  terms.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
-                    >
-                      <span className="font-medium">
-                        {t.supportType} · ${t.fundingAmount.toLocaleString()}
-                      </span>
-                      <StatusBadge status={t.approvalStatus} />
-                    </div>
-                  ))
-                )}
-                <Button type="button" variant="outline" size="sm" onClick={() => setTermsOpen(true)}>
-                  Create terms
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-base">Master intake answers</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-x-8 sm:grid-cols-2">
-                <dl>
-                  <Row label="Business description" value={client.intake?.businessDescription} />
-                  <Row label="Assistance requested" value={client.intake?.assistanceRequested} />
-                  <Row label="Program of interest" value={client.intake?.programOfInterest} />
-                  <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
-                </dl>
-                <dl>
-                  <Row label="Preferred contact" value={client.intake?.preferredContact} />
-                  <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
-                  <Row label="Additional comments" value={client.intake?.additionalComments} />
-                  <Row label="Uploaded files" value={(client.intake?.uploadedFiles ?? []).join(", ")} />
-                </dl>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-base">Program questions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {selectedProgramAssignments.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">
-                    No program forms have been assigned to this client yet.
-                  </p>
-                ) : (
-                  selectedProgramAssignments.map((assignment) => {
-                    const template = s.formTemplates.find(
-                      (candidate) => candidate.id === assignment.formId,
-                    );
-                    return (
-                      <section
-                        key={assignment.id}
-                        className="border-b border-border pb-5 last:border-0 last:pb-0"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <h3 className="text-sm font-medium">
-                              {template?.name ?? assignment.formId}
-                            </h3>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {assignment.submittedAt
-                                ? `Submitted ${new Date(assignment.submittedAt).toLocaleDateString()}`
-                                : "Not submitted"}
-                            </p>
-                          </div>
-                          <StatusBadge status={assignment.status} />
-                        </div>
-                        {!assignment.responses || Object.keys(assignment.responses).length === 0 ? (
-                          <p className="mt-4 text-sm text-muted-foreground">No answers recorded.</p>
-                        ) : (
-                          <dl className="mt-3 grid gap-x-8 sm:grid-cols-2">
-                            {Object.entries(assignment.responses).map(([fieldId, answer]) => (
-                              <Row
-                                key={fieldId}
-                                label={
-                                  template?.fields.find((field) => field.id === fieldId)?.label ??
-                                  fieldId
-                                }
-                                value={toText(answer) || undefined}
-                              />
-                            ))}
-                          </dl>
-                        )}
-                      </section>
-                    );
-                  })
-                )}
-              </CardContent>
-            </Card>
             </>
           )}
         </TabsContent>
@@ -849,15 +879,18 @@ function ClientProfile() {
             </CardHeader>
             <CardContent className="space-y-3">
               {monitoring
-                .filter((m) => m.status !== "Completed")
+                .filter((m) => m.active)
                 .map((m) => (
                   <div key={m.id} className="rounded-lg border border-border p-3 text-sm">
                     <div className="flex justify-between gap-2">
-                      <span className="font-medium">{m.type}</span>
-                      <StatusBadge status={m.status} />
+                      <span className="font-medium">{m.name}</span>
+                      <StatusBadge status={m.complianceStatus} />
                     </div>
                     <p className="mt-1 font-mono text-xs text-muted-foreground">
-                      Due {new Date(m.dueDate).toLocaleDateString()} · {m.notes}
+                      {m.nextReviewAt
+                        ? `Next review ${new Date(m.nextReviewAt).toLocaleDateString()}`
+                        : "No review scheduled"}
+                      {m.notes ? ` · ${m.notes}` : ""}
                     </p>
                   </div>
                 ))}
@@ -900,7 +933,8 @@ function ClientProfile() {
             <CardContent className="space-y-2">
               {enrollments.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No program enrollments yet. Use the enrollment selector above to enroll this client.
+                  No program enrollments yet. Use the enrollment selector above to enroll this
+                  client.
                 </p>
               ) : (
                 enrollments.map((enrollment) => {
@@ -940,70 +974,78 @@ function ClientProfile() {
             noEnrollmentNotice
           ) : (
             <>
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-base">Billing & payments</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                {loadingBilling && !billingSummary ? (
-                  <p className="text-sm text-muted-foreground">Loading billing details...</p>
-                ) : !billingSummary?.agreement ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">Payment setup required</p>
-                    <Button onClick={() => setSetUpPaymentsOpen(true)}>Set Up Payments</Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <p className="font-display text-lg font-semibold">{selectedProgram.name}</p>
-                      <p className="text-muted-foreground">
-                        ${billingSummary.agreement.amount.toLocaleString()} / {billingSummary.agreement.frequency.replace("_", "-")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Active since {new Date(billingSummary.agreement.startDate).toLocaleDateString()}
-                      </p>
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle className="font-display text-base">Billing & payments</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 text-sm">
+                  {loadingBilling && !billingSummary ? (
+                    <p className="text-sm text-muted-foreground">Loading billing details...</p>
+                  ) : !billingSummary?.agreement ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">Payment setup required</p>
+                      <Button onClick={() => setSetUpPaymentsOpen(true)}>Set Up Payments</Button>
                     </div>
-                    <div className="grid grid-cols-3 gap-4 text-center">
+                  ) : (
+                    <div className="space-y-4">
                       <div>
-                        <p className="font-display text-xl font-semibold">${billingSummary.collected.toLocaleString()}</p>
-                        <p className="text-xs text-muted-foreground">Collected</p>
+                        <p className="font-display text-lg font-semibold">{selectedProgram.name}</p>
+                        <p className="text-muted-foreground">
+                          ${billingSummary.agreement.amount.toLocaleString()} /{" "}
+                          {billingSummary.agreement.frequency.replace("_", "-")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Active since{" "}
+                          {new Date(billingSummary.agreement.startDate).toLocaleDateString()}
+                        </p>
                       </div>
-                      <div>
-                        <p className="font-display text-xl font-semibold">${billingSummary.expected.toLocaleString()}</p>
-                        <p className="text-xs text-muted-foreground">Expected</p>
+                      <div className="grid grid-cols-3 gap-4 text-center">
+                        <div>
+                          <p className="font-display text-xl font-semibold">
+                            ${billingSummary.collected.toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Collected</p>
+                        </div>
+                        <div>
+                          <p className="font-display text-xl font-semibold">
+                            ${billingSummary.expected.toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Expected</p>
+                        </div>
+                        <div>
+                          <p className="font-display text-xl font-semibold">
+                            ${billingSummary.outstanding.toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Outstanding</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-display text-xl font-semibold">${billingSummary.outstanding.toLocaleString()}</p>
-                        <p className="text-xs text-muted-foreground">Outstanding</p>
+                      {billingSummary.nextDueDate && (
+                        <p className="text-xs text-muted-foreground">
+                          Next payment: {new Date(billingSummary.nextDueDate).toLocaleDateString()}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button onClick={() => setRecordPaymentOpen(true)}>Record Payment</Button>
+                        <Button variant="outline" onClick={() => setSetUpPaymentsOpen(true)}>
+                          Update Agreement
+                        </Button>
+                        <Button variant="outline" onClick={() => setLedgerOpen(true)}>
+                          View Ledger
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setBringCurrentMode("current");
+                            setBringCurrentOpen(true);
+                          }}
+                        >
+                          Bring Account Current
+                        </Button>
                       </div>
                     </div>
-                    {billingSummary.nextDueDate && (
-                      <p className="text-xs text-muted-foreground">
-                        Next payment: {new Date(billingSummary.nextDueDate).toLocaleDateString()}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                      <Button onClick={() => setRecordPaymentOpen(true)}>Record Payment</Button>
-                      <Button variant="outline" onClick={() => setSetUpPaymentsOpen(true)}>
-                        Update Agreement
-                      </Button>
-                      <Button variant="outline" onClick={() => setLedgerOpen(true)}>
-                        View Ledger
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setBringCurrentMode("current");
-                          setBringCurrentOpen(true);
-                        }}
-                      >
-                        Bring Account Current
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+                </CardContent>
+              </Card>
             </>
           )}
         </TabsContent>
@@ -1025,7 +1067,10 @@ function ClientProfile() {
                 {!submittedFields && (
                   <>
                     {hasActiveIntakeField("businessDescription") && (
-                      <Row label="Business description" value={client.intake?.businessDescription} />
+                      <Row
+                        label="Business description"
+                        value={client.intake?.businessDescription}
+                      />
                     )}
                     {hasActiveIntakeField("businessType") && (
                       <Row label="Business type" value={client.intake?.businessType} />
@@ -1053,7 +1098,10 @@ function ClientProfile() {
                       <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
                     )}
                     {hasActiveIntakeField("preferredContact") && (
-                      <Row label="Preferred contact method" value={client.intake?.preferredContact} />
+                      <Row
+                        label="Preferred contact method"
+                        value={client.intake?.preferredContact}
+                      />
                     )}
                     {hasActiveIntakeField("heardAboutUs") && (
                       <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
@@ -1061,7 +1109,10 @@ function ClientProfile() {
                     {hasActiveIntakeField("additionalComments") && (
                       <Row label="Additional comments" value={client.intake?.additionalComments} />
                     )}
-                    <Row label="Uploaded files" value={(client.intake?.uploadedFiles ?? []).join(", ")} />
+                    <Row
+                      label="Uploaded files"
+                      value={(client.intake?.uploadedFiles ?? []).join(", ")}
+                    />
                   </>
                 )}
               </dl>
@@ -1798,7 +1849,10 @@ function ClientProfile() {
             existingAgreement={billingSummary?.agreement}
             onSaved={(_agreement, initialPaymentStatus: InitialPaymentStatus | null) => {
               setBillingRefreshVersion((v) => v + 1);
-              if (initialPaymentStatus === "current" || initialPaymentStatus === "partial_unknown") {
+              if (
+                initialPaymentStatus === "current" ||
+                initialPaymentStatus === "partial_unknown"
+              ) {
                 setBringCurrentMode(initialPaymentStatus);
                 setBringCurrentOpen(true);
               }

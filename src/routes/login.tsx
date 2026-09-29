@@ -55,11 +55,7 @@ function LoginPage() {
     <main className="grid min-h-screen bg-background font-sans lg:grid-cols-[minmax(22rem,0.8fr)_minmax(32rem,1.2fr)]">
       <section className="relative hidden overflow-hidden bg-sidebar px-12 py-14 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
         <div className="absolute inset-0">
-          <img
-            src="/main-photo.png"
-            alt=""
-            className="size-full object-cover opacity-20"
-          />
+          <img src="/main-photo.png" alt="" className="size-full object-cover opacity-20" />
           <div className="absolute inset-0 bg-linear-to-b from-sidebar/95 via-sidebar/85 to-sidebar/95" />
         </div>
         <div className="absolute inset-y-0 right-0 w-px bg-sidebar-border" />
@@ -88,7 +84,9 @@ function LoginPage() {
           </p>
         </div>
 
-        <p className="relative z-10 text-xs text-sidebar-foreground/45">NXT LVL Technology Solutions</p>
+        <p className="relative z-10 text-xs text-sidebar-foreground/45">
+          NXT LVL Technology Solutions
+        </p>
       </section>
 
       <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
@@ -97,7 +95,9 @@ function LoginPage() {
             <img src="/logo.svg" alt="ClientFlow" className="size-9 shrink-0 rounded-lg" />
             <div>
               <p className="font-display font-semibold">ClientFlow</p>
-              <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">EA Management</p>
+              <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                EA Management
+              </p>
             </div>
           </div>
 

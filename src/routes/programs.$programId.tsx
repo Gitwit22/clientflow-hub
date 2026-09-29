@@ -46,9 +46,21 @@ import {
 import { Label } from "@/components/ui/label";
 import { useAppState } from "@/lib/store";
 import { toast } from "sonner";
-import type { BillingFrequency, ProgramBillingConfig, ProgramDetailResponse, ProgramEnrollment } from "@/types";
+import type {
+  BillingFrequency,
+  ProgramBillingConfig,
+  ProgramDetailResponse,
+  ProgramEnrollment,
+} from "@/types";
 
-const BILLING_FREQUENCIES: BillingFrequency[] = ["one_time", "weekly", "monthly", "quarterly", "annually", "custom"];
+const BILLING_FREQUENCIES: BillingFrequency[] = [
+  "one_time",
+  "weekly",
+  "monthly",
+  "quarterly",
+  "annually",
+  "custom",
+];
 
 export const Route = createFileRoute("/programs/$programId")({
   head: () => ({
@@ -106,7 +118,9 @@ function ProgramDetailPage() {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setDetailError(error instanceof Error ? error.message : "Unable to load program details.");
+          setDetailError(
+            error instanceof Error ? error.message : "Unable to load program details.",
+          );
         }
       })
       .finally(() => {
@@ -146,7 +160,8 @@ function ProgramDetailPage() {
         });
       })
       .catch((error: unknown) => {
-        if (!cancelled) toast.error(error instanceof Error ? error.message : "Unable to load billing settings.");
+        if (!cancelled)
+          toast.error(error instanceof Error ? error.message : "Unable to load billing settings.");
       });
     return () => {
       cancelled = true;
@@ -159,9 +174,16 @@ function ProgramDetailPage() {
     return (
       <div className="space-y-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/programs"><ArrowLeft className="mr-2 h-4 w-4" />Programs</Link>
+          <Link to="/programs">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Programs
+          </Link>
         </Button>
-        <Card className="shadow-card"><CardContent className="py-12 text-center text-sm text-muted-foreground">Loading program details...</CardContent></Card>
+        <Card className="shadow-card">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            Loading program details...
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -170,13 +192,21 @@ function ProgramDetailPage() {
     return (
       <div className="space-y-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/programs"><ArrowLeft className="mr-2 h-4 w-4" />Programs</Link>
+          <Link to="/programs">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Programs
+          </Link>
         </Button>
         <Card className="shadow-card">
           <CardContent className="py-10 text-center">
             <p className="text-sm text-destructive">{detailError}</p>
-            <Button className="mt-4" variant="outline" onClick={() => setRefreshVersion((value) => value + 1)}>
-              <RefreshCw className="mr-2 h-4 w-4" />Retry
+            <Button
+              className="mt-4"
+              variant="outline"
+              onClick={() => setRefreshVersion((value) => value + 1)}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry
             </Button>
           </CardContent>
         </Card>
@@ -202,7 +232,9 @@ function ProgramDetailPage() {
   const currentParticipants = participants.filter(
     ({ enrollment }) => !PAST_STATUSES.has(enrollment.status),
   );
-  const pastParticipants = participants.filter(({ enrollment }) => PAST_STATUSES.has(enrollment.status));
+  const pastParticipants = participants.filter(({ enrollment }) =>
+    PAST_STATUSES.has(enrollment.status),
+  );
   const summary = {
     current: detail?.summary?.current ?? currentParticipants.length,
     completed: detail?.summary?.completed ?? 0,
@@ -261,7 +293,9 @@ function ProgramDetailPage() {
               participant.enrollment.lastModifiedByDisplayName || "Unknown user",
             )}
             open={expandedEnrollmentId === participant.enrollment.id}
-            onOpenChange={(open) => setExpandedEnrollmentId(open ? participant.enrollment.id : null)}
+            onOpenChange={(open) =>
+              setExpandedEnrollmentId(open ? participant.enrollment.id : null)
+            }
             canWithdraw={!past}
             onWithdraw={() => {
               setWithdrawReason("");
@@ -275,7 +309,11 @@ function ProgramDetailPage() {
                   setRefreshVersion((v) => v + 1);
                 })
                 .catch((error: unknown) => {
-                  toast.error(error instanceof Error ? error.message : "Unable to mark this enrollment as completed.");
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Unable to mark this enrollment as completed.",
+                  );
                 });
             }}
           />
@@ -302,7 +340,9 @@ function ProgramDetailPage() {
             <Button
               onClick={() => setMembersOpen(true)}
               disabled={!program.isActive}
-              title={program.isActive ? "Add program members" : "Activate the program to add members"}
+              title={
+                program.isActive ? "Add program members" : "Activate the program to add members"
+              }
             >
               <Plus className="mr-2 h-4 w-4" />
               Add members
@@ -321,7 +361,8 @@ function ProgramDetailPage() {
           {summary.current} current member{summary.current === 1 ? "" : "s"}
         </span>
         <span className="font-mono text-xs text-muted-foreground">
-          {summary.completed + summary.closed} past member{(summary.completed + summary.closed) === 1 ? "" : "s"}
+          {summary.completed + summary.closed} past member
+          {summary.completed + summary.closed === 1 ? "" : "s"}
         </span>
       </div>
 
@@ -339,12 +380,21 @@ function ProgramDetailPage() {
             </CardHeader>
             <CardContent className="grid gap-4 text-sm sm:grid-cols-2">
               <div>
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">Default form</p>
-                <p>{state.formTemplates.find((item) => item.id === program.defaultFormTemplateId)?.name ?? "None"}</p>
+                <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                  Default form
+                </p>
+                <p>
+                  {state.formTemplates.find((item) => item.id === program.defaultFormTemplateId)
+                    ?.name ?? "None"}
+                </p>
               </div>
               <div>
                 <p className="font-mono text-[10px] uppercase text-muted-foreground">Contract</p>
-                <p>{workflow?.contract.activeVersion?.title ?? workflow?.contract.activeTemplate?.name ?? "No active contract template"}</p>
+                <p>
+                  {workflow?.contract.activeVersion?.title ??
+                    workflow?.contract.activeTemplate?.name ??
+                    "No active contract template"}
+                </p>
               </div>
               <div>
                 <p className="font-mono text-[10px] uppercase text-muted-foreground">Monitoring</p>
@@ -366,15 +416,11 @@ function ProgramDetailPage() {
                 <p className="text-xs text-muted-foreground">Current</p>
               </div>
               <div>
-                <p className="font-display text-2xl font-semibold">
-                  {summary.completed}
-                </p>
+                <p className="font-display text-2xl font-semibold">{summary.completed}</p>
                 <p className="text-xs text-muted-foreground">Completed</p>
               </div>
               <div>
-                <p className="font-display text-2xl font-semibold">
-                  {summary.closed}
-                </p>
+                <p className="font-display text-2xl font-semibold">{summary.closed}</p>
                 <p className="text-xs text-muted-foreground">Closed</p>
               </div>
             </CardContent>
@@ -399,14 +445,18 @@ function ProgramDetailPage() {
                     type="number"
                     min="0"
                     value={billingForm.defaultAmount}
-                    onChange={(event) => setBillingForm({ ...billingForm, defaultAmount: event.target.value })}
+                    onChange={(event) =>
+                      setBillingForm({ ...billingForm, defaultAmount: event.target.value })
+                    }
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Billing frequency</Label>
                   <Select
                     value={billingForm.frequency}
-                    onValueChange={(value) => setBillingForm({ ...billingForm, frequency: value as BillingFrequency })}
+                    onValueChange={(value) =>
+                      setBillingForm({ ...billingForm, frequency: value as BillingFrequency })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -427,7 +477,9 @@ function ProgramDetailPage() {
                       type="number"
                       min="1"
                       value={billingForm.customIntervalDays}
-                      onChange={(event) => setBillingForm({ ...billingForm, customIntervalDays: event.target.value })}
+                      onChange={(event) =>
+                        setBillingForm({ ...billingForm, customIntervalDays: event.target.value })
+                      }
                     />
                   </div>
                 )}
@@ -439,7 +491,9 @@ function ProgramDetailPage() {
                       min="1"
                       max="28"
                       value={billingForm.defaultDueDay}
-                      onChange={(event) => setBillingForm({ ...billingForm, defaultDueDay: event.target.value })}
+                      onChange={(event) =>
+                        setBillingForm({ ...billingForm, defaultDueDay: event.target.value })
+                      }
                     />
                   </div>
                 )}
@@ -448,14 +502,18 @@ function ProgramDetailPage() {
                 <span>Billing required for this program</span>
                 <Switch
                   checked={billingForm.billingRequired}
-                  onCheckedChange={(checked) => setBillingForm({ ...billingForm, billingRequired: checked })}
+                  onCheckedChange={(checked) =>
+                    setBillingForm({ ...billingForm, billingRequired: checked })
+                  }
                 />
               </div>
               <div className="flex items-center justify-between rounded-lg border border-border p-3">
                 <span>Allow custom client pricing</span>
                 <Switch
                   checked={billingForm.allowCustomClientPricing}
-                  onCheckedChange={(checked) => setBillingForm({ ...billingForm, allowCustomClientPricing: checked })}
+                  onCheckedChange={(checked) =>
+                    setBillingForm({ ...billingForm, allowCustomClientPricing: checked })
+                  }
                 />
               </div>
               <div className="flex items-center justify-between rounded-lg border border-border p-3">
@@ -472,9 +530,13 @@ function ProgramDetailPage() {
                   void cfUpdateProgramBillingConfig(program.id, {
                     defaultAmount: Number(billingForm.defaultAmount || 0),
                     frequency: billingForm.frequency,
-                    customIntervalDays: billingForm.customIntervalDays ? Number(billingForm.customIntervalDays) : undefined,
+                    customIntervalDays: billingForm.customIntervalDays
+                      ? Number(billingForm.customIntervalDays)
+                      : undefined,
                     billingRequired: billingForm.billingRequired,
-                    defaultDueDay: billingForm.defaultDueDay ? Number(billingForm.defaultDueDay) : undefined,
+                    defaultDueDay: billingForm.defaultDueDay
+                      ? Number(billingForm.defaultDueDay)
+                      : undefined,
                     allowCustomClientPricing: billingForm.allowCustomClientPricing,
                     active: billingForm.active,
                   })
@@ -483,7 +545,9 @@ function ProgramDetailPage() {
                       toast.success("Billing settings saved.");
                     })
                     .catch((error: unknown) => {
-                      toast.error(error instanceof Error ? error.message : "Unable to save billing settings.");
+                      toast.error(
+                        error instanceof Error ? error.message : "Unable to save billing settings.",
+                      );
                     })
                     .finally(() => setSavingBilling(false));
                 }}
@@ -499,28 +563,40 @@ function ProgramDetailPage() {
             <CardContent className="space-y-4 text-sm">
               <div className="space-y-1">
                 <p className="font-mono text-[10px] uppercase text-muted-foreground">1. Intake</p>
-                <p>{state.formTemplates.find((item) => item.id === program.defaultFormTemplateId)?.name ?? "No intake form configured"}</p>
+                <p>
+                  {state.formTemplates.find((item) => item.id === program.defaultFormTemplateId)
+                    ?.name ?? "No intake form configured"}
+                </p>
               </div>
               <div className="space-y-2 rounded-lg border border-border p-3">
                 <p className="font-mono text-[10px] uppercase text-muted-foreground">2. Contract</p>
                 <p>
-                  {workflow?.contract.activeVersion?.title
-                    ?? workflow?.contract.activeTemplate?.name
-                    ?? "No active contract template"}
+                  {workflow?.contract.activeVersion?.title ??
+                    workflow?.contract.activeTemplate?.name ??
+                    "No active contract template"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Signature required: {workflow?.contract.activeTemplate?.signatureRequired ? "Yes" : "No"}
+                  Signature required:{" "}
+                  {workflow?.contract.activeTemplate?.signatureRequired ? "Yes" : "No"}
                 </p>
               </div>
               <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">3. Welcome email</p>
-                <p>{workflow?.welcomeEmail.activeVersion?.subject || "No active welcome email template"}</p>
+                <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                  3. Welcome email
+                </p>
+                <p>
+                  {workflow?.welcomeEmail.activeVersion?.subject ||
+                    "No active welcome email template"}
+                </p>
                 <p className="text-xs text-muted-foreground line-clamp-2">
-                  {workflow?.welcomeEmail.activeVersion?.body || "Add a welcome email version to enable post-signature messaging."}
+                  {workflow?.welcomeEmail.activeVersion?.body ||
+                    "Add a welcome email version to enable post-signature messaging."}
                 </p>
               </div>
               <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">4. Automation</p>
+                <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                  4. Automation
+                </p>
                 <div className="flex items-center justify-between gap-2">
                   <span>Send contract after intake submission</span>
                   <Switch
@@ -532,7 +608,9 @@ function ProgramDetailPage() {
                       void updateProgramWorkflow(program.id, { sendContractAfterIntake: checked })
                         .then(() => setRefreshVersion((value) => value + 1))
                         .catch((error: unknown) => {
-                          toast.error(error instanceof Error ? error.message : "Unable to update workflow.");
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to update workflow.",
+                          );
                         })
                         .finally(() => setSavingWorkflow(false));
                     }}
@@ -546,10 +624,14 @@ function ProgramDetailPage() {
                     onCheckedChange={(checked) => {
                       if (!workflow) return;
                       setSavingWorkflow(true);
-                      void updateProgramWorkflow(program.id, { sendWelcomeAfterContractSigned: checked })
+                      void updateProgramWorkflow(program.id, {
+                        sendWelcomeAfterContractSigned: checked,
+                      })
                         .then(() => setRefreshVersion((value) => value + 1))
                         .catch((error: unknown) => {
-                          toast.error(error instanceof Error ? error.message : "Unable to update workflow.");
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to update workflow.",
+                          );
                         })
                         .finally(() => setSavingWorkflow(false));
                     }}
@@ -559,43 +641,63 @@ function ProgramDetailPage() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-3 rounded-lg border border-border p-3">
                   <div>
-                    <p className="font-mono text-[10px] uppercase text-muted-foreground">Contract versions</p>
+                    <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                      Contract versions
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       Auto-contract uses the exact active version only.
                     </p>
                   </div>
                   <div className="space-y-2">
-                    {workflow?.contract.versions.filter((version) => version.templateId === workflow.contract.activeTemplate?.id).map((version) => (
-                      <div key={version.id} className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">
-                            {version.title || `Version ${version.version}`}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            v{version.version}{version.storedFileId ? " · file attached" : ""}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant={workflow?.config.activeContractVersionId === version.id ? "default" : "outline"}
-                          disabled={savingWorkflow}
-                          onClick={() => {
-                            setSavingWorkflow(true);
-                            void updateProgramWorkflow(program.id, {
-                              activeContractTemplateId: version.templateId,
-                              activeContractVersionId: version.id,
-                            })
-                              .then(() => setRefreshVersion((value) => value + 1))
-                              .catch((error: unknown) => {
-                                toast.error(error instanceof Error ? error.message : "Unable to activate contract version.");
-                              })
-                              .finally(() => setSavingWorkflow(false));
-                          }}
+                    {workflow?.contract.versions
+                      .filter(
+                        (version) => version.templateId === workflow.contract.activeTemplate?.id,
+                      )
+                      .map((version) => (
+                        <div
+                          key={version.id}
+                          className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2"
                         >
-                          {workflow?.config.activeContractVersionId === version.id ? "Active" : "Activate"}
-                        </Button>
-                      </div>
-                    ))}
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">
+                              {version.title || `Version ${version.version}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              v{version.version}
+                              {version.storedFileId ? " · file attached" : ""}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={
+                              workflow?.config.activeContractVersionId === version.id
+                                ? "default"
+                                : "outline"
+                            }
+                            disabled={savingWorkflow}
+                            onClick={() => {
+                              setSavingWorkflow(true);
+                              void updateProgramWorkflow(program.id, {
+                                activeContractTemplateId: version.templateId,
+                                activeContractVersionId: version.id,
+                              })
+                                .then(() => setRefreshVersion((value) => value + 1))
+                                .catch((error: unknown) => {
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Unable to activate contract version.",
+                                  );
+                                })
+                                .finally(() => setSavingWorkflow(false));
+                            }}
+                          >
+                            {workflow?.config.activeContractVersionId === version.id
+                              ? "Active"
+                              : "Activate"}
+                          </Button>
+                        </div>
+                      ))}
                   </div>
                   <Input
                     value={contractTitle}
@@ -608,7 +710,10 @@ function ProgramDetailPage() {
                     rows={8}
                     placeholder="Contract body"
                   />
-                  <Input type="file" onChange={(event) => setContractFile(event.target.files?.[0] ?? null)} />
+                  <Input
+                    type="file"
+                    onChange={(event) => setContractFile(event.target.files?.[0] ?? null)}
+                  />
                   <Button
                     disabled={savingWorkflow || !contractContent.trim()}
                     onClick={() => {
@@ -616,16 +721,23 @@ function ProgramDetailPage() {
                       void (async () => {
                         let storedFileId: string | undefined;
                         if (contractFile) {
-                          const storedFile = await uploadStoredFile(contractFile, "program-workflow/contracts");
+                          const storedFile = await uploadStoredFile(
+                            contractFile,
+                            "program-workflow/contracts",
+                          );
                           storedFileId = storedFile.id;
                         }
                         if (workflow?.contract.activeTemplate) {
-                          await createProgramWorkflowContractVersion(program.id, workflow.contract.activeTemplate.id, {
-                            title: contractTitle.trim() || undefined,
-                            content: contractContent.trim(),
-                            storedFileId,
-                            makeActive: true,
-                          });
+                          await createProgramWorkflowContractVersion(
+                            program.id,
+                            workflow.contract.activeTemplate.id,
+                            {
+                              title: contractTitle.trim() || undefined,
+                              content: contractContent.trim(),
+                              storedFileId,
+                              makeActive: true,
+                            },
+                          );
                         } else {
                           await createProgramWorkflowContractTemplate(program.id, {
                             name: `${program.name} Contract`,
@@ -640,7 +752,11 @@ function ProgramDetailPage() {
                         toast.success("Contract workflow asset saved.");
                       })()
                         .catch((error: unknown) => {
-                          toast.error(error instanceof Error ? error.message : "Unable to save contract workflow asset.");
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to save contract workflow asset.",
+                          );
                         })
                         .finally(() => setSavingWorkflow(false));
                     }}
@@ -650,41 +766,63 @@ function ProgramDetailPage() {
                 </div>
                 <div className="space-y-3 rounded-lg border border-border p-3">
                   <div>
-                    <p className="font-mono text-[10px] uppercase text-muted-foreground">Welcome versions</p>
+                    <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                      Welcome versions
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      If no active custom version exists, ClientFlow falls back to the generic welcome body.
+                      If no active custom version exists, ClientFlow falls back to the generic
+                      welcome body.
                     </p>
                   </div>
                   <div className="space-y-2">
-                    {workflow?.welcomeEmail.versions.filter((version) => version.templateId === workflow.welcomeEmail.activeTemplate?.id).map((version) => (
-                      <div key={version.id} className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{version.subject}</p>
-                          <p className="text-xs text-muted-foreground">
-                            v{version.version}{version.guideStoredFileId ? " · guide attached" : ""}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant={workflow?.config.activeWelcomeEmailVersionId === version.id ? "default" : "outline"}
-                          disabled={savingWorkflow}
-                          onClick={() => {
-                            setSavingWorkflow(true);
-                            void updateProgramWorkflow(program.id, {
-                              activeWelcomeEmailTemplateId: version.templateId,
-                              activeWelcomeEmailVersionId: version.id,
-                            })
-                              .then(() => setRefreshVersion((value) => value + 1))
-                              .catch((error: unknown) => {
-                                toast.error(error instanceof Error ? error.message : "Unable to activate welcome version.");
-                              })
-                              .finally(() => setSavingWorkflow(false));
-                          }}
+                    {workflow?.welcomeEmail.versions
+                      .filter(
+                        (version) =>
+                          version.templateId === workflow.welcomeEmail.activeTemplate?.id,
+                      )
+                      .map((version) => (
+                        <div
+                          key={version.id}
+                          className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2"
                         >
-                          {workflow?.config.activeWelcomeEmailVersionId === version.id ? "Active" : "Activate"}
-                        </Button>
-                      </div>
-                    ))}
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{version.subject}</p>
+                            <p className="text-xs text-muted-foreground">
+                              v{version.version}
+                              {version.guideStoredFileId ? " · guide attached" : ""}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={
+                              workflow?.config.activeWelcomeEmailVersionId === version.id
+                                ? "default"
+                                : "outline"
+                            }
+                            disabled={savingWorkflow}
+                            onClick={() => {
+                              setSavingWorkflow(true);
+                              void updateProgramWorkflow(program.id, {
+                                activeWelcomeEmailTemplateId: version.templateId,
+                                activeWelcomeEmailVersionId: version.id,
+                              })
+                                .then(() => setRefreshVersion((value) => value + 1))
+                                .catch((error: unknown) => {
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Unable to activate welcome version.",
+                                  );
+                                })
+                                .finally(() => setSavingWorkflow(false));
+                            }}
+                          >
+                            {workflow?.config.activeWelcomeEmailVersionId === version.id
+                              ? "Active"
+                              : "Activate"}
+                          </Button>
+                        </div>
+                      ))}
                   </div>
                   <Input
                     value={welcomeSubject}
@@ -697,7 +835,10 @@ function ProgramDetailPage() {
                     rows={8}
                     placeholder="Welcome email body"
                   />
-                  <Input type="file" onChange={(event) => setWelcomeGuideFile(event.target.files?.[0] ?? null)} />
+                  <Input
+                    type="file"
+                    onChange={(event) => setWelcomeGuideFile(event.target.files?.[0] ?? null)}
+                  />
                   <Button
                     disabled={savingWorkflow || !welcomeBody.trim()}
                     onClick={() => {
@@ -705,16 +846,23 @@ function ProgramDetailPage() {
                       void (async () => {
                         let guideStoredFileId: string | undefined;
                         if (welcomeGuideFile) {
-                          const storedFile = await uploadStoredFile(welcomeGuideFile, "program-workflow/welcome-guides");
+                          const storedFile = await uploadStoredFile(
+                            welcomeGuideFile,
+                            "program-workflow/welcome-guides",
+                          );
                           guideStoredFileId = storedFile.id;
                         }
                         if (workflow?.welcomeEmail.activeTemplate) {
-                          await createProgramWorkflowWelcomeVersion(program.id, workflow.welcomeEmail.activeTemplate.id, {
-                            subject: welcomeSubject.trim() || `Welcome to ${program.name}`,
-                            body: welcomeBody.trim(),
-                            guideStoredFileId,
-                            makeActive: true,
-                          });
+                          await createProgramWorkflowWelcomeVersion(
+                            program.id,
+                            workflow.welcomeEmail.activeTemplate.id,
+                            {
+                              subject: welcomeSubject.trim() || `Welcome to ${program.name}`,
+                              body: welcomeBody.trim(),
+                              guideStoredFileId,
+                              makeActive: true,
+                            },
+                          );
                         } else {
                           await createProgramWorkflowWelcomeTemplate(program.id, {
                             name: `${program.name} Welcome`,
@@ -729,7 +877,11 @@ function ProgramDetailPage() {
                         toast.success("Welcome workflow asset saved.");
                       })()
                         .catch((error: unknown) => {
-                          toast.error(error instanceof Error ? error.message : "Unable to save welcome workflow asset.");
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to save welcome workflow asset.",
+                          );
                         })
                         .finally(() => setSavingWorkflow(false));
                     }}
@@ -791,10 +943,14 @@ function ProgramDetailPage() {
                   <p className="text-sm text-muted-foreground">{template.description}</p>
                   <ol className="space-y-2">
                     {template.fields.map((field, index) => (
-                      <li key={field.id} className="flex gap-3 border-b border-border py-2 last:border-0">
+                      <li
+                        key={field.id}
+                        className="flex gap-3 border-b border-border py-2 last:border-0"
+                      >
                         <span className="font-mono text-xs text-muted-foreground">{index + 1}</span>
                         <span className="text-sm">
-                          {field.label}{field.required ? " *" : ""}
+                          {field.label}
+                          {field.required ? " *" : ""}
                         </span>
                       </li>
                     ))}
@@ -812,12 +968,16 @@ function ProgramDetailPage() {
         open={membersOpen}
         onOpenChange={setMembersOpen}
       />
-      <AlertDialog open={withdrawing !== null} onOpenChange={(open) => !open && setWithdrawing(null)}>
+      <AlertDialog
+        open={withdrawing !== null}
+        onOpenChange={(open) => !open && setWithdrawing(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Withdraw this member?</AlertDialogTitle>
             <AlertDialogDescription>
-              This preserves the enrollment and its history, but removes the client from current members.
+              This preserves the enrollment and its history, but removes the client from current
+              members.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Textarea
@@ -842,7 +1002,9 @@ function ProgramDetailPage() {
                     setRefreshVersion((value) => value + 1);
                   })
                   .catch((error: unknown) => {
-                    toast.error(error instanceof Error ? error.message : "Unable to withdraw member.");
+                    toast.error(
+                      error instanceof Error ? error.message : "Unable to withdraw member.",
+                    );
                   })
                   .finally(() => setSavingWithdrawal(false));
               }}

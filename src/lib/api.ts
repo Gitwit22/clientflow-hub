@@ -13,7 +13,8 @@ import {
   cfDeleteFormTemplate,
   cfUpdateFormTemplate,
   cfCreateClient,
-  cfDeleteClient,
+  cfPermanentlyDeleteClient,
+  cfListArchivedClients,
   cfGetClient,
   cfListFormAssignments,
   cfUpdateClient,
@@ -170,9 +171,9 @@ export async function updateClient(id: string, data: Partial<Client>) {
         };
       }
       if (
-        isRestoring
-        && enrollment.isArchived
-        && enrollment.archivedAt === previousClient?.archivedAt
+        isRestoring &&
+        enrollment.isArchived &&
+        enrollment.archivedAt === previousClient?.archivedAt
       ) {
         return { ...enrollment, isArchived: false, archivedAt: null };
       }
@@ -217,13 +218,30 @@ export async function archiveClient(
   return delay(true);
 }
 
-export async function deleteClient(id: string) {
-  await cfDeleteClient(id);
+/**
+ * Permanently erases a client and everything recorded for them, payments included, so their money
+ * leaves Payments and Reports. Archive instead to keep the record and its financial history.
+ */
+export async function deleteClient(id: string, confirmation: string) {
+  await cfPermanentlyDeleteClient(id, confirmation);
   setState((current) => ({
     ...current,
     clients: current.clients.filter((client) => client.id !== id),
   }));
   retryBootstrap();
+}
+
+/** Loads the archive into the client list (the default load is active clients only). */
+export async function loadArchivedClients() {
+  const archived = await cfListArchivedClients();
+  setState((current) => ({
+    ...current,
+    clients: [
+      ...current.clients.filter((client) => !archived.some((row) => row.id === client.id)),
+      ...archived,
+    ],
+  }));
+  return archived;
 }
 
 export async function restoreClient(id: string) {
@@ -240,15 +258,19 @@ export const getProgramDetail = (id: string) => cfGetProgramDetail(id);
 export const getProgramWorkflow = (id: string) => cfGetProgramWorkflow(id);
 export const updateProgramWorkflow = (id: string, data: Record<string, unknown>) =>
   cfUpdateProgramWorkflow(id, data);
-export const createProgramWorkflowContractTemplate = (programId: string, data: Record<string, unknown>) =>
-  cfCreateProgramWorkflowContractTemplate(programId, data);
+export const createProgramWorkflowContractTemplate = (
+  programId: string,
+  data: Record<string, unknown>,
+) => cfCreateProgramWorkflowContractTemplate(programId, data);
 export const createProgramWorkflowContractVersion = (
   programId: string,
   templateId: string,
   data: Record<string, unknown>,
 ) => cfCreateProgramWorkflowContractVersion(programId, templateId, data);
-export const createProgramWorkflowWelcomeTemplate = (programId: string, data: Record<string, unknown>) =>
-  cfCreateProgramWorkflowWelcomeTemplate(programId, data);
+export const createProgramWorkflowWelcomeTemplate = (
+  programId: string,
+  data: Record<string, unknown>,
+) => cfCreateProgramWorkflowWelcomeTemplate(programId, data);
 export const createProgramWorkflowWelcomeVersion = (
   programId: string,
   templateId: string,
@@ -293,7 +315,10 @@ export async function createEnrollment(
   // The server answers a repeat create with the existing row, so upsert by id instead of prepending.
   setState((state) => ({
     ...state,
-    enrollments: [enrollment, ...state.enrollments.filter((existing) => existing.id !== enrollment.id)],
+    enrollments: [
+      enrollment,
+      ...state.enrollments.filter((existing) => existing.id !== enrollment.id),
+    ],
   }));
   return enrollment;
 }
@@ -311,7 +336,10 @@ export async function updateEnrollment(
 }
 
 export async function withdrawEnrollment(id: string, reason: string) {
-  const enrollment = await cfTransitionEnrollment(id, { status: "withdrawn", statusReason: reason });
+  const enrollment = await cfTransitionEnrollment(id, {
+    status: "withdrawn",
+    statusReason: reason,
+  });
   setState((state) => ({
     ...state,
     enrollments: state.enrollments.map((existing) => (existing.id === id ? enrollment : existing)),
@@ -349,7 +377,7 @@ export const getFormTemplates = async () => delay(getState().formTemplates);
 
 export async function createFormTemplate(data: Omit<FormTemplate, "id">) {
   const template = await cfCreateFormTemplate(data as Record<string, unknown>);
-    setState((s) => ({ ...s, formTemplates: [...s.formTemplates, template] }));
+  setState((s) => ({ ...s, formTemplates: [...s.formTemplates, template] }));
   return delay(template);
 }
 
@@ -378,16 +406,13 @@ export async function deleteFormTemplate(id: string) {
 }
 
 export async function assignFormToClient(clientId: string, formId: string, dueDate?: string) {
-  const appOrigin =
-    typeof window !== "undefined" ? window.location.origin : "https://clientflow-2g9.pages.dev";
+  // The server creates every assignment as a draft and issues its secure link on send.
   const assignment = await cfCreateFormAssignment({
     clientId,
     formId,
-    status: "draft",
     completionMethod: "secure_link",
     deliveryMethod: "email",
     dueDate,
-    secureLink: `${appOrigin}/s/${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
   });
   setState((s) => ({
     ...s,
@@ -422,7 +447,6 @@ export async function createFormAssignment(data: {
     recipientPhone: data.recipientPhone ?? null,
     assignedUserId: data.assignedUserId ?? null,
     dueDate: data.dueDate,
-    status: "draft",
     isDemo: data.isDemo ?? false,
     ...(data.enrollmentId ? { enrollmentId: data.enrollmentId } : {}),
   });
@@ -494,7 +518,10 @@ export async function cancelFormAssignment(id: string) {
   return delay(true);
 }
 
-export async function saveFormDraft(id: string, responses: Record<string, PublicFormResponseValue>) {
+export async function saveFormDraft(
+  id: string,
+  responses: Record<string, PublicFormResponseValue>,
+) {
   await cfUpdateFormAssignment(id, { status: "in_progress", responses });
   setState((s) => ({
     ...s,
@@ -540,8 +567,7 @@ export async function saveFormEdits(
 
   const changes = allFieldIds
     .filter(
-      (fid) =>
-        JSON.stringify(oldResponses[fid] ?? "") !== JSON.stringify(newResponses[fid] ?? ""),
+      (fid) => JSON.stringify(oldResponses[fid] ?? "") !== JSON.stringify(newResponses[fid] ?? ""),
     )
     .map((fid) => {
       const field = template?.fields.find((f) => f.id === fid);
@@ -576,7 +602,6 @@ export async function saveFormEdits(
     assignment.clientId,
     "Form edited",
     `${editedBy} edited ${changes.length} field${changes.length !== 1 ? "s" : ""} on "${template?.name ?? id}".`,
-    editedBy,
   );
 
   return delay(true);

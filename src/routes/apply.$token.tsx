@@ -26,13 +26,7 @@ export const Route = createFileRoute("/apply/$token")({
 });
 
 type PageStatus =
-  | "loading"
-  | "ready"
-  | "submitting"
-  | "success"
-  | "not_found"
-  | "error"
-  | "already_submitted";
+  "loading" | "ready" | "submitting" | "success" | "not_found" | "error" | "already_submitted";
 
 function PublicIntakePage() {
   const { token } = Route.useParams();

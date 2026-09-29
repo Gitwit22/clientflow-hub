@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -7,16 +7,6 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -33,9 +23,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
+import { PermanentDeleteClientDialog } from "@/components/dialogs/PermanentDeleteClientDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { useAppState } from "@/lib/store";
-import { archiveClient, deleteClient } from "@/lib/api";
+import { archiveClient, loadArchivedClients } from "@/lib/api";
 import { lifecycleBucket } from "@/lib/client-lifecycle";
 import { ClientProgramBadges } from "@/components/clients/ClientProgramBadges";
 import { memberOptionLabel, useOrganizationMembers } from "@/hooks/use-organization-members";
@@ -75,19 +66,20 @@ export const Route = createFileRoute("/clients/")({
 });
 
 function ClientsPage() {
-  const { authenticatedAdmin, clients, programs, contracts, enrollments, monitoring } = useAppState();
+  const { authenticatedAdmin, clients, programs, contracts, enrollments, monitoring } =
+    useAppState();
   const { members } = useOrganizationMembers();
   const [q, setQ] = useState("");
   const [program, setProgram] = useState("all");
   const [staff, setStaff] = useState("all");
-  const [lifecycleView, setLifecycleView] = useState<(typeof LIFECYCLE_TABS)[number]["value"]>("all");
+  const [lifecycleView, setLifecycleView] =
+    useState<(typeof LIFECYCLE_TABS)[number]["value"]>("all");
   const [relationship, setRelationship] = useState<RelationshipType | "all">("all");
   const [sendTo, setSendTo] = useState<Client | null>(null);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [addClientOpen, setAddClientOpen] = useState(false);
-  const canDelete = authenticatedAdmin?.role === "org_admin"
-    || authenticatedAdmin?.role === "super_admin";
+  const canDelete =
+    authenticatedAdmin?.role === "org_admin" || authenticatedAdmin?.role === "super_admin";
 
   const programName = (id: string | null) =>
     programs.find((p) => p.id === id)?.name ?? "Unassigned";
@@ -102,7 +94,9 @@ function ClientsPage() {
     if (latestContract?.status === "DRAFT") return "Send contract";
     if (latestContract?.status === "SENT") return "Awaiting signature";
     const enrollmentIds = new Set(
-      enrollments.filter((enrollment) => enrollment.clientId === c.id).map((enrollment) => enrollment.id),
+      enrollments
+        .filter((enrollment) => enrollment.clientId === c.id)
+        .map((enrollment) => enrollment.id),
     );
     const dueMonitoring = monitoring
       .filter((item) => enrollmentIds.has(item.enrollmentId) && item.active && item.nextReviewAt)
@@ -114,11 +108,24 @@ function ClientsPage() {
     return "—";
   }
 
+  // The startup load is the active caseload; the archive is fetched when its tab is opened.
+  useEffect(() => {
+    if (lifecycleView !== "archived") return;
+    loadArchivedClients().catch((error: unknown) => {
+      toast.error(error instanceof Error ? error.message : "Unable to load archived clients.");
+    });
+  }, [lifecycleView]);
+
   const rows = clients.filter((c) => {
     const clientEnrollments = enrollments.filter((enrollment) => enrollment.clientId === c.id);
-    if (lifecycleView !== "all" && lifecycleBucket(c, clientEnrollments) !== lifecycleView) return false;
+    const bucket = lifecycleBucket(c, clientEnrollments);
+    // "All" is the working caseload; archived clients live under the Archived tab.
+    if (lifecycleView === "all" ? c.isArchived : bucket !== lifecycleView) return false;
     if (relationship !== "all" && c.relationshipType !== relationship) return false;
-    if (program !== "all" && !clientEnrollments.some((enrollment) => enrollment.programId === program)) {
+    if (
+      program !== "all" &&
+      !clientEnrollments.some((enrollment) => enrollment.programId === program)
+    ) {
       return false;
     }
     if (staff !== "all" && c.assignedUserId !== staff) return false;
@@ -191,7 +198,10 @@ function ClientsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={relationship} onValueChange={(v) => setRelationship(v as RelationshipType | "all")}>
+          <Select
+            value={relationship}
+            onValueChange={(v) => setRelationship(v as RelationshipType | "all")}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Relationship" />
             </SelectTrigger>
@@ -301,44 +311,10 @@ function ClientsPage() {
       </Card>
 
       <SendFormDialog client={sendTo} open={!!sendTo} onOpenChange={(v) => !v && setSendTo(null)} />
-      <AlertDialog
-        open={deletingClient !== null}
-        onOpenChange={(open) => !open && !isDeleting && setDeletingClient(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Permanently delete this client?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deletingClient?.businessName} and all associated enrollments, forms, uploaded files,
-              communications, reports, tasks, monitoring, and activity will be permanently deleted.
-              This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={isDeleting}
-              onClick={(event) => {
-                event.preventDefault();
-                if (!deletingClient) return;
-                setIsDeleting(true);
-                void deleteClient(deletingClient.id)
-                  .then(() => {
-                    toast.success("Client and associated information permanently deleted.");
-                    setDeletingClient(null);
-                  })
-                  .catch((error: unknown) => {
-                    toast.error(error instanceof Error ? error.message : "Unable to delete client.");
-                  })
-                  .finally(() => setIsDeleting(false));
-              }}
-            >
-              {isDeleting ? "Deleting..." : "Delete permanently"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <PermanentDeleteClientDialog
+        client={deletingClient}
+        onOpenChange={(open) => !open && setDeletingClient(null)}
+      />
     </div>
   );
 }

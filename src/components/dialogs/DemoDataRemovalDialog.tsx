@@ -61,29 +61,31 @@ export function DemoDataRemovalDialog({
         <DialogHeader>
           <DialogTitle>Remove demo data permanently?</DialogTitle>
           <DialogDescription>
-            Sample clients and their operational records will be permanently deleted for this organization. Programs, form templates, and real records will remain. This cannot be undone.
+            Sample clients and their operational records will be permanently deleted for this
+            organization. Programs, form templates, and real records will remain. This cannot be
+            undone.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="remove-demo-password">Current password</Label>
-              <Input
-                id="remove-demo-password"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="remove-demo-confirmation">Type {PERMANENT_CONFIRMATION}</Label>
-              <Input
-                id="remove-demo-confirmation"
-                value={confirmation}
-                onChange={(event) => setConfirmation(event.target.value)}
-              />
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="remove-demo-password">Current password</Label>
+            <Input
+              id="remove-demo-password"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="remove-demo-confirmation">Type {PERMANENT_CONFIRMATION}</Label>
+            <Input
+              id="remove-demo-confirmation"
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+            />
+          </div>
         </div>
 
         <DialogFooter>
@@ -93,10 +95,7 @@ export function DemoDataRemovalDialog({
           <Button
             variant="destructive"
             onClick={handleConfirm}
-            disabled={
-              submitting ||
-              !currentPassword || confirmation !== PERMANENT_CONFIRMATION
-            }
+            disabled={submitting || !currentPassword || confirmation !== PERMANENT_CONFIRMATION}
           >
             {submitting ? "Removing..." : "Remove permanently"}
           </Button>

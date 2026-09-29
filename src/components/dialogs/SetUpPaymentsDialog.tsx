@@ -21,7 +21,14 @@ import {
 import { cfReplaceEnrollmentAgreement } from "@/lib/apiClient";
 import type { BillingFrequency, EnrollmentBillingAgreement, ProgramBillingConfig } from "@/types";
 
-const FREQUENCIES: BillingFrequency[] = ["one_time", "weekly", "monthly", "quarterly", "annually", "custom"];
+const FREQUENCIES: BillingFrequency[] = [
+  "one_time",
+  "weekly",
+  "monthly",
+  "quarterly",
+  "annually",
+  "custom",
+];
 export type InitialPaymentStatus = "current" | "unpaid" | "partial_unknown";
 
 export function SetUpPaymentsDialog({
@@ -41,7 +48,10 @@ export function SetUpPaymentsDialog({
   programName: string;
   programConfig: ProgramBillingConfig | null;
   existingAgreement?: EnrollmentBillingAgreement | null;
-  onSaved: (agreement: EnrollmentBillingAgreement, initialPaymentStatus: InitialPaymentStatus | null) => void;
+  onSaved: (
+    agreement: EnrollmentBillingAgreement,
+    initialPaymentStatus: InitialPaymentStatus | null,
+  ) => void;
 }) {
   const isReplace = !!existingAgreement;
   const [amount, setAmount] = useState("0");
@@ -57,13 +67,19 @@ export function SetUpPaymentsDialog({
     if (existingAgreement) {
       setAmount(String(existingAgreement.amount));
       setFrequency(existingAgreement.frequency);
-      setCustomIntervalDays(existingAgreement.customIntervalDays ? String(existingAgreement.customIntervalDays) : "");
+      setCustomIntervalDays(
+        existingAgreement.customIntervalDays ? String(existingAgreement.customIntervalDays) : "",
+      );
       setStartDate(existingAgreement.startDate.slice(0, 10));
-      setDefaultDueDay(existingAgreement.defaultDueDay ? String(existingAgreement.defaultDueDay) : "");
+      setDefaultDueDay(
+        existingAgreement.defaultDueDay ? String(existingAgreement.defaultDueDay) : "",
+      );
     } else {
       setAmount(programConfig ? String(programConfig.defaultAmount) : "0");
       setFrequency(programConfig?.frequency ?? "monthly");
-      setCustomIntervalDays(programConfig?.customIntervalDays ? String(programConfig.customIntervalDays) : "");
+      setCustomIntervalDays(
+        programConfig?.customIntervalDays ? String(programConfig.customIntervalDays) : "",
+      );
       setStartDate(new Date().toISOString().slice(0, 10));
       setDefaultDueDay(programConfig?.defaultDueDay ? String(programConfig.defaultDueDay) : "1");
       setInitialPaymentStatus("unpaid");
@@ -172,7 +188,9 @@ export function SetUpPaymentsDialog({
                 <SelectContent>
                   <SelectItem value="current">Current — paid through a known date</SelectItem>
                   <SelectItem value="unpaid">Unpaid — no historical payments to record</SelectItem>
-                  <SelectItem value="partial_unknown">Partial / unknown — I'll pick which periods were paid</SelectItem>
+                  <SelectItem value="partial_unknown">
+                    Partial / unknown — I'll pick which periods were paid
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

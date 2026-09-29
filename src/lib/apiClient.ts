@@ -40,7 +40,8 @@ import type {
 export type { PublicFormResponseValue } from "@/types";
 
 const CLIENTFLOW_API_URL =
-  (import.meta.env.VITE_CLIENTFLOW_API_URL as string | undefined) ?? "https://clientflow-vjqd.onrender.com";
+  (import.meta.env.VITE_CLIENTFLOW_API_URL as string | undefined) ??
+  "https://clientflow-vjqd.onrender.com";
 const APP_PARTITION = "clientflow";
 
 // ─── Error types ─────────────────────────────────────────────────────────────
@@ -539,6 +540,10 @@ async function listAllPages<T>(path: string): Promise<T[]> {
 export async function cfListClients() {
   return apiRequest<Client[]>(`${CF}/clients`);
 }
+/** Archived clients only (the default list is active clients). */
+export async function cfListArchivedClients() {
+  return apiRequest<Client[]>(`${CF}/clients?archived=true`);
+}
 export async function cfGetClient(id: string) {
   return apiRequest<Client>(`${CF}/clients/${id}`);
 }
@@ -569,16 +574,31 @@ export async function cfPreviewApplyFormResponses(clientId: string, assignmentId
 }
 
 /** `fields` are the approved keys from the preview; the server recomputes the values itself. */
-export async function cfApplyFormResponses(clientId: string, assignmentId: string, fields: string[]) {
+export async function cfApplyFormResponses(
+  clientId: string,
+  assignmentId: string,
+  fields: string[],
+) {
   return apiRequest<{ client: unknown; applied: string[] }>(
     `${CF}/clients/${clientId}/apply-form-responses`,
     { method: "POST", body: JSON.stringify({ assignmentId, fields }) },
   );
 }
 
-export async function cfDeleteClient(id: string) {
-  return apiRequest<{ id: string; deleted: true }>(`${CF}/clients/${id}`, {
+/**
+ * DELETE /clients/:id/permanent — erases the client and everything recorded for them, including
+ * billing agreements and payments. `confirmation` must be the business name, typed by staff.
+ */
+export async function cfPermanentlyDeleteClient(id: string, confirmation: string) {
+  return apiRequest<{
+    id: string;
+    deleted: true;
+    counts: Record<string, number>;
+    filesRemoved: number;
+    filesFailed: number;
+  }>(`/api/v1/clients/${encodeURIComponent(id)}/permanent`, {
     method: "DELETE",
+    body: JSON.stringify({ confirmation }),
   });
 }
 
@@ -610,39 +630,51 @@ export async function cfCreateProgramWorkflowContractTemplate(
   programId: string,
   data: Record<string, unknown>,
 ) {
-  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiRequest<ProgramWorkflow>(
+    `${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
 }
 export async function cfCreateProgramWorkflowContractVersion(
   programId: string,
   templateId: string,
   data: Record<string, unknown>,
 ) {
-  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates/${encodeURIComponent(templateId)}/versions`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiRequest<ProgramWorkflow>(
+    `${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates/${encodeURIComponent(templateId)}/versions`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
 }
 export async function cfCreateProgramWorkflowWelcomeTemplate(
   programId: string,
   data: Record<string, unknown>,
 ) {
-  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/emails/templates`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiRequest<ProgramWorkflow>(
+    `${CF}/programs/${encodeURIComponent(programId)}/workflow/emails/templates`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
 }
 export async function cfCreateProgramWorkflowWelcomeVersion(
   programId: string,
   templateId: string,
   data: Record<string, unknown>,
 ) {
-  return apiRequest<ProgramWorkflow>(`${CF}/programs/${encodeURIComponent(programId)}/workflow/emails/templates/${encodeURIComponent(templateId)}/versions`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiRequest<ProgramWorkflow>(
+    `${CF}/programs/${encodeURIComponent(programId)}/workflow/emails/templates/${encodeURIComponent(templateId)}/versions`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 export async function cfListEnrollments(filters: { clientId?: string; programId?: string } = {}) {
@@ -870,9 +902,12 @@ export async function cfGetDocumentDownload(documentId: string) {
     `${CF}/documents/${documentId}/download`,
   );
 }
-export async function cfCreateStoredFileUpload(
-  data: { name: string; type: string; byteSize: number; storageKeyPrefix?: string },
-) {
+export async function cfCreateStoredFileUpload(data: {
+  name: string;
+  type: string;
+  byteSize: number;
+  storageKeyPrefix?: string;
+}) {
   return apiRequest<{
     storedFile: {
       id: string;
@@ -1116,9 +1151,7 @@ export interface AutomatedPublicIntakeData {
 
 /** GET /public/forms/:token — load the automated General Intake form (no auth). */
 export async function acfGetPublicIntakeForm(token: string) {
-  return apiRequest<AutomatedPublicIntakeData>(
-    `/api/v1/public/forms/${encodeURIComponent(token)}`,
-  );
+  return apiRequest<AutomatedPublicIntakeData>(`/api/v1/public/forms/${encodeURIComponent(token)}`);
 }
 
 /** POST /public/forms/:token/submit — submit the automated General Intake form (no auth). */
@@ -1139,7 +1172,13 @@ export async function acfSubmitPublicIntakeForm(
 }
 
 export interface AutomatedPublicContractData {
-  contract: { id: string; status: string; contractName: string; content: string; expiresAt: string | null };
+  contract: {
+    id: string;
+    status: string;
+    contractName: string;
+    content: string;
+    expiresAt: string | null;
+  };
   client: { name: string };
   program: { id: string; name: string };
 }
@@ -1209,7 +1248,10 @@ export async function acfSendContract(
   }>(`/api/v1/clients/${encodeURIComponent(clientId)}/contracts/send`, {
     method: "POST",
     headers: idempotencyHeaders(options.idempotencyKey),
-    body: JSON.stringify({ contractId, ...(options.enrollmentId ? { enrollmentId: options.enrollmentId } : {}) }),
+    body: JSON.stringify({
+      contractId,
+      ...(options.enrollmentId ? { enrollmentId: options.enrollmentId } : {}),
+    }),
   });
 }
 
@@ -1234,21 +1276,24 @@ export async function acfSendWelcome(
   enrollmentId: string,
   options: { idempotencyKey?: string } = {},
 ) {
-  return apiRequest<{ contractId: string | null; emailDelivery: SendDeliveryResult; replayed: boolean }>(
-    `/api/v1/clients/${encodeURIComponent(clientId)}/welcome/send`,
-    {
-      method: "POST",
-      headers: idempotencyHeaders(options.idempotencyKey),
-      body: JSON.stringify({ enrollmentId }),
-    },
-  );
+  return apiRequest<{
+    contractId: string | null;
+    emailDelivery: SendDeliveryResult;
+    replayed: boolean;
+  }>(`/api/v1/clients/${encodeURIComponent(clientId)}/welcome/send`, {
+    method: "POST",
+    headers: idempotencyHeaders(options.idempotencyKey),
+    body: JSON.stringify({ enrollmentId }),
+  });
 }
 
 // ─── Billing & payments ───────────────────────────────────────────────────────
 
 /** GET /programs/:programId/billing-config — get-or-create the program's billing defaults. */
 export async function cfGetProgramBillingConfig(programId: string) {
-  return apiRequest<ProgramBillingConfig>(`/api/v1/programs/${encodeURIComponent(programId)}/billing-config`);
+  return apiRequest<ProgramBillingConfig>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/billing-config`,
+  );
 }
 
 /** PATCH /programs/:programId/billing-config */
@@ -1267,10 +1312,13 @@ export async function cfUpdateProgramBillingConfig(
     >
   >,
 ) {
-  return apiRequest<ProgramBillingConfig>(`/api/v1/programs/${encodeURIComponent(programId)}/billing-config`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
+  return apiRequest<ProgramBillingConfig>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/billing-config`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 function billingBase(clientId: string, enrollmentId: string) {
@@ -1283,7 +1331,11 @@ export async function cfGetEnrollmentBillingSummary(clientId: string, enrollment
 }
 
 /** GET .../billing/periods — every occurrence since the agreement started, with paid/due/overdue status. */
-export async function cfListOpenBillingPeriods(clientId: string, enrollmentId: string, throughDate?: string) {
+export async function cfListOpenBillingPeriods(
+  clientId: string,
+  enrollmentId: string,
+  throughDate?: string,
+) {
   const query = throughDate ? `?throughDate=${encodeURIComponent(throughDate)}` : "";
   return apiRequest<OpenBillingPeriod[]>(`${billingBase(clientId, enrollmentId)}/periods${query}`);
 }
@@ -1300,10 +1352,13 @@ export async function cfReplaceEnrollmentAgreement(
     defaultDueDay?: number;
   },
 ) {
-  return apiRequest<EnrollmentBillingAgreement>(`${billingBase(clientId, enrollmentId)}/agreement`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiRequest<EnrollmentBillingAgreement>(
+    `${billingBase(clientId, enrollmentId)}/agreement`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 /** POST .../billing/payments — record a manual payment applied to a specific billing period. */
@@ -1327,10 +1382,13 @@ export async function cfRecordPayment(
 
 /** PATCH /billing/payments/:id/void */
 export async function cfVoidPayment(paymentId: string, reason: string) {
-  return apiRequest<PaymentRecord>(`/api/v1/billing/payments/${encodeURIComponent(paymentId)}/void`, {
-    method: "PATCH",
-    body: JSON.stringify({ reason }),
-  });
+  return apiRequest<PaymentRecord>(
+    `/api/v1/billing/payments/${encodeURIComponent(paymentId)}/void`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ reason }),
+    },
+  );
 }
 
 export interface BackfillSelectionPayload {
@@ -1366,4 +1424,3 @@ export async function cfConfirmBackfill(
 export async function cfGetBillingDashboard(period: "month" | "quarter" | "year" = "month") {
   return apiRequest<OrgBillingDashboard>(`/api/v1/billing/dashboard?period=${period}`);
 }
-

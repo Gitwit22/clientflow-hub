@@ -124,7 +124,13 @@ export function useBootstrap() {
           liveMode,
           bootstrapStatus: "ready",
           bootstrapError: bootstrapWarnings.length ? bootstrapWarnings.join("; ") : null,
-          clients: remoteClients,
+          // The startup list is active clients; keep any archived ones a page already loaded.
+          clients: [
+            ...remoteClients,
+            ...prev.clients.filter(
+              (client) => client.isArchived && !remoteClients.some(({ id }) => id === client.id),
+            ),
+          ],
           programs: remotePrograms,
           enrollments: remoteEnrollments,
           formTemplates: remoteFormTemplates,

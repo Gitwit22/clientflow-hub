@@ -43,8 +43,12 @@ export function parseClientProfileSearch(search: Record<string, unknown>): Clien
     ? (search.tab as ClientTab)
     : undefined;
   return {
-    enrollmentId: typeof search.enrollmentId === "string" && search.enrollmentId ? search.enrollmentId : undefined,
-    programId: typeof search.programId === "string" && search.programId ? search.programId : undefined,
+    enrollmentId:
+      typeof search.enrollmentId === "string" && search.enrollmentId
+        ? search.enrollmentId
+        : undefined,
+    programId:
+      typeof search.programId === "string" && search.programId ? search.programId : undefined,
     tab,
   };
 }

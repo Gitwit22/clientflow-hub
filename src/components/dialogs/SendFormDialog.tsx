@@ -76,11 +76,13 @@ export function SendFormDialog({
         .sort((a, b) => Number(b.scope === "master_core") - Number(a.scope === "master_core"))
     : [];
   const template = kind
-    ? (candidateTemplates.find((candidate) => candidate.id === chosenTemplateId) ?? candidateTemplates[0])
+    ? (candidateTemplates.find((candidate) => candidate.id === chosenTemplateId) ??
+      candidateTemplates[0])
     : templateId
       ? formTemplates.find((candidate) => candidate.id === templateId && candidate.isActive)
-      : (formTemplates.find((candidate) => candidate.scope === "master_core" && candidate.isActive) ??
-        formTemplates.find((candidate) => candidate.programId === null && candidate.isActive));
+      : (formTemplates.find(
+          (candidate) => candidate.scope === "master_core" && candidate.isActive,
+        ) ?? formTemplates.find((candidate) => candidate.programId === null && candidate.isActive));
   // Program context: the selected enrollment when there is one (never the legacy client.programId).
   const contextEnrollment =
     enrollment ??
@@ -262,7 +264,12 @@ export function SendFormDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={() => setPreview((p) => !p)} disabled={isSending}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setPreview((p) => !p)}
+            disabled={isSending}
+          >
             {preview ? "Hide preview" : "Send preview"}
           </Button>
           <Button type="button" onClick={handleSend} disabled={!template || isSending}>

@@ -31,7 +31,7 @@ const program = {
   welcomeMessage: null,
   isActive: true,
 };
-const enrollment = { id: 'enroll-1', clientId: 'client-1', organizationId: 'org-1', programId: 'program-1' };
+const enrollment = { id: 'enroll-1', clientId: 'client-1', organizationId: 'org-1', programId: 'program-1', status: 'onboarding', isArchived: false };
 const workflowConfig = {
   id: 'workflow-1',
   organizationId: 'org-1',
@@ -80,7 +80,11 @@ function config(): ConfigService<Environment, true> {
 
 function build(prismaOverrides: Record<string, unknown>, n8n: Record<string, unknown>, storage?: unknown) {
   const transaction: Record<string, any> = {
-    cfContract: { update: jest.fn().mockImplementation(async ({ data }) => ({ ...sent, ...data })) },
+    cfContract: {
+      update: jest.fn().mockImplementation(async ({ data }) => ({ ...sent, ...data })),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirstOrThrow: jest.fn().mockResolvedValue(sent),
+    },
     cfClient: { update: jest.fn().mockResolvedValue(client) },
     cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
     cfProgramEnrollment: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },

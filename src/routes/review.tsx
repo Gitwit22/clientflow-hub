@@ -41,7 +41,8 @@ export const Route = createFileRoute("/review")({
       { title: "Pending Review — ClientFlow" },
       {
         name: "description",
-        content: "Clients whose selected program requires staff approval before a contract is sent.",
+        content:
+          "Clients whose selected program requires staff approval before a contract is sent.",
       },
     ],
   }),
@@ -117,7 +118,9 @@ function ReviewQueuePage() {
       toast.success(`${client.businessName || client.contactName}: program corrected.`);
       refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Unable to correct this client's program.");
+      toast.error(
+        err instanceof ApiError ? err.message : "Unable to correct this client's program.",
+      );
     } finally {
       setBusyClientId(null);
     }
@@ -153,7 +156,9 @@ function ReviewQueuePage() {
             <TableBody>
               {clients.map((client) => (
                 <TableRow key={client.id}>
-                  <TableCell className="font-medium">{client.businessName || client.contactName}</TableCell>
+                  <TableCell className="font-medium">
+                    {client.businessName || client.contactName}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {client.contactName} · {client.email}
                   </TableCell>
@@ -214,7 +219,10 @@ function ReviewQueuePage() {
         )}
       </Card>
 
-      <AlertDialog open={signingClient !== null} onOpenChange={(open) => !open && setSigningClient(null)}>
+      <AlertDialog
+        open={signingClient !== null}
+        onOpenChange={(open) => !open && setSigningClient(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Sign and send this agreement?</AlertDialogTitle>

@@ -1,6 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Environment } from '../../config/env';
 
@@ -117,6 +117,14 @@ export class StorageService {
     } catch {
       return false;
     }
+  }
+
+  /** Permanently removes one object. Deleting a key that no longer exists succeeds. */
+  async deleteObject(objectKey: string): Promise<void> {
+    const client = this.getClient();
+    const bucket = this.getBucketName();
+    if (!client || !bucket) throw new ServiceUnavailableException('R2 is not configured.');
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
   }
 
   /** Uploads a small text document (e.g. an executed contract snapshot) and returns its storage location. */

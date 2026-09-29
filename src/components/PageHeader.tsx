@@ -15,7 +15,9 @@ export function PageHeader({
     <div className="flex flex-wrap items-end justify-between gap-4 pb-5">
       <div>
         {eyebrow ? (
-          <p className="mb-1.5 font-mono text-xs uppercase tracking-widest text-primary">{eyebrow}</p>
+          <p className="mb-1.5 font-mono text-xs uppercase tracking-widest text-primary">
+            {eyebrow}
+          </p>
         ) : null}
         <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">
           {title}

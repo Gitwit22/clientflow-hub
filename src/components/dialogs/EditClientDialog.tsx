@@ -80,7 +80,9 @@ export function EditClientDialog({
     setProfileType(client.profileType ?? "business");
     setRelationshipType(client.relationshipType ?? "prospect");
     setStatus(client.status);
-    setAssignedUserId(client.assignedUserId ?? (client.assignedStaff ? "__legacy" : "__unassigned"));
+    setAssignedUserId(
+      client.assignedUserId ?? (client.assignedStaff ? "__legacy" : "__unassigned"),
+    );
     setNextFollowUpDate(dateInputValue(client.nextFollowUpDate));
   }, [client, open]);
 
@@ -104,7 +106,7 @@ export function EditClientDialog({
         relationshipType,
         status,
         assignedUserId:
-          assignedUserId === "__legacy" ? client.assignedUserId : selectedMember?.id ?? null,
+          assignedUserId === "__legacy" ? client.assignedUserId : (selectedMember?.id ?? null),
         assignedStaff:
           assignedUserId === "__legacy"
             ? client.assignedStaff
@@ -238,7 +240,9 @@ export function EditClientDialog({
                 <SelectContent>
                   <SelectItem value="__unassigned">Unassigned</SelectItem>
                   {client.assignedStaff && !client.assignedUserId && (
-                    <SelectItem value="__legacy">{client.assignedStaff} · Legacy assignment</SelectItem>
+                    <SelectItem value="__legacy">
+                      {client.assignedStaff} · Legacy assignment
+                    </SelectItem>
                   )}
                   {activeMembers.map((member) => (
                     <SelectItem key={member.id} value={member.id}>

@@ -76,7 +76,9 @@ export function BringAccountCurrentDialog({
       const result = await cfPreviewBackfill(clientId, enrollmentId, selection);
       setPreview(result);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to preview historical payments.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to preview historical payments.",
+      );
     } finally {
       setLoading(false);
     }
@@ -96,11 +98,15 @@ export function BringAccountCurrentDialog({
               }),
             };
       const result = await cfConfirmBackfill(clientId, enrollmentId, selection);
-      toast.success(`Confirmed ${result.created} historical payment${result.created === 1 ? "" : "s"}.`);
+      toast.success(
+        `Confirmed ${result.created} historical payment${result.created === 1 ? "" : "s"}.`,
+      );
       onOpenChange(false);
       onDone();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to confirm historical payments.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to confirm historical payments.",
+      );
     } finally {
       setConfirming(false);
     }
@@ -121,17 +127,26 @@ export function BringAccountCurrentDialog({
         {mode === "current" ? (
           <div className="space-y-1.5">
             <Label>Paid through</Label>
-            <Input type="date" value={paidThroughDate} onChange={(e) => setPaidThroughDate(e.target.value)} />
+            <Input
+              type="date"
+              value={paidThroughDate}
+              onChange={(e) => setPaidThroughDate(e.target.value)}
+            />
           </div>
         ) : (
           <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
             {allPeriods.length === 0 && !loading && (
-              <p className="py-4 text-center text-sm text-muted-foreground">No historical periods to review.</p>
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No historical periods to review.
+              </p>
             )}
             {allPeriods.map((period) => {
               const key = periodKey(period);
               return (
-                <label key={key} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/50">
+                <label
+                  key={key}
+                  className="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/50"
+                >
                   <span className="flex items-center gap-2">
                     <Checkbox
                       checked={checkedKeys.has(key)}
@@ -144,7 +159,10 @@ export function BringAccountCurrentDialog({
                         });
                       }}
                     />
-                    {new Date(period.dueDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })}
+                    {new Date(period.dueDate).toLocaleDateString(undefined, {
+                      month: "short",
+                      year: "numeric",
+                    })}
                   </span>
                   <span className="font-mono text-xs">${period.amount.toLocaleString()}</span>
                 </label>
@@ -167,8 +185,9 @@ export function BringAccountCurrentDialog({
               <p>Nothing new to confirm — every selected period is already recorded.</p>
             ) : (
               <p>
-                This will create {preview.count} historical payment confirmation{preview.count === 1 ? "" : "s"}{" "}
-                totaling ${preview.totalAmount.toLocaleString()}. Confirm?
+                This will create {preview.count} historical payment confirmation
+                {preview.count === 1 ? "" : "s"} totaling ${preview.totalAmount.toLocaleString()}.
+                Confirm?
               </p>
             )}
           </div>
@@ -178,7 +197,10 @@ export function BringAccountCurrentDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => void handleConfirm()} disabled={!preview || preview.count === 0 || confirming}>
+          <Button
+            onClick={() => void handleConfirm()}
+            disabled={!preview || preview.count === 0 || confirming}
+          >
             {confirming ? "Confirming..." : "Confirm"}
           </Button>
         </DialogFooter>

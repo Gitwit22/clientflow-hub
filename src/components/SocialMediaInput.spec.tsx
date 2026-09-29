@@ -5,13 +5,7 @@ import { RepeatableSocialLinksInput } from "./SocialMediaInput";
 
 function Harness() {
   const [links, setLinks] = useState<string[]>([]);
-  return (
-    <RepeatableSocialLinksInput
-      inputId="social-links"
-      value={links}
-      onChange={setLinks}
-    />
-  );
+  return <RepeatableSocialLinksInput inputId="social-links" value={links} onChange={setLinks} />;
 }
 
 describe("RepeatableSocialLinksInput", () => {

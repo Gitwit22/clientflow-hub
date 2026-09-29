@@ -9,11 +9,15 @@ export type LifecycleBucket = "onboarding" | "active" | "archived";
  * (including zero enrollments at all) is grouped with "onboarding" since there's no separate
  * "brand new" tab in the simplified Clients page.
  */
-export function lifecycleBucket(client: Client, clientEnrollments: ProgramEnrollment[]): LifecycleBucket {
+export function lifecycleBucket(
+  client: Client,
+  clientEnrollments: ProgramEnrollment[],
+): LifecycleBucket {
   if (client.isArchived) return "archived";
   const relevant = clientEnrollments.filter((enrollment) => !enrollment.isArchived);
   if (relevant.length === 0) return "onboarding";
-  if (relevant.some((enrollment) => isOnboardingEnrollmentStatus(enrollment.status))) return "onboarding";
+  if (relevant.some((enrollment) => isOnboardingEnrollmentStatus(enrollment.status)))
+    return "onboarding";
   if (relevant.some((enrollment) => isActiveEnrollmentStatus(enrollment.status))) return "active";
   return "archived";
 }

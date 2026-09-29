@@ -98,17 +98,18 @@ describe('frozen contract.copy outbound contract (2026-09-28)', () => {
   });
 
   it.each([
-    [400, { success: false, error: 'Invalid request' }],
-    [502, { success: false, status: 'FAILED' }],
-    [500, receipt],
-    [200, { ...receipt, success: false }],
-    [200, { ...receipt, eventId: 'another-attempt' }],
-    [200, { ...receipt, sentAt: undefined }],
-  ])('records HTTP %s or an unsuccessful/invalid receipt as a failed delivery', async (status, response) => {
+    // An HTTP error keeps its status so staff can see why (n8n down, plan ended, auth mismatch).
+    [400, { success: false, error: 'Invalid request' }, 'n8n_http_400'],
+    [502, { success: false, status: 'FAILED' }, 'n8n_http_502'],
+    [500, receipt, 'n8n_http_500'],
+    [200, { ...receipt, success: false }, 'rejected'],
+    [200, { ...receipt, eventId: 'another-attempt' }, 'rejected'],
+    [200, { ...receipt, sentAt: undefined }, 'rejected'],
+  ])('records HTTP %s or an unsuccessful/invalid receipt as a failed delivery', async (status, response, reason) => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify(response), { status }));
     await expect(service().sendContractCopy(eventId, payload))
-      .resolves.toEqual({ status: 'failed', reason: 'rejected' });
+      .resolves.toEqual({ status: 'failed', reason });
   });
 
   it('preserves eventId and Idempotency-Key on a transport retry of the same attempt', async () => {

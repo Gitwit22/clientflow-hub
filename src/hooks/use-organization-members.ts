@@ -42,7 +42,8 @@ export function useOrganizationMembers() {
         if (!cancelled) setMembers(result);
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load staff.");
+        if (!cancelled)
+          setError(reason instanceof Error ? reason.message : "Unable to load staff.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
