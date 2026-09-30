@@ -18,6 +18,7 @@ import {
   uniqueEnrollments,
 } from "@/lib/enrollment-status";
 import { useAppState } from "@/lib/store";
+import { isLiveMonitoring, monitoringBucket } from "@/lib/monitoring-buckets";
 import type { OrgBillingDashboard } from "@/types";
 
 export const Route = createFileRoute("/reports")({
@@ -153,11 +154,19 @@ function ReportsPage() {
   );
   const maxContract = Math.max(1, ...contractStatus.map((x) => x.value));
 
+  // Open statuses count live enrollments; outcomes (completed, declined, withdrawn) count every
+  // enrollment, archived ones included, so a finished client isn't lost once archived.
+  const allEnrollments = uniqueEnrollments(enrollments);
   const clientsWith = (match: (status: string) => boolean) =>
-    new Set(liveEnrollments.filter((e) => match(e.status)).map((e) => e.clientId)).size;
+    new Set(
+      allEnrollments
+        .filter((e) => match(e.status) && (isTerminalEnrollmentStatus(e.status) || !e.isArchived))
+        .map((e) => e.clientId),
+    ).size;
   const now = Date.now();
   const monitoringDue = monitoring.filter(
-    (m) => m.nextReviewAt && new Date(m.nextReviewAt).getTime() <= now,
+    (m) =>
+      isLiveMonitoring(m, enrollments) && ["overdue", "today"].includes(monitoringBucket(m, now)),
   ).length;
   const funding = terms.reduce((sum, t) => sum + (Number(t.fundingAmount) || 0), 0);
 

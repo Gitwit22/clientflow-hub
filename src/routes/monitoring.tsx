@@ -8,6 +8,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppState } from "@/lib/store";
 import { recordMonitoringResult } from "@/lib/api";
+import {
+  isLiveMonitoring,
+  monitoringBucket,
+  type MonitoringBucket,
+} from "@/lib/monitoring-buckets";
+
+const labels: ReadonlyArray<readonly [MonitoringBucket, string]> = [
+  ["overdue", "Overdue"],
+  ["today", "Due today"],
+  ["week", "Due this week"],
+  ["upcoming", "Upcoming"],
+  ["unscheduled", "Not scheduled"],
+  ["done", "Done"],
+];
 
 export const Route = createFileRoute("/monitoring")({
   head: () => ({
@@ -29,40 +43,29 @@ export const Route = createFileRoute("/monitoring")({
   component: MonitoringPage,
 });
 
-const day = 864e5;
-
 function MonitoringPage() {
   const { monitoring, clients, programs, enrollments } = useAppState();
-  const [tab, setTab] = useState("today");
+  const [tab, setTab] = useState<MonitoringBucket>("today");
+  const [savingId, setSavingId] = useState<string | null>(null);
   const now = Date.now();
 
-  const buckets: Record<string, typeof monitoring> = {
-    today: monitoring.filter(
-      (m) => m.active && m.nextReviewAt && Math.abs(new Date(m.nextReviewAt).getTime() - now) < day,
-    ),
-    week: monitoring.filter(
-      (m) =>
-        m.active &&
-        m.nextReviewAt &&
-        new Date(m.nextReviewAt).getTime() - now > 0 &&
-        new Date(m.nextReviewAt).getTime() - now <= 7 * day,
-    ),
-    overdue: monitoring.filter(
-      (m) => m.active && m.nextReviewAt && new Date(m.nextReviewAt).getTime() < now - day,
-    ),
-    upcoming: monitoring.filter(
-      (m) => m.active && m.nextReviewAt && new Date(m.nextReviewAt).getTime() - now > 7 * day,
-    ),
-    completed: monitoring.filter((m) => m.lastReviewedAt),
-  };
+  // Only monitoring on open, unarchived enrollments; each item sits in exactly one bucket.
+  const live = monitoring.filter((item) => isLiveMonitoring(item, enrollments));
+  const buckets = Object.fromEntries(
+    labels.map(([key]) => [key, live.filter((item) => monitoringBucket(item, now) === key)]),
+  ) as Record<MonitoringBucket, typeof monitoring>;
 
-  const labels = [
-    ["today", "Due today"],
-    ["week", "Due this week"],
-    ["overdue", "Overdue"],
-    ["upcoming", "Upcoming"],
-    ["completed", "Completed"],
-  ] as const;
+  async function record(id: string, complianceStatus: "compliant" | "non_compliant") {
+    setSavingId(id);
+    try {
+      await recordMonitoringResult(id, { complianceStatus });
+      toast.success("Monitoring review recorded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to record the review.");
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -70,7 +73,7 @@ function MonitoringPage() {
         title="Monitoring"
         description="Every active follow-up obligation, sorted by due date."
       />
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as MonitoringBucket)}>
         <TabsList className="flex h-auto flex-wrap justify-start">
           {labels.map(([k, l]) => (
             <TabsTrigger key={k} value={k}>
@@ -87,13 +90,17 @@ function MonitoringPage() {
                 <Card key={m.id} className="shadow-card">
                   <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
                     <div className="min-w-0">
-                      <Link
-                        to="/clients/$clientId"
-                        params={{ clientId: enrollment?.clientId ?? "" }}
-                        className="font-medium hover:text-primary"
-                      >
-                        {client?.businessName}
-                      </Link>
+                      {enrollment ? (
+                        <Link
+                          to="/clients/$clientId"
+                          params={{ clientId: enrollment.clientId }}
+                          className="font-medium hover:text-primary"
+                        >
+                          {client?.businessName ?? "Client"}
+                        </Link>
+                      ) : (
+                        <span className="font-medium">Client</span>
+                      )}
                       <p className="font-mono text-xs text-muted-foreground">
                         {programs.find((p) => p.id === enrollment?.programId)?.name} · {m.name} ·
                         Next review{" "}
@@ -105,15 +112,25 @@ function MonitoringPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={m.complianceStatus} />
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          void recordMonitoringResult(m.id, { complianceStatus: "compliant" });
-                          toast.success("Monitoring review recorded");
-                        }}
-                      >
-                        Record compliant
-                      </Button>
+                      {m.active ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={savingId === m.id}
+                            onClick={() => void record(m.id, "non_compliant")}
+                          >
+                            Not compliant
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={savingId === m.id}
+                            onClick={() => void record(m.id, "compliant")}
+                          >
+                            Record compliant
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </CardContent>
                 </Card>
