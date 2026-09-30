@@ -9,6 +9,9 @@ import { findClientForOrg } from '../../common/tenancy/org-scoped.repository';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { transitionEnrollment } from '../lifecycle/enrollment-state';
 
+/** Intake assignments a staff resend brings back to life (never cancelled or submitted ones). */
+const REOPENABLE_INTAKE_STATUSES: readonly string[] = ['draft', 'sending', 'expired', 'delivery_failed'];
+
 /** Enrollments a program correction may withdraw: nothing has been signed or started yet. */
 const CORRECTABLE_ENROLLMENT_STATUSES: readonly string[] = ['interested', 'pending_review', 'approved', 'onboarding'];
 import {
@@ -281,10 +284,7 @@ export class ClientsService {
         where: { clientId: client.id, organizationId: client.organizationId },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.cfMonitoringTask.findFirst({
-        where: { clientId: client.id, organizationId: client.organizationId },
-        orderBy: { createdAt: 'desc' },
-      }),
+      this.latestMonitoring(client.organizationId, client.id),
       this.prisma.cfDocument.findFirst({
         where: { clientId: client.id, organizationId: client.organizationId, type: 'contract' },
         orderBy: { createdAt: 'desc' },
@@ -319,6 +319,30 @@ export class ClientsService {
           }
         : null,
     };
+  }
+
+  /**
+   * The client's most recent monitoring item, from their enrollments (canonical). Clients whose only
+   * follow-up predates enrollment monitoring still show that legacy task.
+   */
+  private async latestMonitoring(organizationId: string, clientId: string) {
+    const enrollmentIds = (await this.prisma.cfProgramEnrollment.findMany({
+      where: { organizationId, clientId },
+      select: { id: true },
+    })).map((enrollment) => enrollment.id);
+    const item = enrollmentIds.length
+      ? await this.prisma.cfEnrollmentMonitoring.findFirst({
+          where: { organizationId, enrollmentId: { in: enrollmentIds }, active: true },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null;
+    if (item) {
+      return { id: item.id, type: item.name, status: item.complianceStatus, dueDate: item.nextReviewAt };
+    }
+    return this.prisma.cfMonitoringTask.findFirst({
+      where: { clientId, organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async updateProgram(
@@ -476,7 +500,16 @@ export class ClientsService {
       expiresAt = dueAt;
       await this.prisma.cfFormAssignment.update({
         where: { id: assignment.id },
-        data: { secureLinkToken: hashPublicToken(rawToken), secureLink: null, dueAt, expiresAt },
+        data: {
+          secureLinkToken: hashPublicToken(rawToken),
+          secureLink: null,
+          dueAt,
+          dueDate: dueAt.toISOString().slice(0, 10),
+          expiresAt,
+          // An expired or undelivered intake is reopened by the resend; otherwise the new link
+          // would be refused as closed the moment the client opened it.
+          ...(REOPENABLE_INTAKE_STATUSES.includes(assignment.status) ? { status: 'sent' } : {}),
+        },
       });
     }
 
@@ -507,6 +540,12 @@ export class ClientsService {
         ? { status: COMMUNICATION_STATUS.sent, sentAt: new Date(emailDelivery.sentAt), failedAt: null, errorCode: null }
         : { status: COMMUNICATION_STATUS.failed, failedAt: new Date(), errorCode: failureReason },
     });
+    if (emailDelivery.status === 'sent') {
+      await this.prisma.cfFormAssignment.updateMany({
+        where: { id: assignment.id, organizationId: client.organizationId, submittedAt: null },
+        data: { sentAt: new Date(emailDelivery.sentAt) },
+      });
+    }
     await this.prisma.cfActivityLog.create({
       data: {
         organizationId: client.organizationId,

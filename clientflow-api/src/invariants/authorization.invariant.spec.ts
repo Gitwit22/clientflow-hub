@@ -1,6 +1,8 @@
 import { ConflictException, ForbiddenException, GoneException, NotFoundException } from '@nestjs/common';
 import { ScaffoldService } from '../common/services/scaffold.service';
+import { EnrollmentsService } from '../modules/enrollments/enrollments.service';
 import { hashPublicToken } from '../modules/forms/intake-lifecycle';
+import { IntakeWorkflowService } from '../modules/forms/intake-workflow.service';
 import {
   OrganizationsCompatibilityController,
   PublicFormCompatibilityController,
@@ -63,7 +65,8 @@ describe('INVARIANT: closed public form links cannot mutate workflow', () => {
       cfClient: [{ id: 'client-1', organizationId: ORG, isArchived: false }],
       cfFormTemplate: [{ id: 'form-1', organizationId: ORG, isActive: true, fields: [] }],
     });
-    return { controller: new PublicFormCompatibilityController(new ScaffoldService(), db as never), rows };
+    const intake = new IntakeWorkflowService(db as never, new EnrollmentsService(db as never));
+    return { controller: new PublicFormCompatibilityController(new ScaffoldService(), db as never, intake), rows };
   }
 
   it.each([

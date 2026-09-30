@@ -630,8 +630,11 @@ model CfPaymentRecord {
   voidedByUserId       String?
   voidedByDisplayName  String?
   voidReason           String?
+  /// Set by the client for a recorded payment so a retried request can't record it twice.
+  idempotencyKey       String?
   createdAt            DateTime        @default(now())
 
+  @@unique([organizationId, idempotencyKey])
   @@index([organizationId, enrollmentId, paymentDate])
   @@index([organizationId, billingPeriodStart, billingPeriodEnd])
   @@index([organizationId, billingAgreementId])

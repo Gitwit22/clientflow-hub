@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { findClientForOrg, findProgramForOrg } from '../../common/tenancy/org-scoped.repository';
+import { findClientForOrg, findProgramForOrg, type TenantDb } from '../../common/tenancy/org-scoped.repository';
 import { isPrismaUniqueViolation } from '../../common/prisma-errors';
 
 /** Enrollment statuses considered closed — assignment changes should no longer cascade to these. */
@@ -159,69 +159,103 @@ export class EnrollmentsService {
     });
   }
 
+  /**
+   * ensureEnrollment inside a caller's transaction (the intake submission): the enrollment, its
+   * history and activity commit or roll back together with everything else the caller writes.
+   */
+  async ensureEnrollmentWithin(
+    transaction: TenantDb,
+    input: EnsureEnrollmentInput & { statusHistoryReason?: string },
+  ): Promise<{ enrollmentId: string; created: boolean; status: string }> {
+    const existing = await transaction.cfProgramEnrollment.findFirst({
+      where: { organizationId: input.organizationId, clientId: input.clientId, programId: input.programId },
+      select: { id: true, status: true },
+    });
+    if (existing) return { enrollmentId: existing.id, created: false, status: existing.status };
+    const enrollment = await this.createEnrollmentIn(transaction, {
+      organizationId: input.organizationId,
+      clientId: input.clientId,
+      programId: input.programId,
+      status: 'interested',
+      assignedUserId: input.assignedUserId ?? null,
+      assignedStaff: input.assignedStaff ?? null,
+      lastModifiedByUserId: input.actorUserId ?? null,
+      lastModifiedByDisplayName: input.actorDisplayName,
+      progressPercentage: INITIAL_ENROLLMENT_PROGRESS_PERCENTAGE,
+      isDemo: input.isDemo ?? false,
+      actorUserId: input.actorUserId ?? null,
+      actorDisplayName: input.actorDisplayName,
+      activityDescription: `Enrolled in ${input.programName}.`,
+      statusHistoryReason: input.statusHistoryReason ?? 'Created by program automation.',
+    });
+    return { enrollmentId: enrollment.id, created: true, status: enrollment.status };
+  }
+
   /** Shared creation: enrollment + status history + ENROLLMENT_CREATED activity, one transaction. */
   private async createEnrollment(input: CreateEnrollmentArgs) {
-    return this.prisma.$transaction(async (transaction) => {
-      // Both ids must belong to the organization: a foreign client or program is a 404, and can
-      // never occupy the global [clientId, programId] slot for another organization.
-      await findClientForOrg(transaction, input.organizationId, input.clientId, { includeArchived: true });
-      await findProgramForOrg(transaction, input.organizationId, input.programId);
-      const enrollment = await transaction.cfProgramEnrollment.create({
-        data: {
-          organizationId: input.organizationId,
-          clientId: input.clientId,
-          programId: input.programId,
-          status: input.status as any,
-          assignedUserId: input.assignedUserId ?? null,
-          assignedStaff: input.assignedStaff ?? null,
-          lastModifiedByUserId: input.lastModifiedByUserId ?? null,
-          lastModifiedByDisplayName: input.lastModifiedByDisplayName ?? null,
-          startDate: input.startDate ?? null,
-          nextAction: input.nextAction ?? null,
-          nextActionDate: input.nextActionDate ?? null,
-          ...(input.progressPercentage !== undefined ? { progressPercentage: input.progressPercentage } : {}),
-          currentGoalId: input.currentGoalId ?? null,
-          lastProgressUpdate: new Date(),
-          ...(input.clientResponsiveness !== undefined ? { clientResponsiveness: input.clientResponsiveness as any } : {}),
-          currentBlockers: input.currentBlockers ?? null,
-          ...(input.riskLevel !== undefined ? { riskLevel: input.riskLevel as any } : {}),
-          staffProgressNotes: input.staffProgressNotes ?? null,
-          ...(input.meetingsAttended !== undefined ? { meetingsAttended: input.meetingsAttended } : {}),
-          ...(input.outcomeAchieved !== undefined ? { outcomeAchieved: input.outcomeAchieved as any } : {}),
-          finalOutcomeSummary: input.finalOutcomeSummary ?? null,
-          completedAt: input.completedAt ?? null,
-          withdrawnAt: input.withdrawnAt ?? null,
-          onHoldReason: input.onHoldReason ?? null,
-          isDemo: input.isDemo ?? false,
-        } as any,
-      });
+    return this.prisma.$transaction((transaction) => this.createEnrollmentIn(transaction, input));
+  }
 
-      await transaction.cfEnrollmentStatusHistory.create({
-        data: {
-          organizationId: input.organizationId,
-          enrollmentId: enrollment.id,
-          previousStatus: null,
-          newStatus: enrollment.status,
-          changedByUserId: input.actorUserId,
-          changedByDisplayName: input.actorDisplayName,
-          reason: input.statusHistoryReason,
-        },
-      });
-
-      await transaction.cfActivityLog.create({
-        data: {
-          organizationId: input.organizationId,
-          clientId: input.clientId,
-          enrollmentId: enrollment.id,
-          actorUserId: input.actorUserId,
-          action: 'ENROLLMENT_CREATED',
-          description: input.activityDescription,
-          user: input.actorDisplayName,
-          isDemo: input.isDemo ?? false,
-        },
-      });
-
-      return enrollment;
+  private async createEnrollmentIn(transaction: TenantDb, input: CreateEnrollmentArgs) {
+    // Both ids must belong to the organization: a foreign client or program is a 404, and can
+    // never occupy the global [clientId, programId] slot for another organization.
+    await findClientForOrg(transaction, input.organizationId, input.clientId, { includeArchived: true });
+    await findProgramForOrg(transaction, input.organizationId, input.programId);
+    const enrollment = await transaction.cfProgramEnrollment.create({
+      data: {
+        organizationId: input.organizationId,
+        clientId: input.clientId,
+        programId: input.programId,
+        status: input.status as any,
+        assignedUserId: input.assignedUserId ?? null,
+        assignedStaff: input.assignedStaff ?? null,
+        lastModifiedByUserId: input.lastModifiedByUserId ?? null,
+        lastModifiedByDisplayName: input.lastModifiedByDisplayName ?? null,
+        startDate: input.startDate ?? null,
+        nextAction: input.nextAction ?? null,
+        nextActionDate: input.nextActionDate ?? null,
+        ...(input.progressPercentage !== undefined ? { progressPercentage: input.progressPercentage } : {}),
+        currentGoalId: input.currentGoalId ?? null,
+        lastProgressUpdate: new Date(),
+        ...(input.clientResponsiveness !== undefined ? { clientResponsiveness: input.clientResponsiveness as any } : {}),
+        currentBlockers: input.currentBlockers ?? null,
+        ...(input.riskLevel !== undefined ? { riskLevel: input.riskLevel as any } : {}),
+        staffProgressNotes: input.staffProgressNotes ?? null,
+        ...(input.meetingsAttended !== undefined ? { meetingsAttended: input.meetingsAttended } : {}),
+        ...(input.outcomeAchieved !== undefined ? { outcomeAchieved: input.outcomeAchieved as any } : {}),
+        finalOutcomeSummary: input.finalOutcomeSummary ?? null,
+        completedAt: input.completedAt ?? null,
+        withdrawnAt: input.withdrawnAt ?? null,
+        onHoldReason: input.onHoldReason ?? null,
+        isDemo: input.isDemo ?? false,
+      } as any,
     });
+
+    await transaction.cfEnrollmentStatusHistory.create({
+      data: {
+        organizationId: input.organizationId,
+        enrollmentId: enrollment.id,
+        previousStatus: null,
+        newStatus: enrollment.status,
+        changedByUserId: input.actorUserId,
+        changedByDisplayName: input.actorDisplayName,
+        reason: input.statusHistoryReason,
+      },
+    });
+
+    await transaction.cfActivityLog.create({
+      data: {
+        organizationId: input.organizationId,
+        clientId: input.clientId,
+        enrollmentId: enrollment.id,
+        actorUserId: input.actorUserId,
+        action: 'ENROLLMENT_CREATED',
+        description: input.activityDescription,
+        user: input.actorDisplayName,
+        isDemo: input.isDemo ?? false,
+      },
+    });
+
+    return enrollment;
   }
 }

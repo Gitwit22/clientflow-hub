@@ -108,13 +108,20 @@ export async function refreshClientProfile(clientId: string) {
     clients: state.clients.some((existing) => existing.id === clientId)
       ? state.clients.map((existing) => (existing.id === clientId ? client : existing))
       : [client, ...state.clients],
+    // Replace this client's rows; drop any row that also arrives in the fresh list (no duplicates).
     formAssignments: [
       ...assignments,
-      ...state.formAssignments.filter((assignment) => assignment.clientId !== clientId),
+      ...state.formAssignments.filter(
+        (assignment) =>
+          assignment.clientId !== clientId && !assignments.some(({ id }) => id === assignment.id),
+      ),
     ],
     enrollments: [
       ...enrollments,
-      ...state.enrollments.filter((enrollment) => enrollment.clientId !== clientId),
+      ...state.enrollments.filter(
+        (enrollment) =>
+          enrollment.clientId !== clientId && !enrollments.some(({ id }) => id === enrollment.id),
+      ),
     ],
   }));
   return client;
@@ -618,11 +625,12 @@ export const renderEmailBody = (vars: {
   dueDate: string;
   secureFormLink: string;
 }) =>
+  // Every occurrence, not just the first.
   emailTemplateBody
-    .replace("{{contactName}}", vars.contactName)
-    .replace("{{programName}}", vars.programName)
-    .replace("{{dueDate}}", vars.dueDate)
-    .replace("{{secureFormLink}}", vars.secureFormLink);
+    .replaceAll("{{contactName}}", vars.contactName)
+    .replaceAll("{{programName}}", vars.programName)
+    .replaceAll("{{dueDate}}", vars.dueDate)
+    .replaceAll("{{secureFormLink}}", vars.secureFormLink);
 
 /* ----------------------------------- Terms ---------------------------------- */
 
@@ -703,19 +711,14 @@ export async function recordMonitoringResult(
       >
     >,
 ) {
-  await cfRecordMonitoringResult(id, data as Record<string, unknown>);
+  // The server applies the review (next review date, kept notes, history) and returns the item.
+  const updated = (await cfRecordMonitoringResult(
+    id,
+    data as Record<string, unknown>,
+  )) as EnrollmentMonitoring;
   setState((s) => ({
     ...s,
-    monitoring: s.monitoring.map((item) =>
-      item.id === id
-        ? {
-            ...item,
-            ...data,
-            actualValue: data.actualValue ?? item.actualValue,
-            lastReviewedAt: nowISO(),
-          }
-        : item,
-    ),
+    monitoring: s.monitoring.map((item) => (item.id === id ? { ...item, ...updated } : item)),
   }));
   return delay(true);
 }
@@ -727,6 +730,14 @@ export async function createFinalReport(clientId: string, data: FinalReportDraft
   const report: FinalReport = { ...data, id: backend.id, clientId };
   setState((s) => ({ ...s, finalReports: [report, ...s.finalReports] }));
   await log(clientId, "Final report completed", `Outcome recorded: ${data.clientOutcome}.`);
+  // The archive decision may have completed/withdrawn the enrollment or archived the client.
+  if (backend.outcome?.applied) {
+    try {
+      await refreshClientProfile(clientId);
+    } catch (error) {
+      console.warn("Final report saved, but the client could not be refreshed.", error);
+    }
+  }
   return delay(report);
 }
 

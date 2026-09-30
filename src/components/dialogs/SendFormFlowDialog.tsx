@@ -121,7 +121,7 @@ export function SendFormFlowDialog({
     () =>
       renderEmailBody({
         contactName: selectedClient?.primaryContactName ?? "{{contactName}}",
-        programName: program?.name ?? "{{programName}}",
+        programName: program?.name ?? "selected",
         dueDate,
         secureFormLink: `${typeof window !== "undefined" ? window.location.origin : ""}/s/{{generated}}`,
       }),

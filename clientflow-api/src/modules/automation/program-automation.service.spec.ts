@@ -3,7 +3,8 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { ContractsService } from '../contracts/contracts.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
-import { ProgramAutomationService } from './program-automation.service';
+import type { FormDeliveryService } from '../forms/form-delivery.service';
+import { ProgramAutomationService, renderRuleText } from './program-automation.service';
 
 // Shared test context: builds real WorkflowConfigService/EnrollmentsService instances against
 // the same mocked `prisma` each test already configures, so existing prisma mocks/assertions
@@ -12,13 +13,21 @@ function programAutomationTestContext(
   prisma: unknown,
   contracts: unknown,
   n8n: unknown,
+  formDelivery?: unknown,
 ): ProgramAutomationService {
+  // The program's "send contract after intake" setting is read on every intake trigger; tests
+  // that don't configure it get a program with that setting off.
+  const withWorkflow = prisma as Record<string, unknown>;
+  withWorkflow.cfProgramWorkflowConfig ??= {
+    findFirst: jest.fn().mockResolvedValue({ enabled: true, sendContractAfterIntake: false }),
+  };
   return new ProgramAutomationService(
     prisma as unknown as PrismaService,
     contracts as ContractsService,
     n8n as unknown as N8nService,
     new WorkflowConfigService(prisma as unknown as PrismaService),
     new EnrollmentsService(prisma as unknown as PrismaService),
+    formDelivery as FormDeliveryService | undefined,
   );
 }
 
@@ -291,10 +300,15 @@ describe('ProgramAutomationService', () => {
         },
       };
 
+      const formDelivery = {
+        createAssignment: jest.fn().mockResolvedValue({ id: 'assignment-1' }),
+        send: jest.fn().mockResolvedValue({ status: 'sent' }),
+      };
       const service = programAutomationTestContext(
         prisma,
         {} as ContractsService,
         { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
+        formDelivery,
       );
 
       await service.runTrigger({
@@ -306,11 +320,19 @@ describe('ProgramAutomationService', () => {
         idempotencySeed: 'seed-3',
       });
 
-      expect(prisma.cfFormAssignment.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({
-          dueDate: '2030-01-08',
-        }),
+      // The form goes out the same way a staff send does: a real link and an email.
+      expect(formDelivery.createAssignment).toHaveBeenCalledWith('org-1', expect.anything(), expect.objectContaining({
+        clientId: 'client-1',
+        formId: 'form-1',
+        enrollmentId: 'enroll-1',
+        deliveryMethod: 'automation',
+        dueDate: '2030-01-08',
       }));
+      expect(formDelivery.send).toHaveBeenCalledWith('org-1', expect.anything(), 'assignment-1', {
+        idempotencyKey: expect.stringMatching(/^auto-form-[a-f0-9]{48}$/),
+        source: 'automation',
+      });
+      expect(prisma.cfFormAssignment.create).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }
@@ -414,5 +436,70 @@ describe('ProgramAutomationService', () => {
         enrollmentId: 'enroll-1',
       }),
     );
+  });
+
+  describe('the "send contract after intake" setting', () => {
+    function build(rules: Array<{ id: string; action: string }>) {
+      const prisma = {
+        cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },
+        cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
+        cfProgramAutomationRule: {
+          findMany: jest.fn().mockResolvedValue(rules.map((rule) => ({ ...rule, actionConfig: {}, conditions: {} }))),
+        },
+        cfProgramAutomationExecution: {
+          create: jest.fn().mockImplementation(async ({ data }: { data: { ruleId: string } }) => ({ id: `exec-${data.ruleId}` })),
+          update: jest.fn().mockResolvedValue({}),
+        },
+        cfProgramWorkflowConfig: {
+          findFirst: jest.fn().mockResolvedValue({ enabled: true, sendContractAfterIntake: true }),
+        },
+        cfContract: { findFirst: jest.fn().mockResolvedValue(null) },
+        cfTask: { create: jest.fn().mockResolvedValue({ id: 'task-1' }) },
+      };
+      const contracts = {
+        issueContractForProgram: jest.fn().mockResolvedValue({
+          contract: { id: 'contract-1', status: 'SENT' },
+          emailDelivery: { status: 'sent' },
+        }),
+      };
+      const service = programAutomationTestContext(prisma, contracts, { getWelcomeAvailability: () => 'disabled' });
+      const run = () => service.runTrigger({
+        organizationId: 'org-1',
+        clientId: 'client-1',
+        trigger: 'intake.submitted',
+        programIds: ['program-1'],
+        enrollmentIdsByProgramId: { 'program-1': 'enroll-1' },
+        idempotencySeed: 'seed-toggle',
+      });
+      return { prisma, contracts, run };
+    }
+
+    it('still sends the contract when the program also has other intake rules, and runs those rules', async () => {
+      const { prisma, contracts, run } = build([{ id: 'rule-task', action: 'create_task' }]);
+      const result = await run();
+      expect(contracts.issueContractForProgram).toHaveBeenCalledTimes(1);
+      expect(prisma.cfTask.create).toHaveBeenCalledTimes(1);
+      expect(result.programs[0].actions).toEqual(['send_contract', 'create_task']);
+    });
+
+    it('leaves the contract to a send_contract rule, so only one contract goes out', async () => {
+      const { contracts, run } = build([{ id: 'rule-contract', action: 'send_contract' }]);
+      const result = await run();
+      expect(contracts.issueContractForProgram).toHaveBeenCalledTimes(1);
+      expect(result.programs[0].actions).toEqual(['send_contract']);
+    });
+  });
+});
+
+describe('renderRuleText', () => {
+  it('fills every occurrence of known placeholders and leaves unknown ones', () => {
+    expect(renderRuleText('Hi {{contactName}} — {{ programName }} / {{programName}} {{unknown}}', {
+      contactName: 'Pat',
+      programName: 'Grant',
+    })).toBe('Hi Pat — Grant / Grant {{unknown}}');
+  });
+
+  it('keeps a placeholder whose value is empty rather than printing a blank', () => {
+    expect(renderRuleText('For {{businessName}}', { businessName: '  ' })).toBe('For {{businessName}}');
   });
 });

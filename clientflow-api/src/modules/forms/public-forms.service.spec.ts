@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { ProgramAutomationService } from '../automation/program-automation.service';
+import type { IntakeWorkflowService } from './intake-workflow.service';
 import { hashPublicToken } from './intake-lifecycle';
 import { PublicFormsService } from './public-forms.service';
 
@@ -44,11 +44,15 @@ function readPrisma() {
   };
 }
 
-function automationService() {
+function intakeWorkflow() {
   return {
-    runTrigger: jest.fn().mockResolvedValue({
-      trigger: 'intake.submitted',
-      programs: [{ programId: 'program-1', actions: ['create_enrollment'] }],
+    submit: jest.fn().mockResolvedValue({
+      success: true,
+      submissionId: 'submission-1',
+      clientId: 'client-1',
+      assignmentId: 'assignment-1',
+      enrollmentIds: ['enroll-1'],
+      automation: { trigger: 'intake.submitted' },
     }),
   };
 }
@@ -58,7 +62,7 @@ describe('PublicFormsService', () => {
     const prisma = readPrisma();
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      automationService() as unknown as ProgramAutomationService,
+      intakeWorkflow() as unknown as IntakeWorkflowService,
     );
 
     const result = await service.getByToken(rawToken);
@@ -75,7 +79,7 @@ describe('PublicFormsService', () => {
   it('returns the same safe error for an invalid token', async () => {
     const service = new PublicFormsService(
       readPrisma() as unknown as PrismaService,
-      automationService() as unknown as ProgramAutomationService,
+      intakeWorkflow() as unknown as IntakeWorkflowService,
     );
 
     await expect(service.getByToken('invalid')).rejects.toEqual(
@@ -83,56 +87,36 @@ describe('PublicFormsService', () => {
     );
   });
 
-  it('submits the assignment and updates client program status atomically', async () => {
-    const transaction = {
-      cfFormAssignment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      cfClient: { update: jest.fn().mockResolvedValue({ id: 'client-1' }) },
-      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
-    };
-    const prisma = {
-      ...readPrisma(),
-      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
-    };
-    const automation = automationService();
+  it('validates the answers, then records the submission through the intake workflow', async () => {
+    const prisma = readPrisma();
+    const intake = intakeWorkflow();
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      automation as unknown as ProgramAutomationService,
+      intake as unknown as IntakeWorkflowService,
     );
 
-    const result = await service.submit(rawToken, {
-      answers: {
-        contactName: 'Alicia Owner',
-        email: 'alicia@example.com',
-        selectedProgram: 'Grant',
-      },
-    });
+    const answers = {
+      contactName: 'Alicia Owner',
+      email: 'alicia@example.com',
+      selectedProgram: 'Grant',
+    };
+    const result = await service.submit(rawToken, { answers });
 
-    expect(transaction.cfFormAssignment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'assignment-1', submittedAt: null },
-      data: expect.objectContaining({ status: 'submitted' }),
+    // The program is chosen by name on this form and passed on by id, from this organization only.
+    expect(prisma.cfProgram.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organizationId: 'org-1', name: 'Grant', isActive: true },
     }));
-    expect(transaction.cfClient.update).toHaveBeenCalledWith({
-      where: { id: 'client-1' },
-      data: {
-        status: 'PROGRAM_SELECTED',
-        programId: 'program-1',
-        intake: { referralSource: 'event', programOfInterest: 'Grant' },
-      },
+    expect(intake.submit).toHaveBeenCalledWith(rawToken, {
+      coreResponses: answers,
+      selectedProgramIds: ['program-1'],
+      actorDisplayName: 'public form',
     });
-    expect(transaction.cfActivityLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ action: 'INTAKE_SUBMITTED' }),
-    }));
     expect(result).toEqual(expect.objectContaining({
       success: true,
       status: 'PROGRAM_SELECTED',
       selectedProgram: 'Grant',
       program: { id: 'program-1', name: 'Grant' },
-    }));
-    expect(automation.runTrigger).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: 'org-1',
-      clientId: 'client-1',
-      trigger: 'intake.submitted',
-      programIds: ['program-1'],
+      automation: { trigger: 'intake.submitted' },
     }));
   });
 
@@ -144,19 +128,13 @@ describe('PublicFormsService', () => {
         { id: 'socialLinks', label: 'Primary Social media', type: 'social_links', required: false },
       ],
     };
-    const transaction = {
-      cfFormAssignment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      cfClient: { update: jest.fn().mockResolvedValue({ id: 'client-1' }) },
-      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
-    };
     const prisma = {
       ...readPrisma(),
       cfFormTemplate: { findFirst: jest.fn().mockResolvedValue(richTemplate) },
-      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
     };
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      automationService() as unknown as ProgramAutomationService,
+      intakeWorkflow() as unknown as IntakeWorkflowService,
     );
 
     await expect(service.submit(rawToken, {
@@ -182,7 +160,7 @@ describe('PublicFormsService', () => {
     };
     const service = new PublicFormsService(
       prisma as unknown as PrismaService,
-      automationService() as unknown as ProgramAutomationService,
+      intakeWorkflow() as unknown as IntakeWorkflowService,
     );
 
     await expect(service.submit(rawToken, {

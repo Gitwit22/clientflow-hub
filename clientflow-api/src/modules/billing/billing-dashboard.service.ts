@@ -69,6 +69,9 @@ function periodLabel(frequency: string, dueDate: Date, timezone: string): string
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: timezone }).format(dueDate);
 }
 
+/** Enrollments that should have a billing agreement. */
+const BILLABLE_ENROLLMENT_STATUSES: readonly string[] = ['approved', 'onboarding', 'active', 'on_hold'];
+
 @Injectable()
 export class BillingDashboardService {
   constructor(private readonly prisma: PrismaService) {}
@@ -162,6 +165,9 @@ export class BillingDashboardService {
     const needsBillingSetup: OrgDashboard['needsBillingSetup'] = [];
     for (const enrollment of enrollments) {
       if (agreedEnrollmentIds.has(enrollment.id)) continue;
+      // Only members who are (or are about to be) in the program owe anything: not interested,
+      // pending, declined, withdrawn or completed enrollments.
+      if (!BILLABLE_ENROLLMENT_STATUSES.includes(enrollment.status)) continue;
       const program = programById.get(enrollment.programId);
       const client = clientById.get(enrollment.clientId);
       if (!program || !client) continue;

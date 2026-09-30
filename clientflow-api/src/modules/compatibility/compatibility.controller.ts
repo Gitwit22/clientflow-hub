@@ -35,6 +35,8 @@ import { resolvePublicFormLink } from '../forms/public-form-link';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
+import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
+import { applyFinalReportDecision } from '../lifecycle/final-report';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
   assertCanGrantRole,
@@ -57,6 +59,7 @@ import {
 } from '../contracts/executed-contract-file';
 import { FormDeliveryService } from '../forms/form-delivery.service';
 import { FormProfileService } from '../forms/form-profile.service';
+import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
@@ -195,6 +198,16 @@ export class ClientflowCompatibilityController {
   private requireStorage(): StorageService {
     if (!this.storage) throw this.scaffold.notImplemented('ClientFlow storage compatibility');
     return this.storage;
+  }
+
+  /** Runs a program automation trigger after the change it describes; a failure never undoes that. */
+  private async fireTrigger(request: Parameters<ProgramAutomationService['runTrigger']>[0]) {
+    if (!this.automation) return;
+    try {
+      await this.automation.runTrigger(request);
+    } catch (error) {
+      this.logger.warn(`Automation ${request.trigger} failed for client ${request.clientId}: ${(error as Error).message}`);
+    }
   }
 
   private requireWorkflowConfig(): WorkflowConfigService {
@@ -978,9 +991,16 @@ export class ClientflowCompatibilityController {
     });
   }
 
-  @Get('enrollments') async listEnrollments(@Req() request: Request) {
+  @Get('enrollments') async listEnrollments(
+    @Req() request: Request,
+    @Query('clientId') clientId?: string,
+    @Query('programId') programId?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfProgramEnrollment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfProgramEnrollment.findMany({
+      where: { organizationId: orgId, ...(clientId ? { clientId } : {}), ...(programId ? { programId } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
   }
   @Get('enrollments/:id') async getEnrollment(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1130,24 +1150,19 @@ export class ClientflowCompatibilityController {
       });
       return enrollment;
     });
-    if (this.automation
-      && String(current.status).toLowerCase() !== 'approved'
-      && String(updated.status).toLowerCase() === 'approved') {
-      try {
-        await this.automation.runTrigger({
-          organizationId: orgId,
-          clientId: updated.clientId,
-          trigger: 'enrollment.approved',
-          programIds: [updated.programId],
-          enrollmentIdsByProgramId: { [updated.programId]: updated.id },
-          actorUserId: admin.id,
-          actorDisplayName: changedByDisplayName,
-          idempotencySeed: `compat.enrollment.approved:${updated.id}`,
-          payload: { enrollmentStatus: updated.status },
-        });
-      } catch (error) {
-        this.logger.warn(`Enrollment approval automation failed for ${updated.id}: ${(error as Error).message}`);
-      }
+    for (const trigger of ['approved', 'completed'] as const) {
+      if (String(current.status) === trigger || String(updated.status) !== trigger) continue;
+      await this.fireTrigger({
+        organizationId: orgId,
+        clientId: updated.clientId,
+        trigger: trigger === 'approved' ? 'enrollment.approved' : 'program.completed',
+        programIds: [updated.programId],
+        enrollmentIdsByProgramId: { [updated.programId]: updated.id },
+        actorUserId: admin.id,
+        actorDisplayName: changedByDisplayName,
+        idempotencySeed: `compat.enrollment.${trigger}:${updated.id}`,
+        payload: { enrollmentStatus: updated.status },
+      });
     }
     return updated;
   }
@@ -1173,9 +1188,12 @@ export class ClientflowCompatibilityController {
     await this.requirePrisma().cfFormTemplate.update({ where: { id, organizationId: orgId }, data: { isActive: false } });
     return { id, unlinkedProgramIds: [], cancelledAssignments: 0 };
   }
-  @Get('form-assignments') async listFormAssignments(@Req() request: Request) {
+  @Get('form-assignments') async listFormAssignments(@Req() request: Request, @Query('clientId') clientId?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const assignments = await this.requirePrisma().cfFormAssignment.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    const assignments = await this.requirePrisma().cfFormAssignment.findMany({
+      where: { organizationId: orgId, ...(clientId ? { clientId } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
     return assignments.map(withoutLinkSecrets);
   }
   @Post('form-assignments') async createFormAssignment(@Req() request: Request, @Body() body: Record<string, unknown>) {
@@ -1241,36 +1259,73 @@ export class ClientflowCompatibilityController {
     return { ...submission, client: client ?? null, assignment: assignment ? withoutLinkSecrets(assignment) : null, snapshot: snapshot ?? null, programs };
   }
 
-  @Get('notifications') async listNotifications(@Req() request: Request) {
+  @Get('notifications') async listNotifications(@Req() request: Request, @Query('limit') limit?: string) {
     const { admin } = await this.requireOrgFromRequest(request);
-    return { items: await this.requirePrisma().cfNotification.findMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id }, orderBy: { createdAt: 'desc' }, take: 30 }), unreadCount: 0 };
+    const mine = { organizationId: admin.organizationId, recipientAdminId: admin.id };
+    const parsedLimit = Number.parseInt(limit ?? '30', 10);
+    const take = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 30;
+    const prisma = this.requirePrisma();
+    const [items, unreadCount] = await Promise.all([
+      prisma.cfNotification.findMany({ where: mine, orderBy: { createdAt: 'desc' }, take }),
+      // The badge counts every unread notification, not just the ones on this page.
+      prisma.cfNotification.count({ where: { ...mine, readAt: null } }),
+    ]);
+    return { items, unreadCount };
   }
   @Patch('notifications/read-all') async markAllNotificationsRead(@Req() request: Request) {
     const { admin } = await this.requireOrgFromRequest(request);
-    await this.requirePrisma().cfNotification.updateMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id, readAt: null }, data: { readAt: new Date() } });
-    return { updated: 0 };
+    const { count } = await this.requirePrisma().cfNotification.updateMany({ where: { organizationId: admin.organizationId, recipientAdminId: admin.id, readAt: null }, data: { readAt: new Date() } });
+    return { updated: count };
   }
   @Patch('notifications/:id/read') async markNotificationRead(@Req() request: Request, @Param('id') id: string) {
     const { admin } = await this.requireOrgFromRequest(request);
-    await this.requirePrisma().cfNotification.updateMany({ where: { id, organizationId: admin.organizationId, recipientAdminId: admin.id }, data: { readAt: new Date() } });
+    const mine = { id, organizationId: admin.organizationId, recipientAdminId: admin.id };
+    const { count } = await this.requirePrisma().cfNotification.updateMany({ where: { ...mine, readAt: null }, data: { readAt: new Date() } });
+    if (count === 0 && !(await this.requirePrisma().cfNotification.findFirst({ where: mine, select: { id: true } }))) {
+      throw new NotFoundException('Notification not found.');
+    }
     return { id, read: true };
   }
 
-  @Get('terms') async listAllTerms(@Req() request: Request) {
+  @Get('terms') async listAllTerms(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfTerms.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfTerms.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
   @Get('monitoring') async listAllMonitoring(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfEnrollmentMonitoring.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
   }
-  @Get('contracts') async listAllContracts(@Req() request: Request) {
+  @Get('contracts') async listAllContracts(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfContract.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
-  @Get('documents') async listAllDocuments(@Req() request: Request) {
+  @Get('documents') async listAllDocuments(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfDocument.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfDocument.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
   @Post('files/upload-intent') async createStoredFileUploadIntent(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
@@ -1341,20 +1396,23 @@ export class ClientflowCompatibilityController {
     @Query('offset') offsetQuery?: string,
   ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const parsedLimit = Number.parseInt(limitQuery ?? '100', 10);
-    const parsedOffset = Number.parseInt(offsetQuery ?? '0', 10);
-    const take = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 500) : 100;
-    const skip = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
     return this.requirePrisma().cfCommunication.findMany({
       where: { organizationId: orgId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take,
-      skip,
+      ...listPage(limitQuery ?? '100', offsetQuery),
     });
   }
-  @Get('final-reports') async listAllFinalReports(@Req() request: Request) {
+  @Get('final-reports') async listAllFinalReports(
+    @Req() request: Request,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFinalReport.findMany({ where: { organizationId: orgId }, orderBy: { createdAt: 'desc' } });
+    return this.requirePrisma().cfFinalReport.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listPage(limit, offset),
+    });
   }
   @Get('clients/:clientId/terms') async listTerms(@Req() request: Request, @Param('clientId') clientId: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1363,8 +1421,11 @@ export class ClientflowCompatibilityController {
   @Post('clients/:clientId/terms') async createTerms(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     await findClientForOrg(this.requirePrisma(), orgId, clientId, { includeArchived: true });
-    if (body.programId) await findProgramForOrg(this.requirePrisma(), orgId, String(body.programId));
-    return this.requirePrisma().cfTerms.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), supportType: String(body.supportType ?? 'Service'), resourceDescription: String(body.resourceDescription ?? ''), grantAmount: Number(body.grantAmount ?? 0), loanAmount: Number(body.loanAmount ?? 0), investmentAmount: Number(body.investmentAmount ?? 0), forgivableAmount: Number(body.forgivableAmount ?? 0), repaymentRequired: Boolean(body.repaymentRequired ?? false), repaymentSchedule: String(body.repaymentSchedule ?? ''), interestDescription: String(body.interestDescription ?? ''), milestones: String(body.milestones ?? ''), reportingRequirements: String(body.reportingRequirements ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), monitoringFrequency: String(body.monitoringFrequency ?? 'Monthly'), specialConditions: String(body.specialConditions ?? ''), fundingAmount: Number(body.fundingAmount ?? 0) } });
+    const termsEnrollment = typeof body.enrollmentId === 'string' && body.enrollmentId
+      ? await findEnrollmentForOrg(this.requirePrisma(), orgId, body.enrollmentId, { clientId })
+      : null;
+    if (!termsEnrollment && body.programId) await findProgramForOrg(this.requirePrisma(), orgId, String(body.programId));
+    return this.requirePrisma().cfTerms.create({ data: { organizationId: orgId, clientId, enrollmentId: termsEnrollment?.id ?? null, programId: termsEnrollment?.programId ?? String(body.programId ?? ''), supportType: String(body.supportType ?? 'Service'), resourceDescription: String(body.resourceDescription ?? ''), grantAmount: Number(body.grantAmount ?? 0), loanAmount: Number(body.loanAmount ?? 0), investmentAmount: Number(body.investmentAmount ?? 0), forgivableAmount: Number(body.forgivableAmount ?? 0), repaymentRequired: Boolean(body.repaymentRequired ?? false), repaymentSchedule: String(body.repaymentSchedule ?? ''), interestDescription: String(body.interestDescription ?? ''), milestones: String(body.milestones ?? ''), reportingRequirements: String(body.reportingRequirements ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), monitoringFrequency: String(body.monitoringFrequency ?? 'Monthly'), specialConditions: String(body.specialConditions ?? ''), fundingAmount: Number(body.fundingAmount ?? 0) } });
   }
   @Patch('terms/:id') async updateTerms(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1373,11 +1434,17 @@ export class ClientflowCompatibilityController {
   @Post('enrollments/:enrollmentId/monitoring') async createMonitoring(@Req() request: Request, @Param('enrollmentId') enrollmentId: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     await findEnrollmentForOrg(this.requirePrisma(), orgId, enrollmentId);
-    return this.requirePrisma().cfEnrollmentMonitoring.create({ data: { organizationId: orgId, enrollmentId, name: String(body.name ?? 'Monitoring Review'), description: body.description ? String(body.description) : null, frequency: String(body.frequency ?? 'monthly') as any, customIntervalDays: body.customIntervalDays ? Number(body.customIntervalDays) : null, expectedValue: body.expectedValue ? Number(body.expectedValue) : null, actualValue: body.actualValue ? Number(body.actualValue) : null, unit: body.unit ? String(body.unit) : null, complianceStatus: String(body.status ?? 'pending') as any, lastReviewedAt: body.lastReviewedAt ? new Date(String(body.lastReviewedAt)) : null, nextReviewAt: body.nextReviewAt ? new Date(String(body.nextReviewAt)) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), assignedReviewerId: body.assignedStaffId ? String(body.assignedStaffId) : null, followUpRequired: Boolean(body.followUpRequired ?? false), evidenceRequired: Boolean(body.evidenceRequired ?? false), notes: String(body.notes ?? ''), active: true } as any });
+    return this.requirePrisma().cfEnrollmentMonitoring.create({ data: { organizationId: orgId, enrollmentId, name: String(body.name ?? 'Monitoring Review'), description: body.description ? String(body.description) : null, frequency: normalizeMonitoringFrequency(body.frequency ?? 'monthly').frequency, customIntervalDays: body.customIntervalDays ? Number(body.customIntervalDays) : normalizeMonitoringFrequency(body.frequency ?? 'monthly').customIntervalDays, expectedValue: body.expectedValue ? Number(body.expectedValue) : null, actualValue: body.actualValue ? Number(body.actualValue) : null, unit: body.unit ? String(body.unit) : null, complianceStatus: body.complianceStatus !== undefined || body.status !== undefined ? parseComplianceStatus(body.complianceStatus ?? body.status) : 'pending', lastReviewedAt: body.lastReviewedAt ? new Date(String(body.lastReviewedAt)) : null, nextReviewAt: body.nextReviewAt ? new Date(String(body.nextReviewAt)) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), assignedReviewerId: body.assignedStaffId ? String(body.assignedStaffId) : null, followUpRequired: Boolean(body.followUpRequired ?? false), evidenceRequired: Boolean(body.evidenceRequired ?? false), notes: String(body.notes ?? ''), active: true } as any });
   }
+  /** Adapter: the review is recorded by the monitoring lifecycle (result, schedule, history). */
   @Post('enrollment-monitoring/:id/results') async recordMonitoringResult(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfEnrollmentMonitoring.update({ where: { id, organizationId: orgId }, data: { complianceStatus: String(body.status ?? 'compliant') as any, notes: body.notes ? String(body.notes) : null, lastReviewedAt: new Date(), followUpRequired: Boolean(body.followUpRequired ?? false) } as any });
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    return this.requirePrisma().$transaction((transaction) => recordMonitoringResult(transaction, {
+      organizationId: orgId,
+      monitoringId: id,
+      result: body,
+      reviewedByUserId: admin.id,
+    }));
   }
   @Get('enrollment-monitoring/:id/history') async getMonitoringHistory(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1491,7 +1558,7 @@ export class ClientflowCompatibilityController {
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
     });
-    return this.requirePrisma().cfDocument.update({
+    const completed = await this.requirePrisma().cfDocument.update({
       where: { id: document.id },
       data: {
         url: storage.getObjectPublicUrl(storedFile.storageKey) ?? '',
@@ -1500,6 +1567,28 @@ export class ClientflowCompatibilityController {
         uploadStatus: 'ready',
       },
     });
+    // A document filed for an enrollment triggers that program's rules; one filed on the client
+    // triggers the rules of each program the client is still in. Only the first completion counts.
+    if (document.uploadStatus !== 'ready') {
+      const enrollments = await this.requirePrisma().cfProgramEnrollment.findMany({
+        where: document.enrollmentId
+          ? { id: document.enrollmentId, organizationId: orgId }
+          : { organizationId: orgId, clientId: document.clientId, status: { notIn: ['completed', 'declined', 'withdrawn'] } },
+        select: { id: true, programId: true },
+      });
+      if (enrollments.length) {
+        await this.fireTrigger({
+          organizationId: orgId,
+          clientId: document.clientId,
+          trigger: 'document.uploaded',
+          programIds: enrollments.map((enrollment) => enrollment.programId),
+          enrollmentIdsByProgramId: Object.fromEntries(enrollments.map((enrollment) => [enrollment.programId, enrollment.id])),
+          idempotencySeed: `compat.document.uploaded:${document.id}`,
+          payload: { documentId: document.id, documentType: document.type },
+        });
+      }
+    }
+    return completed;
   }
   @Get('documents/:id/download') async downloadDocument(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1526,8 +1615,29 @@ export class ClientflowCompatibilityController {
     return this.requirePrisma().cfFinalReport.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
   }
   @Post('clients/:clientId/final-reports') async createFinalReport(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFinalReport.create({ data: { organizationId: orgId, clientId, programId: String(body.programId ?? ''), startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), originalNeed: String(body.originalNeed ?? ''), supportProvided: String(body.supportProvided ?? ''), fundingProvided: String(body.fundingProvided ?? ''), milestonesCompleted: String(body.milestonesCompleted ?? ''), resultsAchieved: String(body.resultsAchieved ?? ''), issuesEncountered: String(body.issuesEncountered ?? ''), staffComments: String(body.staffComments ?? ''), clientOutcome: String(body.clientOutcome ?? ''), recommendedNextSteps: String(body.recommendedNextSteps ?? ''), archiveDecision: String(body.archiveDecision ?? '') } });
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const prisma = this.requirePrisma();
+    const client = await findClientForOrg(prisma, orgId, clientId, { includeArchived: true });
+    // The report belongs to an enrollment when one is given (its program is the report's program).
+    const enrollment = typeof body.enrollmentId === 'string' && body.enrollmentId
+      ? await findEnrollmentForOrg(prisma, orgId, body.enrollmentId, { clientId: client.id })
+      : null;
+    const programId = enrollment?.programId
+      ?? (typeof body.programId === 'string' && body.programId ? (await findProgramForOrg(prisma, orgId, body.programId)).id : '');
+    const decision = String(body.archiveDecision ?? '');
+    const actorName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
+    return prisma.$transaction(async (transaction) => {
+      const report = await transaction.cfFinalReport.create({ data: { organizationId: orgId, clientId: client.id, enrollmentId: enrollment?.id ?? null, programId, startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), originalNeed: String(body.originalNeed ?? ''), supportProvided: String(body.supportProvided ?? ''), fundingProvided: String(body.fundingProvided ?? ''), milestonesCompleted: String(body.milestonesCompleted ?? ''), resultsAchieved: String(body.resultsAchieved ?? ''), issuesEncountered: String(body.issuesEncountered ?? ''), staffComments: String(body.staffComments ?? ''), clientOutcome: String(body.clientOutcome ?? ''), recommendedNextSteps: String(body.recommendedNextSteps ?? ''), archiveDecision: decision, isDemo: client.isDemo } });
+      // The archive decision takes effect with the report (complete / withdraw / archive).
+      const outcome = await applyFinalReportDecision(transaction, {
+        organizationId: orgId,
+        clientId: client.id,
+        enrollmentId: enrollment?.id ?? null,
+        decision,
+        actor: { id: admin.id, name: actorName },
+      });
+      return { ...report, outcome };
+    });
   }
   @Get('activity') async listActivity(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1750,8 +1860,7 @@ export class PublicFormCompatibilityController {
   constructor(
     private readonly scaffold: ScaffoldService,
     private readonly prisma?: PrismaService,
-    private readonly automation?: ProgramAutomationService,
-    private readonly enrollments?: EnrollmentsService,
+    private readonly intake?: IntakeWorkflowService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -1759,9 +1868,9 @@ export class PublicFormCompatibilityController {
     return this.prisma;
   }
 
-  private requireEnrollments(): EnrollmentsService {
-    if (!this.enrollments) throw this.scaffold.notImplemented('Public forms enrollments');
-    return this.enrollments;
+  private requireIntake(): IntakeWorkflowService {
+    if (!this.intake) throw this.scaffold.notImplemented('Public form submission');
+    return this.intake;
   }
 
   @Get(':token') async getForm(@Param('token') token: string) {
@@ -1842,130 +1951,25 @@ export class PublicFormCompatibilityController {
     };
   }
 
+  /** Adapter: translates the form page's request and hands it to the intake workflow. */
   @Post(':token/submit') async submitForm(@Param('token') token: string, @Body() body: Record<string, unknown>) {
-    const prisma = this.requirePrisma();
-    // A cancelled, expired or already-submitted link can never change workflow state.
-    const { assignment: formAssignment } = await resolvePublicFormLink(prisma, token, 'submit');
-    const configurationToken = typeof body.configurationToken === 'string' ? body.configurationToken : undefined;
-    let renderSession: Awaited<ReturnType<typeof prisma.cfIntakeRenderSession.findUnique>> = null;
-    if (configurationToken) {
-      renderSession = await prisma.cfIntakeRenderSession.findUnique({ where: { configurationToken } });
-      if (!renderSession || renderSession.formAssignmentId !== formAssignment.id || renderSession.expiresAt <= new Date()) {
-        throw new ConflictException('This form has changed. Reload the form to use the latest version.');
-      }
-    }
-
-    const coreResponses = isRecord(body.coreResponses) ? body.coreResponses : {};
-    const programResponses = isRecord(body.programResponses) ? body.programResponses as Record<string, Record<string, unknown>> : {};
-    const selectedProgramIds = Array.isArray(body.selectedProgramIds)
-      ? body.selectedProgramIds.filter((id): id is string => typeof id === 'string')
-      : [];
-
-    const client = await prisma.cfClient.findFirst({ where: { id: formAssignment.clientId, organizationId: formAssignment.organizationId } });
-
-    // Ensure (or reuse) an enrollment per selected program so the client shows up on the program's member list.
-    const selectedPrograms = selectedProgramIds.length > 0
-      ? await prisma.cfProgram.findMany({
-          where: { organizationId: formAssignment.organizationId, id: { in: selectedProgramIds } },
-          select: { id: true, name: true },
-        })
-      : [];
-    const programNameById = new Map(selectedPrograms.map((program) => [program.id, program.name]));
-    const enrollmentIds: string[] = [];
-    const enrollmentIdsByProgramId: Record<string, string> = {};
-    for (const programId of selectedProgramIds) {
-      const { enrollmentId } = await this.requireEnrollments().ensureEnrollment({
-        organizationId: formAssignment.organizationId,
-        clientId: formAssignment.clientId,
-        programId,
-        programName: programNameById.get(programId) ?? 'the selected program',
-        assignedUserId: client?.assignedUserId ?? null,
-        assignedStaff: client?.assignedStaff ?? null,
-        actorDisplayName: 'Client submission',
-        isDemo: client?.isDemo ?? false,
-      });
-      enrollmentIds.push(enrollmentId);
-      enrollmentIdsByProgramId[programId] = enrollmentId;
-    }
-
-    const submission = await prisma.cfIntakeSubmission.create({
-      data: {
-        organizationId: formAssignment.organizationId,
-        clientId: formAssignment.clientId,
-        formAssignmentId: formAssignment.id,
-        idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : randomBytes(16).toString('hex'),
-        requestHash: createHash('sha256').update(JSON.stringify({ coreResponses, programResponses, selectedProgramIds })).digest('hex'),
-        configurationToken: configurationToken ?? '',
-        responsePayload: coreResponses as unknown as object,
-        resultPayload: { success: true, enrollmentIds } as unknown as object,
-        source: formAssignment.deliveryMethod ?? 'secure_link',
-        submitterEmail: formAssignment.recipientEmail,
-        isDemo: client?.isDemo ?? false,
-      },
+    const result = await this.requireIntake().submit(token, {
+      coreResponses: isRecord(body.coreResponses) ? body.coreResponses : {},
+      programResponses: isRecord(body.programResponses)
+        ? body.programResponses as Record<string, Record<string, unknown>>
+        : {},
+      selectedProgramIds: Array.isArray(body.selectedProgramIds)
+        ? body.selectedProgramIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      configurationToken: typeof body.configurationToken === 'string' ? body.configurationToken : undefined,
+      idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined,
     });
-    if (selectedProgramIds.length > 0) {
-      await prisma.cfIntakeSubmissionSnapshot.create({
-        data: {
-          organizationId: formAssignment.organizationId,
-          intakeSubmissionId: submission.id,
-          coreTemplateId: formAssignment.formId,
-          coreTemplateVersion: 1,
-          selectedProgramIds,
-          renderedSections: (renderSession?.renderedSections ?? []) as unknown as object,
-        },
-      });
-      await prisma.cfIntakeSubmissionProgram.createMany({
-        data: selectedProgramIds.map((programId, index) => ({
-          organizationId: formAssignment.organizationId,
-          intakeSubmissionId: submission.id,
-          programId,
-          enrollmentId: enrollmentIds[index],
-          responsePayload: (programResponses[programId] ?? {}) as unknown as object,
-        })),
-      });
-    }
-
-    await prisma.cfFormAssignment.update({
-      where: { id: formAssignment.id },
-      data: { status: 'submitted', submittedAt: new Date(), responses: { core: coreResponses, programs: programResponses, selectedProgramIds } as unknown as object },
-    });
-    await prisma.cfActivityLog.create({
-      data: {
-        organizationId: formAssignment.organizationId,
-        clientId: formAssignment.clientId,
-        action: 'INTAKE_SUBMITTED',
-        description: selectedProgramIds.length > 0
-          ? `Intake submitted for ${selectedProgramIds.length} program(s).`
-          : 'Intake submitted without a program selection.',
-        user: 'client',
-      },
-    });
-
-    const primaryProgramId = selectedProgramIds[0];
-    if (client && primaryProgramId) {
-      await prisma.cfClient.update({ where: { id: client.id }, data: { programId: primaryProgramId } });
-    }
-
-    let automation = null;
-    if (client && selectedProgramIds.length > 0 && this.automation) {
-      try {
-        automation = await this.automation.runTrigger({
-          organizationId: formAssignment.organizationId,
-          clientId: client.id,
-          trigger: 'intake.submitted',
-          programIds: selectedProgramIds,
-          enrollmentIdsByProgramId,
-          actorDisplayName: 'Client submission',
-          idempotencySeed: `compat.intake.submitted:${submission.id}`,
-          payload: { selectedProgramIds },
-        });
-      } catch (error) {
-        this.logger.warn(`Intake automation failed for submission ${submission.id}: ${(error as Error).message}`);
-        automation = null;
-      }
-    }
-
-    return { success: true, enrollmentIds, automation };
+    return {
+      success: true,
+      enrollmentIds: result.enrollmentIds,
+      automation: result.automation,
+      ...(result.replayed ? { replayed: true } : {}),
+    };
   }
 }
 
@@ -2260,4 +2264,20 @@ export class FutureApiBoundaryController {
   constructor(private readonly scaffold: ScaffoldService) {}
 
   @All('*') futureBoundary() { return this.scaffold.notImplemented('Normalized ClientFlow API'); }
+}
+
+const MAX_LIST_PAGE = 500;
+
+/**
+ * `?limit=&offset=` for the org-wide lists the app pages through. Without a limit the whole list is
+ * returned (older callers); with one, pages are bounded so a client loop always terminates.
+ */
+function listPage(limit?: string, offset?: string): { take?: number; skip?: number } {
+  if (limit === undefined) return {};
+  const parsedLimit = Number.parseInt(limit, 10);
+  const parsedOffset = Number.parseInt(offset ?? '0', 10);
+  return {
+    take: Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), MAX_LIST_PAGE) : MAX_LIST_PAGE,
+    skip: Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0,
+  };
 }

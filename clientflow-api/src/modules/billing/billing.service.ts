@@ -51,6 +51,8 @@ export interface RecordPaymentInput {
   timezone: string;
   actorUserId: string | null;
   actorDisplayName: string;
+  /** The request's Idempotency-Key: a retry returns the payment already recorded. */
+  idempotencyKey?: string | null;
 }
 
 export interface OpenPeriod {
@@ -72,6 +74,8 @@ export interface BackfillPreview {
   totalAmount: number;
   count: number;
 }
+
+const roundCents = (value: number) => Math.round(value * 100) / 100;
 
 /** Builds the pure schedule shape billing-schedule.util needs from a persisted agreement row. */
 function scheduleFrom(
@@ -225,6 +229,9 @@ export class BillingService {
   }
 
   async recordPayment(input: RecordPaymentInput): Promise<CfPaymentRecord> {
+    const recorded = await this.findPaymentByKey(input.organizationId, input.idempotencyKey);
+    if (recorded) return recorded;
+
     const agreement = await this.getActiveAgreement(input.organizationId, input.enrollmentId);
     if (!agreement) throw new BadRequestException('Set up a billing agreement before recording payments.');
 
@@ -234,29 +241,44 @@ export class BillingService {
       throw new BadRequestException("The selected billing period does not match this agreement's schedule.");
     }
 
-    const payment = await this.prisma.cfPaymentRecord.create({
-      data: {
-        organizationId: input.organizationId,
-        enrollmentId: input.enrollmentId,
-        billingAgreementId: agreement.id,
-        amount: input.amount,
-        paymentDate: input.paymentDate,
-        paymentMethod: input.paymentMethod,
-        billingPeriodStart: input.billingPeriodStart,
-        billingPeriodEnd: input.billingPeriodEnd,
-        source: input.source ?? 'manual',
-        note: input.note ?? null,
-        recordedByUserId: input.actorUserId,
-        recordedByDisplayName: input.actorDisplayName,
-      },
-    });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const payment = await tx.cfPaymentRecord.create({
+          data: {
+            organizationId: input.organizationId,
+            enrollmentId: input.enrollmentId,
+            billingAgreementId: agreement.id,
+            amount: input.amount,
+            paymentDate: input.paymentDate,
+            paymentMethod: input.paymentMethod,
+            billingPeriodStart: input.billingPeriodStart,
+            billingPeriodEnd: input.billingPeriodEnd,
+            source: input.source ?? 'manual',
+            note: input.note ?? null,
+            recordedByUserId: input.actorUserId,
+            recordedByDisplayName: input.actorDisplayName,
+            idempotencyKey: input.idempotencyKey ?? null,
+          },
+        });
+        await tx.cfEnrollmentBillingAgreement.update({
+          where: { id: agreement.id },
+          data: { nextDueDate: computeNextDueDate(schedule) },
+        });
+        return payment;
+      });
+    } catch (error) {
+      // Two identical requests at once: the unique key let one record it; return that one.
+      if (input.idempotencyKey && isPrismaUniqueViolation(error)) {
+        const concurrent = await this.findPaymentByKey(input.organizationId, input.idempotencyKey);
+        if (concurrent) return concurrent;
+      }
+      throw error;
+    }
+  }
 
-    await this.prisma.cfEnrollmentBillingAgreement.update({
-      where: { id: agreement.id },
-      data: { nextDueDate: computeNextDueDate(schedule) },
-    });
-
-    return payment;
+  private async findPaymentByKey(organizationId: string, idempotencyKey?: string | null) {
+    if (!idempotencyKey) return null;
+    return this.prisma.cfPaymentRecord.findFirst({ where: { organizationId, idempotencyKey } });
   }
 
   async voidPayment(
@@ -269,8 +291,9 @@ export class BillingService {
     const payment = await this.prisma.cfPaymentRecord.findFirst({ where: { id: paymentId, organizationId } });
     if (!payment) throw new NotFoundException('Payment record not found.');
     if (payment.voidedAt) throw new BadRequestException('Payment is already voided.');
-    const voided = await this.prisma.cfPaymentRecord.update({
-      where: { id: payment.id },
+    // Conditional: two staff voiding at once can't both record a void (or overwrite the reason).
+    const { count } = await this.prisma.cfPaymentRecord.updateMany({
+      where: { id: payment.id, organizationId, voidedAt: null },
       data: {
         voidedAt: new Date(),
         voidedByUserId: actorUserId,
@@ -278,6 +301,8 @@ export class BillingService {
         voidReason: reason,
       },
     });
+    if (count !== 1) throw new BadRequestException('Payment is already voided.');
+    const voided = await this.prisma.cfPaymentRecord.findFirstOrThrow({ where: { id: payment.id, organizationId } });
     // The cached nextDueDate can go stale if the voided payment had covered the current period —
     // only bother recomputing while the agreement it belongs to is still the active one.
     const agreement = await this.prisma.cfEnrollmentBillingAgreement.findFirst({
@@ -380,12 +405,13 @@ export class BillingService {
         : unpaid;
 
     return {
+      // A partly paid period is brought current by what's still owed, not the full amount again.
       periods: selected.map((period) => ({
         start: period.billingPeriodStart,
         end: period.billingPeriodEnd,
-        amount: period.amount,
+        amount: roundCents(period.amount - period.paidAmount),
       })),
-      totalAmount: selected.reduce((sum, period) => sum + period.amount, 0),
+      totalAmount: roundCents(selected.reduce((sum, period) => sum + period.amount - period.paidAmount, 0)),
       count: selected.length,
     };
   }
@@ -405,31 +431,25 @@ export class BillingService {
     if (preview.count === 0) return { created: 0, totalAmount: 0 };
 
     return this.prisma.$transaction(async (tx) => {
-      let created = 0;
-      for (const period of preview.periods) {
-        try {
-          await tx.cfPaymentRecord.create({
-            data: {
-              organizationId,
-              enrollmentId,
-              billingAgreementId: agreement.id,
-              amount: period.amount,
-              paymentDate: period.end,
-              paymentMethod: 'other',
-              billingPeriodStart: period.start,
-              billingPeriodEnd: period.end,
-              source: 'legacy_backfill',
-              note: 'Existing payment history confirmed during billing setup',
-              recordedByUserId: actorUserId,
-              recordedByDisplayName: actorDisplayName,
-            },
-          });
-          created += 1;
-        } catch (error) {
-          // The partial unique index caught a duplicate confirm for this exact period — skip it.
-          if (!isPrismaUniqueViolation(error)) throw error;
-        }
-      }
+      // skipDuplicates (ON CONFLICT DO NOTHING): a period confirmed twice is skipped by the partial
+      // unique index without aborting the transaction, which a caught error inside it would.
+      const { count: created } = await tx.cfPaymentRecord.createMany({
+        data: preview.periods.map((period) => ({
+          organizationId,
+          enrollmentId,
+          billingAgreementId: agreement.id,
+          amount: period.amount,
+          paymentDate: period.end,
+          paymentMethod: 'other' as const,
+          billingPeriodStart: period.start,
+          billingPeriodEnd: period.end,
+          source: 'legacy_backfill' as const,
+          note: 'Existing payment history confirmed during billing setup',
+          recordedByUserId: actorUserId,
+          recordedByDisplayName: actorDisplayName,
+        })),
+        skipDuplicates: true,
+      });
       await tx.cfEnrollmentBillingAgreement.update({
         where: { id: agreement.id },
         data: { nextDueDate: computeNextDueDate(scheduleFrom(agreement, timezone)) },

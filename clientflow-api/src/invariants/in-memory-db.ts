@@ -49,6 +49,10 @@ function table(rows: Row[]) {
       }
       return Promise.resolve({ count: before - rows.length });
     },
+    createMany: ({ data }: { data: Row[] }) => {
+      data.forEach((row) => rows.push({ id: Math.random().toString(36).slice(2), ...row }));
+      return Promise.resolve({ count: data.length });
+    },
     create: ({ data }: { data: Row }) => {
       const row = { id: Math.random().toString(36).slice(2), ...data };
       rows.push(row);

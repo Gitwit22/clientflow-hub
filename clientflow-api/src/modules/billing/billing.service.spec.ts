@@ -53,8 +53,15 @@ function createFakePrisma() {
       ),
     ),
     findFirst: jest.fn(async ({ where }: any) =>
-      payments.find((row) => row.id === where.id && row.organizationId === where.organizationId) ?? null,
+      payments.find((row) => row.organizationId === where.organizationId
+        && (where.id === undefined || row.id === where.id)
+        && (where.idempotencyKey === undefined || row.idempotencyKey === where.idempotencyKey)) ?? null,
     ),
+    findFirstOrThrow: jest.fn(async ({ where }: any) => {
+      const row = payments.find((candidate) => candidate.id === where.id && candidate.organizationId === where.organizationId);
+      if (!row) throw new Error('No record found.');
+      return row;
+    }),
     create: jest.fn(async ({ data }: any) => {
       const duplicateBackfill =
         data.source === 'legacy_backfill'
@@ -80,6 +87,26 @@ function createFakePrisma() {
       const row = payments.find((candidate) => candidate.id === where.id);
       Object.assign(row, data);
       return row;
+    }),
+    updateMany: jest.fn(async ({ where, data }: any) => {
+      const rows = payments.filter((candidate) => candidate.id === where.id
+        && candidate.organizationId === where.organizationId
+        && (where.voidedAt === null ? candidate.voidedAt == null : true));
+      rows.forEach((row) => Object.assign(row, data));
+      return { count: rows.length };
+    }),
+    // skipDuplicates behaves like ON CONFLICT DO NOTHING against the backfill-period index.
+    createMany: jest.fn(async ({ data, skipDuplicates }: any) => {
+      let count = 0;
+      for (const item of data) {
+        try {
+          await cfPaymentRecord.create({ data: item });
+          count += 1;
+        } catch (error) {
+          if (!skipDuplicates || (error as { code?: string }).code !== 'P2002') throw error;
+        }
+      }
+      return { count };
     }),
   };
 
@@ -257,6 +284,82 @@ describe('BillingService', () => {
       await expect(service.voidPayment('org-1', 'missing', 'x', null, 'Alex Admin')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('data integrity', () => {
+    const agreementInput = {
+      organizationId: 'org-1',
+      enrollmentId: 'enroll-1',
+      amount: 250,
+      frequency: 'monthly' as const,
+      startDate: new Date('2026-01-01T05:00:00.000Z'),
+      defaultDueDay: 1,
+      timezone: TZ,
+      actorUserId: 'user-1',
+      actorDisplayName: 'Jordan Staff',
+    };
+    const payment = {
+      organizationId: 'org-1',
+      enrollmentId: 'enroll-1',
+      amount: 250,
+      paymentDate: new Date('2026-02-03T00:00:00.000Z'),
+      paymentMethod: 'ach' as const,
+      billingPeriodStart: new Date('2026-02-01T05:00:00.000Z'),
+      billingPeriodEnd: new Date('2026-03-01T04:59:59.999Z'),
+      timezone: TZ,
+      actorUserId: 'user-1',
+      actorDisplayName: 'Jordan Staff',
+      idempotencyKey: 'record-payment-0001',
+    };
+
+    it('a retried "record payment" (same key) returns the first record instead of recording twice', async () => {
+      const { prisma, payments } = createFakePrisma();
+      const service = new BillingService(prisma);
+      await service.replaceAgreement(agreementInput);
+      const periods = await service.listOpenPeriods('org-1', 'enroll-1', TZ, new Date('2026-02-15T00:00:00.000Z'));
+      const february = periods[1];
+      const input = { ...payment, billingPeriodStart: february.billingPeriodStart, billingPeriodEnd: february.billingPeriodEnd };
+
+      const first = await service.recordPayment(input);
+      const retry = await service.recordPayment(input);
+
+      expect(retry.id).toBe(first.id);
+      expect(payments.filter((row) => row.source === 'manual')).toHaveLength(1);
+    });
+
+    it('bringing an account current backfills only what a partly paid period still owes', async () => {
+      const { prisma, payments } = createFakePrisma();
+      const service = new BillingService(prisma);
+      await service.replaceAgreement(agreementInput);
+      const [january] = await service.listOpenPeriods('org-1', 'enroll-1', TZ, new Date('2026-01-15T00:00:00.000Z'));
+      await service.recordPayment({
+        ...payment,
+        amount: 100,
+        billingPeriodStart: january.billingPeriodStart,
+        billingPeriodEnd: january.billingPeriodEnd,
+      });
+
+      const result = await service.confirmBackfill('org-1', 'enroll-1', TZ, {
+        paidThroughDate: new Date('2026-01-31T00:00:00.000Z'),
+      }, 'user-1', 'Jordan Staff');
+
+      expect(result).toEqual({ created: 1, totalAmount: 150 });
+      expect(payments.find((row) => row.source === 'legacy_backfill')?.amount).toBe(150);
+    });
+
+    it('two staff voiding the same payment at once record one void', async () => {
+      const { prisma, payments } = createFakePrisma();
+      const service = new BillingService(prisma);
+      payments.push({ id: 'payment-1', organizationId: 'org-1', amount: 250, voidedAt: null });
+
+      const outcomes = await Promise.allSettled([
+        service.voidPayment('org-1', 'payment-1', 'Duplicate entry', 'user-1', 'Jordan Staff'),
+        service.voidPayment('org-1', 'payment-1', 'Wrong amount', 'user-2', 'Alex Admin'),
+      ]);
+
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+      expect(payments[0].voidReason).toBe('Duplicate entry');
     });
   });
 

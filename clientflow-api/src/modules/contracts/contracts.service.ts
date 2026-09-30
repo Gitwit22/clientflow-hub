@@ -29,7 +29,6 @@ import {
   CONTRACT_CLIENT_STATUS,
   CONTRACT_STATUS,
   INITIAL_FOLLOW_UP_TYPE,
-  MONITORING_TASK_STATUS,
   contractTokenExpiry,
   generateContractToken,
   hashContractToken,
@@ -43,6 +42,7 @@ import { findClientForOrg, findEnrollmentForOrg } from '../../common/tenancy/org
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { transitionContract } from '../lifecycle/contract-state';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
+import { normalizeMonitoringFrequency } from '../lifecycle/monitoring';
 import {
   CLOSED_ENROLLMENT_STATUSES,
   ENROLLMENT_STATUSES,
@@ -909,19 +909,25 @@ export class ContractsService {
         where: { id: client.id },
         data: { status: CONTRACT_CLIENT_STATUS.onboarding, nextFollowUpDate: dueDate },
       });
-      const monitoringTask = await transaction.cfMonitoringTask.create({
-        data: {
-          organizationId: client.organizationId,
-          clientId: client.id,
-          programId: program.id,
-          contractId: contract.id,
-          type: INITIAL_FOLLOW_UP_TYPE,
-          dueDate,
-          status: MONITORING_TASK_STATUS.pending,
-          assignedStaffId: client.assignedUserId,
-          notes: 'Created automatically when the contract was completed.',
-        },
-      });
+      // The first follow-up is an enrollment monitoring item (the canonical model); a contract with
+      // no enrollment (pre-enrollment data) gets none.
+      const schedule = normalizeMonitoringFrequency(program.defaultMonitoringFrequency);
+      const monitoringItem = contract.enrollmentId
+        ? await transaction.cfEnrollmentMonitoring.create({
+            data: {
+              organizationId: client.organizationId,
+              enrollmentId: contract.enrollmentId,
+              name: INITIAL_FOLLOW_UP_TYPE,
+              description: 'Created automatically when the contract was completed.',
+              frequency: schedule.frequency,
+              customIntervalDays: schedule.customIntervalDays,
+              complianceStatus: 'pending',
+              nextReviewAt: dueDate,
+              assignedReviewerId: client.assignedUserId,
+              isDemo: client.isDemo,
+            },
+          })
+        : null;
       await transaction.cfActivityLog.create({
         data: {
           organizationId: client.organizationId,
@@ -995,7 +1001,7 @@ export class ContractsService {
             },
           })
         : null;
-      return { monitoringTask, communication };
+      return { monitoringItem, communication };
     });
 
     // Order matters: file the executed copy, email it, then send the welcome email. The copy and the
@@ -1033,13 +1039,15 @@ export class ContractsService {
       enrollmentId: contract.enrollmentId,
       contract: { id: contract.id, status: CONTRACT_STATUS.completed, completedAt: now },
       client: { id: client.id, status: CONTRACT_CLIENT_STATUS.onboarding },
-      monitoringTask: {
-        id: completed.monitoringTask.id,
-        type: completed.monitoringTask.type,
-        status: completed.monitoringTask.status,
-        dueDate: completed.monitoringTask.dueDate,
-        assignedStaffId: completed.monitoringTask.assignedStaffId,
-      },
+      monitoringTask: completed.monitoringItem
+        ? {
+            id: completed.monitoringItem.id,
+            type: completed.monitoringItem.name,
+            status: completed.monitoringItem.complianceStatus,
+            dueDate: completed.monitoringItem.nextReviewAt,
+            assignedStaffId: completed.monitoringItem.assignedReviewerId,
+          }
+        : null,
       welcomeDelivery,
     };
   }
