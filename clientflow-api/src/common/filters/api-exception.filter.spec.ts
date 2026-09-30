@@ -37,7 +37,7 @@ describe('ApiExceptionFilter', () => {
     const json = jest.fn();
     new ApiExceptionFilter().catch(new RangeError('Invalid time zone specified: Eastern'), hostFor(json));
 
-    expect(json.mock.calls[0][0].error.message).toBe('An unexpected error occurred.');
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ message: 'An unexpected error occurred.' }) }));
     expect(log).toHaveBeenCalledWith(expect.stringContaining('GET /api/v1/billing/dashboard?period=month requestId=request-2 status=500'));
     expect(log.mock.calls[0][0]).toContain('Invalid time zone specified: Eastern');
     log.mockRestore();

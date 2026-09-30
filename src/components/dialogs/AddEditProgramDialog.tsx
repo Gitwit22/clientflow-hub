@@ -123,6 +123,10 @@ export function AddEditProgramDialog({
         toast.success("Program created.");
       }
       onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message ? error.message : "Unable to save this program.",
+      );
     } finally {
       setSaving(false);
     }

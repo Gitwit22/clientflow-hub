@@ -21,7 +21,11 @@ vi.mock("sonner", () => ({
   },
 }));
 
-const client = { id: "c1", email: "client@example.com" } as Client;
+const client = {
+  id: "c1",
+  email: "client@example.com",
+  primaryContactName: "Client Owner",
+} as Client;
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
 beforeEach(() => {

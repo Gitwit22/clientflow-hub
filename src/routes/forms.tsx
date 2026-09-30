@@ -245,12 +245,6 @@ function FormsPage() {
                     </pre>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm">
-                      Preview
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      Fill Out Form
-                    </Button>
                     {t.scope === "master_core" && (
                       <Button
                         size="sm"

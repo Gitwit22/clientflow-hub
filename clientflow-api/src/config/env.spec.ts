@@ -1,4 +1,4 @@
-import { environmentSchema } from './env';
+import { DEFAULT_PRODUCTION_APP_URL, environmentSchema, resolveAppUrl } from './env';
 
 describe('environmentSchema', () => {
   it('keeps external side effects disabled by default', () => {
@@ -53,5 +53,25 @@ describe('environmentSchema', () => {
       JWT_ACCESS_SECRET: 'a'.repeat(32),
       JWT_REFRESH_SECRET: 'a'.repeat(32),
     })).toThrow('JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET.');
+  });
+});
+
+describe('resolveAppUrl', () => {
+  it('uses APP_URL without a trailing slash', () => {
+    expect(resolveAppUrl({ NODE_ENV: 'production', APP_URL: 'https://app.example.org/' })).toBe('https://app.example.org');
+  });
+
+  it('forces https for production links', () => {
+    expect(resolveAppUrl({ NODE_ENV: 'production', APP_URL: 'http://app.example.org' })).toBe('https://app.example.org');
+  });
+
+  it('never emails a localhost link from production, set or unset', () => {
+    expect(resolveAppUrl({ NODE_ENV: 'production' })).toBe(DEFAULT_PRODUCTION_APP_URL);
+    expect(resolveAppUrl({ NODE_ENV: 'production', APP_URL: 'http://localhost:3000' })).toBe(DEFAULT_PRODUCTION_APP_URL);
+  });
+
+  it('keeps plain-http local development links', () => {
+    expect(resolveAppUrl({ NODE_ENV: 'development' })).toBe('http://localhost:3000');
+    expect(resolveAppUrl({ NODE_ENV: 'development', APP_URL: 'http://localhost:5173' })).toBe('http://localhost:5173');
   });
 });

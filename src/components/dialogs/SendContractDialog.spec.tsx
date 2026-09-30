@@ -36,7 +36,11 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 
-const client = { id: "c1", email: "client@example.com" } as Client;
+const client = {
+  id: "c1",
+  email: "client@example.com",
+  primaryContactName: "Client Owner",
+} as Client;
 const enrollment = { id: "e1", programId: "p1", clientId: "c1" } as ProgramEnrollment;
 const program = { id: "p1", name: "The Inspired Detroit Initiative" } as Program;
 const staffSigner = { name: "Jordan Lee", id: "admin-1" };
@@ -92,6 +96,25 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+describe("SendContractDialog: recipient", () => {
+  it("won't send to a mistyped email and says how to fix it", async () => {
+    render(
+      <SendContractDialog
+        client={{ ...client, email: "client@example" }}
+        enrollment={enrollment}
+        program={program}
+        contracts={[]}
+        staffSigner={staffSigner}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/"client@example" is not a valid email address/)).toBeTruthy();
+    await waitFor(() => expect(getProgramWorkflow).toHaveBeenCalled());
+    expect(button(/^send contract$/i).disabled).toBe(true);
+  });
+});
 
 describe("SendContractDialog: not yet drafted", () => {
   it("drafts the contract for THIS enrollment, then sends it, with an idempotency key", async () => {

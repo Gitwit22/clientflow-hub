@@ -48,6 +48,7 @@ export function TermsDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const [saving, setSaving] = useState(false);
   const [supportType, setSupportType] = useState<SupportType>("Grant");
   const [frequency, setFrequency] = useState<MonitoringFrequency>("Monthly");
   const [repayment, setRepayment] = useState(false);
@@ -72,31 +73,40 @@ export function TermsDialog({
   const num = (v: string) => Number(v || 0);
 
   async function handleSave() {
-    if (!client || !enrollment) return;
-    await createTerms(client.id, {
-      programId: enrollment.programId,
-      enrollmentId: enrollment.id,
-      supportType,
-      fundingAmount: num(amounts.fundingAmount),
-      grantAmount: num(amounts.grantAmount),
-      loanAmount: num(amounts.loanAmount),
-      investmentAmount: num(amounts.investmentAmount),
-      forgivableAmount: num(amounts.forgivableAmount),
-      repaymentRequired: repayment,
-      repaymentSchedule: text.repaymentSchedule,
-      interestDescription: text.interestDescription,
-      resourceDescription: text.resourceDescription,
-      milestones: text.milestones,
-      reportingRequirements: text.reportingRequirements,
-      startDate: new Date(text.startDate).toISOString(),
-      endDate: new Date(text.endDate).toISOString(),
-      monitoringFrequency: frequency,
-      specialConditions: text.specialConditions,
-      approvalStatus: "Pending",
-    });
-    // Saving terms does not email anyone; they wait for internal approval.
-    toast.success("Terms saved and pending internal approval");
-    onOpenChange(false);
+    if (!client || !enrollment || saving) return;
+    setSaving(true);
+    try {
+      await createTerms(client.id, {
+        programId: enrollment.programId,
+        enrollmentId: enrollment.id,
+        supportType,
+        fundingAmount: num(amounts.fundingAmount),
+        grantAmount: num(amounts.grantAmount),
+        loanAmount: num(amounts.loanAmount),
+        investmentAmount: num(amounts.investmentAmount),
+        forgivableAmount: num(amounts.forgivableAmount),
+        repaymentRequired: repayment,
+        repaymentSchedule: text.repaymentSchedule,
+        interestDescription: text.interestDescription,
+        resourceDescription: text.resourceDescription,
+        milestones: text.milestones,
+        reportingRequirements: text.reportingRequirements,
+        startDate: new Date(text.startDate).toISOString(),
+        endDate: new Date(text.endDate).toISOString(),
+        monitoringFrequency: frequency,
+        specialConditions: text.specialConditions,
+        approvalStatus: "Pending",
+      });
+      // Saving terms does not email anyone; they wait for internal approval.
+      toast.success("Terms saved and pending internal approval");
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message ? error.message : "Unable to save these terms.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -208,7 +218,9 @@ export function TermsDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save terms</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save terms"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

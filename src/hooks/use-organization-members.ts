@@ -21,12 +21,26 @@ export function memberOptionLabel(member: OrgMember): string {
   return member.jobTitle ? `${name} · ${member.jobTitle}` : name;
 }
 
+const MEMBERS_CHANGED = "clientflow:members-changed";
+
+/** Call after inviting, re-roling or removing staff so every open staff list reloads. */
+export function notifyMembersChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(MEMBERS_CHANGED));
+}
+
 export function useOrganizationMembers() {
   const { authenticatedAdmin } = useAppState();
   const organizationId = authenticatedAdmin?.organizationId;
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const reload = () => setVersion((current) => current + 1);
+    window.addEventListener(MEMBERS_CHANGED, reload);
+    return () => window.removeEventListener(MEMBERS_CHANGED, reload);
+  }, []);
 
   useEffect(() => {
     if (!organizationId) {
@@ -52,7 +66,7 @@ export function useOrganizationMembers() {
     return () => {
       cancelled = true;
     };
-  }, [organizationId]);
+  }, [organizationId, version]);
 
   return {
     members,

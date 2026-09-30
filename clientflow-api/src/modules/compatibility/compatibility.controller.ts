@@ -37,6 +37,7 @@ import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } 
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { answerFields, labelledAnswers } from '../forms/answer-list';
 import { isLegacyContract } from '../contracts/legacy-contract';
+import { assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { applyFinalReportDecision } from '../lifecycle/final-report';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
@@ -741,6 +742,7 @@ export class ClientflowCompatibilityController {
   @Post('programs/:id/workflow/contracts/templates') async createProgramWorkflowContractTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
     await findProgramForOrg(this.requirePrisma(), orgId, id);
+    if (body.content || body.fileUrl || body.fileName) assertContractVersionContent(body);
     const template = await this.requirePrisma().cfProgramContractTemplate.create({
       data: {
         organizationId: orgId,
@@ -776,6 +778,7 @@ export class ClientflowCompatibilityController {
       select: { id: true },
     });
     if (!template) throw new NotFoundException('Program workflow contract template not found.');
+    assertContractVersionContent(body);
     const latest = await this.requirePrisma().cfProgramContractVersion.findFirst({
       where: { organizationId: orgId, templateId },
       orderBy: { version: 'desc' },
@@ -803,6 +806,7 @@ export class ClientflowCompatibilityController {
   @Post('programs/:id/workflow/emails/templates') async createProgramWorkflowWelcomeTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
     await findProgramForOrg(this.requirePrisma(), orgId, id);
+    const content = body.subject || body.body ? welcomeVersionContent(body) : null;
     const template = await this.requirePrisma().cfProgramWelcomeEmailTemplate.create({
       data: {
         organizationId: orgId,
@@ -811,14 +815,14 @@ export class ClientflowCompatibilityController {
         isActive: body.isActive !== false,
       },
     });
-    if (body.subject || body.body) {
+    if (content) {
       await this.requirePrisma().cfProgramWelcomeEmailVersion.create({
         data: {
           organizationId: orgId,
           templateId: template.id,
           version: 1,
-          subject: String(body.subject ?? `Welcome to ${body.programName ?? 'the program'}`),
-          body: String(body.body ?? ''),
+          subject: content.subject,
+          body: content.body,
           guideStoredFileId: body.guideStoredFileId ? String(body.guideStoredFileId) : null,
           createdBy: admin.email,
           allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],
@@ -835,6 +839,7 @@ export class ClientflowCompatibilityController {
       select: { id: true },
     });
     if (!template) throw new NotFoundException('Program workflow welcome template not found.');
+    const content = welcomeVersionContent(body);
     const latest = await this.requirePrisma().cfProgramWelcomeEmailVersion.findFirst({
       where: { organizationId: orgId, templateId },
       orderBy: { version: 'desc' },
@@ -845,8 +850,8 @@ export class ClientflowCompatibilityController {
         organizationId: orgId,
         templateId,
         version: Number(body.version ?? ((latest?.version ?? 0) + 1)),
-        subject: String(body.subject ?? `Welcome to ${body.programName ?? 'the program'}`),
-        body: String(body.body ?? ''),
+        subject: content.subject,
+        body: content.body,
         guideStoredFileId: body.guideStoredFileId ? String(body.guideStoredFileId) : null,
         createdBy: admin.email,
         allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],

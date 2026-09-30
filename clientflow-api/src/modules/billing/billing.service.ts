@@ -84,7 +84,7 @@ function scheduleFrom(
 ): BillingSchedule {
   return {
     startDate: agreement.startDate,
-    frequency: agreement.frequency as BillingSchedule['frequency'],
+    frequency: agreement.frequency,
     customIntervalDays: agreement.customIntervalDays,
     defaultDueDay: agreement.defaultDueDay,
     timezone,
@@ -169,7 +169,7 @@ export class BillingService {
   async replaceAgreement(input: ReplaceAgreementInput): Promise<CfEnrollmentBillingAgreement> {
     const nextDueDate = computeNextDueDate({
       startDate: input.startDate,
-      frequency: input.frequency as BillingSchedule['frequency'],
+      frequency: input.frequency,
       customIntervalDays: input.customIntervalDays,
       defaultDueDay: input.defaultDueDay,
       timezone: input.timezone,

@@ -145,7 +145,7 @@ describe('FormDeliveryService.createAssignment', () => {
     expect(data.secureLinkToken).toMatch(/^[a-f0-9]{64}$/);
     expect(created.secureLink).toMatch(/\/s\/[A-Za-z0-9_-]{43}$/);
     expect(created).not.toHaveProperty('secureLinkToken');
-    const rawToken = (created.secureLink as string).split('/s/')[1];
+    const rawToken = (created.secureLink).split('/s/')[1];
     expect(createHash('sha256').update(rawToken).digest('hex')).toBe(data.secureLinkToken);
   });
 });
@@ -180,6 +180,18 @@ describe('FormDeliveryService.send', () => {
     expect(result).toEqual(expect.objectContaining({
       success: true, provider: 'N8N_GMAIL', formId: 'form-p1', sentAt: '2030-01-01T00:00:05.000Z',
     }));
+  });
+
+  it('rejects a mistyped recipient before recording or emailing anything', async () => {
+    const { service, prisma, n8n } = build({
+      cfFormAssignment: {
+        findFirst: jest.fn().mockResolvedValue({ ...assignment, recipientEmail: 'client gmail.com' }),
+        update: jest.fn(),
+      },
+    });
+    await expect(service.send('org-1', actor, 'assign-1', input)).rejects.toThrow('is not a valid email address');
+    expect(prisma.cfCommunication.create).not.toHaveBeenCalled();
+    expect(n8n.deliver).not.toHaveBeenCalled();
   });
 
   it("keeps the assignment's own due date", async () => {

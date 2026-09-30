@@ -33,6 +33,7 @@ import {
 } from '../forms/intake-lifecycle';
 import { CreateClientDto } from './dto/create-client.dto';
 import { NOT_UNSIGNED_LEGACY_CONTRACT } from '../contracts/legacy-contract';
+import { assertSendableRecipient } from '../communications/recipient';
 
 type DeferredEmailDelivery = { status: 'deferred' };
 
@@ -432,6 +433,7 @@ export class ClientsService {
       const prior = await findAttemptByKey(this.prisma, client.organizationId, options.idempotencyKey);
       if (prior) return { emailDelivery: recordedDelivery(prior), replayed: true as const };
     }
+    assertSendableRecipient({ email: client.email, name: client.primaryContactName });
 
     const masterTemplates = await this.prisma.cfFormTemplate.findMany({
       where: { organizationId: client.organizationId, scope: 'master_core' },

@@ -1,12 +1,17 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
+  Archive,
   BarChart3,
   Briefcase,
+  ClipboardCheck,
   ClipboardList,
   DollarSign,
+  Inbox,
+  KanbanSquare,
   LayoutDashboard,
   LogOut,
   Settings,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,9 +28,24 @@ const mainItems: NavItem[] = [
   { title: "Forms", url: "/forms", icon: ClipboardList },
 ];
 
+// Day-to-day workflow screens that were only reachable by typing their address.
+const workflowItems: NavItem[] = [
+  { title: "Intake", url: "/intake", icon: Inbox },
+  { title: "Review", url: "/review", icon: ShieldCheck },
+  { title: "Pipeline", url: "/pipeline", icon: KanbanSquare },
+  { title: "Monitoring", url: "/monitoring", icon: ClipboardCheck },
+  { title: "Archive", url: "/archive", icon: Archive },
+];
+
 const insightItems: NavItem[] = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Settings", url: "/settings", icon: Settings },
+];
+
+const navSections: Array<{ label: string | null; items: NavItem[] }> = [
+  { label: null, items: mainItems },
+  { label: "Workflow", items: workflowItems },
+  { label: "Insights", items: insightItems },
 ];
 
 export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
@@ -67,65 +87,42 @@ export function AppSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Nav */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-        {mainItems.map((item) => {
-          const active = item.exact ? pathname === item.url : pathname.startsWith(item.url);
-          return (
-            <Link
-              key={item.url}
-              to={item.url}
-              onClick={onNavigate}
-              className={cn(
-                "relative flex items-center gap-3 rounded-[7px] px-3 py-2.5 text-[13.5px] font-medium transition-colors",
-                active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
-              )}
-            >
-              {active && (
-                <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />
-              )}
-              <item.icon
-                className={cn(
-                  "size-4",
-                  active ? "text-sidebar-primary" : "text-sidebar-foreground/50",
-                )}
-              />
-              {item.title}
-            </Link>
-          );
-        })}
-
-        <p className="px-3 pb-1.5 pt-3.5 font-mono text-[10px] uppercase tracking-widest text-sidebar-foreground/40">
-          Insights
-        </p>
-
-        {insightItems.map((item) => {
-          const active = pathname.startsWith(item.url);
-          return (
-            <Link
-              key={item.url}
-              to={item.url}
-              onClick={onNavigate}
-              className={cn(
-                "relative flex items-center gap-3 rounded-[7px] px-3 py-2.5 text-[13.5px] font-medium transition-colors",
-                active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
-              )}
-            >
-              {active && (
-                <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />
-              )}
-              <item.icon
-                className={cn(
-                  "size-4",
-                  active ? "text-sidebar-primary" : "text-sidebar-foreground/50",
-                )}
-              />
-              {item.title}
-            </Link>
-          );
-        })}
+        {navSections.map((section) => (
+          <div key={section.label ?? "main"} className="space-y-0.5">
+            {section.label && (
+              <p className="px-3 pb-1.5 pt-3.5 font-mono text-[10px] uppercase tracking-widest text-sidebar-foreground/40">
+                {section.label}
+              </p>
+            )}
+            {section.items.map((item) => {
+              const active = item.exact ? pathname === item.url : pathname.startsWith(item.url);
+              return (
+                <Link
+                  key={item.url}
+                  to={item.url}
+                  onClick={onNavigate}
+                  className={cn(
+                    "relative flex items-center gap-3 rounded-[7px] px-3 py-2.5 text-[13.5px] font-medium transition-colors",
+                    active
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />
+                  )}
+                  <item.icon
+                    className={cn(
+                      "size-4",
+                      active ? "text-sidebar-primary" : "text-sidebar-foreground/50",
+                    )}
+                  />
+                  {item.title}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Footer */}

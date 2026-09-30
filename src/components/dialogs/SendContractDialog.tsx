@@ -18,7 +18,12 @@ import {
   refreshClientContracts,
 } from "@/lib/api";
 import { acfGenerateContract, acfSendContract, acfSendContractCopy } from "@/lib/apiClient";
-import { contractSendState, currentContract, describeDelivery } from "@/lib/client-send";
+import {
+  contractSendState,
+  currentContract,
+  describeDelivery,
+  recipientProblem,
+} from "@/lib/client-send";
 import type { Client, Contract, Program, ProgramEnrollment } from "@/types";
 
 const dateLabel = (value?: string | null) => (value ? new Date(value).toLocaleDateString() : "");
@@ -47,6 +52,7 @@ export function SendContractDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const attempt = useSendAttempt();
+  const problem = recipientProblem(client);
   const state = contractSendState(currentContract(contracts, enrollment.id));
   const needsTemplate = state.kind === "none" || state.kind === "closed";
   const [templateReady, setTemplateReady] = useState<boolean | null>(null);
@@ -186,6 +192,7 @@ export function SendContractDialog({
           )}
         </div>
 
+        {problem && <p className="text-sm text-destructive">{problem}</p>}
         <DialogFooter className="gap-2">
           <Button
             type="button"
@@ -216,7 +223,7 @@ export function SendContractDialog({
               <Button
                 type="button"
                 onClick={() => run("copy")}
-                disabled={busy || !state.contract.executedStoredFileId}
+                disabled={busy || !state.contract.executedStoredFileId || !!problem}
               >
                 {busy ? "Sending…" : "Send copy"}
               </Button>
@@ -225,7 +232,7 @@ export function SendContractDialog({
             <Button
               type="button"
               onClick={() => run("send")}
-              disabled={busy || (needsTemplate && templateReady === false)}
+              disabled={busy || (needsTemplate && templateReady === false) || !!problem}
             >
               {busy
                 ? "Sending…"

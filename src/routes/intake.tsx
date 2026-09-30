@@ -24,6 +24,7 @@ import {
 } from "@/hooks/use-organization-members";
 import { createClient, createFormAssignment, sendFormEmail } from "@/lib/api";
 import { type Client, type ProfileSource, type ProfileType, type RelationshipType } from "@/types";
+import { useAsyncAction } from "@/hooks/use-async-action";
 
 export const Route = createFileRoute("/intake")({
   head: () => ({
@@ -114,6 +115,7 @@ function IntakePage() {
   const [assignedUserId, setAssignedUserId] = useState("__unassigned");
   const [personalMessage, setPersonalMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const action = useAsyncAction();
   const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -163,36 +165,44 @@ function IntakePage() {
       return;
     }
     const selectedMember = activeMembers.find((member) => member.id === newProfile.assignedUserId);
-    const created = await createClient({
-      organizationId: "org_ea_management",
-      businessName: newProfile.businessName || newProfile.primaryContactName,
-      primaryContactName: newProfile.primaryContactName,
-      email: newProfile.email,
-      phone: newProfile.phone,
-      website: newProfile.website,
-      socialLinks: [],
-      programId: null,
-      status: "New Intake",
-      profileType: newProfile.profileType,
-      relationshipType: newProfile.relationshipType,
-      lifecycleStatus: "new",
-      assignedStaff: selectedMember ? memberName(selectedMember) : "",
-      assignedUserId: selectedMember?.id ?? null,
-      intakeSource: newProfile.source,
-      source: newProfile.source,
-      nextFollowUpDate: new Date(Date.now() + 3 * 864e5).toISOString(),
-      isDemo: false,
-      intake: {
-        businessDescription: "",
-        assistanceRequested: "",
-        programOfInterest: "",
-        budgetNeed: "",
-        preferredContact: "Email",
-        heardAboutUs: "",
-        additionalComments: "",
-        uploadedFiles: [],
+    let created: Client | undefined;
+    const ok = await action.run(
+      "create-profile",
+      async () => {
+        created = await createClient({
+          organizationId: "org_ea_management",
+          businessName: newProfile.businessName || newProfile.primaryContactName,
+          primaryContactName: newProfile.primaryContactName,
+          email: newProfile.email,
+          phone: newProfile.phone,
+          website: newProfile.website,
+          socialLinks: [],
+          programId: null,
+          status: "New Intake",
+          profileType: newProfile.profileType,
+          relationshipType: newProfile.relationshipType,
+          lifecycleStatus: "new",
+          assignedStaff: selectedMember ? memberName(selectedMember) : "",
+          assignedUserId: selectedMember?.id ?? null,
+          intakeSource: newProfile.source,
+          source: newProfile.source,
+          nextFollowUpDate: new Date(Date.now() + 3 * 864e5).toISOString(),
+          isDemo: false,
+          intake: {
+            businessDescription: "",
+            assistanceRequested: "",
+            programOfInterest: "",
+            budgetNeed: "",
+            preferredContact: "Email",
+            heardAboutUs: "",
+            additionalComments: "",
+            uploadedFiles: [],
+          },
+        });
       },
-    });
+      { error: "Unable to create this profile." },
+    );
+    if (!ok || !created) return;
     setSelectedProfile(created);
     setRecipientEmail(created.email);
     setAssignedUserId(created.assignedUserId ?? "__unassigned");
@@ -203,18 +213,26 @@ function IntakePage() {
 
   async function handleFillOutNow() {
     if (!selectedProfile || !masterTemplate) return;
-    const assignment = await createFormAssignment({
-      clientId: selectedProfile.id,
-      formId: masterTemplate.id,
-      completionMethod: "admin_assisted",
-      deliveryMethod: "none",
-      recipientEmail: selectedProfile.email,
-      assignedUserId: assignedUserId === "__unassigned" ? null : assignedUserId,
-      dueDate,
-      status: "draft",
-      organizationId: "org_ea_management",
-      isDemo: selectedProfile.isDemo ?? false,
-    });
+    let assignment: Awaited<ReturnType<typeof createFormAssignment>> | undefined;
+    const ok = await action.run(
+      "fill-now",
+      async () => {
+        assignment = await createFormAssignment({
+          clientId: selectedProfile.id,
+          formId: masterTemplate.id,
+          completionMethod: "admin_assisted",
+          deliveryMethod: "none",
+          recipientEmail: selectedProfile.email,
+          assignedUserId: assignedUserId === "__unassigned" ? null : assignedUserId,
+          dueDate,
+          status: "draft",
+          organizationId: "org_ea_management",
+          isDemo: selectedProfile.isDemo ?? false,
+        });
+      },
+      { error: "Unable to open the Master Intake." },
+    );
+    if (!ok || !assignment) return;
     if (!assignment.secureLink) {
       toast.error("Could not create a secure Master Intake link");
       return;
@@ -482,9 +500,9 @@ function IntakePage() {
               </div>
             </div>
             <div className="flex gap-3">
-              <Button onClick={handleCreateProfile}>
+              <Button onClick={handleCreateProfile} disabled={action.busy === "create-profile"}>
                 <User className="size-4" />
-                Create profile
+                {action.busy === "create-profile" ? "Creating…" : "Create profile"}
               </Button>
               <Button variant="outline" onClick={() => setStep("select")}>
                 Back to search
@@ -509,6 +527,7 @@ function IntakePage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <button
                 onClick={handleFillOutNow}
+                disabled={action.busy === "fill-now"}
                 className="rounded-xl border-2 border-border p-6 text-left transition-colors hover:border-primary hover:bg-primary/5"
               >
                 <User className="size-6 text-primary" />

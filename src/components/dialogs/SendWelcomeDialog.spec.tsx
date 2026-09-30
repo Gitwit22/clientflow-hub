@@ -21,7 +21,11 @@ vi.mock("sonner", () => ({
   },
 }));
 
-const client = { id: "c1", email: "client@example.com" } as Client;
+const client = {
+  id: "c1",
+  email: "client@example.com",
+  primaryContactName: "Client Owner",
+} as Client;
 const enrollment = { id: "e1", programId: "p1", clientId: "c1" } as ProgramEnrollment;
 const program = { id: "p1", name: "The Inspired Detroit Initiative" } as Program;
 const contract = (status: string) =>

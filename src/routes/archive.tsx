@@ -18,6 +18,7 @@ import { loadArchivedClients, restoreClient } from "@/lib/api";
 import { PermanentDeleteClientDialog } from "@/components/dialogs/PermanentDeleteClientDialog";
 import type { Client } from "@/types";
 import { clientProgramNames } from "@/lib/enrollment-status";
+import { useAsyncAction } from "@/hooks/use-async-action";
 
 export const Route = createFileRoute("/archive")({
   head: () => ({
@@ -41,6 +42,7 @@ function ArchivePage() {
   const { clients, programs, finalReports, authenticatedAdmin, enrollments } = useAppState();
   const [loading, setLoading] = useState(true);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
+  const action = useAsyncAction();
   const canDelete =
     authenticatedAdmin?.role === "org_admin" || authenticatedAdmin?.role === "super_admin";
   const rows = clients.filter((c) => c.isArchived);
@@ -104,16 +106,27 @@ function ArchivePage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => {
-                        restoreClient(c.id);
-                        toast.success("Client restored to active");
-                      }}
+                      disabled={action.busy === c.id}
+                      onClick={() =>
+                        void action.run(c.id, () => restoreClient(c.id), {
+                          success: "Client restored to active",
+                          error: "Unable to restore this client.",
+                        })
+                      }
                     >
-                      Restore
+                      {action.busy === c.id ? "Restoring…" : "Restore"}
                     </Button>
-                    <Button size="sm" variant="ghost" disabled={!hasReport}>
-                      Download report
-                    </Button>
+                    {hasReport && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link
+                          to="/clients/$clientId"
+                          params={{ clientId: c.id }}
+                          search={{ tab: "final" }}
+                        >
+                          View report
+                        </Link>
+                      </Button>
+                    )}
                     {canDelete ? (
                       <Button
                         size="sm"
