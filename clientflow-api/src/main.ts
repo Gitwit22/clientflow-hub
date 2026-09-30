@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -13,7 +14,10 @@ import { environmentSchema } from './config/env';
 
 async function bootstrap(): Promise<void> {
   const environment = environmentSchema.parse(process.env);
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Render terminates TLS in one proxy in front of the app; without this every visitor has the
+  // proxy's address and they all share one rate-limit bucket.
+  app.set('trust proxy', 1);
   app.use(helmet());
   app.use(cookieParser());
   app.use((request: Request & { requestId?: string }, response: Response, next: NextFunction) => {

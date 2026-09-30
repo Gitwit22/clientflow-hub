@@ -64,6 +64,10 @@ import { FormDeliveryService } from '../forms/form-delivery.service';
 import { FormProfileService } from '../forms/form-profile.service';
 import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
+import { Throttle } from '@nestjs/throttler';
+
+/** Sign-in endpoints: 10 attempts a minute per visitor, so passwords and tokens can't be guessed. */
+export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
@@ -2066,7 +2070,7 @@ export class AuthCompatibilityController {
     };
   }
 
-  @Post('login') async login(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
+  @Throttle(SIGN_IN_LIMIT) @Post('login') async login(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
     const email = String(body.email ?? '').trim().toLowerCase();
     const password = String(body.password ?? '');
     if (!email || !password) throw new BadRequestException('Email and password are required.');
@@ -2168,7 +2172,7 @@ export class AuthCompatibilityController {
     return { valid: true, email: invitation.adminUser.email, firstName: invitation.adminUser.firstName ?? undefined };
   }
 
-  @Post('accept-invite') async acceptInvite(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
+  @Throttle(SIGN_IN_LIMIT) @Post('accept-invite') async acceptInvite(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
     const token = String(body.token ?? '');
     const newPassword = String(body.newPassword ?? '');
     if (!token || !newPassword) throw new BadRequestException('Token and new password are required.');
@@ -2327,6 +2331,7 @@ export class FutureApiBoundaryController {
 }
 
 const MAX_LIST_PAGE = 500;
+
 
 /**
  * `?limit=&offset=` for the org-wide lists the app pages through. Without a limit the whole list is

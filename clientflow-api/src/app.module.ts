@@ -39,7 +39,9 @@ import { PrismaModule } from './prisma/prisma.module';
       envFilePath: ['.env.local', '.env'],
       validate: (config) => environmentSchema.parse(config),
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // Per visitor (see trust proxy in main.ts). One page load makes ~60 API calls, so the general
+    // limit leaves room for normal clicking; sign-in endpoints have their own strict limits.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 600 }]),
     PrismaModule,
     IntegrationsModule,
     CompatibilityModule,
