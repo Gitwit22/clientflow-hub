@@ -127,10 +127,9 @@ export async function refreshClientProfile(clientId: string) {
       ),
     ],
     activity: clientActivity
-      ? [
-          ...state.activity.filter((entry) => entry.clientId !== clientId),
-          ...clientActivity,
-        ].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+      ? [...state.activity.filter((entry) => entry.clientId !== clientId), ...clientActivity].sort(
+          (a, b) => (a.timestamp < b.timestamp ? 1 : -1),
+        )
       : state.activity,
   }));
   return client;

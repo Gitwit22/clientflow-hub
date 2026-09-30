@@ -73,6 +73,8 @@ import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storag
 export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
 /** How long a just-replaced refresh token still works (another tab refreshing at the same time). */
 const REFRESH_GRACE_MS = 60_000;
+/** A bcrypt hash of a random value (cost 12, like real ones) compared against for unknown emails. */
+const UNKNOWN_USER_PASSWORD_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO5YbYp1yQy7lZ5o9/9c1n9F3F1vX0y4W';
 const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
 
@@ -2099,9 +2101,10 @@ export class AuthCompatibilityController {
     const password = String(body.password ?? '');
     if (!email || !password) throw new BadRequestException('Email and password are required.');
     const admin = await this.requirePrisma().adminUser.findUnique({ where: { email }, select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, passwordHash: true, isActive: true } });
-    if (!admin || !admin.isActive) throw new UnauthorizedException('Invalid email or password.');
-    const valid = await compare(password, admin.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid email or password.');
+    // Always run one bcrypt comparison, so an unknown email takes as long as a wrong password
+    // and response times don't reveal which staff emails exist.
+    const valid = await compare(password, admin?.passwordHash ?? UNKNOWN_USER_PASSWORD_HASH);
+    if (!admin || !admin.isActive || !valid) throw new UnauthorizedException('Invalid email or password.');
     const sessionId = randomUUID();
     const jti = randomUUID();
     const accessToken = signSessionToken(admin.id, admin.email, [admin.role], admin.organizationId, sessionId, jti, 'access');

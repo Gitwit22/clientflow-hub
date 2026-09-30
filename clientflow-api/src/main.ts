@@ -40,12 +40,15 @@ async function bootstrap(): Promise<void> {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
   app.useGlobalFilters(new ApiExceptionFilter());
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('ClientFlow API')
-    .setDescription('Standalone EA Management ClientFlow service scaffold')
-    .setVersion('0.1.0')
-    .build();
-  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, swaggerConfig));
+  // The API reference lists every endpoint; it's for development, not the public internet.
+  if (environment.NODE_ENV !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('ClientFlow API')
+      .setDescription('Standalone EA Management ClientFlow service scaffold')
+      .setVersion('0.1.0')
+      .build();
+    SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, swaggerConfig));
+  }
 
   await app.listen(environment.PORT, environment.HOST);
 }
