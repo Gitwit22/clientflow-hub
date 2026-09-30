@@ -37,6 +37,7 @@ import { useAppState, retryBootstrap } from "@/lib/store";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
+import { LegacyDataCleanupCard } from "@/components/settings/LegacyDataCleanupCard";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -836,6 +837,7 @@ function SettingsPage() {
             )}
           </CardContent>
         </Card>
+        {canRemoveDemoPermanently && <LegacyDataCleanupCard />}
       </div>
 
       {orgId && (

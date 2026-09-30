@@ -28,6 +28,7 @@ import { FormsModule } from './modules/forms/forms.module';
 import { ProgramsModule } from './modules/programs/programs.module';
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { HealthController } from './modules/health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -50,6 +51,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ProgramsModule,
     EnrollmentsModule,
     BillingModule,
+    MaintenanceModule,
     FormsModule,
     ContractsModule,
     TermsModule,

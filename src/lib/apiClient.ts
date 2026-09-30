@@ -1445,3 +1445,48 @@ export async function cfConfirmBackfill(
 export async function cfGetBillingDashboard(period: "month" | "quarter" | "year" = "month") {
   return apiRequest<OrgBillingDashboard>(`/api/v1/billing/dashboard?period=${period}`);
 }
+
+export interface LegacyContractItem {
+  contractId: string;
+  clientId: string;
+  businessName: string | null;
+  programName: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface LegacyDataReport {
+  applied: boolean;
+  contracts: {
+    remove: LegacyContractItem[];
+    cancel: LegacyContractItem[];
+    keep: LegacyContractItem[];
+  };
+  linked: Record<
+    | "contracts"
+    | "formAssignments"
+    | "terms"
+    | "finalReports"
+    | "documentAssignments"
+    | "communications",
+    number
+  >;
+  clientsNeedingContract: Array<{
+    clientId: string;
+    businessName: string;
+    enrollmentId: string;
+    programName: string | null;
+    enrollmentStatus: string;
+  }>;
+  orphans: { clientIds: number; rows: Record<string, number> };
+}
+
+/** GET /maintenance/legacy-data — what the legacy cleanup would change (changes nothing). */
+export async function acfPreviewLegacyData() {
+  return apiRequest<LegacyDataReport>("/api/v1/maintenance/legacy-data");
+}
+
+/** POST /maintenance/legacy-data/apply — apply the legacy cleanup (org admins, idempotent). */
+export async function acfApplyLegacyData() {
+  return apiRequest<LegacyDataReport>("/api/v1/maintenance/legacy-data/apply", { method: "POST" });
+}

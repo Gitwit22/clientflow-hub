@@ -82,50 +82,7 @@ export class ClientDeletionService {
     // Re-read inside the transaction so a concurrent delete can't be applied twice.
     await findClientForOrg(db, organizationId, clientId, { includeArchived: true });
     const scope = { organizationId };
-    const ids = (rows: Array<{ id: string }>) => rows.map((row) => row.id);
-
-    const enrollmentIds = ids(await db.cfProgramEnrollment.findMany({ where: { ...scope, clientId }, select: { id: true } }));
-    const formAssignmentIds = ids(await db.cfFormAssignment.findMany({ where: { ...scope, clientId }, select: { id: true } }));
-    const intakeSubmissionIds = ids(await db.cfIntakeSubmission.findMany({ where: { ...scope, clientId }, select: { id: true } }));
-    const billingAgreementIds = enrollmentIds.length
-      ? ids(await db.cfEnrollmentBillingAgreement.findMany({
-          where: { ...scope, enrollmentId: { in: enrollmentIds } },
-          select: { id: true },
-        }))
-      : [];
-    const contracts = await db.cfContract.findMany({
-      where: { ...scope, clientId },
-      select: { id: true, executedStoredFileId: true },
-    });
-    const documents = await db.cfDocument.findMany({
-      where: { ...scope, clientId },
-      select: { id: true, storedFileId: true, objectKey: true },
-    });
-
-    const idsByKey: Record<ClientDataKey, string[]> = {
-      clientId: [clientId],
-      enrollmentId: enrollmentIds,
-      formAssignmentId: formAssignmentIds,
-      intakeSubmissionId: intakeSubmissionIds,
-      billingAgreementId: billingAgreementIds,
-      anyOwnedId: [
-        clientId,
-        ...enrollmentIds,
-        ...formAssignmentIds,
-        ...intakeSubmissionIds,
-        ...ids(contracts),
-        ...ids(documents),
-      ],
-    };
-
-    const counts: Record<string, number> = {};
-    for (const step of CLIENT_DELETION_STEPS) {
-      const values = idsByKey[step.by];
-      if (!values.length) continue;
-      const delegate = (db as unknown as Record<ClientOwnedModel, DeleteManyDelegate>)[step.model];
-      const { count } = await delegate.deleteMany({ where: { ...scope, [step.column ?? step.by]: { in: values } } });
-      if (count) counts[step.model] = (counts[step.model] ?? 0) + count;
-    }
+    const { counts, contracts, documents } = await deleteClientOwnedRows(db, organizationId, clientId);
 
     // Stored files that only this client's contracts and documents used (program templates and
     // welcome guides keep theirs).
@@ -205,4 +162,59 @@ export class ClientDeletionService {
 
 function normalizeName(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Deletes every row the manifest lists for one client id, children first, and returns what it
+ * removed plus the client's contracts and documents (for their stored files). The client row itself
+ * is left to the caller. Also used to clear rows left behind by a client that no longer exists.
+ */
+export async function deleteClientOwnedRows(db: TenantDb, organizationId: string, clientId: string) {
+  const scope = { organizationId };
+  const ids = (rows: Array<{ id: string }>) => rows.map((row) => row.id);
+
+  const enrollmentIds = ids(await db.cfProgramEnrollment.findMany({ where: { ...scope, clientId }, select: { id: true } }));
+  const formAssignmentIds = ids(await db.cfFormAssignment.findMany({ where: { ...scope, clientId }, select: { id: true } }));
+  const intakeSubmissionIds = ids(await db.cfIntakeSubmission.findMany({ where: { ...scope, clientId }, select: { id: true } }));
+  const billingAgreementIds = enrollmentIds.length
+    ? ids(await db.cfEnrollmentBillingAgreement.findMany({
+        where: { ...scope, enrollmentId: { in: enrollmentIds } },
+        select: { id: true },
+      }))
+    : [];
+  const contracts = await db.cfContract.findMany({
+    where: { ...scope, clientId },
+    select: { id: true, executedStoredFileId: true },
+  });
+  const documents = await db.cfDocument.findMany({
+    where: { ...scope, clientId },
+    select: { id: true, storedFileId: true, objectKey: true },
+  });
+
+  const idsByKey: Record<ClientDataKey, string[]> = {
+    clientId: [clientId],
+    enrollmentId: enrollmentIds,
+    formAssignmentId: formAssignmentIds,
+    intakeSubmissionId: intakeSubmissionIds,
+    billingAgreementId: billingAgreementIds,
+    anyOwnedId: [
+      clientId,
+      ...enrollmentIds,
+      ...formAssignmentIds,
+      ...intakeSubmissionIds,
+      ...ids(contracts),
+      ...ids(documents),
+    ],
+  };
+
+  const counts: Record<string, number> = {};
+  for (const step of CLIENT_DELETION_STEPS) {
+    const values = idsByKey[step.by];
+    if (!values.length) continue;
+    const delegate = (db as unknown as Record<ClientOwnedModel, DeleteManyDelegate>)[step.model];
+    const { count } = await delegate.deleteMany({ where: { ...scope, [step.column ?? step.by]: { in: values } } });
+    if (count) counts[step.model] = (counts[step.model] ?? 0) + count;
+  }
+
+  return { counts, contracts, documents };
 }
