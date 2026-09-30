@@ -86,6 +86,7 @@ import {
   type ProgramBillingConfig,
 } from "@/types";
 import { formatMoney } from "@/lib/money";
+import { nextStep } from "@/lib/next-step";
 
 const MONITORING_TYPES = [
   "Payment check",
@@ -480,6 +481,9 @@ function ClientProfile() {
   );
 
   const openSend = (kind: SendKind) => setSendDialog(kind);
+  const profileStep = selectedEnrollment
+    ? nextStep(selectedEnrollment, contracts, comms)
+    : ({ kind: "closed", label: "" } as const);
   const closeSend = (nextOpen: boolean) => {
     if (!nextOpen) setSendDialog(null);
   };
@@ -845,6 +849,21 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
+          {selectedEnrollment && profileStep.kind !== "closed" && (
+            <Card className="shadow-card lg:col-span-2">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+                <div>
+                  <p className="font-medium">Next step · {selectedProgram?.name ?? "Program"}</p>
+                  <p className="text-xs text-muted-foreground">{profileStep.label}</p>
+                </div>
+                {"action" in profileStep && (
+                  <Button type="button" onClick={() => openSend(profileStep.action)}>
+                    {profileStep.button}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
           <Card className="shadow-card">
             <CardHeader>
               <CardTitle className="font-display text-base">Client summary</CardTitle>

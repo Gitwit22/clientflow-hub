@@ -31,6 +31,8 @@ import {
   createProgramWorkflowWelcomeTemplate,
   createProgramWorkflowWelcomeVersion,
   getProgramDetail,
+  refreshClientCommunications,
+  refreshClientContracts,
   updateProgramWorkflow,
   uploadStoredFile,
   withdrawEnrollment,
@@ -45,12 +47,17 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useAppState } from "@/lib/store";
+import { nextStep } from "@/lib/next-step";
+import { SendContractDialog } from "@/components/dialogs/SendContractDialog";
+import { SendWelcomeDialog } from "@/components/dialogs/SendWelcomeDialog";
 import { toast } from "sonner";
 import type {
   BillingFrequency,
+  Client,
   ProgramBillingConfig,
   ProgramDetailResponse,
   ProgramEnrollment,
+  ProgramParticipantDetail,
 } from "@/types";
 
 const BILLING_FREQUENCIES: BillingFrequency[] = [
@@ -83,6 +90,12 @@ function ProgramDetailPage() {
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [expandedEnrollmentId, setExpandedEnrollmentId] = useState<string | null>(null);
+  // The participant whose next step (contract / signing link / welcome) is open in a send dialog.
+  const [stepTarget, setStepTarget] = useState<{
+    participant: ProgramParticipantDetail;
+    action: "contract" | "welcome";
+  } | null>(null);
+  const [stepLoadingId, setStepLoadingId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
@@ -301,6 +314,13 @@ function ProgramDetailPage() {
               setWithdrawReason("");
               setWithdrawing(participant.enrollment);
             }}
+            step={nextStep(
+              participant.enrollment,
+              participant.contracts,
+              participant.welcomeEmails ?? [],
+            )}
+            stepBusy={stepLoadingId === participant.enrollment.id}
+            onStep={() => void openStep(participant)}
             canComplete={!past}
             onComplete={() => {
               void completeEnrollment(participant.enrollment.id)
@@ -321,6 +341,49 @@ function ProgramDetailPage() {
       </div>
     );
   };
+
+  const staffSigner = {
+    name:
+      [state.authenticatedAdmin?.firstName, state.authenticatedAdmin?.lastName]
+        .filter(Boolean)
+        .join(" ") ||
+      state.authenticatedAdmin?.email ||
+      "",
+    id: state.authenticatedAdmin?.id,
+  };
+  const stepClient: Client | undefined = stepTarget
+    ? (state.clients.find((c) => c.id === stepTarget.participant.client.id) ??
+      (stepTarget.participant.client as Client))
+    : undefined;
+
+  // Loads the client's latest contracts and emails first, so the dialog acts on current state.
+  async function openStep(participant: ProgramParticipantDetail) {
+    const step = nextStep(
+      participant.enrollment,
+      participant.contracts,
+      participant.welcomeEmails ?? [],
+    );
+    if (!("action" in step) || stepLoadingId) return;
+    setStepLoadingId(participant.enrollment.id);
+    try {
+      await Promise.all([
+        refreshClientContracts(participant.client.id),
+        refreshClientCommunications(participant.client.id),
+      ]);
+      setStepTarget({ participant, action: step.action });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to load this client's contracts.",
+      );
+    } finally {
+      setStepLoadingId(null);
+    }
+  }
+
+  function closeStep() {
+    setStepTarget(null);
+    setRefreshVersion((v) => v + 1);
+  }
 
   return (
     <div className="space-y-6">
@@ -963,6 +1026,28 @@ function ProgramDetailPage() {
       </Tabs>
 
       <AddEditProgramDialog program={program} open={editOpen} onOpenChange={setEditOpen} />
+      {stepTarget && stepClient && (
+        <>
+          <SendContractDialog
+            client={stepClient}
+            enrollment={stepTarget.participant.enrollment}
+            program={program}
+            contracts={state.contracts.filter((c) => c.clientId === stepClient.id)}
+            staffSigner={staffSigner}
+            open={stepTarget.action === "contract"}
+            onOpenChange={(open) => !open && closeStep()}
+          />
+          <SendWelcomeDialog
+            client={stepClient}
+            enrollment={stepTarget.participant.enrollment}
+            program={program}
+            contracts={state.contracts.filter((c) => c.clientId === stepClient.id)}
+            communications={state.communications.filter((c) => c.clientId === stepClient.id)}
+            open={stepTarget.action === "welcome"}
+            onOpenChange={(open) => !open && closeStep()}
+          />
+        </>
+      )}
       <ManageProgramMembersDialog
         program={program}
         open={membersOpen}
