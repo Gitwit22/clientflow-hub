@@ -178,3 +178,7 @@ export function recipientProblem(client: {
     return "This client has no contact name. Add one with Edit client before sending.";
   return null;
 }
+
+/** File types staff may upload as documents (the server enforces the same list, max 25 MB). */
+export const DOCUMENT_UPLOAD_ACCEPT =
+  ".pdf,.png,.jpg,.jpeg,.webp,.gif,.heic,.doc,.docx,.xls,.xlsx,.csv,.txt";

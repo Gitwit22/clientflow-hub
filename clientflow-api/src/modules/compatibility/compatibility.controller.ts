@@ -66,6 +66,7 @@ import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { Throttle } from '@nestjs/throttler';
 import { resolveAppUrl } from '../../config/env';
+import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storage/upload-rules';
 
 /** Sign-in endpoints: 10 attempts a minute per visitor, so passwords and tokens can't be guessed. */
 export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
@@ -1401,10 +1402,12 @@ export class ClientflowCompatibilityController {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
     const storage = this.requireStorage();
     storage.assertEnabled();
-    const originalFileName = String(body.name ?? 'upload.bin');
-    const mimeType = String(body.type ?? 'application/octet-stream');
-    const sizeBytes = Number(body.byteSize ?? 0);
-    const storageKeyPrefix = body.storageKeyPrefix ? trimSlashEdges(String(body.storageKeyPrefix)) : 'uploads';
+    const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
+    const { folder: storageKeyPrefix, type: mimeType, size: sizeBytes } = assertUploadAllowed({
+      folder: body.storageKeyPrefix,
+      type: body.type,
+      size: body.byteSize,
+    });
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `${storageKeyPrefix}/${orgId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
@@ -1427,8 +1430,7 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    const exists = await storage.objectExists(storedFile.storageKey);
-    if (!exists) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+    await assertStoredUploadWithinLimit(storage, storedFile.storageKey);
     return this.requirePrisma().cfStoredFile.update({
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
@@ -1572,9 +1574,8 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const client = await this.requirePrisma().cfClient.findFirst({ where: { id: clientId, organizationId: orgId, isArchived: false } });
     if (!client) throw new NotFoundException('Client not found.');
-    const originalFileName = String(body.name ?? 'upload.bin');
-    const mimeType = String(body.type ?? 'application/octet-stream');
-    const sizeBytes = Number(body.byteSize ?? 0);
+    const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
+    const { type: mimeType, size: sizeBytes } = assertUploadAllowed({ folder: 'client-documents', type: body.type, size: body.byteSize });
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `client-documents/${orgId}/${clientId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
@@ -1623,8 +1624,7 @@ export class ClientflowCompatibilityController {
       where: { id: document.storedFileId, organizationId: orgId },
     });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    const exists = await storage.objectExists(storedFile.storageKey);
-    if (!exists) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+    await assertStoredUploadWithinLimit(storage, storedFile.storageKey);
     await this.requirePrisma().cfStoredFile.update({
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
@@ -2412,6 +2412,19 @@ export class FutureApiBoundaryController {
 }
 
 const MAX_LIST_PAGE = 500;
+
+/**
+ * The upload link can't stop a larger file than was declared, so completion checks what was really
+ * stored and removes anything over the limit.
+ */
+async function assertStoredUploadWithinLimit(storage: StorageService, storageKey: string): Promise<void> {
+  const size = await storage.objectSize(storageKey);
+  if (size === null) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+  if (size > MAX_UPLOAD_BYTES) {
+    await storage.deleteObject(storageKey).catch(() => undefined);
+    throw new BadRequestException('Files can be at most 25 MB.');
+  }
+}
 
 
 /**

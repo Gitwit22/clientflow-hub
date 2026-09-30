@@ -119,6 +119,19 @@ export class StorageService {
     }
   }
 
+  /** The stored size of an object, or null when it isn't there. */
+  async objectSize(objectKey: string): Promise<number | null> {
+    const client = this.getClient();
+    const bucket = this.getBucketName();
+    if (!client || !bucket) throw new ServiceUnavailableException('R2 is not configured.');
+    try {
+      const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
+      return head.ContentLength ?? 0;
+    } catch {
+      return null;
+    }
+  }
+
   /** Permanently removes one object. Deleting a key that no longer exists succeeds. */
   async deleteObject(objectKey: string): Promise<void> {
     const client = this.getClient();
