@@ -134,10 +134,17 @@ export class FormDeliveryService {
       }),
       this.prisma.cfFormTemplate.findFirst({
         where: { id: assignment.formId, organizationId },
-        select: { name: true },
+        select: { name: true, dueInDays: true },
       }),
     ]);
     if (!client || !form) throw new NotFoundException('Form assignment details not found.');
+
+    // An assignment without its own due date is due the template's dueInDays after it is sent, and
+    // that date is saved so the email and the record agree.
+    const sendTime = new Date();
+    const defaultDue = assignment.dueDate || assignment.expiresAt
+      ? null
+      : new Date(sendTime.getTime() + (form.dueInDays ?? 7) * 86_400_000);
 
     // Raw links are never stored, so each send issues a fresh one (the previous link stops working).
     const rawToken = randomBytes(32).toString('base64url');
@@ -145,7 +152,11 @@ export class FormDeliveryService {
     const formUrl = `${appUrl}/s/${rawToken}`;
     await this.prisma.cfFormAssignment.update({
       where: { id: assignment.id },
-      data: { secureLink: null, secureLinkToken: createHash('sha256').update(rawToken).digest('hex') },
+      data: {
+        secureLink: null,
+        secureLinkToken: createHash('sha256').update(rawToken).digest('hex'),
+        ...(defaultDue ? { dueAt: defaultDue, dueDate: defaultDue.toISOString().slice(0, 10) } : {}),
+      },
     });
 
     const availability = this.n8n.getIntakeAvailability();
@@ -213,7 +224,8 @@ export class FormDeliveryService {
         formUrl,
         expiresAt: assignment.expiresAt?.toISOString() ?? null,
         sentByUserId: actor.id,
-        dueDate: assignment.dueDate ?? assignment.expiresAt?.toISOString() ?? now.toISOString(),
+        dueDate:
+          assignment.dueDate || assignment.expiresAt?.toISOString() || (defaultDue ?? sendTime).toISOString().slice(0, 10),
         ...(typeof input.personalMessage === 'string' && input.personalMessage.trim()
           ? { personalMessage: input.personalMessage.trim() }
           : {}),

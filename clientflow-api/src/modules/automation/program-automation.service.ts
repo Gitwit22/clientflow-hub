@@ -12,6 +12,7 @@ import { DELIVERY_SOURCE } from '../communications/communication-attempts';
 import { FormDeliveryService } from '../forms/form-delivery.service';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { canTransitionEnrollment, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
+import { NOT_UNSIGNED_LEGACY_CONTRACT } from '../contracts/legacy-contract';
 
 type AutomationTrigger =
   | 'intake.submitted'
@@ -423,6 +424,7 @@ export class ProgramAutomationService {
         organizationId: context.organizationId,
         clientId: context.client.id,
         programId: context.program.id,
+        ...NOT_UNSIGNED_LEGACY_CONTRACT,
       },
       orderBy: { createdAt: 'desc' },
     });

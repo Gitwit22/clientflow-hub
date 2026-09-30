@@ -17,6 +17,7 @@ import { useAppState } from "@/lib/store";
 import { loadArchivedClients, restoreClient } from "@/lib/api";
 import { PermanentDeleteClientDialog } from "@/components/dialogs/PermanentDeleteClientDialog";
 import type { Client } from "@/types";
+import { clientProgramNames } from "@/lib/enrollment-status";
 
 export const Route = createFileRoute("/archive")({
   head: () => ({
@@ -37,7 +38,7 @@ export const Route = createFileRoute("/archive")({
 });
 
 function ArchivePage() {
-  const { clients, programs, finalReports, authenticatedAdmin } = useAppState();
+  const { clients, programs, finalReports, authenticatedAdmin, enrollments } = useAppState();
   const [loading, setLoading] = useState(true);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
   const canDelete =
@@ -82,7 +83,9 @@ function ArchivePage() {
                 <TableRow key={c.id}>
                   <TableCell className="font-medium">{c.businessName}</TableCell>
                   <TableCell className="text-sm">
-                    {programs.find((p) => p.id === c.programId)?.name ?? "—"}
+                    {clientProgramNames(c.id, enrollments, programs, { includeClosed: true }).join(
+                      ", ",
+                    ) || "—"}
                   </TableCell>
                   <TableCell className="text-sm">{c.finalStatus ?? "—"}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">

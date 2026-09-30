@@ -55,7 +55,8 @@ export function currentContract(
   return [...contracts]
     .filter(
       (contract) =>
-        !contract.enrollmentId || !enrollmentId || contract.enrollmentId === enrollmentId,
+        !(contract.legacy && contract.status !== "COMPLETED") &&
+        (!contract.enrollmentId || !enrollmentId || contract.enrollmentId === enrollmentId),
     )
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 }

@@ -6,6 +6,7 @@ import {
   isRequiredResponseComplete,
   PublicFieldInput,
   publicFieldLabel,
+  requiredProgress,
 } from "@/components/PublicFieldInput";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -71,7 +72,7 @@ function PublicFormPage() {
         }
         setCoreResponses(initialCore);
         setProgramResponses(initialPrograms);
-        if (["submitted", "approved"].includes(data.assignment.status)) {
+        if (["submitted", "under_review", "approved"].includes(data.assignment.status)) {
           setStatus("already_submitted");
         } else {
           setStatus("ready");
@@ -140,6 +141,21 @@ function PublicFormPage() {
       clearPublicFormIdempotencyKey(token, idempotencyKey);
       setStatus("success");
     } catch (error) {
+      // The link was cancelled or expired while the form was open.
+      if (error instanceof ApiError && error.status === 410) {
+        setStatus("unavailable");
+        return;
+      }
+      // Submitted already (another tab, or an earlier attempt that did go through).
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        /already been submitted/i.test(error.message)
+      ) {
+        clearPublicFormIdempotencyKey(token, idempotencyKey);
+        setStatus("already_submitted");
+        return;
+      }
       if (isStalePublicFormError(error)) {
         setErrorMsg(error.message);
         setStatus("stale");
@@ -262,19 +278,10 @@ function PublicFormPage() {
   if (!formData) return null;
 
   const visibleSections = getVisibleSections(formData, selectedProgramIds);
-  const requiredFields = visibleSections
-    .flatMap((section) => section.fields)
-    .filter(isPublicFieldRequired);
-  const completed = visibleSections.reduce(
-    (count, section) =>
-      count +
-      section.fields.filter((field) =>
-        isRequiredResponseComplete(field, responsesFor(section)[field.id]),
-      ).length,
-    0,
+  const progress = requiredProgress(
+    visibleSections,
+    (sectionIndex, fieldId) => responsesFor(visibleSections[sectionIndex])[fieldId],
   );
-  const progressPct =
-    requiredFields.length > 0 ? Math.round((completed / requiredFields.length) * 100) : 100;
 
   return (
     <div className="min-h-screen bg-background py-12 px-4">
@@ -296,15 +303,15 @@ function PublicFormPage() {
         </div>
 
         {/* Progress */}
-        {requiredFields.length > 0 && (
+        {progress.required > 0 && (
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>
-                {completed} of {requiredFields.length} required fields completed
+                {progress.completed} of {progress.required} required fields completed
               </span>
-              <span>{progressPct}%</span>
+              <span>{progress.percent}%</span>
             </div>
-            <Progress value={progressPct} className="h-1.5" />
+            <Progress value={progress.percent} className="h-1.5" />
           </div>
         )}
 

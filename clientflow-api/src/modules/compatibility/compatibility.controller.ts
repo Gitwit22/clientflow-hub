@@ -35,6 +35,8 @@ import { resolvePublicFormLink } from '../forms/public-form-link';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
+import { answerFields, labelledAnswers } from '../forms/answer-list';
+import { isLegacyContract } from '../contracts/legacy-contract';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { applyFinalReportDecision } from '../lifecycle/final-report';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
@@ -487,7 +489,7 @@ export class ClientflowCompatibilityController {
     });
     const clientIds = enrollments.map((enrollment) => enrollment.clientId);
     const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
-    const [clients, formAssignments, formTemplates, terms, contracts, monitoring, statusHistory] = await Promise.all([
+    const [clients, formAssignments, formTemplates, terms, contracts, monitoring, statusHistory, intakeLinks] = await Promise.all([
       prisma.cfClient.findMany({
         where: { organizationId: orgId, id: { in: clientIds }, isArchived: false },
         select: { id: true, businessName: true, primaryContactName: true, email: true, phone: true },
@@ -499,7 +501,7 @@ export class ClientflowCompatibilityController {
       }),
       prisma.cfFormTemplate.findMany({
         where: { organizationId: orgId },
-        select: { id: true, name: true },
+        select: { id: true, name: true, fields: true },
       }),
       prisma.cfTerms.findMany({
         where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
@@ -517,7 +519,50 @@ export class ClientflowCompatibilityController {
         where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
         orderBy: { createdAt: 'desc' },
       }),
+      prisma.cfIntakeSubmissionProgram.findMany({
+        where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
+      }),
     ]);
+    // The intake answers each participant gave when they applied: the shared (core) questions and
+    // this program's questions, labelled from the form exactly as it was shown to them.
+    const intakeSubmissionIds = [...new Set(intakeLinks.map((link) => link.intakeSubmissionId))];
+    const [intakeSubmissions, intakeSnapshots] = intakeSubmissionIds.length
+      ? await Promise.all([
+        prisma.cfIntakeSubmission.findMany({
+          where: { organizationId: orgId, id: { in: intakeSubmissionIds } },
+          select: { id: true, responsePayload: true, submittedAt: true },
+        }),
+        prisma.cfIntakeSubmissionSnapshot.findMany({
+          where: { organizationId: orgId, intakeSubmissionId: { in: intakeSubmissionIds } },
+          select: { intakeSubmissionId: true, renderedSections: true },
+        }),
+      ])
+      : [[], []];
+    const intakeFor = (enrollmentId: string) => {
+      const link = intakeLinks.find((item) => item.enrollmentId === enrollmentId);
+      const submission = link && intakeSubmissions.find((item) => item.id === link.intakeSubmissionId);
+      if (!link || !submission) return { coreIntake: [], programIntake: [] };
+      const snapshot = intakeSnapshots.find((item) => item.intakeSubmissionId === submission.id);
+      const sections = Array.isArray(snapshot?.renderedSections)
+        ? (snapshot.renderedSections as Array<Record<string, unknown> | null>)
+        : [];
+      const core = sections.find((section) => section?.kind === 'core');
+      const own = sections.find((section) => section?.kind === 'program' && section.programId === id);
+      return {
+        coreIntake: [{
+          id: `${submission.id}:core`,
+          title: typeof core?.title === 'string' && core.title ? core.title : 'Intake',
+          submittedAt: submission.submittedAt,
+          answers: labelledAnswers(answerFields(core?.fields), submission.responsePayload),
+        }],
+        programIntake: [{
+          id: `${submission.id}:${id}`,
+          title: typeof own?.title === 'string' && own.title ? own.title : program.name,
+          submittedAt: submission.submittedAt,
+          answers: labelledAnswers(answerFields(own?.fields), link.responsePayload),
+        }],
+      };
+    };
     const participants = enrollments.flatMap((enrollment) => {
       const client = clients.find((item) => item.id === enrollment.clientId);
       if (!client) return [];
@@ -525,8 +570,7 @@ export class ClientflowCompatibilityController {
       return [{
         client,
         enrollment,
-        coreIntake: [],
-        programIntake: [],
+        ...intakeFor(enrollment.id),
         forms: enrollmentForms.map((item) => {
           const template = formTemplates.find((t) => t.id === item.formId);
           return {
@@ -539,7 +583,7 @@ export class ClientflowCompatibilityController {
             sentAt: item.sentAt,
             openedAt: item.openedAt,
             submittedAt: item.submittedAt,
-            answers: Array.isArray(item.responses) ? item.responses : [],
+            answers: labelledAnswers(answerFields(template?.fields), item.responses),
           };
         }),
         terms: terms.filter((item) => item.enrollmentId === enrollment.id),
@@ -1309,11 +1353,12 @@ export class ClientflowCompatibilityController {
     @Query('offset') offset?: string,
   ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.findMany({
+    const contracts = await this.requirePrisma().cfContract.findMany({
       where: { organizationId: orgId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       ...listPage(limit, offset),
     });
+    return contracts.map((contract) => ({ ...contract, legacy: isLegacyContract(contract) }));
   }
   @Get('documents') async listAllDocuments(
     @Req() request: Request,
@@ -1452,7 +1497,8 @@ export class ClientflowCompatibilityController {
   }
   @Get('clients/:clientId/contracts') async listContracts(@Req() request: Request, @Param('clientId') clientId: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+    const contracts = await this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+    return contracts.map((contract) => ({ ...contract, legacy: isLegacyContract(contract) }));
   }
   @Get('clients/:clientId/contracts/:contractId/download') async downloadExecutedContract(
     @Req() request: Request,

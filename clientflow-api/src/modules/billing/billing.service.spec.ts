@@ -367,7 +367,7 @@ describe('BillingService', () => {
     it('excludes voided payments from collected/outstanding, and only counts payments already due as applied', async () => {
       const { prisma, payments } = createFakePrisma();
       const service = new BillingService(prisma);
-      await service.replaceAgreement({
+      const agreement = await service.replaceAgreement({
         organizationId: 'org-1',
         enrollmentId: 'enroll-1',
         amount: 250,
@@ -383,6 +383,7 @@ describe('BillingService', () => {
         id: 'payment-sept',
         organizationId: 'org-1',
         enrollmentId: 'enroll-1',
+        billingAgreementId: agreement.id,
         amount: 250,
         billingPeriodStart: new Date('2026-09-01T04:00:00.000Z'),
         billingPeriodEnd: new Date('2026-09-30T03:59:59.999Z'),
@@ -393,6 +394,7 @@ describe('BillingService', () => {
         id: 'payment-oct-early',
         organizationId: 'org-1',
         enrollmentId: 'enroll-1',
+        billingAgreementId: agreement.id,
         amount: 250,
         billingPeriodStart: new Date('2026-10-01T04:00:00.000Z'),
         billingPeriodEnd: new Date('2026-10-31T03:59:59.999Z'),
@@ -403,6 +405,7 @@ describe('BillingService', () => {
         id: 'payment-voided',
         organizationId: 'org-1',
         enrollmentId: 'enroll-1',
+        billingAgreementId: agreement.id,
         amount: 999,
         billingPeriodStart: new Date('2026-09-01T04:00:00.000Z'),
         billingPeriodEnd: new Date('2026-09-30T03:59:59.999Z'),

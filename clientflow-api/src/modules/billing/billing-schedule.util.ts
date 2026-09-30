@@ -25,6 +25,21 @@ function fromOrgWallClock(wallClock: Date, timezone: string): Date {
   return fromZonedTime(wallClock, timezone);
 }
 
+/**
+ * A date typed by staff ("2026-10-03") means that calendar day where the organization is, not UTC
+ * midnight (which is the previous evening in US timezones). Full timestamps are taken as given.
+ */
+export function parseOrgDate(value: string, timezone: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return fromZonedTime(`${value}T00:00:00`, timezone);
+  return new Date(value);
+}
+
+/** Like parseOrgDate, but a bare date means the end of that day ("paid through Aug 31" includes the 31st). */
+export function parseOrgDateEnd(value: string, timezone: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(parseOrgDate(value, timezone).getTime() + 86_400_000 - 1);
+  return new Date(value);
+}
+
 function applyDueDay(wallClock: Date, dueDay: number | null | undefined): Date {
   if (!dueDay) return wallClock;
   const clamped = Math.min(Math.max(Math.trunc(dueDay), 1), getDaysInMonth(wallClock));

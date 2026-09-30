@@ -181,6 +181,46 @@ describe('BillingDashboardService', () => {
   });
 });
 
+describe('BillingDashboardService: outstanding', () => {
+  it("settles outstanding per agreement: one client's prepayment can't hide another client's debt", async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-15T12:00:00.000Z'));
+    const enrollments = [
+      { id: 'enroll-a', clientId: 'client-a', programId: 'program-1', status: 'active', isArchived: false, startDate: null },
+      { id: 'enroll-b', clientId: 'client-b', programId: 'program-1', status: 'active', isArchived: false, startDate: null },
+    ];
+    const start = new Date('2026-09-01T04:00:00.000Z');
+    const agreementA = agreement({ id: 'agr-a', enrollmentId: 'enroll-a', amount: 100, frequency: 'monthly', startDate: start });
+    const agreementB = agreement({ id: 'agr-b', enrollmentId: 'enroll-b', amount: 100, frequency: 'monthly', startDate: start });
+    // A paid September three times over (a mistake or a prepayment); B paid nothing.
+    const payments = [
+      payment({
+        enrollmentId: 'enroll-a',
+        billingAgreementId: 'agr-a',
+        amount: 300,
+        paymentDate: new Date('2026-09-02T12:00:00.000Z'),
+        billingPeriodStart: new Date('2026-09-01T04:00:00.000Z'),
+        billingPeriodEnd: new Date('2026-09-30T03:59:59.999Z'),
+      }),
+    ];
+    const prisma = createFakePrisma({
+      agreements: [agreementA, agreementB],
+      payments,
+      enrollments,
+      programs: [{ id: 'program-1', name: 'Program', organizationId: 'org-1' }],
+      clients: [
+        { id: 'client-a', businessName: 'A', isArchived: false },
+        { id: 'client-b', businessName: 'B', isArchived: false },
+      ],
+    });
+
+    const dashboard = await new BillingDashboardService(prisma).getOrgDashboard('org-1', TZ, 'month');
+    jest.useRealTimers();
+
+    // B still owes September's $100 (the old netting reported $0 outstanding).
+    expect(dashboard.revenue.outstanding).toBe(100);
+  });
+});
+
 describe('BillingDashboardService: revenue for reports', () => {
   it('totals received payments per program and counts paying clients', async () => {
     const inPeriod = new Date();

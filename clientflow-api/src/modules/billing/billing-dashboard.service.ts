@@ -101,7 +101,7 @@ export class BillingDashboardService {
     const received = paymentsInPeriod.reduce((sum, payment) => sum + Number(payment.amount), 0);
 
     let expected = 0;
-    let obligationsThroughPeriodEnd = 0;
+    let outstanding = 0;
     let activeRecurringRevenue = 0;
     const expectedPayments: OrgDashboard['expectedPayments'] = [];
 
@@ -116,8 +116,14 @@ export class BillingDashboardService {
         .filter((due) => due >= periodStart && due <= periodEnd);
       expected += occurrencesInPeriod.length * Number(agreement.amount);
 
+      // Outstanding is settled per agreement and never below zero: one client's prepayment (or a
+      // payment on an archived enrollment) can't hide what another client still owes.
       const occurrencesToDate = computeOccurrences(schedule, agreement.startDate, agreementBound);
-      obligationsThroughPeriodEnd += occurrencesToDate.length * Number(agreement.amount);
+      const owed = occurrencesToDate.length * Number(agreement.amount);
+      const settled = payments
+        .filter((payment) => payment.billingAgreementId === agreement.id && payment.billingPeriodStart <= periodEnd)
+        .reduce((sum, payment) => sum + Number(payment.amount), 0);
+      outstanding += Math.max(0, owed - settled);
 
       if (agreement.status === 'active') {
         activeRecurringRevenue += normalizeToMonthlyEquivalent(Number(agreement.amount), agreement.frequency, agreement.customIntervalDays);
@@ -154,12 +160,6 @@ export class BillingDashboardService {
       }
     }
 
-    // Applied = payments whose obligation is already due — mirrors the per-enrollment definition,
-    // so a payment made early against a future period doesn't distort this period's outstanding.
-    const appliedThroughPeriodEnd = payments
-      .filter((payment) => payment.billingPeriodStart <= periodEnd)
-      .reduce((sum, payment) => sum + Number(payment.amount), 0);
-    const outstanding = Math.max(0, obligationsThroughPeriodEnd - appliedThroughPeriodEnd);
 
     const agreedEnrollmentIds = new Set(agreements.map((agreement) => agreement.enrollmentId));
     const needsBillingSetup: OrgDashboard['needsBillingSetup'] = [];

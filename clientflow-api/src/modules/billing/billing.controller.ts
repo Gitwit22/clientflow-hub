@@ -7,7 +7,7 @@ import {
 } from '../../common/guards/clientflow-auth.guard';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { BillingDashboardService } from './billing-dashboard.service';
-import type { CalendarPeriodKind } from './billing-schedule.util';
+import { parseOrgDate, parseOrgDateEnd, type CalendarPeriodKind } from './billing-schedule.util';
 import { BillingService } from './billing.service';
 import { BackfillSelectionDto } from './dto/backfill-selection.dto';
 import { RecordPaymentDto } from './dto/record-payment.dto';
@@ -22,9 +22,9 @@ function actorFrom(request: AuthenticatedRequest) {
   };
 }
 
-function toSelection(dto: BackfillSelectionDto) {
+function toSelection(dto: BackfillSelectionDto, timezone: string) {
   return {
-    paidThroughDate: dto.paidThroughDate ? new Date(dto.paidThroughDate) : undefined,
+    paidThroughDate: dto.paidThroughDate ? parseOrgDateEnd(dto.paidThroughDate, timezone) : undefined,
     periods: dto.periods?.map((period) => ({ start: new Date(period.start), end: new Date(period.end) })),
   };
 }
@@ -86,7 +86,7 @@ export class EnrollmentBillingController {
       organizationId,
       enrollmentId,
       timezone,
-      throughDate ? new Date(throughDate) : undefined,
+      throughDate ? parseOrgDateEnd(throughDate, timezone) : undefined,
     );
   }
 
@@ -106,7 +106,7 @@ export class EnrollmentBillingController {
       amount: dto.amount,
       frequency: dto.frequency,
       customIntervalDays: dto.customIntervalDays ?? null,
-      startDate: new Date(dto.startDate),
+      startDate: parseOrgDate(dto.startDate, timezone),
       defaultDueDay: dto.defaultDueDay ?? null,
       timezone,
       ...actorFrom(request),
@@ -128,10 +128,10 @@ export class EnrollmentBillingController {
       organizationId,
       enrollmentId,
       amount: dto.amount,
-      paymentDate: new Date(dto.paymentDate),
+      paymentDate: parseOrgDate(dto.paymentDate, timezone),
       paymentMethod: dto.paymentMethod,
-      billingPeriodStart: new Date(dto.billingPeriodStart),
-      billingPeriodEnd: new Date(dto.billingPeriodEnd),
+      billingPeriodStart: parseOrgDate(dto.billingPeriodStart, timezone),
+      billingPeriodEnd: parseOrgDate(dto.billingPeriodEnd, timezone),
       note: dto.note ?? null,
       timezone,
       idempotencyKey: parseIdempotencyKey(idempotencyKey),
@@ -149,7 +149,7 @@ export class EnrollmentBillingController {
     const organizationId = request.adminUser!.organizationId;
     await this.billing.requireEnrollmentForClient(organizationId, clientId, enrollmentId);
     const timezone = await this.billing.resolveOrgTimezone(organizationId);
-    return this.billing.previewBackfill(organizationId, enrollmentId, timezone, toSelection(dto));
+    return this.billing.previewBackfill(organizationId, enrollmentId, timezone, toSelection(dto, timezone));
   }
 
   @Post('backfill/confirm')
@@ -167,7 +167,7 @@ export class EnrollmentBillingController {
       organizationId,
       enrollmentId,
       timezone,
-      toSelection(dto),
+      toSelection(dto, timezone),
       actor.actorUserId,
       actor.actorDisplayName,
     );

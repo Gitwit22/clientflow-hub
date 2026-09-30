@@ -378,6 +378,7 @@ describe('compatibility route scaffold', () => {
         cfContract: { findMany: jest.fn().mockResolvedValue([]) },
         cfEnrollmentMonitoring: { findMany: jest.fn().mockResolvedValue([]) },
         cfEnrollmentStatusHistory: { findMany: jest.fn().mockResolvedValue([]) },
+        cfIntakeSubmissionProgram: { findMany: jest.fn().mockResolvedValue([]) },
         cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(null) },
         cfProgramContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
         cfProgramWelcomeEmailTemplate: { findMany: jest.fn().mockResolvedValue([]) },
@@ -393,6 +394,63 @@ describe('compatibility route scaffold', () => {
         sendWelcomeAfterContractSigned: false,
       }));
       expect(result.participants).toEqual([]);
+    });
+
+    it("shows each participant's intake and form answers, labelled from the form", async () => {
+      const program = { id: 'program-1', organizationId: 'org-1', name: 'Grant' };
+      const enrollment = { id: 'enroll-1', clientId: 'client-1', programId: 'program-1', status: 'active' };
+      const submittedAt = new Date('2030-01-02T00:00:00.000Z');
+      const prisma = {
+        cfProgram: { findFirst: jest.fn().mockResolvedValue(program) },
+        cfProgramEnrollment: { findMany: jest.fn().mockResolvedValue([enrollment]) },
+        cfClient: { findMany: jest.fn().mockResolvedValue([{ id: 'client-1', businessName: 'Acme' }]) },
+        cfFormAssignment: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 'fa-1', formId: 'form-1', enrollmentId: 'enroll-1', status: 'submitted', responses: { goal: 'Grow' } },
+          ]),
+        },
+        cfFormTemplate: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 'form-1', name: 'Check-in', fields: [{ id: 'goal', label: 'Main goal', type: 'text' }] },
+          ]),
+        },
+        cfTerms: { findMany: jest.fn().mockResolvedValue([]) },
+        cfContract: { findMany: jest.fn().mockResolvedValue([]) },
+        cfEnrollmentMonitoring: { findMany: jest.fn().mockResolvedValue([]) },
+        cfEnrollmentStatusHistory: { findMany: jest.fn().mockResolvedValue([]) },
+        cfIntakeSubmissionProgram: {
+          findMany: jest.fn().mockResolvedValue([
+            { intakeSubmissionId: 'sub-1', enrollmentId: 'enroll-1', programId: 'program-1', responsePayload: { revenue: 5000 } },
+          ]),
+        },
+        cfIntakeSubmission: {
+          findMany: jest.fn().mockResolvedValue([{ id: 'sub-1', responsePayload: { name: 'Pat' }, submittedAt }]),
+        },
+        cfIntakeSubmissionSnapshot: {
+          findMany: jest.fn().mockResolvedValue([{
+            intakeSubmissionId: 'sub-1',
+            renderedSections: [
+              { kind: 'core', title: 'About you', fields: [{ id: 'name', label: 'Your name', type: 'text' }] },
+              { kind: 'program', programId: 'program-1', title: 'Grant questions', fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }] },
+            ],
+          }]),
+        },
+        cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(null) },
+        cfProgramContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+        cfProgramWelcomeEmailTemplate: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1' });
+
+      const [participant] = (await controller.getProgramDetail({} as never, 'program-1')).participants;
+
+      expect(participant.coreIntake).toEqual([expect.objectContaining({
+        title: 'About you', submittedAt, answers: [{ fieldId: 'name', label: 'Your name', type: 'text', value: 'Pat' }],
+      })]);
+      expect(participant.programIntake).toEqual([expect.objectContaining({
+        title: 'Grant questions', answers: [{ fieldId: 'revenue', label: 'Revenue', type: 'number', value: 5000 }],
+      })]);
+      expect(participant.forms[0].answers).toEqual([{ fieldId: 'goal', label: 'Main goal', type: 'text', value: 'Grow' }]);
     });
 
     it('rejects a nonexistent program before querying workflow configuration', async () => {

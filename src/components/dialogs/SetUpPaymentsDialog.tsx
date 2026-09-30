@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { localToday } from "@/lib/dates";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -57,7 +58,7 @@ export function SetUpPaymentsDialog({
   const [amount, setAmount] = useState("0");
   const [frequency, setFrequency] = useState<BillingFrequency>("monthly");
   const [customIntervalDays, setCustomIntervalDays] = useState("");
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(localToday());
   const [defaultDueDay, setDefaultDueDay] = useState("1");
   const [initialPaymentStatus, setInitialPaymentStatus] = useState<InitialPaymentStatus>("unpaid");
   const [saving, setSaving] = useState(false);
@@ -80,7 +81,7 @@ export function SetUpPaymentsDialog({
       setCustomIntervalDays(
         programConfig?.customIntervalDays ? String(programConfig.customIntervalDays) : "",
       );
-      setStartDate(new Date().toISOString().slice(0, 10));
+      setStartDate(localToday());
       setDefaultDueDay(programConfig?.defaultDueDay ? String(programConfig.defaultDueDay) : "1");
       setInitialPaymentStatus("unpaid");
     }
@@ -95,7 +96,7 @@ export function SetUpPaymentsDialog({
         amount: Number(amount || 0),
         frequency,
         customIntervalDays: customIntervalDays ? Number(customIntervalDays) : undefined,
-        startDate: new Date(startDate).toISOString(),
+        startDate, // a calendar day; the server reads it in the organization's timezone
         defaultDueDay: defaultDueDay ? Number(defaultDueDay) : undefined,
       });
       toast.success(isReplace ? "Billing agreement updated." : "Billing agreement created.");

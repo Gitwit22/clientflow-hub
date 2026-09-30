@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
 import { lifecycleBucket } from "@/lib/client-lifecycle";
+import { clientProgramNames, hasOpenEnrollment } from "@/lib/enrollment-status";
 import { useAppState } from "@/lib/store";
 
 export const Route = createFileRoute("/")({
@@ -58,7 +59,10 @@ function Dashboard() {
     { onboarding: 0, active: 0, archived: 0 },
   );
 
-  const missingProgramClients = clients.filter((c) => !c.isArchived && !c.programId);
+  // "Needs a program" means no open enrollment, whatever the legacy client.programId says.
+  const missingProgramClients = clients.filter(
+    (c) => !c.isArchived && !hasOpenEnrollment(c.id, enrollments),
+  );
   const draftContractClientIds = new Set(
     contracts
       .filter((contract) => contract.status === "DRAFT")
@@ -87,8 +91,8 @@ function Dashboard() {
     .sort((a, b) => (a.nextFollowUpDate! < b.nextFollowUpDate! ? -1 : 1))
     .slice(0, 5);
 
-  const programName = (id: string | null) =>
-    programs.find((p) => p.id === id)?.name ?? "Unassigned";
+  const programLabel = (clientId: string) =>
+    clientProgramNames(clientId, enrollments, programs).join(", ") || "Unassigned";
 
   return (
     <div className="space-y-7">
@@ -174,7 +178,7 @@ function Dashboard() {
                         {c.businessName}
                       </span>
                       <span className="font-mono text-[10.5px] text-muted-foreground">
-                        {programName(c.programId)}
+                        {programLabel(c.id)}
                       </span>
                     </Link>
                   ))}
@@ -249,7 +253,7 @@ function Dashboard() {
                   <p className="text-[13.5px] font-semibold text-foreground transition-colors group-hover:text-primary">
                     {c.businessName}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{programName(c.programId)}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{programLabel(c.id)}</p>
                 </div>
                 <p className="whitespace-nowrap pt-0.5 font-mono text-[11px] text-primary">
                   {new Date(c.nextFollowUpDate!).toLocaleDateString("en-US", {

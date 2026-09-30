@@ -59,6 +59,27 @@ describe("sendAvailability", () => {
 });
 
 describe("currentContract / contractSendState", () => {
+  it("ignores old placeholder drafts, but not a legacy contract that was signed", () => {
+    const list = [
+      contract({
+        id: "legacy-draft",
+        enrollmentId: "e1",
+        legacy: true,
+        createdAt: "2030-01-03T00:00:00.000Z",
+      }),
+      contract({ id: "real", enrollmentId: "e1", createdAt: "2030-01-01T00:00:00.000Z" }),
+    ];
+    expect(currentContract(list, "e1")?.id).toBe("real");
+    const signed = contract({
+      id: "legacy-signed",
+      enrollmentId: "e1",
+      legacy: true,
+      status: "COMPLETED",
+      createdAt: "2030-01-04T00:00:00.000Z",
+    });
+    expect(currentContract([...list, signed], "e1")?.id).toBe("legacy-signed");
+  });
+
   it("picks the newest contract for the enrollment, ignoring other enrollments' contracts", () => {
     const list = [
       contract({ id: "old", createdAt: "2026-01-01T00:00:00.000Z" }),

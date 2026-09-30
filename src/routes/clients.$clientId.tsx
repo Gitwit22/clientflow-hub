@@ -85,6 +85,7 @@ import {
   type IntakeSubmission,
   type ProgramBillingConfig,
 } from "@/types";
+import { formatMoney } from "@/lib/money";
 
 const MONITORING_TYPES = [
   "Payment check",
@@ -438,8 +439,9 @@ function ClientProfile() {
   const selectedProgramAssignments = selectedEnrollment
     ? assignments.filter(
         (assignment) =>
-          assignment.enrollmentId ||
-          templateProgramId(assignment.formId) === selectedEnrollment.programId,
+          assignment.enrollmentId === selectedEnrollment.id ||
+          (!assignment.enrollmentId &&
+            templateProgramId(assignment.formId) === selectedEnrollment.programId),
       )
     : [];
   const selectedProgramMonitoring = selectedEnrollment ? monitoring : [];
@@ -741,7 +743,7 @@ function ClientProfile() {
                         className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
                       >
                         <span className="font-medium">
-                          {t.supportType} · ${t.fundingAmount.toLocaleString()}
+                          {t.supportType} · {formatMoney(t.fundingAmount)}
                         </span>
                         <StatusBadge status={t.approvalStatus} />
                       </div>
@@ -991,7 +993,7 @@ function ClientProfile() {
                       <div>
                         <p className="font-display text-lg font-semibold">{selectedProgram.name}</p>
                         <p className="text-muted-foreground">
-                          ${billingSummary.agreement.amount.toLocaleString()} /{" "}
+                          {formatMoney(billingSummary.agreement.amount)} /{" "}
                           {billingSummary.agreement.frequency.replace("_", "-")}
                         </p>
                         <p className="text-xs text-muted-foreground">
@@ -1002,19 +1004,19 @@ function ClientProfile() {
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
                           <p className="font-display text-xl font-semibold">
-                            ${billingSummary.collected.toLocaleString()}
+                            {formatMoney(billingSummary.collected)}
                           </p>
                           <p className="text-xs text-muted-foreground">Collected</p>
                         </div>
                         <div>
                           <p className="font-display text-xl font-semibold">
-                            ${billingSummary.expected.toLocaleString()}
+                            {formatMoney(billingSummary.expected)}
                           </p>
                           <p className="text-xs text-muted-foreground">Expected</p>
                         </div>
                         <div>
                           <p className="font-display text-xl font-semibold">
-                            ${billingSummary.outstanding.toLocaleString()}
+                            {formatMoney(billingSummary.outstanding)}
                           </p>
                           <p className="text-xs text-muted-foreground">Outstanding</p>
                         </div>
@@ -1583,23 +1585,32 @@ function ClientProfile() {
             <Card key={c.id} className="shadow-card">
               <CardContent className="space-y-3 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="font-medium">{c.contractType}</p>
+                  <div>
+                    <p className="font-medium">{c.contractType}</p>
+                    {c.legacy && (
+                      <p className="text-xs text-muted-foreground">
+                        Old draft from before program contract templates. It can't be sent; use Send
+                        contract above to create one from the program template.
+                      </p>
+                    )}
+                  </div>
                   <StatusBadge status={c.status} />
                 </div>
                 <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-4 font-sans text-xs whitespace-pre-wrap text-muted-foreground">
                   {c.generatedContent}
                 </pre>
                 <div className="flex flex-wrap gap-2">
-                  {(c.status === "DRAFT" || c.status === "SENT" || c.status === "OPENED") && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openSend("contract")}
-                    >
-                      {c.status === "DRAFT" ? "Send" : "Resend signing link"}
-                    </Button>
-                  )}
+                  {!c.legacy &&
+                    (c.status === "DRAFT" || c.status === "SENT" || c.status === "OPENED") && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openSend("contract")}
+                      >
+                        {c.status === "DRAFT" ? "Send" : "Resend signing link"}
+                      </Button>
+                    )}
                   {c.status === "COMPLETED" && (
                     <Button
                       type="button"
@@ -1721,7 +1732,7 @@ function ClientProfile() {
                     endDate: new Date().toISOString(),
                     originalNeed: report.originalNeed || client.intake?.assistanceRequested,
                     supportProvided: selectedProgram?.name ?? "",
-                    fundingProvided: terms[0] ? `$${terms[0].fundingAmount.toLocaleString()}` : "—",
+                    fundingProvided: terms[0] ? formatMoney(terms[0].fundingAmount) : "—",
                     milestonesCompleted: terms[0]?.milestones ?? "—",
                     resultsAchieved: report.resultsAchieved,
                     issuesEncountered: report.issuesEncountered || "None recorded",

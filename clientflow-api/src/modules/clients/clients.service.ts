@@ -32,6 +32,7 @@ import {
   hashPublicToken,
 } from '../forms/intake-lifecycle';
 import { CreateClientDto } from './dto/create-client.dto';
+import { NOT_UNSIGNED_LEGACY_CONTRACT } from '../contracts/legacy-contract';
 
 type DeferredEmailDelivery = { status: 'deferred' };
 
@@ -275,13 +276,9 @@ export class ClientsService {
     const client = await findClientForOrg(this.prisma, organizationId, id);
 
     const [program, contract, monitoringTask, executedDocument] = await Promise.all([
-      client.programId
-        ? this.prisma.cfProgram.findFirst({
-            where: { id: client.programId, organizationId: client.organizationId },
-          })
-        : Promise.resolve(null),
+      this.currentProgram(client.organizationId, client.id),
       this.prisma.cfContract.findFirst({
-        where: { clientId: client.id, organizationId: client.organizationId },
+        where: { clientId: client.id, organizationId: client.organizationId, ...NOT_UNSIGNED_LEGACY_CONTRACT },
         orderBy: { createdAt: 'desc' },
       }),
       this.latestMonitoring(client.organizationId, client.id),
@@ -319,6 +316,22 @@ export class ClientsService {
           }
         : null,
     };
+  }
+
+  /** The program of the client's most recent open enrollment (never the legacy client.programId). */
+  private async currentProgram(organizationId: string, clientId: string) {
+    const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
+      where: {
+        organizationId,
+        clientId,
+        isArchived: false,
+        status: { notIn: ['completed', 'declined', 'withdrawn'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { programId: true },
+    });
+    if (!enrollment) return null;
+    return this.prisma.cfProgram.findFirst({ where: { id: enrollment.programId, organizationId } });
   }
 
   /**
