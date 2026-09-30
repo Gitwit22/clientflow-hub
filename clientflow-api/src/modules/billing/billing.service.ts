@@ -104,7 +104,7 @@ export class BillingService {
       organization?.settings && typeof organization.settings === 'object'
         ? (organization.settings as Record<string, unknown>)
         : {};
-    return typeof settings.timezone === 'string' ? settings.timezone : 'UTC';
+    return typeof settings.timezone === 'string' && isValidTimezone(settings.timezone) ? settings.timezone : 'UTC';
   }
 
   async requireEnrollmentForClient(organizationId: string, clientId: string, enrollmentId: string) {
@@ -466,5 +466,15 @@ export class BillingService {
       });
       return { created, totalAmount: preview.totalAmount };
     });
+  }
+}
+
+/** A setting like "Eastern" isn't an IANA zone; every billing date calculation would throw on it. */
+function isValidTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
   }
 }

@@ -1,4 +1,4 @@
-import { ArgumentsHost, NotImplementedException } from '@nestjs/common';
+import { ArgumentsHost, Logger, NotFoundException, NotImplementedException } from '@nestjs/common';
 import { ApiExceptionFilter } from './api-exception.filter';
 
 describe('ApiExceptionFilter', () => {
@@ -23,5 +23,30 @@ describe('ApiExceptionFilter', () => {
         requestId: 'request-1',
       },
     });
+  });
+
+  const hostFor = (json: jest.Mock) => ({
+    switchToHttp: () => ({
+      getRequest: () => ({ requestId: 'request-2', method: 'GET', originalUrl: '/api/v1/billing/dashboard?period=month' }),
+      getResponse: () => ({ status: jest.fn().mockReturnThis(), json }),
+    }),
+  }) as unknown as ArgumentsHost;
+
+  it('logs the real cause of a server error while the client gets the generic message', () => {
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const json = jest.fn();
+    new ApiExceptionFilter().catch(new RangeError('Invalid time zone specified: Eastern'), hostFor(json));
+
+    expect(json.mock.calls[0][0].error.message).toBe('An unexpected error occurred.');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('GET /api/v1/billing/dashboard?period=month requestId=request-2 status=500'));
+    expect(log.mock.calls[0][0]).toContain('Invalid time zone specified: Eastern');
+    log.mockRestore();
+  });
+
+  it('does not log expected client errors', () => {
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    new ApiExceptionFilter().catch(new NotFoundException('Client not found.'), hostFor(jest.fn()));
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 });
