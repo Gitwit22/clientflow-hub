@@ -987,9 +987,11 @@ export async function cfListAllFinalReports() {
   return listAllPages<FinalReport>(`${CF}/final-reports`);
 }
 
+/** Org-wide recent activity, or one client's complete history. */
 export async function cfListActivity(clientId?: string) {
-  const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
-  return apiRequest<ActivityLog[]>(`${CF}/activity${qs}`);
+  return apiRequest<ActivityLog[]>(
+    clientId ? `${CF}/clients/${encodeURIComponent(clientId)}/activity` : `${CF}/activity`,
+  );
 }
 export async function cfCreateActivity(data: {
   clientId: string;

@@ -31,6 +31,7 @@ import {
   cfCreateProgramWorkflowWelcomeVersion,
   cfCreateEnrollment,
   cfListEnrollments,
+  cfListActivity,
   cfTransitionEnrollment,
   cfUpdateEnrollment,
   cfCreateTerms,
@@ -98,10 +99,12 @@ export const getClientById = async (id: string) =>
   delay(getState().clients.find((c) => c.id === id) ?? null);
 
 export async function refreshClientProfile(clientId: string) {
-  const [client, assignments, enrollments] = await Promise.all([
+  const [client, assignments, enrollments, clientActivity] = await Promise.all([
     cfGetClient(clientId) as Promise<Client>,
     cfListFormAssignments(clientId) as Promise<FormAssignment[]>,
     cfListEnrollments({ clientId }),
+    // The startup list is the org's latest activity only; the profile loads this client's history.
+    cfListActivity(clientId).catch(() => null),
   ]);
   setState((state) => ({
     ...state,
@@ -123,6 +126,12 @@ export async function refreshClientProfile(clientId: string) {
           enrollment.clientId !== clientId && !enrollments.some(({ id }) => id === enrollment.id),
       ),
     ],
+    activity: clientActivity
+      ? [
+          ...state.activity.filter((entry) => entry.clientId !== clientId),
+          ...clientActivity,
+        ].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+      : state.activity,
   }));
   return client;
 }

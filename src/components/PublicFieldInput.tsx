@@ -37,6 +37,27 @@ export function isRequiredResponseComplete(
   return !isBlank(value);
 }
 
+/** Required fields answered, out of required fields shown (optional fields never count). */
+export function requiredProgress(
+  sections: readonly { fields: readonly PublicFormField[] }[],
+  valueOf: (sectionIndex: number, fieldId: string) => PublicFormResponseValue | undefined,
+): { completed: number; required: number; percent: number } {
+  let required = 0;
+  let completed = 0;
+  sections.forEach((section, sectionIndex) => {
+    for (const field of section.fields) {
+      if (!isPublicFieldRequired(field)) continue;
+      required += 1;
+      if (isRequiredResponseComplete(field, valueOf(sectionIndex, field.id))) completed += 1;
+    }
+  });
+  return {
+    completed,
+    required,
+    percent: required > 0 ? Math.round((completed / required) * 100) : 100,
+  };
+}
+
 const legacyFieldLabels: Record<string, string> = {
   name: "Name",
   primaryContactName: "Name",
