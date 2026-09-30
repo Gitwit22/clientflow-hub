@@ -290,6 +290,10 @@ export function FormRendererDialog({
       await saveFormDraft(assignment!.id, responses);
       toast.success("Draft saved");
       onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message ? error.message : "Unable to save this draft.",
+      );
     } finally {
       setSaving(false);
     }
@@ -307,6 +311,10 @@ export function FormRendererDialog({
       await submitFormResponse(assignment!.id, responses);
       toast.success("Form submitted");
       onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message ? error.message : "Unable to submit this form.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -319,6 +327,10 @@ export function FormRendererDialog({
       await changeAssignmentStatus(assignment!.id, nextStatus as FormAssignmentStatus);
       toast.success(`Status updated to ${nextStatus.replace(/_/g, " ")}`);
       onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message ? error.message : "Unable to change the status.",
+      );
     } finally {
       setChangingStatus(false);
     }
@@ -331,6 +343,10 @@ export function FormRendererDialog({
       toast.success("Changes saved");
       setEditing(false);
       onOpenChange(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message ? error.message : "Unable to save these changes.",
+      );
     } finally {
       setSavingEdits(false);
     }

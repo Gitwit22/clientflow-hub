@@ -87,6 +87,7 @@ import {
 } from "@/types";
 import { formatMoney } from "@/lib/money";
 import { nextStep } from "@/lib/next-step";
+import { useAsyncAction } from "@/hooks/use-async-action";
 
 const MONITORING_TYPES = [
   "Payment check",
@@ -249,6 +250,7 @@ function ClientProfile() {
   const [archiveFinalStatusInput, setArchiveFinalStatusInput] = useState("Archived");
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const action = useAsyncAction();
 
   // Monitoring dialog state
   const [monitoringOpen, setMonitoringOpen] = useState(false);
@@ -1231,12 +1233,15 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={async () => {
-                            await cancelFormAssignment(a.id);
-                            toast.success("Form cancelled");
-                          }}
+                          disabled={action.busy === `cancel:${a.id}`}
+                          onClick={() =>
+                            void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
+                              success: "Form cancelled",
+                              error: "Unable to cancel this form.",
+                            })
+                          }
                         >
-                          Cancel
+                          {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel"}
                         </Button>
                       </>
                     )}
@@ -1267,12 +1272,15 @@ function ClientProfile() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={async () => {
-                            await cancelFormAssignment(a.id);
-                            toast.success("Link cancelled");
-                          }}
+                          disabled={action.busy === `cancel:${a.id}`}
+                          onClick={() =>
+                            void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
+                              success: "Link cancelled",
+                              error: "Unable to cancel this form.",
+                            })
+                          }
                         >
-                          Cancel Link
+                          {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel Link"}
                         </Button>
                       </>
                     )}
@@ -1414,12 +1422,19 @@ function ClientProfile() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={async () => {
-                        await recordMonitoringResult(m.id, { complianceStatus: "compliant" });
-                        toast.success("Monitoring review recorded");
-                      }}
+                      disabled={action.busy === `monitor:${m.id}`}
+                      onClick={() =>
+                        void action.run(
+                          `monitor:${m.id}`,
+                          () => recordMonitoringResult(m.id, { complianceStatus: "compliant" }),
+                          {
+                            success: "Monitoring review recorded",
+                            error: "Unable to record this review.",
+                          },
+                        )
+                      }
                     >
-                      Record compliant
+                      {action.busy === `monitor:${m.id}` ? "Recording…" : "Record compliant"}
                     </Button>
                   </div>
                 </div>
@@ -1545,21 +1560,30 @@ function ClientProfile() {
                 }
               />
               <Button
+                disabled={action.busy === "communication"}
                 onClick={async () => {
                   if (!note.trim()) return;
                   const subject =
                     commType === "Note" ? "Staff note" : commSubject.trim() || commType;
-                  await addCommunication(client.id, {
-                    type: commType,
-                    direction: commType === "Note" ? "Internal" : commDirection,
-                    subject,
-                    notes: note,
-                    date: new Date().toISOString(),
-                    staffMember: client.assignedStaff,
-                  });
+                  const saved = await action.run(
+                    "communication",
+                    () =>
+                      addCommunication(client.id, {
+                        type: commType,
+                        direction: commType === "Note" ? "Internal" : commDirection,
+                        subject,
+                        notes: note,
+                        date: new Date().toISOString(),
+                        staffMember: client.assignedStaff,
+                      }),
+                    {
+                      success: `${commType} logged`,
+                      error: `Unable to log this ${commType.toLowerCase()}.`,
+                    },
+                  );
+                  if (!saved) return;
                   setNote("");
                   setCommSubject("");
-                  toast.success(`${commType} logged`);
                 }}
               >
                 Log {commType.toLowerCase()}
@@ -1743,28 +1767,33 @@ function ClientProfile() {
                 />
               </div>
               <Button
+                disabled={action.busy === "final-report"}
                 onClick={async () => {
-                  await createFinalReport(client.id, {
-                    programId: selectedEnrollment?.programId ?? "",
-                    enrollmentId: selectedEnrollment?.id ?? null,
-                    startDate: client.createdAt,
-                    endDate: new Date().toISOString(),
-                    originalNeed: report.originalNeed || client.intake?.assistanceRequested,
-                    supportProvided: selectedProgram?.name ?? "",
-                    fundingProvided: terms[0] ? formatMoney(terms[0].fundingAmount) : "—",
-                    milestonesCompleted: terms[0]?.milestones ?? "—",
-                    resultsAchieved: report.resultsAchieved,
-                    issuesEncountered: report.issuesEncountered || "None recorded",
-                    staffComments: report.staffComments,
-                    clientOutcome: report.clientOutcome,
-                    recommendedNextSteps:
-                      report.recommendedNextSteps || "Review for future programs",
-                    archiveDecision: report.archiveDecision,
-                  });
-                  toast.success("Final report saved");
+                  await action.run(
+                    "final-report",
+                    () =>
+                      createFinalReport(client.id, {
+                        programId: selectedEnrollment?.programId ?? "",
+                        enrollmentId: selectedEnrollment?.id ?? null,
+                        startDate: client.createdAt,
+                        endDate: new Date().toISOString(),
+                        originalNeed: report.originalNeed || client.intake?.assistanceRequested,
+                        supportProvided: selectedProgram?.name ?? "",
+                        fundingProvided: terms[0] ? formatMoney(terms[0].fundingAmount) : "—",
+                        milestonesCompleted: terms[0]?.milestones ?? "—",
+                        resultsAchieved: report.resultsAchieved,
+                        issuesEncountered: report.issuesEncountered || "None recorded",
+                        staffComments: report.staffComments,
+                        clientOutcome: report.clientOutcome,
+                        recommendedNextSteps:
+                          report.recommendedNextSteps || "Review for future programs",
+                        archiveDecision: report.archiveDecision,
+                      }),
+                    { success: "Final report saved", error: "Unable to save the final report." },
+                  );
                 }}
               >
-                Save final report
+                {action.busy === "final-report" ? "Saving…" : "Save final report"}
               </Button>
             </CardContent>
           </Card>
@@ -1961,15 +1990,22 @@ function ClientProfile() {
               Cancel
             </Button>
             <Button
+              disabled={action.busy === "monitoring-add"}
               onClick={async () => {
                 const enrollment = selectedEnrollment ?? enrollments[0];
                 if (!monitoringForm.dueDate || !enrollment) return;
-                await createEnrollmentMonitoring(enrollment.id, {
-                  name: monitoringForm.name,
-                  frequency: monitoringForm.frequency,
-                  nextReviewAt: new Date(monitoringForm.dueDate + "T00:00:00").toISOString(),
-                  notes: monitoringForm.notes,
-                });
+                const saved = await action.run(
+                  "monitoring-add",
+                  () =>
+                    createEnrollmentMonitoring(enrollment.id, {
+                      name: monitoringForm.name,
+                      frequency: monitoringForm.frequency,
+                      nextReviewAt: new Date(monitoringForm.dueDate + "T00:00:00").toISOString(),
+                      notes: monitoringForm.notes,
+                    }),
+                  { error: "Unable to add this monitoring item." },
+                );
+                if (!saved) return;
                 setMonitoringOpen(false);
                 setMonitoringForm({
                   name: "Follow-up meeting",
@@ -1980,7 +2016,7 @@ function ClientProfile() {
                 toast.success("Monitoring item added");
               }}
             >
-              Add item
+              {action.busy === "monitoring-add" ? "Adding…" : "Add item"}
             </Button>
           </DialogFooter>
         </DialogContent>

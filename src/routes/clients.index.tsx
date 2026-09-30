@@ -31,6 +31,7 @@ import { lifecycleBucket } from "@/lib/client-lifecycle";
 import { ClientProgramBadges } from "@/components/clients/ClientProgramBadges";
 import { memberOptionLabel, useOrganizationMembers } from "@/hooks/use-organization-members";
 import { type Client, type RelationshipType } from "@/types";
+import { useAsyncAction } from "@/hooks/use-async-action";
 
 const LIFECYCLE_TABS = [
   { value: "all", label: "All" },
@@ -70,6 +71,7 @@ function ClientsPage() {
     useAppState();
   const { members } = useOrganizationMembers();
   const [q, setQ] = useState("");
+  const action = useAsyncAction();
   const [program, setProgram] = useState("all");
   const [staff, setStaff] = useState("all");
   const [lifecycleView, setLifecycleView] =
@@ -279,12 +281,15 @@ function ClientsPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => {
-                        archiveClient(c.id);
-                        toast.success("Client archived");
-                      }}
+                      disabled={action.busy === c.id}
+                      onClick={() =>
+                        void action.run(c.id, () => archiveClient(c.id), {
+                          success: "Client archived",
+                          error: "Unable to archive this client.",
+                        })
+                      }
                     >
-                      Archive
+                      {action.busy === c.id ? "Archiving…" : "Archive"}
                     </Button>
                     {canDelete ? (
                       <Button
