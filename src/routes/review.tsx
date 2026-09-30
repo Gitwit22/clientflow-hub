@@ -15,8 +15,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -50,7 +55,8 @@ export const Route = createFileRoute("/review")({
 });
 
 function ReviewQueuePage() {
-  const { authenticatedAdmin } = useAppState();
+  const { authenticatedAdmin, programs } = useAppState();
+  const activePrograms = programs.filter((program) => program.isActive);
   const organizationId = authenticatedAdmin?.organizationId;
   const staffSignerName =
     [authenticatedAdmin?.firstName, authenticatedAdmin?.lastName].filter(Boolean).join(" ") ||
@@ -109,7 +115,7 @@ function ReviewQueuePage() {
   async function handleCorrectProgram(client: AutomatedClient) {
     const programId = programEdits[client.id]?.trim();
     if (!programId) {
-      toast.error("Enter the correct program ID first.");
+      toast.error("Choose the correct program first.");
       return;
     }
     setBusyClientId(client.id);
@@ -167,27 +173,29 @@ function ReviewQueuePage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Label htmlFor={`program-${client.id}`} className="sr-only">
-                        Program ID
-                      </Label>
-                      <Input
-                        id={`program-${client.id}`}
-                        placeholder="program_id"
-                        className="h-8 w-40"
+                      <Select
                         value={programEdits[client.id] ?? ""}
-                        onChange={(event) =>
-                          setProgramEdits((current) => ({
-                            ...current,
-                            [client.id]: event.target.value,
-                          }))
+                        onValueChange={(value) =>
+                          setProgramEdits((current) => ({ ...current, [client.id]: value }))
                         }
                         disabled={busyClientId === client.id}
-                      />
+                      >
+                        <SelectTrigger className="h-8 w-48" aria-label="Correct program">
+                          <SelectValue placeholder="Choose program" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activePrograms.map((program) => (
+                            <SelectItem key={program.id} value={program.id}>
+                              {program.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => handleCorrectProgram(client)}
-                        disabled={busyClientId === client.id}
+                        disabled={busyClientId === client.id || !programEdits[client.id]}
                       >
                         Apply
                       </Button>

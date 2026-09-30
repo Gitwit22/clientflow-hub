@@ -116,9 +116,17 @@ function ArchivePage() {
                     >
                       {action.busy === c.id ? "Restoring…" : "Restore"}
                     </Button>
-                    <Button size="sm" variant="ghost" disabled={!hasReport}>
-                      Download report
-                    </Button>
+                    {hasReport && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link
+                          to="/clients/$clientId"
+                          params={{ clientId: c.id }}
+                          search={{ tab: "final" }}
+                        >
+                          View report
+                        </Link>
+                      </Button>
+                    )}
                     {canDelete ? (
                       <Button
                         size="sm"

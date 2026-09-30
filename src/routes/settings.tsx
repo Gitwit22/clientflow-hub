@@ -37,6 +37,7 @@ import { useAppState, retryBootstrap } from "@/lib/store";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
+import { notifyMembersChanged } from "@/hooks/use-organization-members";
 import { LegacyDataCleanupCard } from "@/components/settings/LegacyDataCleanupCard";
 
 export const Route = createFileRoute("/settings")({
@@ -227,6 +228,7 @@ function SettingsPage() {
         ),
       );
       toast.success("Personal profile saved.");
+      notifyMembersChanged();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Failed to save personal profile.");
     } finally {
@@ -282,6 +284,7 @@ function SettingsPage() {
       await updateMemberRole(orgId, member.id, backendRole);
       setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, role: backendRole } : m)));
       toast.success(`${memberName(member)}'s role updated.`);
+      notifyMembersChanged();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Failed to update role.");
     } finally {
@@ -299,10 +302,12 @@ function SettingsPage() {
         await disableMember(orgId, member.id);
         setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, isActive: false } : m)));
         toast.success(`${memberName(member)} disabled.`);
+        notifyMembersChanged();
       } else {
         await enableMember(orgId, member.id);
         setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, isActive: true } : m)));
         toast.success(`${memberName(member)} enabled.`);
+        notifyMembersChanged();
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Failed to update member status.");
@@ -318,6 +323,7 @@ function SettingsPage() {
       const result = await revokeMemberInvite(orgId, member.id);
       setMembers((current) => current.filter((candidate) => candidate.id !== member.id));
       toast.success(result.message);
+      notifyMembersChanged();
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Failed to revoke invitation.");
     } finally {
@@ -845,7 +851,10 @@ function SettingsPage() {
           open={inviteOpen}
           onOpenChange={setInviteOpen}
           organizationId={orgId}
-          onSuccess={fetchMembers}
+          onSuccess={() => {
+            void fetchMembers();
+            notifyMembersChanged();
+          }}
         />
       )}
 
