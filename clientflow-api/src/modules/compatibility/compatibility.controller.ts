@@ -66,10 +66,13 @@ import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { Throttle } from '@nestjs/throttler';
 import { resolveAppUrl } from '../../config/env';
+import { assertSessionActive } from '../../common/guards/session-state';
 import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storage/upload-rules';
 
 /** Sign-in endpoints: 10 attempts a minute per visitor, so passwords and tokens can't be guessed. */
 export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
+/** How long a just-replaced refresh token still works (another tab refreshing at the same time). */
+const REFRESH_GRACE_MS = 60_000;
 const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
 
@@ -147,6 +150,18 @@ function setSessionCookies(response: Response, accessToken: string, refreshToken
   };
   response.cookie(ACCESS_COOKIE_NAME, accessToken, { ...cookies, maxAge: ACCESS_TTL_MS });
   response.cookie(REFRESH_COOKIE_NAME, refreshToken, { ...cookies, maxAge: REFRESH_TTL_MS });
+}
+
+/** Replaces only the access cookie (the refresh cookie another tab just set stays in place). */
+function setAccessCookie(response: Response, accessToken: string): void {
+  response.cookie(ACCESS_COOKIE_NAME, accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+    partitioned: process.env.NODE_ENV === 'production',
+    maxAge: ACCESS_TTL_MS,
+  });
 }
 
 function clearSessionCookies(response: Response): void {
@@ -276,6 +291,7 @@ export class ClientflowCompatibilityController {
       select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true },
     });
     if (!admin || !admin.isActive) throw new UnauthorizedException('Authenticated session is no longer active.');
+    await assertSessionActive(this.requirePrisma(), payload.jti);
     if (payload.organizationId && payload.organizationId !== admin.organizationId) {
       throw new UnauthorizedException('Authenticated organization is invalid.');
     }
@@ -2062,6 +2078,7 @@ export class AuthCompatibilityController {
       select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true, passwordHash: true },
     });
     if (!admin || !admin.isActive) throw new UnauthorizedException('Authenticated session is no longer active.');
+    await assertSessionActive(this.requirePrisma(), payload.jti);
     return { admin, payload };
   }
 
@@ -2095,21 +2112,46 @@ export class AuthCompatibilityController {
     return { admin: this.buildSessionData(admin) };
   }
 
+  /**
+   * Rotates the refresh token and issues a new access token. The session keeps its id; the token
+   * just replaced stays usable for REFRESH_GRACE_MS, so two tabs refreshing together both stay
+   * signed in (the late one gets a new access token and keeps the cookie the first one set).
+   */
   @Post('refresh') async refresh(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     const refreshToken = getCookieValue(request, REFRESH_COOKIE_NAME) ?? (request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : undefined);
     if (!refreshToken) throw new UnauthorizedException('Missing refresh session.');
     const [sessionId] = refreshToken.split('.', 2);
     if (!sessionId) throw new UnauthorizedException('Missing refresh session.');
-    const session = await this.requirePrisma().authSession.findFirst({
-      where: { id: sessionId, refreshTokenHash: hashRefreshToken(refreshToken), refreshExpiresAt: { gt: new Date() }, revokedAt: null, adminUser: { isActive: true } },
-      include: { adminUser: { select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true } } },
+    const prisma = this.requirePrisma();
+    const tokenHash = hashRefreshToken(refreshToken);
+    const now = new Date();
+    const session = await prisma.authSession.findFirst({
+      where: { id: sessionId, refreshExpiresAt: { gt: now }, revokedAt: null, adminUser: { isActive: true } },
+      include: { adminUser: { select: { id: true, email: true, role: true, organizationId: true } } },
     });
     if (!session) throw new UnauthorizedException('Refresh session is expired or revoked.');
-    const nextSessionId = randomUUID();
-    const nextJti = randomUUID();
-    const nextRefreshToken = `${nextSessionId}.${randomBytes(32).toString('base64url')}`;
-    await this.requirePrisma().authSession.update({ where: { id: sessionId }, data: { id: nextSessionId, jti: nextJti, refreshTokenHash: hashRefreshToken(nextRefreshToken), refreshRotatedAt: new Date(), refreshExpiresAt: new Date(Date.now() + REFRESH_TTL_MS), expiresAt: new Date(Date.now() + ACCESS_TTL_MS) } });
-    setSessionCookies(response, signSessionToken(session.adminUser.id, session.adminUser.email, [session.adminUser.role], session.adminUser.organizationId, nextSessionId, nextJti, 'access'), nextRefreshToken);
+    const accessFor = (jti: string) => signSessionToken(session.adminUser.id, session.adminUser.email, [session.adminUser.role], session.adminUser.organizationId, session.id, jti, 'access');
+
+    if (session.refreshTokenHash === tokenHash) {
+      const nextJti = randomUUID();
+      const nextRefreshToken = `${session.id}.${randomBytes(32).toString('base64url')}`;
+      // Conditional: if another request rotated this token first, fall through to the grace path.
+      const { count } = await prisma.authSession.updateMany({
+        where: { id: session.id, refreshTokenHash: tokenHash, revokedAt: null },
+        data: { jti: nextJti, refreshTokenHash: hashRefreshToken(nextRefreshToken), previousRefreshTokenHash: tokenHash, refreshRotatedAt: now, refreshExpiresAt: new Date(now.getTime() + REFRESH_TTL_MS), expiresAt: new Date(now.getTime() + ACCESS_TTL_MS) },
+      });
+      if (count === 1) {
+        setSessionCookies(response, accessFor(nextJti), nextRefreshToken);
+        return { valid: true };
+      }
+    }
+
+    const current = await prisma.authSession.findFirst({ where: { id: session.id, revokedAt: null } });
+    const withinGrace = current?.previousRefreshTokenHash === tokenHash
+      && !!current.refreshRotatedAt
+      && now.getTime() - current.refreshRotatedAt.getTime() <= REFRESH_GRACE_MS;
+    if (!current || !withinGrace) throw new UnauthorizedException('Refresh session is expired or revoked.');
+    setAccessCookie(response, accessFor(current.jti));
     return { valid: true };
   }
 
@@ -2118,7 +2160,8 @@ export class AuthCompatibilityController {
     if (refreshToken) {
       const [sessionId] = refreshToken.split('.', 2);
       if (sessionId) {
-        await this.requirePrisma().authSession.updateMany({ where: { id: sessionId, refreshTokenHash: hashRefreshToken(refreshToken), revokedAt: null }, data: { revokedAt: new Date() } });
+        const tokenHash = hashRefreshToken(refreshToken);
+        await this.requirePrisma().authSession.updateMany({ where: { id: sessionId, revokedAt: null, OR: [{ refreshTokenHash: tokenHash }, { previousRefreshTokenHash: tokenHash }] }, data: { revokedAt: new Date() } });
       }
     }
     clearSessionCookies(response);
@@ -2273,6 +2316,7 @@ export class OrganizationsCompatibilityController {
     const payload = getSessionTokenPayload(accessToken, 'access');
     const admin = await this.requirePrisma().adminUser.findUnique({ where: { id: payload.sub ?? '' }, select: { id: true, email: true, organizationId: true, role: true, isActive: true } });
     if (!admin || !admin.isActive || admin.organizationId !== orgId) throw new ForbiddenException('Access denied to this organization.');
+    await assertSessionActive(this.requirePrisma(), payload.jti);
     return admin;
   }
 

@@ -126,6 +126,8 @@ model AuthSession {
   jti                String    @unique
   expiresAt          DateTime
   refreshTokenHash   String?   @unique
+  /// The refresh token replaced by the last rotation; accepted briefly so concurrent tabs stay in.
+  previousRefreshTokenHash String?
   refreshExpiresAt   DateTime?
   refreshRotatedAt   DateTime?
   revokedAt          DateTime?

@@ -10,6 +10,7 @@ import { verify as jwtVerify } from 'jsonwebtoken';
 import type { Request } from 'express';
 import type { Environment } from '../../config/env';
 import { PrismaService } from '../../prisma/prisma.service';
+import { assertSessionActive } from './session-state';
 
 export interface AuthenticatedAdmin {
   id: string;
@@ -68,7 +69,7 @@ export class ClientflowAuthGuard implements CanActivate {
 
     if (!token) throw new UnauthorizedException('Missing authenticated session.');
 
-    let payload: Record<string, unknown> & { sub?: string; organizationId?: string };
+    let payload: Record<string, unknown> & { sub?: string; organizationId?: string; jti?: string };
     try {
       payload = jwtVerify(token, readAccessSecret(this.config)) as typeof payload;
     } catch {
@@ -90,6 +91,7 @@ export class ClientflowAuthGuard implements CanActivate {
     if (!admin || !admin.isActive) {
       throw new UnauthorizedException('Authenticated session is no longer active.');
     }
+    await assertSessionActive(this.prisma, payload.jti);
     if (payload.organizationId && payload.organizationId !== admin.organizationId) {
       throw new UnauthorizedException('Authenticated organization is invalid.');
     }
