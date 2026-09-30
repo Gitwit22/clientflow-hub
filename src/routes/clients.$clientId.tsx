@@ -85,6 +85,7 @@ import {
   type IntakeSubmission,
   type ProgramBillingConfig,
 } from "@/types";
+import { formatMoney } from "@/lib/money";
 
 const MONITORING_TYPES = [
   "Payment check",
@@ -741,7 +742,7 @@ function ClientProfile() {
                         className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
                       >
                         <span className="font-medium">
-                          {t.supportType} · ${t.fundingAmount.toLocaleString()}
+                          {t.supportType} · {formatMoney(t.fundingAmount)}
                         </span>
                         <StatusBadge status={t.approvalStatus} />
                       </div>
@@ -991,7 +992,7 @@ function ClientProfile() {
                       <div>
                         <p className="font-display text-lg font-semibold">{selectedProgram.name}</p>
                         <p className="text-muted-foreground">
-                          ${billingSummary.agreement.amount.toLocaleString()} /{" "}
+                          {formatMoney(billingSummary.agreement.amount)} /{" "}
                           {billingSummary.agreement.frequency.replace("_", "-")}
                         </p>
                         <p className="text-xs text-muted-foreground">
@@ -1002,19 +1003,19 @@ function ClientProfile() {
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
                           <p className="font-display text-xl font-semibold">
-                            ${billingSummary.collected.toLocaleString()}
+                            {formatMoney(billingSummary.collected)}
                           </p>
                           <p className="text-xs text-muted-foreground">Collected</p>
                         </div>
                         <div>
                           <p className="font-display text-xl font-semibold">
-                            ${billingSummary.expected.toLocaleString()}
+                            {formatMoney(billingSummary.expected)}
                           </p>
                           <p className="text-xs text-muted-foreground">Expected</p>
                         </div>
                         <div>
                           <p className="font-display text-xl font-semibold">
-                            ${billingSummary.outstanding.toLocaleString()}
+                            {formatMoney(billingSummary.outstanding)}
                           </p>
                           <p className="text-xs text-muted-foreground">Outstanding</p>
                         </div>
@@ -1721,7 +1722,7 @@ function ClientProfile() {
                     endDate: new Date().toISOString(),
                     originalNeed: report.originalNeed || client.intake?.assistanceRequested,
                     supportProvided: selectedProgram?.name ?? "",
-                    fundingProvided: terms[0] ? `$${terms[0].fundingAmount.toLocaleString()}` : "—",
+                    fundingProvided: terms[0] ? formatMoney(terms[0].fundingAmount) : "—",
                     milestonesCompleted: terms[0]?.milestones ?? "—",
                     resultsAchieved: report.resultsAchieved,
                     issuesEncountered: report.issuesEncountered || "None recorded",

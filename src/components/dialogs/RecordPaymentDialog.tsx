@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { localToday } from "@/lib/dates";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,7 +45,7 @@ export function RecordPaymentDialog({
   const [loadingPeriods, setLoadingPeriods] = useState(false);
   const [selectedPeriodKey, setSelectedPeriodKey] = useState<string>("");
   const [amount, setAmount] = useState(String(agreementAmount));
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paymentDate, setPaymentDate] = useState(localToday());
   const [method, setMethod] = useState<PaymentMethod>("ach");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -56,7 +57,7 @@ export function RecordPaymentDialog({
     if (!open) return;
     attemptKey.current = null;
     setAmount(String(agreementAmount));
-    setPaymentDate(new Date().toISOString().slice(0, 10));
+    setPaymentDate(localToday());
     setNote("");
     setLoadingPeriods(true);
     void cfListOpenBillingPeriods(clientId, enrollmentId)
@@ -89,7 +90,7 @@ export function RecordPaymentDialog({
         enrollmentId,
         {
           amount: Number(amount || 0),
-          paymentDate: new Date(paymentDate).toISOString(),
+          paymentDate, // a calendar day; the server reads it in the organization's timezone
           paymentMethod: method,
           billingPeriodStart,
           billingPeriodEnd,

@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { cfGetBillingDashboard } from "@/lib/apiClient";
 import type { OrgBillingDashboard } from "@/types";
+import { formatMoney } from "@/lib/money";
 
 export const Route = createFileRoute("/payments")({
   head: () => ({
@@ -37,7 +38,7 @@ export const Route = createFileRoute("/payments")({
 });
 
 function money(value: number) {
-  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  return formatMoney(value, { whole: true });
 }
 
 function PaymentsPage() {

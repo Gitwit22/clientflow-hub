@@ -6,6 +6,7 @@ import type {
   ProgramEnrollment,
   Terms,
 } from "@/types";
+import { formatMoney } from "@/lib/money";
 
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString() : "Not set";
@@ -70,7 +71,7 @@ export function ParticipantProgressPanel({
                 <StatusBadge status={item.approvalStatus} />
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                ${item.fundingAmount.toLocaleString()} · {formatDate(item.startDate)} to{" "}
+                {formatMoney(item.fundingAmount)} · {formatDate(item.startDate)} to{" "}
                 {formatDate(item.endDate)}
               </p>
             </div>

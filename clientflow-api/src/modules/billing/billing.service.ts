@@ -232,6 +232,14 @@ export class BillingService {
     const recorded = await this.findPaymentByKey(input.organizationId, input.idempotencyKey);
     if (recorded) return recorded;
 
+    if (input.billingPeriodStart.getTime() > input.billingPeriodEnd.getTime()) {
+      throw new BadRequestException('The billing period must start before it ends.');
+    }
+    // A payment is recorded once it has arrived; a date beyond tomorrow is a typo, not a payment.
+    if (input.paymentDate.getTime() > Date.now() + 86_400_000) {
+      throw new BadRequestException('The payment date cannot be in the future.');
+    }
+
     const agreement = await this.getActiveAgreement(input.organizationId, input.enrollmentId);
     if (!agreement) throw new BadRequestException('Set up a billing agreement before recording payments.');
 
@@ -336,8 +344,10 @@ export class BillingService {
     const collected = activePayments.reduce((sum, payment) => sum + Number(payment.amount), 0);
     // "Applied" mirrors the org dashboard's Outstanding definition: only payments whose
     // obligation is already due count against Outstanding, regardless of when cash arrived.
+    // Only this agreement's payments settle this agreement's obligations (a replaced agreement's
+    // payments stay in `collected` but can't hide what the current one is owed).
     const applied = activePayments
-      .filter((payment) => payment.billingPeriodStart <= now)
+      .filter((payment) => payment.billingAgreementId === agreement.id && payment.billingPeriodStart <= now)
       .reduce((sum, payment) => sum + Number(payment.amount), 0);
     const outstanding = Math.max(0, expected - applied);
 

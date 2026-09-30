@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { localToday } from "@/lib/dates";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -14,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cfConfirmBackfill, cfListOpenBillingPeriods, cfPreviewBackfill } from "@/lib/apiClient";
 import type { BackfillPreview, OpenBillingPeriod } from "@/types";
+import { formatMoney } from "@/lib/money";
 
 export function BringAccountCurrentDialog({
   open,
@@ -30,7 +32,7 @@ export function BringAccountCurrentDialog({
   mode: "current" | "partial_unknown";
   onDone: () => void;
 }) {
-  const [paidThroughDate, setPaidThroughDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paidThroughDate, setPaidThroughDate] = useState(localToday());
   const [allPeriods, setAllPeriods] = useState<OpenBillingPeriod[]>([]);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<BackfillPreview | null>(null);
@@ -66,7 +68,7 @@ export function BringAccountCurrentDialog({
     try {
       const selection =
         mode === "current"
-          ? { paidThroughDate: new Date(paidThroughDate).toISOString() }
+          ? { paidThroughDate }
           : {
               periods: [...checkedKeys].map((key) => {
                 const [start, end] = key.split("|");
@@ -90,7 +92,7 @@ export function BringAccountCurrentDialog({
     try {
       const selection =
         mode === "current"
-          ? { paidThroughDate: new Date(paidThroughDate).toISOString() }
+          ? { paidThroughDate }
           : {
               periods: [...checkedKeys].map((key) => {
                 const [start, end] = key.split("|");
@@ -164,7 +166,7 @@ export function BringAccountCurrentDialog({
                       year: "numeric",
                     })}
                   </span>
-                  <span className="font-mono text-xs">${period.amount.toLocaleString()}</span>
+                  <span className="font-mono text-xs">{formatMoney(period.amount)}</span>
                 </label>
               );
             })}
@@ -186,7 +188,7 @@ export function BringAccountCurrentDialog({
             ) : (
               <p>
                 This will create {preview.count} historical payment confirmation
-                {preview.count === 1 ? "" : "s"} totaling ${preview.totalAmount.toLocaleString()}.
+                {preview.count === 1 ? "" : "s"} totaling {formatMoney(preview.totalAmount)}.
                 Confirm?
               </p>
             )}

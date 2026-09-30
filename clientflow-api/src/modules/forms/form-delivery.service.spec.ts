@@ -182,6 +182,33 @@ describe('FormDeliveryService.send', () => {
     }));
   });
 
+  it("keeps the assignment's own due date", async () => {
+    const { service, prisma, n8n } = build();
+    await service.send('org-1', actor, 'assign-1', input);
+    expect(n8n.deliver).toHaveBeenCalledWith(expect.objectContaining({ dueDate: '2030-01-08' }));
+    expect(prisma.cfFormAssignment.update.mock.calls[0][0].data).not.toHaveProperty('dueDate');
+  });
+
+  it("gives an undated assignment the template's dueInDays and saves it (not 'due today')", async () => {
+    jest.useFakeTimers({ now: new Date('2030-01-01T15:00:00.000Z'), doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      const { service, prisma, n8n } = build({
+        cfFormTemplate: { findFirst: jest.fn().mockResolvedValue({ ...programForm, dueInDays: 10 }) },
+        cfFormAssignment: {
+          findFirst: jest.fn().mockResolvedValue({ ...assignment, dueDate: null }),
+          update: jest.fn().mockResolvedValue({}),
+        },
+      });
+      await service.send('org-1', actor, 'assign-1', input);
+      expect(n8n.deliver).toHaveBeenCalledWith(expect.objectContaining({ dueDate: '2030-01-11' }));
+      expect(prisma.cfFormAssignment.update.mock.calls[0][0].data).toEqual(expect.objectContaining({
+        dueDate: '2030-01-11', dueAt: new Date('2030-01-11T15:00:00.000Z'),
+      }));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('marks the assignment sent and writes the SENT communication and staff activity together', async () => {
     const { service, transaction } = build();
     const result: any = await service.send('org-1', actor, 'assign-1', input);

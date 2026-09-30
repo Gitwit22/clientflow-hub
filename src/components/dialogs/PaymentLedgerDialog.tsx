@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cfVoidPayment } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 import type { PaymentRecord } from "@/types";
+import { formatMoney } from "@/lib/money";
 
 export function PaymentLedgerDialog({
   open,
@@ -68,7 +69,7 @@ export function PaymentLedgerDialog({
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className={cn("text-sm font-medium", payment.voidedAt && "line-through")}>
-                    ${payment.amount.toLocaleString()} · {payment.paymentMethod.toUpperCase()} ·{" "}
+                    {formatMoney(payment.amount)} · {payment.paymentMethod.toUpperCase()} ·{" "}
                     {new Date(payment.paymentDate).toLocaleDateString()}
                   </p>
                   {payment.source === "legacy_backfill" && (
