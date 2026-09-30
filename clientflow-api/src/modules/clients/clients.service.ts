@@ -32,6 +32,7 @@ import {
   hashPublicToken,
 } from '../forms/intake-lifecycle';
 import { CreateClientDto } from './dto/create-client.dto';
+import { NOT_UNSIGNED_LEGACY_CONTRACT } from '../contracts/legacy-contract';
 
 type DeferredEmailDelivery = { status: 'deferred' };
 
@@ -277,7 +278,7 @@ export class ClientsService {
     const [program, contract, monitoringTask, executedDocument] = await Promise.all([
       this.currentProgram(client.organizationId, client.id),
       this.prisma.cfContract.findFirst({
-        where: { clientId: client.id, organizationId: client.organizationId },
+        where: { clientId: client.id, organizationId: client.organizationId, ...NOT_UNSIGNED_LEGACY_CONTRACT },
         orderBy: { createdAt: 'desc' },
       }),
       this.latestMonitoring(client.organizationId, client.id),

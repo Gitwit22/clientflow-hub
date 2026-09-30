@@ -36,6 +36,7 @@ import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } from '../lifecycle/enrollment-state';
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { answerFields, labelledAnswers } from '../forms/answer-list';
+import { isLegacyContract } from '../contracts/legacy-contract';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { applyFinalReportDecision } from '../lifecycle/final-report';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
@@ -1352,11 +1353,12 @@ export class ClientflowCompatibilityController {
     @Query('offset') offset?: string,
   ) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.findMany({
+    const contracts = await this.requirePrisma().cfContract.findMany({
       where: { organizationId: orgId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       ...listPage(limit, offset),
     });
+    return contracts.map((contract) => ({ ...contract, legacy: isLegacyContract(contract) }));
   }
   @Get('documents') async listAllDocuments(
     @Req() request: Request,
@@ -1495,7 +1497,8 @@ export class ClientflowCompatibilityController {
   }
   @Get('clients/:clientId/contracts') async listContracts(@Req() request: Request, @Param('clientId') clientId: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+    const contracts = await this.requirePrisma().cfContract.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
+    return contracts.map((contract) => ({ ...contract, legacy: isLegacyContract(contract) }));
   }
   @Get('clients/:clientId/contracts/:contractId/download') async downloadExecutedContract(
     @Req() request: Request,

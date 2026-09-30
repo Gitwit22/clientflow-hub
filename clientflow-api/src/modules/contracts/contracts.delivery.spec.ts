@@ -190,6 +190,14 @@ describe('ContractsService: generate for an enrollment', () => {
     expect(prisma.cfContract.create).not.toHaveBeenCalled();
   });
 
+  it('never reuses an old placeholder draft: the lookup excludes legacy contracts', async () => {
+    const { service, prisma } = build({}, readyN8n());
+    await service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'enroll-1' });
+    expect(prisma.cfContract.findFirst.mock.calls[0][0].where).toEqual(expect.objectContaining({
+      NOT: expect.objectContaining({ staffSignedAt: null }),
+    }));
+  });
+
   it('never rotates the signing link of a contract that was already emailed', async () => {
     const { service, prisma } = build({ cfContract: {
       findFirst: jest.fn().mockResolvedValue(sent),
@@ -213,6 +221,14 @@ describe('ContractsService: manual contract send / resend', () => {
     create: jest.fn(),
     update: jest.fn(),
   } });
+
+  it('refuses to send an old placeholder draft from before contract templates', async () => {
+    const legacy = { ...draft, contractTemplateId: '', staffSignedAt: null, secureTokenHash: null };
+    const n8n = readyN8n();
+    const { service } = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(legacy), create: jest.fn(), update: jest.fn() } }, n8n);
+    await expect(service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions)).rejects.toThrow(/old draft/);
+    expect(n8n.sendContract).not.toHaveBeenCalled();
+  });
 
   it('records a manual send with the staff member, source, key, and a communication-based event id', async () => {
     const n8n = readyN8n();

@@ -591,6 +591,8 @@ export interface Contract {
   signedAt?: string;
   generatedContent: string;
   executedStoredFileId?: string | null;
+  /** An old placeholder draft from before program contract templates; it can't be sent. */
+  legacy?: boolean;
 }
 
 export interface ClientDocument {

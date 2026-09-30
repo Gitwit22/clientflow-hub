@@ -38,6 +38,7 @@ import {
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
+import { isLegacyContract, NOT_LEGACY_CONTRACT, NOT_UNSIGNED_LEGACY_CONTRACT } from './legacy-contract';
 import { findClientForOrg, findEnrollmentForOrg } from '../../common/tenancy/org-scoped.repository';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { transitionContract } from '../lifecycle/contract-state';
@@ -305,6 +306,11 @@ export class ContractsService {
       where: { id: contractId, clientId: client.id, organizationId: client.organizationId },
     });
     if (!contract) throw new NotFoundException('Contract not found.');
+    if (isLegacyContract(contract)) {
+      throw new BadRequestException(
+        'This is an old draft from before program contract templates and cannot be sent. Use Send contract to create one from the program template.',
+      );
+    }
 
     // A retried request (same Idempotency-Key) returns the first attempt instead of re-issuing, so
     // the signing link isn't rotated twice and the client isn't emailed twice.
@@ -420,6 +426,7 @@ export class ContractsService {
         organizationId: client.organizationId,
         clientId: client.id,
         OR: [{ enrollmentId }, { enrollmentId: null, programId: program.id }],
+        ...NOT_UNSIGNED_LEGACY_CONTRACT,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1203,7 +1210,8 @@ export class ContractsService {
       });
       throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
     }
-    if (!contract || !actionable) {
+    // A placeholder draft that was sent before templates existed is not a contract anyone can sign.
+    if (!contract || !actionable || isLegacyContract(contract)) {
       throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
     }
     if (contract.enrollmentId) {
@@ -1297,6 +1305,8 @@ export class ContractsService {
         clientId: client.id,
         programId: program.id,
         status: { in: [CONTRACT_STATUS.draft, CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] },
+        // An old placeholder draft is never reused: a fresh one is rendered from the template.
+        ...NOT_LEGACY_CONTRACT,
       },
       orderBy: { createdAt: 'desc' },
     });

@@ -439,8 +439,9 @@ function ClientProfile() {
   const selectedProgramAssignments = selectedEnrollment
     ? assignments.filter(
         (assignment) =>
-          assignment.enrollmentId ||
-          templateProgramId(assignment.formId) === selectedEnrollment.programId,
+          assignment.enrollmentId === selectedEnrollment.id ||
+          (!assignment.enrollmentId &&
+            templateProgramId(assignment.formId) === selectedEnrollment.programId),
       )
     : [];
   const selectedProgramMonitoring = selectedEnrollment ? monitoring : [];
@@ -1584,23 +1585,32 @@ function ClientProfile() {
             <Card key={c.id} className="shadow-card">
               <CardContent className="space-y-3 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="font-medium">{c.contractType}</p>
+                  <div>
+                    <p className="font-medium">{c.contractType}</p>
+                    {c.legacy && (
+                      <p className="text-xs text-muted-foreground">
+                        Old draft from before program contract templates. It can't be sent; use Send
+                        contract above to create one from the program template.
+                      </p>
+                    )}
+                  </div>
                   <StatusBadge status={c.status} />
                 </div>
                 <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-4 font-sans text-xs whitespace-pre-wrap text-muted-foreground">
                   {c.generatedContent}
                 </pre>
                 <div className="flex flex-wrap gap-2">
-                  {(c.status === "DRAFT" || c.status === "SENT" || c.status === "OPENED") && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openSend("contract")}
-                    >
-                      {c.status === "DRAFT" ? "Send" : "Resend signing link"}
-                    </Button>
-                  )}
+                  {!c.legacy &&
+                    (c.status === "DRAFT" || c.status === "SENT" || c.status === "OPENED") && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openSend("contract")}
+                      >
+                        {c.status === "DRAFT" ? "Send" : "Resend signing link"}
+                      </Button>
+                    )}
                   {c.status === "COMPLETED" && (
                     <Button
                       type="button"
