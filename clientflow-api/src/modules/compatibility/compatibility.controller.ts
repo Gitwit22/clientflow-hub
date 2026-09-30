@@ -489,7 +489,7 @@ export class ClientflowCompatibilityController {
     });
     const clientIds = enrollments.map((enrollment) => enrollment.clientId);
     const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
-    const [clients, formAssignments, formTemplates, terms, contracts, monitoring, statusHistory, intakeLinks] = await Promise.all([
+    const [clients, formAssignments, formTemplates, terms, contracts, monitoring, statusHistory, intakeLinks, welcomeEmails] = await Promise.all([
       prisma.cfClient.findMany({
         where: { organizationId: orgId, id: { in: clientIds }, isArchived: false },
         select: { id: true, businessName: true, primaryContactName: true, email: true, phone: true },
@@ -521,6 +521,12 @@ export class ClientflowCompatibilityController {
       }),
       prisma.cfIntakeSubmissionProgram.findMany({
         where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
+      }),
+      // Welcome emails decide whether a signed participant still needs one (their next step).
+      prisma.cfCommunication.findMany({
+        where: { organizationId: orgId, clientId: { in: clientIds }, type: 'welcome_email' },
+        select: { id: true, clientId: true, contractId: true, type: true, status: true, date: true, sentAt: true, errorCode: true },
+        orderBy: { createdAt: 'desc' },
       }),
     ]);
     // The intake answers each participant gave when they applied: the shared (core) questions and
@@ -587,7 +593,10 @@ export class ClientflowCompatibilityController {
           };
         }),
         terms: terms.filter((item) => item.enrollmentId === enrollment.id),
-        contracts: contracts.filter((item) => item.enrollmentId === enrollment.id),
+        contracts: contracts
+          .filter((item) => item.enrollmentId === enrollment.id)
+          .map((item) => ({ ...item, legacy: isLegacyContract(item) })),
+        welcomeEmails: welcomeEmails.filter((item) => item.clientId === enrollment.clientId),
         monitoring: monitoring.filter((item) => item.enrollmentId === enrollment.id),
         statusHistory: statusHistory.filter((item) => item.enrollmentId === enrollment.id),
       }];

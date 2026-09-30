@@ -343,6 +343,8 @@ export interface ProgramParticipantDetail {
   contracts: Contract[];
   monitoring: EnrollmentMonitoring[];
   statusHistory: EnrollmentStatusHistory[];
+  /** This client's welcome email attempts (decides whether one is still owed). */
+  welcomeEmails?: Communication[];
 }
 
 export interface ProgramDetailResponse {

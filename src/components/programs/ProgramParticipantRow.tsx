@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { displayEnrollmentStatus } from "@/lib/enrollment-status";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import type { NextStep } from "@/lib/next-step";
 import type { ProgramParticipantDetail } from "@/types";
 
 export function ProgramParticipantRow({
@@ -18,6 +19,9 @@ export function ProgramParticipantRow({
   onWithdraw,
   canComplete,
   onComplete,
+  step,
+  onStep,
+  stepBusy = false,
 }: {
   participant: ProgramParticipantDetail;
   assignedStaffName: string;
@@ -28,6 +32,10 @@ export function ProgramParticipantRow({
   onWithdraw: () => void;
   canComplete: boolean;
   onComplete: () => void;
+  /** What moves this enrollment forward (contract, signing link, welcome email). */
+  step?: NextStep;
+  onStep?: () => void;
+  stepBusy?: boolean;
 }) {
   const { client, enrollment } = participant;
 
@@ -37,7 +45,7 @@ export function ProgramParticipantRow({
       onOpenChange={onOpenChange}
       className="border-b border-border last:border-0"
     >
-      <div className="grid gap-4 py-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+      <div className="grid gap-4 py-4 md:grid-cols-[minmax(0,1fr)_auto_auto_auto] md:items-center">
         <div className="min-w-0">
           <Link
             to="/clients/$clientId"
@@ -61,6 +69,22 @@ export function ProgramParticipantRow({
                 ? ` · ${new Date(enrollment.nextActionDate).toLocaleDateString()}`
                 : ""}
             </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 md:justify-end">
+          {step && step.kind !== "closed" && (
+            <span className="text-xs text-muted-foreground">{step.label}</span>
+          )}
+          {step && "action" in step && onStep && (
+            <Button
+              type="button"
+              size="sm"
+              variant={step.kind === "awaiting_signature" ? "outline" : "default"}
+              disabled={stepBusy}
+              onClick={onStep}
+            >
+              {stepBusy ? "Loading…" : step.button}
+            </Button>
           )}
         </div>
         <StatusBadge status={displayEnrollmentStatus(enrollment.status)} />

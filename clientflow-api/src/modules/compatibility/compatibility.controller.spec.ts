@@ -378,6 +378,7 @@ describe('compatibility route scaffold', () => {
         cfContract: { findMany: jest.fn().mockResolvedValue([]) },
         cfEnrollmentMonitoring: { findMany: jest.fn().mockResolvedValue([]) },
         cfEnrollmentStatusHistory: { findMany: jest.fn().mockResolvedValue([]) },
+        cfCommunication: { findMany: jest.fn().mockResolvedValue([]) },
         cfIntakeSubmissionProgram: { findMany: jest.fn().mockResolvedValue([]) },
         cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(null) },
         cfProgramContractTemplate: { findMany: jest.fn().mockResolvedValue([]) },
@@ -418,6 +419,7 @@ describe('compatibility route scaffold', () => {
         cfContract: { findMany: jest.fn().mockResolvedValue([]) },
         cfEnrollmentMonitoring: { findMany: jest.fn().mockResolvedValue([]) },
         cfEnrollmentStatusHistory: { findMany: jest.fn().mockResolvedValue([]) },
+        cfCommunication: { findMany: jest.fn().mockResolvedValue([]) },
         cfIntakeSubmissionProgram: {
           findMany: jest.fn().mockResolvedValue([
             { intakeSubmissionId: 'sub-1', enrollmentId: 'enroll-1', programId: 'program-1', responsePayload: { revenue: 5000 } },
