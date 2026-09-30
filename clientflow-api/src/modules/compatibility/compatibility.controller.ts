@@ -65,9 +65,16 @@ import { FormProfileService } from '../forms/form-profile.service';
 import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { Throttle } from '@nestjs/throttler';
+import { resolveAppUrl } from '../../config/env';
 
 /** Sign-in endpoints: 10 attempts a minute per visitor, so passwords and tokens can't be guessed. */
 export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
+const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
+const RESET_TTL_MS = 60 * 60 * 1000;
+
+function inviteUrl(plainToken: string): string {
+  return `${resolveAppUrl(process.env)}/accept-invite?token=${plainToken}`;
+}
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
@@ -2197,6 +2204,41 @@ export class AuthCompatibilityController {
     return { admin: this.buildSessionData(invitation.adminUser) };
   }
 
+  @Get('validate-reset') async validateReset(@Query('token') token: string) {
+    const reset = await this.findUsableReset(String(token ?? ''));
+    return reset ? { valid: true, email: reset.adminUser.email } : { valid: false, reason: 'This reset link is invalid, used or expired. Ask an admin for a new one.' };
+  }
+
+  /** Sets a new password from a one-time reset link, and signs the member out everywhere. */
+  @Throttle(SIGN_IN_LIMIT) @Post('reset-password') async resetPassword(@Body() body: Record<string, unknown>) {
+    const token = typeof body.token === 'string' ? body.token : '';
+    const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+    if (!token || !newPassword) throw new BadRequestException('Token and new password are required.');
+    if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters.');
+    const reset = await this.findUsableReset(token);
+    if (!reset) throw new BadRequestException('This reset link is invalid, used or expired. Ask an admin for a new one.');
+    const passwordHash = await hash(newPassword, 12);
+    const now = new Date();
+    await this.requirePrisma().$transaction(async (transaction) => {
+      // Claim the link: only one request can use it.
+      const claimed = await transaction.adminPasswordReset.updateMany({ where: { id: reset.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+      if (claimed.count !== 1) throw new BadRequestException('This reset link has already been used.');
+      await transaction.adminUser.update({ where: { id: reset.adminUserId }, data: { passwordHash } });
+      await transaction.authSession.updateMany({ where: { adminUserId: reset.adminUserId, revokedAt: null }, data: { revokedAt: now } });
+    });
+    return { message: 'Password updated. Sign in with your new password.' };
+  }
+
+  private async findUsableReset(token: string) {
+    if (!/^[0-9a-f]{64}$/.test(token)) return null;
+    const reset = await this.requirePrisma().adminPasswordReset.findUnique({
+      where: { tokenHash: createHash('sha256').update(token).digest('hex') },
+      include: { adminUser: { select: { email: true, isActive: true } } },
+    });
+    if (!reset || reset.usedAt || reset.expiresAt <= new Date() || !reset.adminUser.isActive) return null;
+    return reset;
+  }
+
   @Get('bootstrap') async bootstrap(@Req() request: Request) {
     const { admin } = await this.requireAuthenticatedAdmin(request);
     const organization = await this.requirePrisma().organization.findUnique({ where: { id: admin.organizationId }, select: { id: true, name: true, status: true, settings: true, liveMode: true } });
@@ -2273,8 +2315,47 @@ export class OrganizationsCompatibilityController {
     const plainToken = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(plainToken).digest('hex');
     const randomPasswordHash = await hash(randomBytes(32).toString('hex'), 12);
-    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role, isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) } } } });
-    return { message: `Invitation sent to ${email}.` };
+    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role, isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + INVITE_TTL_MS) } } } });
+    // No email is sent: the admin copies this link to the new member. It's shown once; a fresh one
+    // can be made later with invite-link.
+    return { message: `Invitation created for ${email}. Copy the link and send it to them.`, inviteUrl: inviteUrl(plainToken) };
+  }
+
+  /** A fresh invite link for a member who hasn't accepted yet (the old link stops working). */
+  @Post(':orgId/members/:memberId/invite-link') async newInviteLink(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
+    const actor = await this.requireOrgAccess(request, orgId);
+    const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId }, include: { invitation: true } });
+    if (!member?.invitation || member.invitation.acceptedAt || member.invitation.revokedAt) {
+      throw new NotFoundException('No pending invitation for this member.');
+    }
+    assertCanManageMember(actor, member);
+    const plainToken = randomBytes(32).toString('hex');
+    await this.requirePrisma().adminInvitation.update({
+      where: { id: member.invitation.id },
+      data: { tokenHash: createHash('sha256').update(plainToken).digest('hex'), expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
+    });
+    return { inviteUrl: inviteUrl(plainToken), expiresInHours: INVITE_TTL_MS / 3_600_000 };
+  }
+
+  /**
+   * A one-time, one-hour link for an active member to set a new password (there is no emailed
+   * reset). Earlier unused links for that member stop working.
+   */
+  @Post(':orgId/members/:memberId/reset-link') async passwordResetLink(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
+    const actor = await this.requireOrgAccess(request, orgId);
+    const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId } });
+    if (!member) throw new NotFoundException('Member not found.');
+    assertCanManageMember(actor, member);
+    if (!member.isActive) throw new BadRequestException('Enable this member before making a password reset link.');
+    const plainToken = randomBytes(32).toString('hex');
+    const now = new Date();
+    await this.requirePrisma().$transaction([
+      this.requirePrisma().adminPasswordReset.updateMany({ where: { adminUserId: member.id, usedAt: null }, data: { usedAt: now } }),
+      this.requirePrisma().adminPasswordReset.create({
+        data: { adminUserId: member.id, tokenHash: createHash('sha256').update(plainToken).digest('hex'), expiresAt: new Date(now.getTime() + RESET_TTL_MS), createdByAdminId: actor.id },
+      }),
+    ]);
+    return { resetUrl: `${resolveAppUrl(process.env)}/reset-password?token=${plainToken}`, expiresInMinutes: RESET_TTL_MS / 60_000 };
   }
 
   @Post(':orgId/invitations/:memberId/revoke') async revokeInvite(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {

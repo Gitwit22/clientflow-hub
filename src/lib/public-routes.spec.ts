@@ -7,6 +7,8 @@ describe("isPublicRoute", () => {
     expect(isPublicRoute("/accept-invite/token")).toBe(true);
     expect(isPublicRoute("/s/intake-token")).toBe(true);
     expect(isPublicRoute("/agreements/contract-token")).toBe(true);
+    expect(isPublicRoute("/reset-password")).toBe(true);
+    expect(isPublicRoute("/apply/intake-token")).toBe(true);
   });
 
   it("does not expose admin routes as public", () => {

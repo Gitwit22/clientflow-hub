@@ -21,6 +21,7 @@ import { Route as PaymentsRouteImport } from './routes/payments'
 import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProgramsRouteImport } from './routes/programs'
 import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ReviewRouteImport } from './routes/review'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as AgreementsTokenRouteImport } from './routes/agreements.$token'
@@ -93,6 +94,11 @@ const ReportsRoute = ReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReviewRoute = ReviewRouteImport.update({
   id: '/review',
   path: '/review',
@@ -162,6 +168,7 @@ export interface FileRoutesByFullPath {
   '/pipeline': typeof PipelineRouteWithChildren
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/review': typeof ReviewRoute
   '/settings': typeof SettingsRoute
   '/agreements/$token': typeof AgreementsTokenRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByTo {
   '/monitoring': typeof MonitoringRoute
   '/payments': typeof PaymentsRoute
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/review': typeof ReviewRoute
   '/settings': typeof SettingsRoute
   '/agreements/$token': typeof AgreementsTokenRoute
@@ -210,6 +218,7 @@ export interface FileRoutesById {
   '/pipeline': typeof PipelineRouteWithChildren
   '/programs': typeof ProgramsRouteWithChildren
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/review': typeof ReviewRoute
   '/settings': typeof SettingsRoute
   '/agreements/$token': typeof AgreementsTokenRoute
@@ -237,6 +246,7 @@ export interface FileRouteTypes {
     | '/pipeline'
     | '/programs'
     | '/reports'
+    | '/reset-password'
     | '/review'
     | '/settings'
     | '/agreements/$token'
@@ -259,6 +269,7 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/payments'
     | '/reports'
+    | '/reset-password'
     | '/review'
     | '/settings'
     | '/agreements/$token'
@@ -284,6 +295,7 @@ export interface FileRouteTypes {
     | '/pipeline'
     | '/programs'
     | '/reports'
+    | '/reset-password'
     | '/review'
     | '/settings'
     | '/agreements/$token'
@@ -310,6 +322,7 @@ export interface RootRouteChildren {
   PipelineRoute: typeof PipelineRouteWithChildren
   ProgramsRoute: typeof ProgramsRouteWithChildren
   ReportsRoute: typeof ReportsRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   ReviewRoute: typeof ReviewRoute
   SettingsRoute: typeof SettingsRoute
   AgreementsTokenRoute: typeof AgreementsTokenRoute
@@ -401,6 +414,13 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/review': {
@@ -537,6 +557,7 @@ const rootRouteChildren: RootRouteChildren = {
   PipelineRoute: PipelineRouteWithChildren,
   ProgramsRoute: ProgramsRouteWithChildren,
   ReportsRoute: ReportsRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   ReviewRoute: ReviewRoute,
   SettingsRoute: SettingsRoute,
   AgreementsTokenRoute: AgreementsTokenRoute,
