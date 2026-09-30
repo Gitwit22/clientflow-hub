@@ -64,6 +64,23 @@ import { FormDeliveryService } from '../forms/form-delivery.service';
 import { FormProfileService } from '../forms/form-profile.service';
 import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
+import { Throttle } from '@nestjs/throttler';
+import { resolveAppUrl } from '../../config/env';
+import { assertSessionActive } from '../../common/guards/session-state';
+import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storage/upload-rules';
+
+/** Sign-in endpoints: 10 attempts a minute per visitor, so passwords and tokens can't be guessed. */
+export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
+/** How long a just-replaced refresh token still works (another tab refreshing at the same time). */
+const REFRESH_GRACE_MS = 60_000;
+/** A bcrypt hash of a random value (cost 12, like real ones) compared against for unknown emails. */
+const UNKNOWN_USER_PASSWORD_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO5YbYp1yQy7lZ5o9/9c1n9F3F1vX0y4W';
+const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
+const RESET_TTL_MS = 60 * 60 * 1000;
+
+function inviteUrl(plainToken: string): string {
+  return `${resolveAppUrl(process.env)}/accept-invite?token=${plainToken}`;
+}
 
 const ACCESS_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_session' : 'clientflow_session';
 const REFRESH_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-clientflow_refresh' : 'clientflow_refresh';
@@ -135,6 +152,18 @@ function setSessionCookies(response: Response, accessToken: string, refreshToken
   };
   response.cookie(ACCESS_COOKIE_NAME, accessToken, { ...cookies, maxAge: ACCESS_TTL_MS });
   response.cookie(REFRESH_COOKIE_NAME, refreshToken, { ...cookies, maxAge: REFRESH_TTL_MS });
+}
+
+/** Replaces only the access cookie (the refresh cookie another tab just set stays in place). */
+function setAccessCookie(response: Response, accessToken: string): void {
+  response.cookie(ACCESS_COOKIE_NAME, accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+    partitioned: process.env.NODE_ENV === 'production',
+    maxAge: ACCESS_TTL_MS,
+  });
 }
 
 function clearSessionCookies(response: Response): void {
@@ -264,6 +293,7 @@ export class ClientflowCompatibilityController {
       select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true },
     });
     if (!admin || !admin.isActive) throw new UnauthorizedException('Authenticated session is no longer active.');
+    await assertSessionActive(this.requirePrisma(), payload.jti);
     if (payload.organizationId && payload.organizationId !== admin.organizationId) {
       throw new UnauthorizedException('Authenticated organization is invalid.');
     }
@@ -1390,10 +1420,12 @@ export class ClientflowCompatibilityController {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
     const storage = this.requireStorage();
     storage.assertEnabled();
-    const originalFileName = String(body.name ?? 'upload.bin');
-    const mimeType = String(body.type ?? 'application/octet-stream');
-    const sizeBytes = Number(body.byteSize ?? 0);
-    const storageKeyPrefix = body.storageKeyPrefix ? trimSlashEdges(String(body.storageKeyPrefix)) : 'uploads';
+    const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
+    const { folder: storageKeyPrefix, type: mimeType, size: sizeBytes } = assertUploadAllowed({
+      folder: body.storageKeyPrefix,
+      type: body.type,
+      size: body.byteSize,
+    });
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `${storageKeyPrefix}/${orgId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
@@ -1416,8 +1448,7 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    const exists = await storage.objectExists(storedFile.storageKey);
-    if (!exists) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+    await assertStoredUploadWithinLimit(storage, storedFile.storageKey);
     return this.requirePrisma().cfStoredFile.update({
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
@@ -1561,9 +1592,8 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const client = await this.requirePrisma().cfClient.findFirst({ where: { id: clientId, organizationId: orgId, isArchived: false } });
     if (!client) throw new NotFoundException('Client not found.');
-    const originalFileName = String(body.name ?? 'upload.bin');
-    const mimeType = String(body.type ?? 'application/octet-stream');
-    const sizeBytes = Number(body.byteSize ?? 0);
+    const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
+    const { type: mimeType, size: sizeBytes } = assertUploadAllowed({ folder: 'client-documents', type: body.type, size: body.byteSize });
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `client-documents/${orgId}/${clientId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
@@ -1612,8 +1642,7 @@ export class ClientflowCompatibilityController {
       where: { id: document.storedFileId, organizationId: orgId },
     });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    const exists = await storage.objectExists(storedFile.storageKey);
-    if (!exists) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+    await assertStoredUploadWithinLimit(storage, storedFile.storageKey);
     await this.requirePrisma().cfStoredFile.update({
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
@@ -2051,6 +2080,7 @@ export class AuthCompatibilityController {
       select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true, passwordHash: true },
     });
     if (!admin || !admin.isActive) throw new UnauthorizedException('Authenticated session is no longer active.');
+    await assertSessionActive(this.requirePrisma(), payload.jti);
     return { admin, payload };
   }
 
@@ -2066,14 +2096,15 @@ export class AuthCompatibilityController {
     };
   }
 
-  @Post('login') async login(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
+  @Throttle(SIGN_IN_LIMIT) @Post('login') async login(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
     const email = String(body.email ?? '').trim().toLowerCase();
     const password = String(body.password ?? '');
     if (!email || !password) throw new BadRequestException('Email and password are required.');
     const admin = await this.requirePrisma().adminUser.findUnique({ where: { email }, select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, passwordHash: true, isActive: true } });
-    if (!admin || !admin.isActive) throw new UnauthorizedException('Invalid email or password.');
-    const valid = await compare(password, admin.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid email or password.');
+    // Always run one bcrypt comparison, so an unknown email takes as long as a wrong password
+    // and response times don't reveal which staff emails exist.
+    const valid = await compare(password, admin?.passwordHash ?? UNKNOWN_USER_PASSWORD_HASH);
+    if (!admin || !admin.isActive || !valid) throw new UnauthorizedException('Invalid email or password.');
     const sessionId = randomUUID();
     const jti = randomUUID();
     const accessToken = signSessionToken(admin.id, admin.email, [admin.role], admin.organizationId, sessionId, jti, 'access');
@@ -2084,21 +2115,46 @@ export class AuthCompatibilityController {
     return { admin: this.buildSessionData(admin) };
   }
 
+  /**
+   * Rotates the refresh token and issues a new access token. The session keeps its id; the token
+   * just replaced stays usable for REFRESH_GRACE_MS, so two tabs refreshing together both stay
+   * signed in (the late one gets a new access token and keeps the cookie the first one set).
+   */
   @Post('refresh') async refresh(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     const refreshToken = getCookieValue(request, REFRESH_COOKIE_NAME) ?? (request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : undefined);
     if (!refreshToken) throw new UnauthorizedException('Missing refresh session.');
     const [sessionId] = refreshToken.split('.', 2);
     if (!sessionId) throw new UnauthorizedException('Missing refresh session.');
-    const session = await this.requirePrisma().authSession.findFirst({
-      where: { id: sessionId, refreshTokenHash: hashRefreshToken(refreshToken), refreshExpiresAt: { gt: new Date() }, revokedAt: null, adminUser: { isActive: true } },
-      include: { adminUser: { select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, organizationId: true, isActive: true } } },
+    const prisma = this.requirePrisma();
+    const tokenHash = hashRefreshToken(refreshToken);
+    const now = new Date();
+    const session = await prisma.authSession.findFirst({
+      where: { id: sessionId, refreshExpiresAt: { gt: now }, revokedAt: null, adminUser: { isActive: true } },
+      include: { adminUser: { select: { id: true, email: true, role: true, organizationId: true } } },
     });
     if (!session) throw new UnauthorizedException('Refresh session is expired or revoked.');
-    const nextSessionId = randomUUID();
-    const nextJti = randomUUID();
-    const nextRefreshToken = `${nextSessionId}.${randomBytes(32).toString('base64url')}`;
-    await this.requirePrisma().authSession.update({ where: { id: sessionId }, data: { id: nextSessionId, jti: nextJti, refreshTokenHash: hashRefreshToken(nextRefreshToken), refreshRotatedAt: new Date(), refreshExpiresAt: new Date(Date.now() + REFRESH_TTL_MS), expiresAt: new Date(Date.now() + ACCESS_TTL_MS) } });
-    setSessionCookies(response, signSessionToken(session.adminUser.id, session.adminUser.email, [session.adminUser.role], session.adminUser.organizationId, nextSessionId, nextJti, 'access'), nextRefreshToken);
+    const accessFor = (jti: string) => signSessionToken(session.adminUser.id, session.adminUser.email, [session.adminUser.role], session.adminUser.organizationId, session.id, jti, 'access');
+
+    if (session.refreshTokenHash === tokenHash) {
+      const nextJti = randomUUID();
+      const nextRefreshToken = `${session.id}.${randomBytes(32).toString('base64url')}`;
+      // Conditional: if another request rotated this token first, fall through to the grace path.
+      const { count } = await prisma.authSession.updateMany({
+        where: { id: session.id, refreshTokenHash: tokenHash, revokedAt: null },
+        data: { jti: nextJti, refreshTokenHash: hashRefreshToken(nextRefreshToken), previousRefreshTokenHash: tokenHash, refreshRotatedAt: now, refreshExpiresAt: new Date(now.getTime() + REFRESH_TTL_MS), expiresAt: new Date(now.getTime() + ACCESS_TTL_MS) },
+      });
+      if (count === 1) {
+        setSessionCookies(response, accessFor(nextJti), nextRefreshToken);
+        return { valid: true };
+      }
+    }
+
+    const current = await prisma.authSession.findFirst({ where: { id: session.id, revokedAt: null } });
+    const withinGrace = current?.previousRefreshTokenHash === tokenHash
+      && !!current.refreshRotatedAt
+      && now.getTime() - current.refreshRotatedAt.getTime() <= REFRESH_GRACE_MS;
+    if (!current || !withinGrace) throw new UnauthorizedException('Refresh session is expired or revoked.');
+    setAccessCookie(response, accessFor(current.jti));
     return { valid: true };
   }
 
@@ -2107,7 +2163,8 @@ export class AuthCompatibilityController {
     if (refreshToken) {
       const [sessionId] = refreshToken.split('.', 2);
       if (sessionId) {
-        await this.requirePrisma().authSession.updateMany({ where: { id: sessionId, refreshTokenHash: hashRefreshToken(refreshToken), revokedAt: null }, data: { revokedAt: new Date() } });
+        const tokenHash = hashRefreshToken(refreshToken);
+        await this.requirePrisma().authSession.updateMany({ where: { id: sessionId, revokedAt: null, OR: [{ refreshTokenHash: tokenHash }, { previousRefreshTokenHash: tokenHash }] }, data: { revokedAt: new Date() } });
       }
     }
     clearSessionCookies(response);
@@ -2168,7 +2225,7 @@ export class AuthCompatibilityController {
     return { valid: true, email: invitation.adminUser.email, firstName: invitation.adminUser.firstName ?? undefined };
   }
 
-  @Post('accept-invite') async acceptInvite(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
+  @Throttle(SIGN_IN_LIMIT) @Post('accept-invite') async acceptInvite(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) response: Response) {
     const token = String(body.token ?? '');
     const newPassword = String(body.newPassword ?? '');
     if (!token || !newPassword) throw new BadRequestException('Token and new password are required.');
@@ -2191,6 +2248,41 @@ export class AuthCompatibilityController {
     await this.requirePrisma().authSession.create({ data: { id: sessionId, adminUserId: invitation.adminUser.id, jti, expiresAt: new Date(Date.now() + ACCESS_TTL_MS), refreshTokenHash: hashRefreshToken(refreshToken), refreshExpiresAt: new Date(Date.now() + REFRESH_TTL_MS) } });
     setSessionCookies(response, accessToken, refreshToken);
     return { admin: this.buildSessionData(invitation.adminUser) };
+  }
+
+  @Get('validate-reset') async validateReset(@Query('token') token: string) {
+    const reset = await this.findUsableReset(String(token ?? ''));
+    return reset ? { valid: true, email: reset.adminUser.email } : { valid: false, reason: 'This reset link is invalid, used or expired. Ask an admin for a new one.' };
+  }
+
+  /** Sets a new password from a one-time reset link, and signs the member out everywhere. */
+  @Throttle(SIGN_IN_LIMIT) @Post('reset-password') async resetPassword(@Body() body: Record<string, unknown>) {
+    const token = typeof body.token === 'string' ? body.token : '';
+    const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+    if (!token || !newPassword) throw new BadRequestException('Token and new password are required.');
+    if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters.');
+    const reset = await this.findUsableReset(token);
+    if (!reset) throw new BadRequestException('This reset link is invalid, used or expired. Ask an admin for a new one.');
+    const passwordHash = await hash(newPassword, 12);
+    const now = new Date();
+    await this.requirePrisma().$transaction(async (transaction) => {
+      // Claim the link: only one request can use it.
+      const claimed = await transaction.adminPasswordReset.updateMany({ where: { id: reset.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+      if (claimed.count !== 1) throw new BadRequestException('This reset link has already been used.');
+      await transaction.adminUser.update({ where: { id: reset.adminUserId }, data: { passwordHash } });
+      await transaction.authSession.updateMany({ where: { adminUserId: reset.adminUserId, revokedAt: null }, data: { revokedAt: now } });
+    });
+    return { message: 'Password updated. Sign in with your new password.' };
+  }
+
+  private async findUsableReset(token: string) {
+    if (!/^[0-9a-f]{64}$/.test(token)) return null;
+    const reset = await this.requirePrisma().adminPasswordReset.findUnique({
+      where: { tokenHash: createHash('sha256').update(token).digest('hex') },
+      include: { adminUser: { select: { email: true, isActive: true } } },
+    });
+    if (!reset || reset.usedAt || reset.expiresAt <= new Date() || !reset.adminUser.isActive) return null;
+    return reset;
   }
 
   @Get('bootstrap') async bootstrap(@Req() request: Request) {
@@ -2227,6 +2319,7 @@ export class OrganizationsCompatibilityController {
     const payload = getSessionTokenPayload(accessToken, 'access');
     const admin = await this.requirePrisma().adminUser.findUnique({ where: { id: payload.sub ?? '' }, select: { id: true, email: true, organizationId: true, role: true, isActive: true } });
     if (!admin || !admin.isActive || admin.organizationId !== orgId) throw new ForbiddenException('Access denied to this organization.');
+    await assertSessionActive(this.requirePrisma(), payload.jti);
     return admin;
   }
 
@@ -2269,8 +2362,47 @@ export class OrganizationsCompatibilityController {
     const plainToken = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(plainToken).digest('hex');
     const randomPasswordHash = await hash(randomBytes(32).toString('hex'), 12);
-    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role, isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) } } } });
-    return { message: `Invitation sent to ${email}.` };
+    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role, isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + INVITE_TTL_MS) } } } });
+    // No email is sent: the admin copies this link to the new member. It's shown once; a fresh one
+    // can be made later with invite-link.
+    return { message: `Invitation created for ${email}. Copy the link and send it to them.`, inviteUrl: inviteUrl(plainToken) };
+  }
+
+  /** A fresh invite link for a member who hasn't accepted yet (the old link stops working). */
+  @Post(':orgId/members/:memberId/invite-link') async newInviteLink(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
+    const actor = await this.requireOrgAccess(request, orgId);
+    const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId }, include: { invitation: true } });
+    if (!member?.invitation || member.invitation.acceptedAt || member.invitation.revokedAt) {
+      throw new NotFoundException('No pending invitation for this member.');
+    }
+    assertCanManageMember(actor, member);
+    const plainToken = randomBytes(32).toString('hex');
+    await this.requirePrisma().adminInvitation.update({
+      where: { id: member.invitation.id },
+      data: { tokenHash: createHash('sha256').update(plainToken).digest('hex'), expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
+    });
+    return { inviteUrl: inviteUrl(plainToken), expiresInHours: INVITE_TTL_MS / 3_600_000 };
+  }
+
+  /**
+   * A one-time, one-hour link for an active member to set a new password (there is no emailed
+   * reset). Earlier unused links for that member stop working.
+   */
+  @Post(':orgId/members/:memberId/reset-link') async passwordResetLink(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
+    const actor = await this.requireOrgAccess(request, orgId);
+    const member = await this.requirePrisma().adminUser.findFirst({ where: { id: memberId, organizationId: orgId } });
+    if (!member) throw new NotFoundException('Member not found.');
+    assertCanManageMember(actor, member);
+    if (!member.isActive) throw new BadRequestException('Enable this member before making a password reset link.');
+    const plainToken = randomBytes(32).toString('hex');
+    const now = new Date();
+    await this.requirePrisma().$transaction([
+      this.requirePrisma().adminPasswordReset.updateMany({ where: { adminUserId: member.id, usedAt: null }, data: { usedAt: now } }),
+      this.requirePrisma().adminPasswordReset.create({
+        data: { adminUserId: member.id, tokenHash: createHash('sha256').update(plainToken).digest('hex'), expiresAt: new Date(now.getTime() + RESET_TTL_MS), createdByAdminId: actor.id },
+      }),
+    ]);
+    return { resetUrl: `${resolveAppUrl(process.env)}/reset-password?token=${plainToken}`, expiresInMinutes: RESET_TTL_MS / 60_000 };
   }
 
   @Post(':orgId/invitations/:memberId/revoke') async revokeInvite(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
@@ -2327,6 +2459,20 @@ export class FutureApiBoundaryController {
 }
 
 const MAX_LIST_PAGE = 500;
+
+/**
+ * The upload link can't stop a larger file than was declared, so completion checks what was really
+ * stored and removes anything over the limit.
+ */
+async function assertStoredUploadWithinLimit(storage: StorageService, storageKey: string): Promise<void> {
+  const size = await storage.objectSize(storageKey);
+  if (size === null) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+  if (size > MAX_UPLOAD_BYTES) {
+    await storage.deleteObject(storageKey).catch(() => undefined);
+    throw new BadRequestException('Files can be at most 25 MB.');
+  }
+}
+
 
 /**
  * `?limit=&offset=` for the org-wide lists the app pages through. Without a limit the whole list is

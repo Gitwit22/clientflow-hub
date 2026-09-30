@@ -133,6 +133,8 @@ function canRefresh(path: string): boolean {
     "/api/v1/auth/refresh",
     "/api/v1/auth/accept-invite",
     "/api/v1/auth/validate-invite",
+    "/api/v1/auth/validate-reset",
+    "/api/v1/auth/reset-password",
   ].some((publicPath) => path.startsWith(publicPath));
 }
 
@@ -358,10 +360,46 @@ export interface InviteMemberPayload {
 export async function inviteMember(
   organizationId: string,
   payload: InviteMemberPayload,
-): Promise<{ message: string }> {
+): Promise<{ message: string; inviteUrl: string }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/invitations`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+/** A fresh invite link for a member who hasn't joined yet (the previous link stops working). */
+export async function newMemberInviteLink(
+  organizationId: string,
+  memberId: string,
+): Promise<{ inviteUrl: string; expiresInHours: number }> {
+  return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/invite-link`, {
+    method: "POST",
+  });
+}
+
+/** A one-time, one-hour link for a member to set a new password. */
+export async function newMemberResetLink(
+  organizationId: string,
+  memberId: string,
+): Promise<{ resetUrl: string; expiresInMinutes: number }> {
+  return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/reset-link`, {
+    method: "POST",
+  });
+}
+
+export async function validateResetLink(
+  token: string,
+): Promise<{ valid: boolean; email?: string; reason?: string }> {
+  return apiRequest(`/api/v1/auth/validate-reset?token=${encodeURIComponent(token)}`);
+}
+
+export async function resetPassword(
+  token: string,
+  newPassword: string,
+): Promise<{ message: string }> {
+  return apiRequest("/api/v1/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword }),
   });
 }
 

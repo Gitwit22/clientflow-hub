@@ -59,6 +59,7 @@ model AdminUser {
   organization Organization     @relation("OrganizationMembers", fields: [organizationId], references: [id], onDelete: Cascade)
   principalOf  Organization?    @relation("OrganizationPrincipal")
   invitation   AdminInvitation?
+  passwordResets AdminPasswordReset[]
   sessions     AuthSession[]
   notifications CfNotification[]
   auditLogs      AuditLog[]
@@ -90,6 +91,21 @@ model CfNotification {
   @@index([organizationId, isDemo])
 }
 
+/// One-time link an admin copies to a staff member to set a new password. Only the hash is kept.
+model AdminPasswordReset {
+  id               String    @id @default(cuid())
+  adminUserId      String
+  tokenHash        String    @unique
+  expiresAt        DateTime
+  usedAt           DateTime?
+  createdByAdminId String?
+  createdAt        DateTime  @default(now())
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+}
+
 model AdminInvitation {
   id          String    @id @default(cuid())
   adminUserId String    @unique
@@ -110,6 +126,8 @@ model AuthSession {
   jti                String    @unique
   expiresAt          DateTime
   refreshTokenHash   String?   @unique
+  /// The refresh token replaced by the last rotation; accepted briefly so concurrent tabs stay in.
+  previousRefreshTokenHash String?
   refreshExpiresAt   DateTime?
   refreshRotatedAt   DateTime?
   revokedAt          DateTime?

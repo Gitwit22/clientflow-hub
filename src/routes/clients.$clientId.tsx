@@ -12,6 +12,7 @@ import {
   currentContract,
   newIdempotencyKey,
   type SendKind,
+  DOCUMENT_UPLOAD_ACCEPT,
 } from "@/lib/client-send";
 import {
   CLIENT_TABS,
@@ -1478,6 +1479,7 @@ function ClientProfile() {
           <input
             ref={fileInputRef}
             type="file"
+            accept={DOCUMENT_UPLOAD_ACCEPT}
             className="hidden"
             onChange={async (e) => {
               const file = e.target.files?.[0];

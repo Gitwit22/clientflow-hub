@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Eye, EyeOff, UserPlus, UserX } from "lucide-react";
+import { Crown, Eye, EyeOff, KeyRound, Link2, UserPlus, UserX } from "lucide-react";
 import {
   ApiError,
   changePassword,
@@ -28,6 +28,8 @@ import {
   getOrganizationSettings,
   listMembers,
   revokeMemberInvite,
+  newMemberInviteLink,
+  newMemberResetLink,
   updateProfile,
   updateMemberRole,
   updateOrganizationSettings,
@@ -37,6 +39,7 @@ import { useAppState, retryBootstrap } from "@/lib/store";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
+import { CopyLinkDialog } from "@/components/dialogs/CopyLinkDialog";
 import { notifyMembersChanged } from "@/hooks/use-organization-members";
 import { LegacyDataCleanupCard } from "@/components/settings/LegacyDataCleanupCard";
 
@@ -118,6 +121,12 @@ function SettingsPage() {
 
   // Users & Roles
   const [members, setMembers] = useState<OrgMember[]>([]);
+  const [linkLoading, setLinkLoading] = useState<string | null>(null);
+  const [memberLink, setMemberLink] = useState<{
+    title: string;
+    description: string;
+    link: string;
+  } | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
   const [roleUpdating, setRoleUpdating] = useState<string | null>(null);
   const [activeUpdating, setActiveUpdating] = useState<string | null>(null);
@@ -316,6 +325,33 @@ function SettingsPage() {
     }
   }
 
+  // Invites and password resets aren't emailed: the admin copies the link and sends it.
+  async function handleMemberLink(member: OrgMember) {
+    if (!orgId || linkLoading) return;
+    setLinkLoading(member.id);
+    try {
+      if (member.invitePending) {
+        const result = await newMemberInviteLink(orgId, member.id);
+        setMemberLink({
+          title: "New sign-up link",
+          description: `Send this to ${member.email}. The earlier invite link no longer works. This one works for ${result.expiresInHours} hours.`,
+          link: result.inviteUrl,
+        });
+      } else {
+        const result = await newMemberResetLink(orgId, member.id);
+        setMemberLink({
+          title: "Password reset link",
+          description: `Send this to ${member.email} so they can set a new password. It works once, for ${result.expiresInMinutes} minutes, and signs them out everywhere.`,
+          link: result.resetUrl,
+        });
+      }
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Unable to make a link.");
+    } finally {
+      setLinkLoading(null);
+    }
+  }
+
   async function handleRevokeInvite(member: OrgMember) {
     if (!orgId || !window.confirm(`Revoke the invitation to ${member.email}?`)) return;
     setInviteRevoking(member.id);
@@ -490,6 +526,30 @@ function SettingsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {canRemoveDemoPermanently &&
+                      !isSelf &&
+                      (member.invitePending || member.isActive) && (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="size-7 shrink-0"
+                          onClick={() => void handleMemberLink(member)}
+                          disabled={linkLoading === member.id}
+                          aria-label={
+                            member.invitePending
+                              ? `New invite link for ${member.email}`
+                              : `Password reset link for ${member.email}`
+                          }
+                          title={member.invitePending ? "New invite link" : "Password reset link"}
+                        >
+                          {member.invitePending ? (
+                            <Link2 className="size-4" />
+                          ) : (
+                            <KeyRound className="size-4" />
+                          )}
+                        </Button>
+                      )}
                     {member.invitePending ? (
                       <Button
                         type="button"
@@ -855,6 +915,16 @@ function SettingsPage() {
             void fetchMembers();
             notifyMembersChanged();
           }}
+        />
+      )}
+
+      {memberLink && (
+        <CopyLinkDialog
+          open
+          onOpenChange={(open) => !open && setMemberLink(null)}
+          title={memberLink.title}
+          description={memberLink.description}
+          link={memberLink.link}
         />
       )}
 

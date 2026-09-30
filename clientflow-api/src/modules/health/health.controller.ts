@@ -1,7 +1,9 @@
 import { Controller, Get, Logger, OnApplicationBootstrap, ServiceUnavailableException } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from '../../prisma/prisma.service';
 import { pendingMigrations } from './migration-status';
 
+@SkipThrottle()
 @Controller('health')
 export class HealthController implements OnApplicationBootstrap {
   private readonly logger = new Logger(HealthController.name);

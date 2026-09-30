@@ -33,6 +33,20 @@ const admin = {
 };
 
 describe('ClientflowAuthGuard', () => {
+  it('rejects the access token of a session that was logged out or replaced', async () => {
+    const token = sign({ organizationId: 'org-1', jti: 'jti-1' }, SECRET, { subject: 'admin-1' });
+    const request = { headers: { authorization: `Bearer ${token}` } };
+    for (const session of [{ revokedAt: new Date() }, null]) {
+      const prisma = {
+        adminUser: { findUnique: jest.fn().mockResolvedValue(admin) },
+        authSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      };
+      const guard = new ClientflowAuthGuard(prisma as unknown as PrismaService, config());
+      await expect(guard.canActivate(contextWithRequest(request))).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.authSession.findUnique).toHaveBeenCalledWith({ where: { jti: 'jti-1' }, select: { revokedAt: true } });
+    }
+  });
+
   it('rejects requests with no session, even when a legacy bypass flag is set', async () => {
     const guard = new ClientflowAuthGuard(
       {} as unknown as PrismaService,
@@ -54,8 +68,11 @@ describe('ClientflowAuthGuard', () => {
   });
 
   it('attaches the authenticated admin from a valid bearer token', async () => {
-    const token = sign({ organizationId: 'org-1' }, SECRET, { subject: 'admin-1' });
-    const prisma = { adminUser: { findUnique: jest.fn().mockResolvedValue(admin) } };
+    const token = sign({ organizationId: 'org-1', jti: 'jti-1' }, SECRET, { subject: 'admin-1' });
+    const prisma = {
+      adminUser: { findUnique: jest.fn().mockResolvedValue(admin) },
+      authSession: { findUnique: jest.fn().mockResolvedValue({ revokedAt: null }) },
+    };
     const guard = new ClientflowAuthGuard(prisma as unknown as PrismaService, config());
     const request: Record<string, unknown> = { headers: { authorization: `Bearer ${token}` } };
 

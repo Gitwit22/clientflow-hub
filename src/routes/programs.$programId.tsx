@@ -48,6 +48,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useAppState } from "@/lib/store";
 import { nextStep } from "@/lib/next-step";
+import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/client-send";
 import { SendContractDialog } from "@/components/dialogs/SendContractDialog";
 import { SendWelcomeDialog } from "@/components/dialogs/SendWelcomeDialog";
 import { toast } from "sonner";
@@ -775,6 +776,7 @@ function ProgramDetailPage() {
                   />
                   <Input
                     type="file"
+                    accept={DOCUMENT_UPLOAD_ACCEPT}
                     onChange={(event) => setContractFile(event.target.files?.[0] ?? null)}
                   />
                   <Button
@@ -900,6 +902,7 @@ function ProgramDetailPage() {
                   />
                   <Input
                     type="file"
+                    accept={DOCUMENT_UPLOAD_ACCEPT}
                     onChange={(event) => setWelcomeGuideFile(event.target.files?.[0] ?? null)}
                   />
                   <Button
