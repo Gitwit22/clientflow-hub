@@ -25,10 +25,20 @@ export class HealthController implements OnApplicationBootstrap {
     try {
       pending = await pendingMigrations(this.prisma);
     } catch (error) {
-      throw new ServiceUnavailableException({ status: 'error', database: 'unreachable', message: (error as Error).message });
+      throw new ServiceUnavailableException({
+        status: 'error',
+        database: 'unreachable',
+        message: `Database unreachable: ${(error as Error).message}`,
+      });
     }
     if (pending.length) {
-      throw new ServiceUnavailableException({ status: 'error', database: 'ok', pendingMigrations: pending });
+      // The error filter shows `message`; name the migrations there so the page says what to run.
+      throw new ServiceUnavailableException({
+        status: 'error',
+        database: 'ok',
+        pendingMigrations: pending,
+        message: `Database is missing ${pending.length} migration(s): ${pending.join(', ')}. Run npm run prisma:deploy.`,
+      });
     }
     return { status: 'ok', database: 'ok', pendingMigrations: [] };
   }
