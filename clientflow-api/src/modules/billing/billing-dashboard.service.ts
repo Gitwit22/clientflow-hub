@@ -55,7 +55,7 @@ function scheduleFrom(
 ): BillingSchedule {
   return {
     startDate: agreement.startDate,
-    frequency: agreement.frequency as BillingSchedule['frequency'],
+    frequency: agreement.frequency,
     customIntervalDays: agreement.customIntervalDays,
     defaultDueDay: agreement.defaultDueDay,
     timezone,

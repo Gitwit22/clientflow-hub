@@ -145,7 +145,7 @@ describe('FormDeliveryService.createAssignment', () => {
     expect(data.secureLinkToken).toMatch(/^[a-f0-9]{64}$/);
     expect(created.secureLink).toMatch(/\/s\/[A-Za-z0-9_-]{43}$/);
     expect(created).not.toHaveProperty('secureLinkToken');
-    const rawToken = (created.secureLink as string).split('/s/')[1];
+    const rawToken = (created.secureLink).split('/s/')[1];
     expect(createHash('sha256').update(rawToken).digest('hex')).toBe(data.secureLinkToken);
   });
 });

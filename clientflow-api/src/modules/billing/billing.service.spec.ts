@@ -2,6 +2,8 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { BillingService } from './billing.service';
 
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+
 const TZ = 'America/Detroit';
 
 /** Minimal in-memory Prisma fake covering exactly what BillingService touches. */
