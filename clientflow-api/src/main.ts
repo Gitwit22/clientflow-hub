@@ -10,6 +10,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { CORS_ALLOWED_HEADERS } from './config/cors';
+import { sessionOriginCheck } from './config/origin-check';
 import { environmentSchema } from './config/env';
 
 async function bootstrap(): Promise<void> {
@@ -26,8 +27,10 @@ async function bootstrap(): Promise<void> {
     response.setHeader('X-Request-Id', requestId);
     next();
   });
+  const allowedOrigins = environment.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
+  app.use(sessionOriginCheck(allowedOrigins));
   app.enableCors({
-    origin: environment.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean),
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: CORS_ALLOWED_HEADERS,
