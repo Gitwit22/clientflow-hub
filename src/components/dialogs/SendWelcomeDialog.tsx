@@ -12,7 +12,12 @@ import {
 import { useSendAttempt } from "@/hooks/use-send-attempt";
 import { getProgramWorkflow, refreshClientCommunications } from "@/lib/api";
 import { acfSendWelcome } from "@/lib/apiClient";
-import { currentContract, describeDelivery, welcomeSendState } from "@/lib/client-send";
+import {
+  currentContract,
+  describeDelivery,
+  welcomeSendState,
+  recipientProblem,
+} from "@/lib/client-send";
 import type { Client, Communication, Contract, Program, ProgramEnrollment } from "@/types";
 
 const dateLabel = (value?: string | null) => (value ? new Date(value).toLocaleDateString() : "");
@@ -39,6 +44,7 @@ export function SendWelcomeDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const attempt = useSendAttempt();
+  const problem = recipientProblem(client);
   const state = welcomeSendState(currentContract(contracts, enrollment.id), communications);
   const [templateName, setTemplateName] = useState<string | null>(null);
 
@@ -113,6 +119,7 @@ export function SendWelcomeDialog({
           </p>
         )}
 
+        {problem && <p className="text-sm text-destructive">{problem}</p>}
         <DialogFooter className="gap-2">
           <Button
             type="button"
@@ -125,7 +132,7 @@ export function SendWelcomeDialog({
           <Button
             type="button"
             onClick={handleSend}
-            disabled={attempt.sending || state.kind === "blocked"}
+            disabled={attempt.sending || state.kind === "blocked" || !!problem}
           >
             {attempt.sending
               ? "Sending…"

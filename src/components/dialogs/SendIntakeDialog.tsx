@@ -11,7 +11,7 @@ import {
 import { useSendAttempt } from "@/hooks/use-send-attempt";
 import { refreshClientCommunications } from "@/lib/api";
 import { acfSendIntakeNow } from "@/lib/apiClient";
-import { describeDelivery } from "@/lib/client-send";
+import { describeDelivery, recipientProblem } from "@/lib/client-send";
 import type { Client } from "@/types";
 
 /** Sends or resends the General Intake email. Only the intake form is ever resent from here. */
@@ -25,6 +25,7 @@ export function SendIntakeDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const attempt = useSendAttempt();
+  const problem = recipientProblem(client);
 
   async function handleSend() {
     try {
@@ -61,6 +62,7 @@ export function SendIntakeDialog({
             <dd className="font-medium">{client.email}</dd>
           </div>
         </dl>
+        {problem && <p className="text-sm text-destructive">{problem}</p>}
         <DialogFooter className="gap-2">
           <Button
             type="button"
@@ -70,7 +72,7 @@ export function SendIntakeDialog({
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleSend} disabled={attempt.sending}>
+          <Button type="button" onClick={handleSend} disabled={attempt.sending || !!problem}>
             {attempt.sending ? "Sending…" : "Send intake email"}
           </Button>
         </DialogFooter>

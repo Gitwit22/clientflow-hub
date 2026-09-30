@@ -159,3 +159,22 @@ export function describeDelivery(delivery: { status: string; reason?: string }):
 export function isDefinitiveFailure(error: unknown): boolean {
   return typeof (error as { status?: unknown } | null)?.status === "number";
 }
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Why an email can't go to this client yet (same rule the server applies), or null. Shown in the
+ * send dialogs so staff fix the profile instead of discovering a failed delivery.
+ */
+export function recipientProblem(client: {
+  email?: string | null;
+  primaryContactName?: string | null;
+}): string | null {
+  const email = client.email?.trim() ?? "";
+  if (!email) return "This client has no email address. Add one with Edit client before sending.";
+  if (!EMAIL_PATTERN.test(email))
+    return `"${email}" is not a valid email address. Correct it with Edit client before sending.`;
+  if (!client.primaryContactName?.trim())
+    return "This client has no contact name. Add one with Edit client before sending.";
+  return null;
+}

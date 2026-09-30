@@ -60,6 +60,7 @@ import {
   executedCopyFileName,
   renderExecutedContract,
 } from './executed-contract-file';
+import { assertSendableRecipient } from '../communications/recipient';
 
 const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract processing.';
 const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contract template.';
@@ -301,6 +302,7 @@ export class ContractsService {
     options?: { enrollmentId?: string | null; actor?: StaffSigner | null; idempotencyKey?: string | null },
   ) {
     const client = await findClientForOrg(this.prisma, organizationId, clientId);
+    assertSendableRecipient({ email: client.email, name: client.primaryContactName });
 
     const contract = await this.prisma.cfContract.findFirst({
       where: { id: contractId, clientId: client.id, organizationId: client.organizationId },
@@ -372,6 +374,7 @@ export class ContractsService {
     options?: { actor?: StaffSigner | null; idempotencyKey?: string | null },
   ) {
     const client = await findClientForOrg(this.prisma, organizationId, clientId);
+    assertSendableRecipient({ email: client.email, name: client.primaryContactName });
     const contract = await this.prisma.cfContract.findFirst({
       where: { id: contractId, clientId: client.id, organizationId: client.organizationId },
     });
@@ -420,6 +423,7 @@ export class ContractsService {
         return { contractId: prior.contractId, emailDelivery: recordedDelivery(prior), replayed: true as const };
       }
     }
+    assertSendableRecipient({ email: client.email, name: client.primaryContactName });
 
     const contract = await this.prisma.cfContract.findFirst({
       where: {

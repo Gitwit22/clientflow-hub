@@ -222,6 +222,20 @@ describe('ContractsService: manual contract send / resend', () => {
     update: jest.fn(),
   } });
 
+  it("stops before emailing when the client's email is invalid or the name is missing", async () => {
+    const n8n = readyN8n();
+    const { service, prisma } = build(draftLookup(), n8n);
+    prisma.cfClient.findFirst.mockResolvedValueOnce({ ...client, email: 'owner@example' });
+    await expect(service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions)).rejects.toThrow(
+      '"owner@example" is not a valid email address',
+    );
+    prisma.cfClient.findFirst.mockResolvedValueOnce({ ...client, primaryContactName: '' });
+    await expect(service.sendForStaff('org-1', 'client-1', 'contract-1', sendOptions)).rejects.toThrow(
+      "Add the client's contact name",
+    );
+    expect(n8n.sendContract).not.toHaveBeenCalled();
+  });
+
   it('refuses to send an old placeholder draft from before contract templates', async () => {
     const legacy = { ...draft, contractTemplateId: '', staffSignedAt: null, secureTokenHash: null };
     const n8n = readyN8n();

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const booleanFlag = z.enum(['true', 'false']).default('false');
 
-export const environmentSchema = z.object({
+const environmentObjectSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(4001),
@@ -10,7 +10,8 @@ export const environmentSchema = z.object({
   ALLOW_UNAUTHENTICATED_CLIENT_CREATION: booleanFlag,
   ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT: booleanFlag,
   CORS_ORIGIN: z.string().default('http://localhost:3000,http://localhost:5173'),
-  APP_URL: z.string().url().default('http://localhost:3000'),
+  // Base of every link emailed to clients (forms, contracts, welcome). See resolveAppUrl.
+  APP_URL: z.string().url().optional(),
   JWT_ACCESS_SECRET: z.string().min(32).optional(),
   JWT_REFRESH_SECRET: z.string().min(32).optional(),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
@@ -103,5 +104,28 @@ export const environmentSchema = z.object({
     }
   }
 });
+
+/** The deployed ClientFlow site, used when production doesn't set APP_URL. */
+export const DEFAULT_PRODUCTION_APP_URL = 'https://clientflow-2g9.pages.dev';
+
+/**
+ * The one base URL for links in client emails. Production links are always https (a plain-http
+ * link would be rewritten or flagged by mail clients) and never localhost: an unset APP_URL falls
+ * back to the deployed site instead of emailing clients a link to someone's laptop.
+ */
+export function resolveAppUrl(environment: { NODE_ENV?: string; APP_URL?: string }): string {
+  const production = environment.NODE_ENV === 'production';
+  let url = environment.APP_URL?.trim() || (production ? DEFAULT_PRODUCTION_APP_URL : 'http://localhost:3000');
+  if (production) {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(url)) url = DEFAULT_PRODUCTION_APP_URL;
+    url = url.replace(/^http:\/\//, 'https://');
+  }
+  return url.replace(/\/+$/, '');
+}
+
+export const environmentSchema = environmentObjectSchema.transform((environment) => ({
+  ...environment,
+  APP_URL: resolveAppUrl(environment),
+}));
 
 export type Environment = z.infer<typeof environmentSchema>;

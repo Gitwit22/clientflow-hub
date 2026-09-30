@@ -11,6 +11,7 @@ import {
   newIdempotencyKey,
   sendAvailability,
   welcomeSendState,
+  recipientProblem,
 } from "./client-send";
 
 const contract = (overrides: Partial<Contract> = {}) =>
@@ -190,5 +191,18 @@ describe("delivery helpers", () => {
     const b = newIdempotencyKey();
     expect(a).not.toBe(b);
     expect(a).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
+  });
+});
+
+describe("recipientProblem", () => {
+  it("explains a missing or mistyped email, or a missing name", () => {
+    expect(recipientProblem({ email: "", primaryContactName: "Pat" })).toMatch(/no email address/);
+    expect(recipientProblem({ email: "pat@gmail", primaryContactName: "Pat" })).toMatch(
+      /"pat@gmail" is not a valid email/,
+    );
+    expect(recipientProblem({ email: "pat@gmail.com", primaryContactName: " " })).toMatch(
+      /no contact name/,
+    );
+    expect(recipientProblem({ email: "pat@gmail.com", primaryContactName: "Pat" })).toBeNull();
   });
 });

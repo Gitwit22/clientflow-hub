@@ -182,6 +182,18 @@ describe('FormDeliveryService.send', () => {
     }));
   });
 
+  it('rejects a mistyped recipient before recording or emailing anything', async () => {
+    const { service, prisma, n8n } = build({
+      cfFormAssignment: {
+        findFirst: jest.fn().mockResolvedValue({ ...assignment, recipientEmail: 'client gmail.com' }),
+        update: jest.fn(),
+      },
+    });
+    await expect(service.send('org-1', actor, 'assign-1', input)).rejects.toThrow('is not a valid email address');
+    expect(prisma.cfCommunication.create).not.toHaveBeenCalled();
+    expect(n8n.deliver).not.toHaveBeenCalled();
+  });
+
   it("keeps the assignment's own due date", async () => {
     const { service, prisma, n8n } = build();
     await service.send('org-1', actor, 'assign-1', input);

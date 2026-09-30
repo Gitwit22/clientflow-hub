@@ -17,6 +17,8 @@ import {
   type CommunicationSnapshot,
   type DeliverySource,
 } from '../communications/communication-attempts';
+import { resolveAppUrl } from '../../config/env';
+import { assertSendableRecipient } from '../communications/recipient';
 
 export interface FormDeliveryActor {
   id: string;
@@ -83,7 +85,7 @@ export class FormDeliveryService {
 
     const rawToken = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-    const appUrl = (process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev').replace(/\/$/, '');
+    const appUrl = resolveAppUrl(process.env);
     const dueDate = text(body.dueDate);
     const created = await this.prisma.cfFormAssignment.create({
       data: {
@@ -138,6 +140,10 @@ export class FormDeliveryService {
       }),
     ]);
     if (!client || !form) throw new NotFoundException('Form assignment details not found.');
+    // Staff sends are checked up front; an automation send records its own failure instead.
+    if ((input.source ?? DELIVERY_SOURCE.manual) === DELIVERY_SOURCE.manual) {
+      assertSendableRecipient({ email: assignment.recipientEmail, name: client.primaryContactName });
+    }
 
     // An assignment without its own due date is due the template's dueInDays after it is sent, and
     // that date is saved so the email and the record agree.
@@ -148,7 +154,7 @@ export class FormDeliveryService {
 
     // Raw links are never stored, so each send issues a fresh one (the previous link stops working).
     const rawToken = randomBytes(32).toString('base64url');
-    const appUrl = (process.env.APP_URL ?? 'https://clientflow-2g9.pages.dev').replace(/\/$/, '');
+    const appUrl = resolveAppUrl(process.env);
     const formUrl = `${appUrl}/s/${rawToken}`;
     await this.prisma.cfFormAssignment.update({
       where: { id: assignment.id },
