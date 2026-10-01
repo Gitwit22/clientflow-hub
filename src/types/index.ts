@@ -165,6 +165,9 @@ export interface IntakeDetails {
   programOfInterest: string;
   budgetNeed: string;
   preferredContact: string;
+  /** Kept when the intake asked for a work or cell number separately. */
+  workPhone?: string;
+  cellPhone?: string;
   heardAboutUs: string;
   additionalComments: string;
   uploadedFiles: string[];

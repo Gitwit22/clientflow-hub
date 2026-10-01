@@ -75,7 +75,7 @@ export function socialLinksOf(value: unknown): string[] {
 function plausibleFor(key: string, text: string): boolean {
   if (key === 'website') return /^\S+\.\S+$/.test(text);
   if (key === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
-  if (key === 'phone') return (text.match(/\d/g) ?? []).length >= 7;
+  if (key === 'phone' || key === 'workPhone' || key === 'cellPhone') return (text.match(/\d/g) ?? []).length >= 7;
   return true;
 }
 
@@ -107,6 +107,13 @@ export function mapAnswers(
       continue;
     }
     seen.add(key);
+  }
+
+  // The profile's phone is whatever number the client gave: a plain "Phone" answer first, otherwise
+  // their cell, otherwise their work number.
+  if (!seen.has('phone')) {
+    const fallback = mapped.find((answer) => answer.key === 'cellPhone') ?? mapped.find((answer) => answer.key === 'workPhone');
+    if (fallback) mapped.push({ key: 'phone', label: PROFILE_FIELD_LABELS.phone, target: 'top', value: fallback.value });
   }
 
   const repeatableSocial = fields.find((field) => field.type === 'social_links');

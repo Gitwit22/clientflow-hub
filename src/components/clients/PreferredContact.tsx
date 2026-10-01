@@ -1,16 +1,11 @@
-import { preferredContactLink } from "@/lib/preferred-contact";
+import { preferredContactLink, type ContactDetails } from "@/lib/preferred-contact";
 
 /** The client's preferred way to be reached, with the number or address to use it. */
 export function PreferredContact({
   preference,
-  phone,
-  email,
-}: {
-  preference?: string;
-  phone?: string;
-  email?: string;
-}) {
-  const contact = preferredContactLink(preference, { phone, email });
+  ...details
+}: { preference?: string } & ContactDetails) {
+  const contact = preferredContactLink(preference, details);
   if (!contact) return <>—</>;
   return (
     <span>

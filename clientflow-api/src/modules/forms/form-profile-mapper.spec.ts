@@ -239,3 +239,28 @@ describe('fields recognised by their label (form-editor ids are slugs of the lab
     expect(mapAnswers([slugField('How many employees do you have?')], { 'how-many-employees-do-you-have': '5' })).toEqual([]);
   });
 });
+
+describe('phone numbers by kind', () => {
+  const slugField = (label: string, type = 'text') =>
+    field(label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), { label, type });
+  const byKey = (fields: FormFieldShape[], answers: Record<string, unknown>) =>
+    Object.fromEntries(mapAnswers(fields, answers).map((a) => [a.key, a.value]));
+
+  it('keeps work and cell numbers apart, with the plain phone as the profile phone', () => {
+    expect(byKey(
+      [slugField('Phone', 'phone'), slugField('Work number', 'phone'), slugField('Cell phone', 'phone')],
+      { phone: '313-555-0100', 'work-number': '313-555-0200', 'cell-phone': '313-555-0300' },
+    )).toEqual({ phone: '313-555-0100', workPhone: '313-555-0200', cellPhone: '313-555-0300' });
+  });
+
+  it('uses the cell (else the work) number as the profile phone when no plain phone was asked', () => {
+    expect(byKey([slugField('Work phone'), slugField('Mobile number')], { 'work-phone': '313-555-0200', 'mobile-number': '313-555-0300' }))
+      .toEqual({ workPhone: '313-555-0200', cellPhone: '313-555-0300', phone: '313-555-0300' });
+    expect(byKey([slugField('Office phone')], { 'office-phone': '313-555-0200' }))
+      .toEqual({ workPhone: '313-555-0200', phone: '313-555-0200' });
+  });
+
+  it('does not take other numbers for a phone', () => {
+    expect(byKey([slugField('Tax ID number'), slugField('Number of employees')], { 'tax-id-number': '123456789', 'number-of-employees': '12' })).toEqual({});
+  });
+});

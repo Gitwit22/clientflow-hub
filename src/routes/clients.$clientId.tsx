@@ -178,6 +178,8 @@ const INTAKE_KEY_ALIASES: Record<Exclude<keyof IntakeDetails, "uploadedFiles">, 
   programOfInterest: ["programofinterest", "program"],
   budgetNeed: ["budgetneed", "budget"],
   preferredContact: ["preferredcontact", "contact_pref", "contact"],
+  workPhone: ["workphone"],
+  cellPhone: ["cellphone", "mobilephone"],
   heardAboutUs: ["heardaboutus", "heard"],
   additionalComments: ["additionalcomments", "comments"],
 };
@@ -792,6 +794,8 @@ function ClientProfile() {
                         preference={client.intake?.preferredContact}
                         phone={client.phone}
                         email={client.email}
+                        workPhone={client.intake?.workPhone}
+                        cellPhone={client.intake?.cellPhone}
                       />
                     </Row>
                     <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
@@ -897,6 +901,8 @@ function ClientProfile() {
                     preference={client.intake?.preferredContact}
                     phone={client.phone}
                     email={client.email}
+                    workPhone={client.intake?.workPhone}
+                    cellPhone={client.intake?.cellPhone}
                   />
                 </Row>
                 <Row label="Website">
@@ -1167,6 +1173,8 @@ function ClientProfile() {
                           preference={client.intake?.preferredContact}
                           phone={client.phone}
                           email={client.email}
+                          workPhone={client.intake?.workPhone}
+                          cellPhone={client.intake?.cellPhone}
                         />
                       </Row>
                     )}
