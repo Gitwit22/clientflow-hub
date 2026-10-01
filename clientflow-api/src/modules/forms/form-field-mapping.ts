@@ -53,6 +53,9 @@ export const INTAKE_FIELD_KEYS: Record<string, string> = {
   heard: 'heardAboutUs',
   additionalComments: 'additionalComments',
   comments: 'additionalComments',
+  workPhone: 'workPhone',
+  cellPhone: 'cellPhone',
+  mobilePhone: 'cellPhone',
 };
 
 export const SOCIAL_FIELD_IDS = new Set([
@@ -91,6 +94,8 @@ export const PROFILE_FIELD_LABELS: Record<string, string> = {
   preferredContact: 'Preferred contact',
   heardAboutUs: 'How they heard about us',
   additionalComments: 'Additional comments',
+  workPhone: 'Work phone',
+  cellPhone: 'Cell phone',
 };
 
 const FIELD_TYPES = new Set([
@@ -129,7 +134,10 @@ const LABEL_RULES: Array<[RegExp, string]> = [
   [/program (or service )?of interest|interested in which program/, 'programOfInterest'],
   [/\bweb ?site\b|\bweb address\b|\burl\b/, 'website'],
   [/\be-?mail\b/, 'email'],
-  [/\bphone\b|\bmobile\b|\bcell\b|telephone/, 'phone'],
+  // A number labelled work or cell is kept as that kind, so "Cell" as the preferred contact finds it.
+  [/\b(work|office|business|landline)\b.*\b(phone|number|line)\b|\b(phone|number)\b.*\b(work|office)\b/, 'workPhone'],
+  [/\b(cell|mobile)\b/, 'cellPhone'],
+  [/\bphone\b|telephone|\b(contact|best|your|callback|call back) number\b/, 'phone'],
   [/business name|company name|organi[sz]ation name|name of (your )?(business|company|organi[sz]ation)/, 'businessName'],
   [/^(your |full |contact |applicant )?name$|^(first and last|full) name|contact person/, 'primaryContactName'],
 ];

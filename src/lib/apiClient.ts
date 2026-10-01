@@ -607,33 +607,6 @@ export async function cfUpdateClient(id: string, data: Record<string, unknown>) 
 }
 
 /** One profile field a submitted form would change. Values are computed by the server. */
-export interface ProfileChangePreview {
-  key: string;
-  label: string;
-  target: "top" | "intake" | "socialLinks";
-  currentValue: string;
-  newValue: string;
-}
-
-export async function cfPreviewApplyFormResponses(clientId: string, assignmentId: string) {
-  return apiRequest<ProfileChangePreview[]>(
-    `${CF}/clients/${clientId}/apply-form-responses/preview`,
-    { method: "POST", body: JSON.stringify({ assignmentId }) },
-  );
-}
-
-/** `fields` are the approved keys from the preview; the server recomputes the values itself. */
-export async function cfApplyFormResponses(
-  clientId: string,
-  assignmentId: string,
-  fields: string[],
-) {
-  return apiRequest<{ client: unknown; applied: string[] }>(
-    `${CF}/clients/${clientId}/apply-form-responses`,
-    { method: "POST", body: JSON.stringify({ assignmentId, fields }) },
-  );
-}
-
 /**
  * DELETE /clients/:id/permanent — erases the client and everything recorded for them, including
  * billing agreements and payments. `confirmation` must be the business name, typed by staff.
@@ -946,9 +919,13 @@ export async function cfCompleteDocumentUpload(documentId: string) {
     method: "POST",
   });
 }
-export async function cfGetDocumentDownload(documentId: string) {
+/** `inline` returns a link that opens the file in the browser (View) instead of saving it. */
+export async function cfGetDocumentDownload(
+  documentId: string,
+  options: { inline?: boolean } = {},
+) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(
-    `${CF}/documents/${documentId}/download`,
+    `${CF}/documents/${documentId}/download${options.inline ? "?disposition=inline" : ""}`,
   );
 }
 export async function cfCreateStoredFileUpload(data: {
@@ -986,9 +963,13 @@ export async function cfCompleteStoredFileUpload(fileId: string) {
 export async function cfGetStoredFileDownload(fileId: string) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(`${CF}/files/${fileId}/download`);
 }
-export async function cfGetExecutedContractDownload(clientId: string, contractId: string) {
+export async function cfGetExecutedContractDownload(
+  clientId: string,
+  contractId: string,
+  options: { inline?: boolean } = {},
+) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(
-    `${CF}/clients/${clientId}/contracts/${contractId}/download`,
+    `${CF}/clients/${clientId}/contracts/${contractId}/download${options.inline ? "?disposition=inline" : ""}`,
   );
 }
 export async function cfListAllDocuments() {

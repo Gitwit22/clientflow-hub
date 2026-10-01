@@ -87,7 +87,8 @@ export class StorageService {
   async createPresignedDownloadUrl(
     objectKey: string,
     expiresInSeconds = 300,
-    options: { downloadFileName?: string; contentType?: string } = {},
+    /** `inline` opens the file in the browser (View) instead of saving it (Download). */
+    options: { downloadFileName?: string; contentType?: string; inline?: boolean } = {},
   ): Promise<PresignedStorageUrl> {
     const client = this.getClient();
     const bucket = this.getBucketName();
@@ -97,7 +98,11 @@ export class StorageService {
       Key: objectKey,
       // Makes the link download as a named file instead of opening in the browser.
       ...(options.downloadFileName
-        ? { ResponseContentDisposition: attachmentDisposition(options.downloadFileName) }
+        ? {
+            ResponseContentDisposition: options.inline
+              ? inlineDisposition(options.downloadFileName)
+              : attachmentDisposition(options.downloadFileName),
+          }
         : {}),
       ...(options.contentType ? { ResponseContentType: options.contentType } : {}),
     }), { expiresIn: expiresInSeconds });
@@ -171,6 +176,15 @@ export class StorageService {
 
 /** `attachment` disposition with an ASCII fallback name plus the RFC 5987 UTF-8 name. */
 export function attachmentDisposition(fileName: string): string {
+  return contentDisposition('attachment', fileName);
+}
+
+/** Same file name, but the browser shows the file in the tab instead of saving it. */
+export function inlineDisposition(fileName: string): string {
+  return contentDisposition('inline', fileName);
+}
+
+function contentDisposition(kind: 'attachment' | 'inline', fileName: string): string {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '').trim() || 'download';
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

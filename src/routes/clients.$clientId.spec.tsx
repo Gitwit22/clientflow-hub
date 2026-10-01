@@ -15,6 +15,8 @@ const createEnrollment = vi.fn();
 const cfGetEnrollmentBillingSummary = vi.fn();
 const cfGetProgramBillingConfig = vi.fn();
 const cfGetBillingDashboard = vi.fn();
+const downloadExecutedContract = vi.fn();
+const sendSignedAgreementCopy = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   addCommunication: vi.fn(),
@@ -24,7 +26,8 @@ vi.mock("@/lib/api", () => ({
   createEnrollmentMonitoring: vi.fn(),
   createFinalReport: vi.fn(),
   downloadDocument: vi.fn(),
-  downloadExecutedContract: vi.fn(),
+  downloadExecutedContract: (...args: unknown[]) => downloadExecutedContract(...args),
+  sendSignedAgreementCopy: (...args: unknown[]) => sendSignedAgreementCopy(...args),
   refreshClientContracts: vi.fn(),
   refreshClientProfile: (...args: unknown[]) => refreshClientProfile(...args),
   recordMonitoringResult: vi.fn(),
@@ -47,7 +50,6 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 // Dialogs are not under test; stub them so the route renders on its own.
 vi.mock("@/components/dialogs/FormRendererDialog", () => ({ FormRendererDialog: () => null }));
 vi.mock("@/components/dialogs/EditClientDialog", () => ({ EditClientDialog: () => null }));
-vi.mock("@/components/dialogs/MergeResponsesDialog", () => ({ MergeResponsesDialog: () => null }));
 vi.mock("@/components/dialogs/SendFormDialog", () => ({
   SendFormDialog: ({ open, kind }: { open: boolean; kind?: string }) =>
     open ? <div data-testid={`dialog-form-${kind ?? "legacy"}`} /> : null,
@@ -81,7 +83,6 @@ const TAB_LABELS = [
   "Program",
   "Billing",
   "Forms",
-  "Contracts",
   "Documents",
   "Communications",
   "Monitoring",
@@ -233,7 +234,7 @@ describe("canonical client profile: client with exactly one enrollment", () => {
     expect(router.state.location.pathname).toBe("/clients/c1");
   });
 
-  it("shows the ten canonical tabs including Billing", async () => {
+  it("shows the nine canonical tabs including Billing", async () => {
     mountRouter("/clients/c1");
     await screen.findByRole("tab", { name: "Billing" });
     expect(tabNames()).toEqual(TAB_LABELS);
@@ -277,11 +278,11 @@ describe("canonical client profile: client with exactly one enrollment", () => {
 
   it("keeps the selected tab and enrollment in the URL when switching tabs", async () => {
     const router = mountRouter("/clients/c1");
-    await screen.findByRole("tab", { name: "Contracts" });
-    openTab("Contracts");
-    await waitFor(() => expect(router.state.location.search.tab).toBe("contracts"));
+    await screen.findByRole("tab", { name: "Documents" });
+    openTab("Documents");
+    await waitFor(() => expect(router.state.location.search.tab).toBe("documents"));
     expect(router.state.location.search.enrollmentId).toBe("e1");
-    expect(selectedTab()).toBe("Contracts");
+    expect(selectedTab()).toBe("Documents");
   });
 
   it("normalizes a legacy ?programId= link to the enrollment and removes programId", async () => {
@@ -326,11 +327,6 @@ describe("canonical client profile: client with several enrollments", () => {
     // Billing follows the same enrollment
     await waitFor(() => expect(cfGetEnrollmentBillingSummary).toHaveBeenLastCalledWith("c1", "e2"));
 
-    // Contracts
-    openTab("Contracts");
-    expect(await screen.findByText("Contract P2")).toBeTruthy();
-    expect(screen.queryByText("Contract P1")).toBeNull();
-
     // Monitoring
     openTab("Monitoring");
     expect(await screen.findByText("Monitor P2")).toBeTruthy();
@@ -352,25 +348,31 @@ describe("canonical client profile: client with several enrollments", () => {
     Element.prototype.setPointerCapture ??= () => undefined;
     Element.prototype.scrollIntoView ??= () => undefined;
 
-    const router = mountRouter("/clients/c1?enrollmentId=e1&tab=contracts");
-    expect(await screen.findByText("Contract P1")).toBeTruthy();
+    const router = mountRouter("/clients/c1?enrollmentId=e1&tab=forms");
+    expect(await screen.findByText("Form P1")).toBeTruthy();
 
     const trigger = screen.getByRole("combobox", { name: "Working in program" });
     fireEvent.keyDown(trigger, { key: "Enter" });
     fireEvent.click(await screen.findByRole("option", { name: /Grant Program/ }));
 
     await waitFor(() => expect(router.state.location.search.enrollmentId).toBe("e2"));
-    expect(router.state.location.search.tab).toBe("contracts");
-    expect(await screen.findByText("Contract P2")).toBeTruthy();
-    expect(screen.queryByText("Contract P1")).toBeNull();
+    expect(router.state.location.search.tab).toBe("forms");
+    expect(await screen.findByText("Form P2")).toBeTruthy();
+    expect(screen.queryByText("Form P1")).toBeNull();
   });
 
   it("a refresh (fresh mount at the same URL) keeps the selected enrollment and tab", async () => {
     cleanup();
-    const router = mountRouter("/clients/c1?enrollmentId=e2&tab=contracts");
-    expect(await screen.findByText("Contract P2")).toBeTruthy();
-    expect(screen.queryByText("Contract P1")).toBeNull();
-    expect(router.state.location.search).toMatchObject({ enrollmentId: "e2", tab: "contracts" });
+    const router = mountRouter("/clients/c1?enrollmentId=e2&tab=forms");
+    expect(await screen.findByText("Form P2")).toBeTruthy();
+    expect(screen.queryByText("Form P1")).toBeNull();
+    expect(router.state.location.search).toMatchObject({ enrollmentId: "e2", tab: "forms" });
+  });
+
+  it("an old Contracts link opens the Documents tab", async () => {
+    cleanup();
+    mountRouter("/clients/c1?enrollmentId=e2&tab=contracts");
+    await waitFor(() => expect(selectedTab()).toBe("Documents"));
   });
 
   it("falls back to a valid enrollment when the URL names one that isn't this client's", async () => {
@@ -382,7 +384,7 @@ describe("canonical client profile: client with several enrollments", () => {
 describe("canonical client profile: client with no enrollments", () => {
   beforeEach(() => seed({ enrollments: [] }));
 
-  it("shows the enrollment prompt (and only here), keeps all ten tabs, and explains program tabs", async () => {
+  it("shows the enrollment prompt (and only here), keeps all nine tabs, and explains program tabs", async () => {
     const router = mountRouter("/clients/c1?tab=billing");
     expect(await screen.findByText("No program enrollment")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Enroll client" })).toBeTruthy();
@@ -462,54 +464,44 @@ describe("one Send workflow in the client header", () => {
     expect(await screen.findByTestId("dialog-form-general")).toBeTruthy();
   });
 
-  it("the Forms tab has the same sending center, above the assigned-forms history", async () => {
+  it("the Forms tab holds answers only: no send controls, forms grouped by kind", async () => {
     seed({ enrollments: [enrollment("e1", "p1")] });
     mountRouter("/clients/c1?enrollmentId=e1&tab=forms");
 
-    expect(await screen.findByText("Send something to this client")).toBeTruthy();
-    for (const name of ["Program Form", "General Form", "Contract", "Welcome Email"]) {
-      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
+    expect(await screen.findByText("Form P1")).toBeTruthy();
+    expect(screen.getByText("Master Intake")).toBeTruthy();
+    expect(screen.getByText("Program forms")).toBeTruthy();
+    expect(screen.queryByText("Send something to this client")).toBeNull();
+    for (const name of ["Assign a form", "Send another form", "Contract", "Welcome Email"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
     }
-    expect(screen.getByText("Form P1")).toBeTruthy(); // history is preserved
-
-    fireEvent.click(screen.getByRole("button", { name: "Contract" }));
-    expect(await screen.findByTestId("dialog-contract")).toBeTruthy();
   });
 
-  it("the Forms tab panel follows the zero-enrollment rules too", async () => {
+  it("an empty Forms tab points to Send ▼", async () => {
     seed({ enrollments: [] });
+    setState((state) => ({ ...state, formAssignments: [] }));
     mountRouter("/clients/c1?tab=forms");
-    await screen.findByText("Send something to this client");
-    expect(
-      (screen.getByRole("button", { name: "General Form" }) as HTMLButtonElement).disabled,
-    ).toBe(false);
-    expect(
-      (screen.getByRole("button", { name: "Program Form" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "Welcome Email" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(await screen.findByText(/Send one from Send ▼/)).toBeTruthy();
   });
 
-  it("relocated actions: terms live on the Program tab, contracts on Contracts, follow-up on Overview", async () => {
+  it("Program owns the enrollment and its pending agreement; Overview owns follow-up", async () => {
     seed({ enrollments: [enrollment("e1", "p1")] });
     mountRouter("/clients/c1?enrollmentId=e1&tab=program");
     expect(await screen.findByRole("button", { name: "Create terms" })).toBeTruthy();
-
-    openTab("Contracts");
-    await waitFor(() => expect(selectedTab()).toBe("Contracts"));
-    // The seeded contract was already sent, so the action is a resend (not a new draft).
+    // The seeded contract was already sent, so the agreement action is a resend.
     expect(screen.getByText("Sent, waiting for a signature")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Generate contract" })).toBeNull();
-    fireEvent.click(screen.getAllByRole("button", { name: "Resend signing link" })[0]);
+    // Intake answers live in Forms, not here.
+    expect(screen.queryByText("Master intake answers")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Resend signing link" }));
     expect(await screen.findByTestId("dialog-contract")).toBeTruthy();
 
     openTab("Overview");
     await waitFor(() => expect(selectedTab()).toBe("Overview"));
-    expect(screen.getByRole("button", { name: "Schedule follow-up (7 days)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Schedule in 7 days" })).toBeTruthy();
+    expect(screen.getByText("Recent activity")).toBeTruthy();
   });
 
-  it("Contracts tab offers Send copy (not the signing link) for a signed contract", async () => {
+  it("a signed agreement is a document: View, Download and Send copy on the Documents tab", async () => {
     seed({ enrollments: [enrollment("e1", "p1")] });
     setState((state) => ({
       ...state,
@@ -518,22 +510,32 @@ describe("one Send workflow in the client header", () => {
           id: "k1",
           clientId: "c1",
           enrollmentId: "e1",
-          contractType: "Contract P1",
+          programId: "p1",
+          contractType: "Membership Agreement",
           status: "COMPLETED",
-          signedAt: "2026-09-20T00:00:00.000Z",
+          signedAt: "2026-09-29T12:00:00.000Z",
           executedStoredFileId: "f1",
           generatedContent: "",
           createdAt: "2026-09-01T00:00:00.000Z",
         },
       ] as never,
     }));
-    mountRouter("/clients/c1?enrollmentId=e1&tab=contracts");
+    downloadExecutedContract.mockResolvedValue(undefined);
+    sendSignedAgreementCopy.mockResolvedValue({ status: "sent" });
+    mountRouter("/clients/c1?enrollmentId=e1&tab=documents");
 
-    const copyButtons = await screen.findAllByRole("button", { name: "Send copy" });
-    expect(copyButtons.length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Resend signing link" })).toBeNull();
-    fireEvent.click(copyButtons[0]);
-    expect(await screen.findByTestId("dialog-contract")).toBeTruthy();
+    expect(await screen.findByText("Membership Agreement")).toBeTruthy();
+    expect(screen.getByText("Signed agreements")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    expect(downloadExecutedContract).toHaveBeenLastCalledWith("c1", "k1", { view: true });
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    expect(downloadExecutedContract).toHaveBeenLastCalledWith("c1", "k1");
+    fireEvent.click(screen.getByRole("button", { name: "Send copy" }));
+    await waitFor(() => expect(sendSignedAgreementCopy).toHaveBeenCalledWith("c1", "k1"));
+
+    // Program points at it instead of repeating it.
+    openTab("Program");
+    expect(await screen.findByRole("button", { name: "View in Documents" })).toBeTruthy();
   });
 });
 

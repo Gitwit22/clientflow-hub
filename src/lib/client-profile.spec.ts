@@ -16,13 +16,12 @@ const enrollment = (id: string, programId: string, status = "active") => ({
 });
 
 describe("CLIENT_TABS", () => {
-  it("is the canonical ten-tab set, in order, with a label for each", () => {
+  it("is the canonical nine-tab set, in order, with a label for each", () => {
     expect(CLIENT_TABS).toEqual([
       "overview",
       "program",
       "billing",
       "forms",
-      "contracts",
       "documents",
       "communications",
       "monitoring",
@@ -34,7 +33,6 @@ describe("CLIENT_TABS", () => {
       "Program",
       "Billing",
       "Forms",
-      "Contracts",
       "Documents",
       "Communications",
       "Monitoring",
@@ -51,6 +49,10 @@ describe("parseClientProfileSearch", () => {
       programId: undefined,
       tab: "billing",
     });
+  });
+
+  it("sends an old Contracts link to Documents, where signed agreements live now", () => {
+    expect(parseClientProfileSearch({ tab: "contracts" }).tab).toBe("documents");
   });
 
   it("accepts every canonical tab", () => {

@@ -4,7 +4,7 @@ import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ClientSendMenu, SendToClientPanel } from "@/components/clients/ClientSendMenu";
+import { ClientSendMenu } from "@/components/clients/ClientSendMenu";
 import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
 import { ExternalLinks } from "@/components/clients/ExternalLinks";
 import { PreferredContact } from "@/components/clients/PreferredContact";
@@ -12,6 +12,7 @@ import { toText } from "@/lib/answer-text";
 import {
   contractSendState,
   currentContract,
+  describeDelivery,
   newIdempotencyKey,
   type SendKind,
   DOCUMENT_UPLOAD_ACCEPT,
@@ -48,7 +49,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
-import { MergeResponsesDialog } from "@/components/dialogs/MergeResponsesDialog";
 import { SendContractDialog } from "@/components/dialogs/SendContractDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { SendIntakeDialog } from "@/components/dialogs/SendIntakeDialog";
@@ -71,6 +71,7 @@ import {
   createFinalReport,
   downloadDocument,
   downloadExecutedContract,
+  sendSignedAgreementCopy,
   refreshClientCommunications,
   refreshClientProfile,
   sendFormEmail,
@@ -178,6 +179,8 @@ const INTAKE_KEY_ALIASES: Record<Exclude<keyof IntakeDetails, "uploadedFiles">, 
   programOfInterest: ["programofinterest", "program"],
   budgetNeed: ["budgetneed", "budget"],
   preferredContact: ["preferredcontact", "contact_pref", "contact"],
+  workPhone: ["workphone"],
+  cellPhone: ["cellphone", "mobilephone"],
   heardAboutUs: ["heardaboutus", "heard"],
   additionalComments: ["additionalcomments", "comments"],
 };
@@ -210,15 +213,14 @@ function ClientProfile() {
     });
 
   const [editOpen, setEditOpen] = useState(false);
-  const [sendOpen, setSendOpen] = useState(false);
-  const [sendTemplateId, setSendTemplateId] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
   // One place to send anything to the client: which send dialog is open (if any).
   const [sendDialog, setSendDialog] = useState<SendKind | null>(null);
   const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
   const [schedulingFollowUp, setSchedulingFollowUp] = useState(false);
   const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
-  const [mergeAssignment, setMergeAssignment] = useState<FormAssignment | null>(null);
+  const [startEditing, setStartEditing] = useState(false);
+  const [docFilter, setDocFilter] = useState<"all" | "agreements" | "staff" | "client">("all");
   const [formReadOnly, setFormReadOnly] = useState(false);
 
   // Billing & payments (fetched on-demand per selected enrollment, not part of the global store)
@@ -413,11 +415,30 @@ function ClientProfile() {
   );
   const comms = s.communications.filter((c) => c.clientId === client.id && inScope(c));
   const contracts = s.contracts.filter((c) => c.clientId === client.id && inScope(c));
-  const executedContractDocs = s.documents.filter(
-    (d) => d.clientId === client.id && d.type === "contract" && inScope(d),
-  );
+  // Documents = files. A signed agreement is a file (its executed copy); a pending one is a
+  // workflow shown on Overview / Program.
+  const signedAgreements = contracts
+    .filter((c) => c.status === "COMPLETED")
+    .sort((a, b) => Date.parse(b.signedAt ?? b.createdAt) - Date.parse(a.signedAt ?? a.createdAt));
+  const clientUploads = docs.filter((d) => d.uploadedBy === "client");
+  const staffUploads = docs.filter((d) => d.uploadedBy !== "client");
+  const documentFilters = (
+    [
+      { key: "all", label: "All", count: signedAgreements.length + docs.length },
+      { key: "agreements", label: "Agreements", count: signedAgreements.length },
+      { key: "staff", label: "Staff uploads", count: staffUploads.length },
+      { key: "client", label: "Client uploads", count: clientUploads.length },
+    ] as const
+  ).filter((filter) => filter.key !== "client" || filter.count > 0);
+  const programName = (programId?: string | null) =>
+    s.programs.find((program) => program.id === programId)?.name;
   const finals = s.finalReports.filter((f) => f.clientId === client.id && inScope(f));
   const logs = s.activity.filter((a) => a.clientId === client.id && inScope(a));
+  const recentActivity = [...logs]
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+    .slice(0, 5);
+  const failedComms = comms.filter((c) => c.status === "FAILED");
+  const openMonitoring = monitoring.filter((m) => m.active);
   const intakeSubmissions = s.intakeSubmissions.filter(
     (submission) => submission.clientId === client.id,
   );
@@ -429,6 +450,11 @@ function ClientProfile() {
     )
     .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0];
   const submittedFields = submittedCoreFields(latestCoreSubmission);
+  // The newest submitted intake is shown (and edited) on the Intake card; its answers are on the
+  // profile already, so it has no card of its own below.
+  const latestIntakeAssignment = latestCoreSubmission
+    ? assignments.find((assignment) => assignment.id === latestCoreSubmission.formAssignmentId)
+    : undefined;
   const latestCoreFieldTokens = latestCoreSubmission
     ? new Set(
         (
@@ -442,14 +468,6 @@ function ClientProfile() {
     !latestCoreFieldTokens ||
     INTAKE_KEY_ALIASES[key].some((alias) => latestCoreFieldTokens.has(alias));
   // Program tab: only forms that belong to this enrollment/program (client-wide forms stay on Forms).
-  const selectedProgramAssignments = selectedEnrollment
-    ? assignments.filter(
-        (assignment) =>
-          assignment.enrollmentId === selectedEnrollment.id ||
-          (!assignment.enrollmentId &&
-            templateProgramId(assignment.formId) === selectedEnrollment.programId),
-      )
-    : [];
   const selectedProgramMonitoring = selectedEnrollment ? monitoring : [];
   const programAnswerGroups = (selectedEnrollment ? [selectedEnrollment] : enrollments).flatMap(
     (enrollment) => {
@@ -547,6 +565,9 @@ function ClientProfile() {
         ? "Resend signing link"
         : "Send contract";
 
+  const goToTab = (nextTab: ClientTab) =>
+    navigate({ search: (prev) => ({ ...prev, tab: nextTab }), replace: true });
+
   const noEnrollmentNotice = (
     <Card className="shadow-card">
       <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -554,6 +575,210 @@ function ClientProfile() {
       </CardContent>
     </Card>
   );
+
+  // Forms, by what they ask: program forms (template tied to a program) and everything else. The
+  // newest submitted intake is the Master Intake card above them.
+  const listedForms = assignments.filter((a) => a.id !== latestIntakeAssignment?.id);
+  const isProgramForm = (a: FormAssignment) =>
+    !!s.formTemplates.find((t) => t.id === a.formId)?.programId;
+  const programForms = listedForms.filter(isProgramForm);
+  const otherForms = listedForms.filter((a) => !isProgramForm(a));
+
+  const renderAssignment = (a: FormAssignment) => {
+    const prog = s.formTemplates.find((t) => t.id === a.formId);
+    const progName = prog ? (s.programs.find((p) => p.id === prog.programId)?.name ?? "—") : "—";
+    return (
+      <Card key={a.id} className="shadow-card">
+        <CardContent className="space-y-3 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-medium">{templateName(a.formId)}</p>
+              <p className="text-xs text-muted-foreground">{progName}</p>
+            </div>
+            <StatusBadge status={a.status} />
+          </div>
+          <div className="grid gap-x-6 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+            <span>
+              Method:{" "}
+              <span className="capitalize font-medium text-foreground">
+                {a.completionMethod?.replace(/_/g, " ") ?? "—"}
+              </span>
+            </span>
+            <span>Sent: {a.sentAt ? new Date(a.sentAt).toLocaleDateString() : "—"}</span>
+            <span>Due: {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—"}</span>
+            <span>Opened: {a.openedAt ? new Date(a.openedAt).toLocaleDateString() : "—"}</span>
+            <span>
+              Submitted: {a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "—"}
+            </span>
+            <span>Staff: {a.assignedUserId ?? client.assignedStaff}</span>
+          </div>
+          {a.secureLink && (
+            <p className="font-mono text-xs text-muted-foreground truncate">{a.secureLink}</p>
+          )}
+          {/* Status-based actions */}
+          <div className="flex flex-wrap gap-2">
+            {a.status === "draft" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setFormReadOnly(false);
+                    setActiveAssignment(a);
+                  }}
+                >
+                  Continue
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={sendingDraftId === a.id}
+                  onClick={() => void sendDraftAssignment(a)}
+                >
+                  {sendingDraftId === a.id ? "Sending…" : "Send to Client"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={action.busy === `cancel:${a.id}`}
+                  onClick={() =>
+                    void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
+                      success: "Form cancelled",
+                      error: "Unable to cancel this form.",
+                    })
+                  }
+                >
+                  {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel"}
+                </Button>
+              </>
+            )}
+            {(["sent", "delivered", "opened", "in_progress"] as const).includes(
+              a.status as "sent" | "delivered" | "opened" | "in_progress",
+            ) && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setFormReadOnly(true);
+                    setActiveAssignment(a);
+                  }}
+                >
+                  Preview
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setFormReadOnly(false);
+                    setActiveAssignment(a);
+                  }}
+                >
+                  Fill Out With Client
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={action.busy === `cancel:${a.id}`}
+                  onClick={() =>
+                    void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
+                      success: "Link cancelled",
+                      error: "Unable to cancel this form.",
+                    })
+                  }
+                >
+                  {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel Link"}
+                </Button>
+              </>
+            )}
+            {a.status === "submitted" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setFormReadOnly(true);
+                    setActiveAssignment(a);
+                  }}
+                >
+                  Review Answers
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => toast.info("File attachments not yet available")}
+                >
+                  View Attachments
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => toast.info("Use the Communications tab to add notes")}
+                >
+                  Add Note
+                </Button>
+              </>
+            )}
+            {a.status === "under_review" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setFormReadOnly(true);
+                    setActiveAssignment(a);
+                  }}
+                >
+                  Review Answers
+                </Button>
+              </>
+            )}
+            {a.status === "approved" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setFormReadOnly(true);
+                    setActiveAssignment(a);
+                  }}
+                >
+                  View Submission
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => toast.info("File attachments not yet available")}
+                >
+                  View Attachments
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => toast.info("PDF download not yet available")}
+                >
+                  Download
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => toast.info("Archive not yet configured")}
+                >
+                  Archive
+                </Button>
+              </>
+            )}
+            {(a.status === "cancelled" || a.status === "expired") && (
+              <span className="text-xs text-muted-foreground self-center">
+                No actions available
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -664,12 +889,7 @@ function ClientProfile() {
         }}
       />
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(nextTab) =>
-          navigate({ search: (prev) => ({ ...prev, tab: nextTab as ClientTab }), replace: true })
-        }
-      >
+      <Tabs value={activeTab} onValueChange={(nextTab) => goToTab(nextTab as ClientTab)}>
         <TabsList className="flex h-auto flex-wrap justify-start">
           {CLIENT_TABS.map((t) => (
             <TabsTrigger key={t} value={t}>
@@ -677,193 +897,6 @@ function ClientProfile() {
             </TabsTrigger>
           ))}
         </TabsList>
-
-        <TabsContent value="program" className="mt-4 space-y-4">
-          {!selectedProgram || !selectedEnrollment ? (
-            noEnrollmentNotice
-          ) : (
-            <>
-              <div className="grid gap-4 lg:grid-cols-3">
-                <Card className="shadow-card lg:col-span-2">
-                  <CardHeader>
-                    <CardTitle className="font-display text-base">{selectedProgram.name}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="grid gap-x-8 sm:grid-cols-2">
-                    <dl>
-                      <Row
-                        label="Enrollment status"
-                        value={displayEnrollmentStatus(selectedEnrollment.status)}
-                      />
-                      <Row
-                        label="Assigned staff"
-                        value={selectedEnrollment.assignedStaff ?? undefined}
-                      />
-                      <Row
-                        label="Start date"
-                        value={
-                          selectedEnrollment.startDate
-                            ? new Date(selectedEnrollment.startDate).toLocaleDateString()
-                            : undefined
-                        }
-                      />
-                    </dl>
-                    <dl>
-                      <Row label="Next action" value={selectedEnrollment.nextAction ?? undefined} />
-                      <Row
-                        label="Next action date"
-                        value={
-                          selectedEnrollment.nextActionDate
-                            ? new Date(selectedEnrollment.nextActionDate).toLocaleDateString()
-                            : undefined
-                        }
-                      />
-                      <Row
-                        label="Open monitoring items"
-                        value={String(
-                          selectedProgramMonitoring.filter((item) => item.active).length,
-                        )}
-                      />
-                    </dl>
-                  </CardContent>
-                </Card>
-                <Card className="shadow-card">
-                  <CardHeader>
-                    <CardTitle className="font-display text-base">Status</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <StatusBadge status={displayEnrollmentStatus(selectedEnrollment.status)} />
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card className="shadow-card">
-                <CardHeader>
-                  <CardTitle className="font-display text-base">Funding & service terms</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {terms.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No terms have been drafted for this program yet.
-                    </p>
-                  ) : (
-                    terms.map((t) => (
-                      <div
-                        key={t.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
-                      >
-                        <span className="font-medium">
-                          {t.supportType} · {formatMoney(t.fundingAmount)}
-                        </span>
-                        <StatusBadge status={t.approvalStatus} />
-                      </div>
-                    ))
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTermsOpen(true)}
-                  >
-                    Create terms
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card className="shadow-card">
-                <CardHeader>
-                  <CardTitle className="font-display text-base">Master intake answers</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-x-8 sm:grid-cols-2">
-                  <dl>
-                    <Row
-                      label="Brief business description"
-                      value={client.intake?.businessDescription}
-                    />
-                    <Row
-                      label="Type of assistance needed"
-                      value={client.intake?.assistanceRequested}
-                    />
-                    <Row label="Program of interest" value={client.intake?.programOfInterest} />
-                    <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
-                  </dl>
-                  <dl>
-                    <Row label="Preferred contact">
-                      <PreferredContact
-                        preference={client.intake?.preferredContact}
-                        phone={client.phone}
-                        email={client.email}
-                      />
-                    </Row>
-                    <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
-                    <Row label="Additional comments" value={client.intake?.additionalComments} />
-                    <Row
-                      label="Uploaded files"
-                      value={(client.intake?.uploadedFiles ?? []).join(", ")}
-                    />
-                  </dl>
-                </CardContent>
-              </Card>
-
-              <Card className="shadow-card">
-                <CardHeader>
-                  <CardTitle className="font-display text-base">Program questions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  {selectedProgramAssignments.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-muted-foreground">
-                      No program forms have been assigned to this client yet.
-                    </p>
-                  ) : (
-                    selectedProgramAssignments.map((assignment) => {
-                      const template = s.formTemplates.find(
-                        (candidate) => candidate.id === assignment.formId,
-                      );
-                      return (
-                        <section
-                          key={assignment.id}
-                          className="border-b border-border pb-5 last:border-0 last:pb-0"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <h3 className="text-sm font-medium">
-                                {template?.name ?? assignment.formId}
-                              </h3>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {assignment.submittedAt
-                                  ? `Submitted ${new Date(assignment.submittedAt).toLocaleDateString()}`
-                                  : "Not submitted"}
-                              </p>
-                            </div>
-                            <StatusBadge status={assignment.status} />
-                          </div>
-                          {!assignment.responses ||
-                          Object.keys(assignment.responses).length === 0 ? (
-                            <p className="mt-4 text-sm text-muted-foreground">
-                              No answers recorded.
-                            </p>
-                          ) : (
-                            <dl className="mt-3 grid gap-x-8 sm:grid-cols-2">
-                              {Object.entries(assignment.responses).map(([fieldId, answer]) => (
-                                <Row
-                                  key={fieldId}
-                                  label={
-                                    template?.fields.find((field) => field.id === fieldId)?.label ??
-                                    fieldId
-                                  }
-                                  value={toText(answer) || undefined}
-                                />
-                              ))}
-                            </dl>
-                          )}
-                        </section>
-                      );
-                    })
-                  )}
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </TabsContent>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
           {selectedEnrollment && profileStep.kind !== "closed" && (
@@ -883,6 +916,61 @@ function ClientProfile() {
           )}
           <Card className="shadow-card">
             <CardHeader>
+              <CardTitle className="font-display text-base">Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl>
+                <Row
+                  label={selectedProgram ? `${selectedProgram.name} enrollment` : "Enrollment"}
+                  value={
+                    selectedEnrollment
+                      ? displayEnrollmentStatus(selectedEnrollment.status)
+                      : "Not enrolled"
+                  }
+                />
+                <Row
+                  label="Assigned staff"
+                  value={selectedEnrollment?.assignedStaff || client.assignedStaff || undefined}
+                />
+                <Row
+                  label="Next action"
+                  value={
+                    selectedEnrollment?.nextAction
+                      ? `${selectedEnrollment.nextAction}${
+                          selectedEnrollment.nextActionDate
+                            ? ` · ${new Date(selectedEnrollment.nextActionDate).toLocaleDateString()}`
+                            : ""
+                        }`
+                      : undefined
+                  }
+                />
+                <Row label="Next follow-up">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      {client.nextFollowUpDate
+                        ? new Date(client.nextFollowUpDate).toLocaleDateString()
+                        : "Not scheduled"}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={schedulingFollowUp}
+                      onClick={() => void scheduleFollowUp()}
+                    >
+                      {schedulingFollowUp ? "Scheduling…" : "Schedule in 7 days"}
+                    </Button>
+                  </div>
+                </Row>
+                <Row
+                  label="Internal decision"
+                  value={terms[0]?.approvalStatus ?? "Pending review"}
+                />
+              </dl>
+            </CardContent>
+          </Card>
+          <Card className="shadow-card">
+            <CardHeader>
               <CardTitle className="font-display text-base">Client summary</CardTitle>
             </CardHeader>
             <CardContent>
@@ -897,6 +985,8 @@ function ClientProfile() {
                     preference={client.intake?.preferredContact}
                     phone={client.phone}
                     email={client.email}
+                    workPhone={client.intake?.workPhone}
+                    cellPhone={client.intake?.cellPhone}
                   />
                 </Row>
                 <Row label="Website">
@@ -905,79 +995,68 @@ function ClientProfile() {
                 <Row label="Social media">
                   <ExternalLinks links={client.socialLinks ?? []} />
                 </Row>
-                <Row
-                  label="Program enrollments"
-                  value={
-                    enrollments
-                      .map(
-                        (enrollment) =>
-                          s.programs.find((item) => item.id === enrollment.programId)?.name,
-                      )
-                      .filter(Boolean)
-                      .join(", ") || undefined
-                  }
-                />
-                <Row label="Current status" value={client.status} />
-                <Row
-                  label="Internal decision"
-                  value={terms[0]?.approvalStatus ?? "Pending review"}
-                />
-                <Row label="Assigned staff" value={client.assignedStaff} />
-                <Row label="Created" value={new Date(client.createdAt).toLocaleDateString()} />
+                <Row label="Client since" value={new Date(client.createdAt).toLocaleDateString()} />
               </dl>
             </CardContent>
           </Card>
           <Card className="shadow-card">
             <CardHeader>
-              <CardTitle className="font-display text-base">Open tasks & latest notes</CardTitle>
+              <CardTitle className="font-display text-base">Open tasks & alerts</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {monitoring
-                .filter((m) => m.active)
-                .map((m) => (
-                  <div key={m.id} className="rounded-lg border border-border p-3 text-sm">
-                    <div className="flex justify-between gap-2">
-                      <span className="font-medium">{m.name}</span>
-                      <StatusBadge status={m.complianceStatus} />
-                    </div>
-                    <p className="mt-1 font-mono text-xs text-muted-foreground">
-                      {m.nextReviewAt
-                        ? `Next review ${new Date(m.nextReviewAt).toLocaleDateString()}`
-                        : "No review scheduled"}
-                      {m.notes ? ` · ${m.notes}` : ""}
-                    </p>
-                  </div>
-                ))}
-              {comms.slice(0, 3).map((c) => (
-                <div key={c.id} className="text-sm">
-                  <span className="font-medium">{c.subject}</span>
-                  <p className="text-muted-foreground">{c.notes}</p>
+              {failedComms.map((c) => (
+                <div
+                  key={c.id}
+                  className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+                >
+                  <p className="font-medium">Email not sent: {c.subject}</p>
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {new Date(c.date).toLocaleDateString()}
+                    {c.errorCode ? ` · ${c.errorCode}` : ""} · retry from Send ▼
+                  </p>
                 </div>
               ))}
+              {openMonitoring.map((m) => (
+                <div key={m.id} className="rounded-lg border border-border p-3 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <span className="font-medium">{m.name}</span>
+                    <StatusBadge status={m.complianceStatus} />
+                  </div>
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">
+                    {m.nextReviewAt
+                      ? `Next review ${new Date(m.nextReviewAt).toLocaleDateString()}`
+                      : "No review scheduled"}
+                    {m.notes ? ` · ${m.notes}` : ""}
+                  </p>
+                </div>
+              ))}
+              {failedComms.length === 0 && openMonitoring.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nothing needs attention.</p>
+              )}
             </CardContent>
           </Card>
           <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Follow-up</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="font-display text-base">Recent activity</CardTitle>
+              {logs.length > 0 && (
+                <Button type="button" variant="link" size="sm" onClick={() => goToTab("activity")}>
+                  See all
+                </Button>
+              )}
             </CardHeader>
-            <CardContent className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm">
-                Next follow-up:{" "}
-                <span className="font-medium">
-                  {client.nextFollowUpDate
-                    ? new Date(client.nextFollowUpDate).toLocaleDateString()
-                    : "Not scheduled"}
-                </span>
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={schedulingFollowUp}
-                onClick={() => void scheduleFollowUp()}
-              >
-                {schedulingFollowUp ? "Scheduling…" : "Schedule follow-up (7 days)"}
-              </Button>
+            <CardContent className="space-y-2">
+              {recentActivity.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No activity yet.</p>
+              ) : (
+                recentActivity.map((entry) => (
+                  <div key={entry.id} className="text-sm">
+                    <p className="font-medium">{entry.action}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(entry.timestamp).toLocaleDateString()} · {entry.description}
+                    </p>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
           <Card className="shadow-card lg:col-span-2">
@@ -1021,6 +1100,121 @@ function ClientProfile() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="program" className="mt-4 space-y-4">
+          {!selectedProgram || !selectedEnrollment ? (
+            noEnrollmentNotice
+          ) : (
+            <>
+              <Card className="shadow-card">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+                  <CardTitle className="font-display text-base">{selectedProgram.name}</CardTitle>
+                  <StatusBadge status={displayEnrollmentStatus(selectedEnrollment.status)} />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-x-8 sm:grid-cols-2">
+                    <dl>
+                      <Row
+                        label="Assigned staff"
+                        value={selectedEnrollment.assignedStaff ?? undefined}
+                      />
+                      <Row
+                        label="Start date"
+                        value={
+                          selectedEnrollment.startDate
+                            ? new Date(selectedEnrollment.startDate).toLocaleDateString()
+                            : undefined
+                        }
+                      />
+                      <Row
+                        label="Monitoring"
+                        value={selectedProgram.defaultMonitoringFrequency || undefined}
+                      />
+                    </dl>
+                    <dl>
+                      <Row label="Next action" value={selectedEnrollment.nextAction ?? undefined} />
+                      <Row
+                        label="Next action date"
+                        value={
+                          selectedEnrollment.nextActionDate
+                            ? new Date(selectedEnrollment.nextActionDate).toLocaleDateString()
+                            : undefined
+                        }
+                      />
+                      <Row
+                        label="Open monitoring items"
+                        value={String(
+                          selectedProgramMonitoring.filter((item) => item.active).length,
+                        )}
+                      />
+                    </dl>
+                  </div>
+                  {/* The agreement is a workflow while pending; once signed it is a document. */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
+                    <div>
+                      <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                        Agreement
+                      </p>
+                      <p className="text-sm">{contractSummary}</p>
+                    </div>
+                    {contractState.kind === "signed" ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => goToTab("documents")}
+                      >
+                        View in Documents
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openSend("contract")}
+                      >
+                        {contractActionLabel}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle className="font-display text-base">Funding & service terms</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {terms.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No terms have been drafted for this program yet.
+                    </p>
+                  ) : (
+                    terms.map((t) => (
+                      <div
+                        key={t.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
+                      >
+                        <span className="font-medium">
+                          {t.supportType} · {formatMoney(t.fundingAmount)}
+                        </span>
+                        <StatusBadge status={t.approvalStatus} />
+                      </div>
+                    ))
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTermsOpen(true)}
+                  >
+                    Create terms
+                  </Button>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="billing" className="mt-4 space-y-4">
@@ -1105,10 +1299,44 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="forms" className="mt-4 space-y-3">
-          <SendToClientPanel hasEnrollment={!!selectedEnrollment} onSelect={openSend} />
           <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Intake</CardTitle>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+              <div>
+                <CardTitle className="font-display text-base">Master Intake</CardTitle>
+                {latestIntakeAssignment?.submittedAt && (
+                  <p className="text-xs text-muted-foreground">
+                    Submitted {new Date(latestIntakeAssignment.submittedAt).toLocaleString()} · on
+                    the profile
+                  </p>
+                )}
+              </div>
+              {latestIntakeAssignment && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFormReadOnly(true);
+                      setStartEditing(false);
+                      setActiveAssignment(latestIntakeAssignment);
+                    }}
+                  >
+                    Review answers
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFormReadOnly(true);
+                      setStartEditing(true);
+                      setActiveAssignment(latestIntakeAssignment);
+                    }}
+                  >
+                    <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                    Edit
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
               <dl>
@@ -1167,6 +1395,8 @@ function ClientProfile() {
                           preference={client.intake?.preferredContact}
                           phone={client.phone}
                           email={client.email}
+                          workPhone={client.intake?.workPhone}
+                          cellPhone={client.intake?.cellPhone}
                         />
                       </Row>
                     )}
@@ -1185,340 +1415,69 @@ function ClientProfile() {
               </dl>
             </CardContent>
           </Card>
-          {programAnswerGroups.map(({ enrollment, program, section, responses, submittedAt }) => (
-            <Card key={enrollment.id} className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-base">
-                  {program?.name ?? section.title} answers
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Submitted {new Date(submittedAt).toLocaleString()}
-                </p>
-              </CardHeader>
-              <CardContent>
-                <dl className="grid gap-x-8 sm:grid-cols-2">
-                  {section.fields.map((field) => (
-                    <Row
-                      key={`${section.id}:${field.id}`}
-                      label={field.label}
-                      value={toText(responses[field.id])}
-                    />
-                  ))}
-                </dl>
-              </CardContent>
-            </Card>
-          ))}
-          {assignments.length === 0 && (
+          {listedForms.length === 0 && programAnswerGroups.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No forms have been assigned to this profile yet.
+              No other forms yet. Send one from Send ▼ at the top of the profile.
             </p>
           )}
-          {assignments.map((a) => {
-            const prog = s.formTemplates.find((t) => t.id === a.formId);
-            const progName = prog
-              ? (s.programs.find((p) => p.id === prog.programId)?.name ?? "—")
-              : "—";
-            return (
-              <Card key={a.id} className="shadow-card">
-                <CardContent className="space-y-3 p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{templateName(a.formId)}</p>
-                      <p className="text-xs text-muted-foreground">{progName}</p>
-                    </div>
-                    <StatusBadge status={a.status} />
-                  </div>
-                  <div className="grid gap-x-6 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
-                    <span>
-                      Method:{" "}
-                      <span className="capitalize font-medium text-foreground">
-                        {a.completionMethod?.replace(/_/g, " ") ?? "—"}
-                      </span>
-                    </span>
-                    <span>Sent: {a.sentAt ? new Date(a.sentAt).toLocaleDateString() : "—"}</span>
-                    <span>Due: {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—"}</span>
-                    <span>
-                      Opened: {a.openedAt ? new Date(a.openedAt).toLocaleDateString() : "—"}
-                    </span>
-                    <span>
-                      Submitted:{" "}
-                      {a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "—"}
-                    </span>
-                    <span>Staff: {a.assignedUserId ?? client.assignedStaff}</span>
-                  </div>
-                  {a.secureLink && (
-                    <p className="font-mono text-xs text-muted-foreground truncate">
-                      {a.secureLink}
-                    </p>
-                  )}
-                  {/* Status-based actions */}
-                  <div className="flex flex-wrap gap-2">
-                    {a.status === "draft" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(false);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Continue
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={sendingDraftId === a.id}
-                          onClick={() => void sendDraftAssignment(a)}
-                        >
-                          {sendingDraftId === a.id ? "Sending…" : "Send to Client"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={action.busy === `cancel:${a.id}`}
-                          onClick={() =>
-                            void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
-                              success: "Form cancelled",
-                              error: "Unable to cancel this form.",
-                            })
-                          }
-                        >
-                          {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel"}
-                        </Button>
-                      </>
-                    )}
-                    {(["sent", "delivered", "opened", "in_progress"] as const).includes(
-                      a.status as "sent" | "delivered" | "opened" | "in_progress",
-                    ) && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Preview
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setFormReadOnly(false);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Fill Out With Client
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={action.busy === `cancel:${a.id}`}
-                          onClick={() =>
-                            void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
-                              success: "Link cancelled",
-                              error: "Unable to cancel this form.",
-                            })
-                          }
-                        >
-                          {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel Link"}
-                        </Button>
-                      </>
-                    )}
-                    {a.status === "submitted" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSendTemplateId(a.formId);
-                            setSendOpen(true);
-                          }}
-                        >
-                          Send another form
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Review Answers
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setMergeAssignment(a)}
-                        >
-                          Apply to Profile
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("File attachments not yet available")}
-                        >
-                          View Attachments
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("Use the Communications tab to add notes")}
-                        >
-                          Add Note
-                        </Button>
-                      </>
-                    )}
-                    {a.status === "under_review" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Review Answers
-                        </Button>
-                      </>
-                    )}
-                    {a.status === "approved" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          View Submission
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("File attachments not yet available")}
-                        >
-                          View Attachments
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("PDF download not yet available")}
-                        >
-                          Download
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("Archive not yet configured")}
-                        >
-                          Archive
-                        </Button>
-                      </>
-                    )}
-                    {(a.status === "cancelled" || a.status === "expired") && (
-                      <span className="text-xs text-muted-foreground self-center">
-                        No actions available
-                      </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-          <Button
-            type="button"
-            onClick={() => openSend(selectedEnrollment ? "program_form" : "general_form")}
-          >
-            Assign a form
-          </Button>
+          {(programForms.length > 0 || programAnswerGroups.length > 0) && (
+            <section className="space-y-3">
+              <h3 className="pt-2 font-display text-sm font-semibold">Program forms</h3>
+              {programAnswerGroups.map(
+                ({ enrollment, program, section, responses, submittedAt }) => (
+                  <Card key={enrollment.id} className="shadow-card">
+                    <CardHeader>
+                      <CardTitle className="font-display text-base">
+                        {program?.name ?? section.title} answers
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        Submitted {new Date(submittedAt).toLocaleString()}
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid gap-x-8 sm:grid-cols-2">
+                        {section.fields.map((field) => (
+                          <Row
+                            key={`${section.id}:${field.id}`}
+                            label={field.label}
+                            value={toText(responses[field.id])}
+                          />
+                        ))}
+                      </dl>
+                    </CardContent>
+                  </Card>
+                ),
+              )}
+              {programForms.map(renderAssignment)}
+            </section>
+          )}
+          {otherForms.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="pt-2 font-display text-sm font-semibold">Other forms</h3>
+              {otherForms.map(renderAssignment)}
+            </section>
+          )}
         </TabsContent>
 
-        <TabsContent value="monitoring" className="mt-4 space-y-3">
-          {monitoring.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No monitoring items yet. Add one below to start tracking progress.
-            </p>
-          )}
-          {monitoring.map((m) => (
-            <Card key={m.id} className="shadow-card">
-              <CardContent className="space-y-3 p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{m.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Next review{" "}
-                      {m.nextReviewAt
-                        ? new Date(m.nextReviewAt).toLocaleDateString()
-                        : "not scheduled"}
-                      {m.notes ? ` · ${m.notes}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={m.complianceStatus} />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={action.busy === `monitor:${m.id}`}
-                      onClick={() =>
-                        void action.run(
-                          `monitor:${m.id}`,
-                          () => recordMonitoringResult(m.id, { complianceStatus: "compliant" }),
-                          {
-                            success: "Monitoring review recorded",
-                            error: "Unable to record this review.",
-                          },
-                        )
-                      }
-                    >
-                      {action.busy === `monitor:${m.id}` ? "Recording…" : "Record compliant"}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          <Button onClick={() => setMonitoringOpen(true)}>Add monitoring item</Button>
-        </TabsContent>
-
-        <TabsContent value="documents" className="mt-4 space-y-3">
-          {docs.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No documents uploaded yet.
-            </p>
-          )}
-          {docs.map((d) => (
-            <Card key={d.id} className="shadow-card">
-              <CardContent className="flex items-center justify-between p-5">
-                <div>
-                  <p className="font-medium">{d.name}</p>
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {d.type} · {d.uploadedBy} · {new Date(d.uploadedAt).toLocaleDateString()}
-                  </p>
-                </div>
+        <TabsContent value="documents" className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-1.5">
+              {documentFilters.map((filter) => (
                 <Button
+                  key={filter.key}
+                  type="button"
                   size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    void downloadDocument(d.id).catch((error: unknown) => {
-                      toast.error(
-                        error instanceof Error ? error.message : "Document download failed.",
-                      );
-                    });
-                  }}
+                  variant={docFilter === filter.key ? "default" : "outline"}
+                  onClick={() => setDocFilter(filter.key)}
                 >
-                  Download
+                  {filter.label} ({filter.count})
                 </Button>
-              </CardContent>
-            </Card>
-          ))}
+              ))}
+            </div>
+            <Button disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+              {uploading ? "Uploading…" : "Upload document"}
+            </Button>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -1529,7 +1488,7 @@ function ClientProfile() {
               if (!file) return;
               setUploading(true);
               try {
-                await uploadDocument(client.id, file);
+                await uploadDocument(client.id, file, selectedEnrollment?.id);
                 toast.success(`${file.name} uploaded`);
                 e.target.value = "";
               } catch (error) {
@@ -1539,9 +1498,148 @@ function ClientProfile() {
               }
             }}
           />
-          <Button disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-            {uploading ? "Uploading…" : "Upload document"}
-          </Button>
+          {signedAgreements.length + staffUploads.length + clientUploads.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No documents yet. Signed agreements appear here automatically; upload anything else.
+            </p>
+          )}
+
+          {(docFilter === "all" || docFilter === "agreements") && signedAgreements.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Signed agreements
+              </h3>
+              {signedAgreements.map((c) => (
+                <Card key={c.id} className="shadow-card">
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+                    <div>
+                      <p className="font-medium">{c.contractType}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c.signedAt
+                          ? `Signed ${new Date(c.signedAt).toLocaleDateString()}`
+                          : "Signed"}
+                        {programName(c.programId) ? ` · ${programName(c.programId)}` : ""}
+                      </p>
+                    </div>
+                    {c.executedStoredFileId ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void downloadExecutedContract(client.id, c.id, { view: true }).catch(
+                              (error: unknown) =>
+                                toast.error(
+                                  error instanceof Error ? error.message : "Unable to open it.",
+                                ),
+                            )
+                          }
+                        >
+                          View
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void downloadExecutedContract(client.id, c.id).catch((error: unknown) =>
+                              toast.error(
+                                error instanceof Error ? error.message : "Download failed.",
+                              ),
+                            )
+                          }
+                        >
+                          Download
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={action.busy === `copy:${c.id}`}
+                          onClick={() =>
+                            void action.run(
+                              `copy:${c.id}`,
+                              async () => {
+                                const outcome = describeDelivery(
+                                  await sendSignedAgreementCopy(client.id, c.id),
+                                );
+                                if (!outcome.ok) throw new Error(outcome.message);
+                              },
+                              {
+                                success: `Signed copy emailed to ${client.email}.`,
+                                error: "Unable to send the signed copy.",
+                              },
+                            )
+                          }
+                        >
+                          {action.busy === `copy:${c.id}` ? "Sending…" : "Send copy"}
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Signed copy is being prepared.
+                      </span>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </section>
+          )}
+
+          {(
+            [
+              ["staff", "Staff uploads", staffUploads],
+              ["client", "Client uploads", clientUploads],
+            ] as const
+          ).map(([key, title, list]) =>
+            (docFilter === "all" || docFilter === key) && list.length > 0 ? (
+              <section key={key} className="space-y-2">
+                <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  {title}
+                </h3>
+                {list.map((d) => (
+                  <Card key={d.id} className="shadow-card">
+                    <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+                      <div>
+                        <p className="font-medium">{d.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(d.uploadedAt).toLocaleDateString()} · {d.uploadedBy}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void downloadDocument(d.id, { view: true }).catch((error: unknown) =>
+                              toast.error(
+                                error instanceof Error ? error.message : "Unable to open it.",
+                              ),
+                            )
+                          }
+                        >
+                          View
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void downloadDocument(d.id).catch((error: unknown) =>
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Document download failed.",
+                              ),
+                            )
+                          }
+                        >
+                          Download
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </section>
+            ) : null,
+          )}
         </TabsContent>
 
         <TabsContent value="communications" className="mt-4 space-y-3">
@@ -1653,87 +1751,51 @@ function ClientProfile() {
           ))}
         </TabsContent>
 
-        <TabsContent value="contracts" className="mt-4 space-y-3">
-          {selectedEnrollment ? (
-            <Card className="shadow-card">
-              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
-                <div>
-                  <p className="font-medium">{selectedProgram?.name ?? "Program"} contract</p>
-                  <p className="text-xs text-muted-foreground">{contractSummary}</p>
-                </div>
-                <Button type="button" onClick={() => openSend("contract")}>
-                  {contractActionLabel}
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            noEnrollmentNotice
+        <TabsContent value="monitoring" className="mt-4 space-y-3">
+          {monitoring.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No monitoring items yet. Add one below to start tracking progress.
+            </p>
           )}
-          {contracts.map((c) => (
-            <Card key={c.id} className="shadow-card">
+          {monitoring.map((m) => (
+            <Card key={m.id} className="shadow-card">
               <CardContent className="space-y-3 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="font-medium">{c.contractType}</p>
-                    {c.legacy && (
-                      <p className="text-xs text-muted-foreground">
-                        Old draft from before program contract templates. It can't be sent; use Send
-                        contract above to create one from the program template.
-                      </p>
-                    )}
+                    <p className="font-medium">{m.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Next review{" "}
+                      {m.nextReviewAt
+                        ? new Date(m.nextReviewAt).toLocaleDateString()
+                        : "not scheduled"}
+                      {m.notes ? ` · ${m.notes}` : ""}
+                    </p>
                   </div>
-                  <StatusBadge status={c.status} />
-                </div>
-                <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-4 font-sans text-xs whitespace-pre-wrap text-muted-foreground">
-                  {c.generatedContent}
-                </pre>
-                <div className="flex flex-wrap gap-2">
-                  {!c.legacy &&
-                    (c.status === "DRAFT" || c.status === "SENT" || c.status === "OPENED") && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openSend("contract")}
-                      >
-                        {c.status === "DRAFT" ? "Send" : "Resend signing link"}
-                      </Button>
-                    )}
-                  {c.status === "COMPLETED" && (
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={m.complianceStatus} />
                     <Button
-                      type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => openSend("contract")}
+                      disabled={action.busy === `monitor:${m.id}`}
+                      onClick={() =>
+                        void action.run(
+                          `monitor:${m.id}`,
+                          () => recordMonitoringResult(m.id, { complianceStatus: "compliant" }),
+                          {
+                            success: "Monitoring review recorded",
+                            error: "Unable to record this review.",
+                          },
+                        )
+                      }
                     >
-                      Send copy
+                      {action.busy === `monitor:${m.id}` ? "Recording…" : "Record compliant"}
                     </Button>
-                  )}
-                  {c.executedStoredFileId && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        void downloadExecutedContract(client.id, c.id).catch((error: unknown) => {
-                          toast.error(
-                            error instanceof Error ? error.message : "Contract download failed.",
-                          );
-                        });
-                      }}
-                    >
-                      Download signed agreement
-                    </Button>
-                  )}
-                  {c.status === "COMPLETED" && !c.executedStoredFileId && (
-                    <span className="text-xs text-muted-foreground self-center">
-                      Signed artifact not available yet.
-                    </span>
-                  )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
+          <Button onClick={() => setMonitoringOpen(true)}>Add monitoring item</Button>
         </TabsContent>
 
         <TabsContent value="final" className="mt-4 space-y-3">
@@ -1876,26 +1938,14 @@ function ClientProfile() {
         assignment={activeAssignment}
         client={client}
         open={!!activeAssignment}
-        onOpenChange={(v) => !v && setActiveAssignment(null)}
-        readOnly={formReadOnly}
-      />
-      {mergeAssignment && (
-        <MergeResponsesDialog
-          key={mergeAssignment.id}
-          assignment={mergeAssignment}
-          client={client}
-          open={!!mergeAssignment}
-          onOpenChange={(v) => !v && setMergeAssignment(null)}
-        />
-      )}
-      <SendFormDialog
-        client={client}
-        templateId={sendTemplateId}
-        open={sendOpen}
-        onOpenChange={(nextOpen) => {
-          setSendOpen(nextOpen);
-          if (!nextOpen) setSendTemplateId(null);
+        onOpenChange={(v) => {
+          if (!v) {
+            setActiveAssignment(null);
+            setStartEditing(false);
+          }
         }}
+        readOnly={formReadOnly}
+        startEditing={startEditing}
       />
       <SendFormDialog
         client={client}
