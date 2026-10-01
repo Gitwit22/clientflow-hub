@@ -4,7 +4,7 @@ import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ClientSendMenu } from "@/components/clients/ClientSendMenu";
+import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSendMenu";
 import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
 import { ExternalLinks } from "@/components/clients/ExternalLinks";
 import { PreferredContact } from "@/components/clients/PreferredContact";
@@ -1289,6 +1289,7 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="forms" className="mt-4 space-y-3">
+          <ClientSendPanel hasEnrollment={!!selectedEnrollment} onSelect={openSend} />
           <Card className="shadow-card">
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
               <div>
@@ -1405,7 +1406,7 @@ function ClientProfile() {
           </Card>
           {listedForms.length === 0 && programAnswerGroups.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No other forms yet. Send one from Send ▼ at the top of the profile.
+              No other forms yet. Send one with Send to client above.
             </p>
           )}
           {(programForms.length > 0 || programAnswerGroups.length > 0) && (

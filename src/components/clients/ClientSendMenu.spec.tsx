@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROGRAM_REQUIRED_REASON } from "@/lib/client-send";
-import { ClientSendMenu } from "./ClientSendMenu";
+import { ClientSendMenu, ClientSendPanel } from "./ClientSendMenu";
 
 afterEach(cleanup);
 
@@ -57,5 +57,26 @@ describe("ClientSendMenu", () => {
     openMenu();
     fireEvent.click(item(/Send contract/));
     expect(onSelect).toHaveBeenCalledWith("contract");
+  });
+});
+
+describe("ClientSendPanel", () => {
+  it("offers intake, forms, contract and welcome as buttons", () => {
+    const onSelect = vi.fn();
+    render(<ClientSendPanel hasEnrollment onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send contract" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send / resend welcome email" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send / resend intake" }));
+    expect(onSelect.mock.calls.map(([kind]) => kind)).toEqual(["contract", "welcome", "intake"]);
+  });
+
+  it("without an enrollment, only intake and general forms are enabled, with the reason", () => {
+    render(<ClientSendPanel hasEnrollment={false} onSelect={vi.fn()} />);
+    const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
+    expect(button("Send / resend intake").disabled).toBe(false);
+    expect(button("Send general form").disabled).toBe(false);
+    expect(button("Send contract").disabled).toBe(true);
+    expect(button("Send / resend welcome email").disabled).toBe(true);
+    expect(screen.getByText(PROGRAM_REQUIRED_REASON)).toBeTruthy();
   });
 });

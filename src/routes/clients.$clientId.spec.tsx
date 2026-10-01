@@ -464,16 +464,22 @@ describe("one Send workflow in the client header", () => {
     expect(await screen.findByTestId("dialog-form-general")).toBeTruthy();
   });
 
-  it("the Forms tab holds answers only: no send controls, forms grouped by kind", async () => {
+  it("the Forms tab offers every send action and groups forms by kind", async () => {
     seed({ enrollments: [enrollment("e1", "p1")] });
     mountRouter("/clients/c1?enrollmentId=e1&tab=forms");
 
     expect(await screen.findByText("Form P1")).toBeTruthy();
     expect(screen.getByText("Master Intake")).toBeTruthy();
     expect(screen.getByText("Program forms")).toBeTruthy();
-    expect(screen.queryByText("Send something to this client")).toBeNull();
-    for (const name of ["Assign a form", "Send another form", "Contract", "Welcome Email"]) {
-      expect(screen.queryByRole("button", { name })).toBeNull();
+    expect(screen.getByText("Send to client")).toBeTruthy();
+    for (const name of [
+      "Send / resend intake",
+      "Send program form",
+      "Send general form",
+      "Send contract",
+      "Send / resend welcome email",
+    ]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
     }
   });
 
@@ -536,11 +542,11 @@ describe("one Send workflow in the client header", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
-  it("an empty Forms tab points to Send ▼", async () => {
+  it("an empty Forms tab points to the send buttons", async () => {
     seed({ enrollments: [] });
     setState((state) => ({ ...state, formAssignments: [] }));
     mountRouter("/clients/c1?tab=forms");
-    expect(await screen.findByText(/Send one from Send ▼/)).toBeTruthy();
+    expect(await screen.findByText(/Send one with Send to client above/)).toBeTruthy();
   });
 
   it("Program owns the enrollment and its pending agreement; Overview owns follow-up", async () => {
