@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
+import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
 import { ProgramParticipantRow } from "@/components/programs/ProgramParticipantRow";
@@ -713,57 +714,57 @@ function ProgramDetailPage() {
                       Auto-contract uses the exact active version only.
                     </p>
                   </div>
-                  <div className="space-y-2">
-                    {workflow?.contract.versions
-                      .filter(
-                        (version) => version.templateId === workflow.contract.activeTemplate?.id,
-                      )
-                      .map((version) => (
-                        <div
-                          key={version.id}
-                          className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">
-                              {version.title || `Version ${version.version}`}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              v{version.version}
-                              {version.storedFileId ? " · file attached" : ""}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant={
-                              workflow?.config.activeContractVersionId === version.id
-                                ? "default"
-                                : "outline"
-                            }
-                            disabled={savingWorkflow}
-                            onClick={() => {
-                              setSavingWorkflow(true);
-                              void updateProgramWorkflow(program.id, {
-                                activeContractTemplateId: version.templateId,
-                                activeContractVersionId: version.id,
-                              })
-                                .then(() => setRefreshVersion((value) => value + 1))
-                                .catch((error: unknown) => {
-                                  toast.error(
-                                    error instanceof Error
-                                      ? error.message
-                                      : "Unable to activate contract version.",
-                                  );
-                                })
-                                .finally(() => setSavingWorkflow(false));
-                            }}
-                          >
-                            {workflow?.config.activeContractVersionId === version.id
-                              ? "Active"
-                              : "Activate"}
-                          </Button>
+                  <VersionHistory
+                    versions={(workflow?.contract.versions ?? []).filter(
+                      (version) => version.templateId === workflow?.contract.activeTemplate?.id,
+                    )}
+                    activeId={workflow?.config.activeContractVersionId}
+                    renderVersion={(version) => (
+                      <div
+                        key={version.id}
+                        className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {version.title || `Version ${version.version}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            v{version.version}
+                            {version.storedFileId ? " · file attached" : ""}
+                          </p>
                         </div>
-                      ))}
-                  </div>
+                        <Button
+                          size="sm"
+                          variant={
+                            workflow?.config.activeContractVersionId === version.id
+                              ? "default"
+                              : "outline"
+                          }
+                          disabled={savingWorkflow}
+                          onClick={() => {
+                            setSavingWorkflow(true);
+                            void updateProgramWorkflow(program.id, {
+                              activeContractTemplateId: version.templateId,
+                              activeContractVersionId: version.id,
+                            })
+                              .then(() => setRefreshVersion((value) => value + 1))
+                              .catch((error: unknown) => {
+                                toast.error(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Unable to activate contract version.",
+                                );
+                              })
+                              .finally(() => setSavingWorkflow(false));
+                          }}
+                        >
+                          {workflow?.config.activeContractVersionId === version.id
+                            ? "Active"
+                            : "Activate"}
+                        </Button>
+                      </div>
+                    )}
+                  />
                   <Input
                     value={contractTitle}
                     onChange={(event) => setContractTitle(event.target.value)}
@@ -840,56 +841,55 @@ function ProgramDetailPage() {
                       welcome body.
                     </p>
                   </div>
-                  <div className="space-y-2">
-                    {workflow?.welcomeEmail.versions
-                      .filter(
-                        (version) =>
-                          version.templateId === workflow.welcomeEmail.activeTemplate?.id,
-                      )
-                      .map((version) => (
-                        <div
-                          key={version.id}
-                          className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{version.subject}</p>
-                            <p className="text-xs text-muted-foreground">
-                              v{version.version}
-                              {version.guideStoredFileId ? " · guide attached" : ""}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant={
-                              workflow?.config.activeWelcomeEmailVersionId === version.id
-                                ? "default"
-                                : "outline"
-                            }
-                            disabled={savingWorkflow}
-                            onClick={() => {
-                              setSavingWorkflow(true);
-                              void updateProgramWorkflow(program.id, {
-                                activeWelcomeEmailTemplateId: version.templateId,
-                                activeWelcomeEmailVersionId: version.id,
-                              })
-                                .then(() => setRefreshVersion((value) => value + 1))
-                                .catch((error: unknown) => {
-                                  toast.error(
-                                    error instanceof Error
-                                      ? error.message
-                                      : "Unable to activate welcome version.",
-                                  );
-                                })
-                                .finally(() => setSavingWorkflow(false));
-                            }}
-                          >
-                            {workflow?.config.activeWelcomeEmailVersionId === version.id
-                              ? "Active"
-                              : "Activate"}
-                          </Button>
+                  <VersionHistory
+                    versions={(workflow?.welcomeEmail.versions ?? []).filter(
+                      (version) => version.templateId === workflow?.welcomeEmail.activeTemplate?.id,
+                    )}
+                    activeId={workflow?.config.activeWelcomeEmailVersionId}
+                    renderVersion={(version) => (
+                      <div
+                        key={version.id}
+                        className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{version.subject}</p>
+                          <p className="text-xs text-muted-foreground">
+                            v{version.version}
+                            {version.guideStoredFileId ? " · guide attached" : ""}
+                          </p>
                         </div>
-                      ))}
-                  </div>
+                        <Button
+                          size="sm"
+                          variant={
+                            workflow?.config.activeWelcomeEmailVersionId === version.id
+                              ? "default"
+                              : "outline"
+                          }
+                          disabled={savingWorkflow}
+                          onClick={() => {
+                            setSavingWorkflow(true);
+                            void updateProgramWorkflow(program.id, {
+                              activeWelcomeEmailTemplateId: version.templateId,
+                              activeWelcomeEmailVersionId: version.id,
+                            })
+                              .then(() => setRefreshVersion((value) => value + 1))
+                              .catch((error: unknown) => {
+                                toast.error(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Unable to activate welcome version.",
+                                );
+                              })
+                              .finally(() => setSavingWorkflow(false));
+                          }}
+                        >
+                          {workflow?.config.activeWelcomeEmailVersionId === version.id
+                            ? "Active"
+                            : "Activate"}
+                        </Button>
+                      </div>
+                    )}
+                  />
                   <Input
                     value={welcomeSubject}
                     onChange={(event) => setWelcomeSubject(event.target.value)}
