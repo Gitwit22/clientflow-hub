@@ -69,6 +69,17 @@ export function socialLinksOf(value: unknown): string[] {
 }
 
 /**
+ * A column only takes an answer that looks like its kind, so "Do you have a website? — Yes" never
+ * becomes the website and a "Phone" question answered "Text me" never becomes the phone number.
+ */
+function plausibleFor(key: string, text: string): boolean {
+  if (key === 'website') return /^\S+\.\S+$/.test(text);
+  if (key === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+  if (key === 'phone') return (text.match(/\d/g) ?? []).length >= 7;
+  return true;
+}
+
+/**
  * Recomputes, from the template fields and the submitted answers only, every value that could be
  * applied to the profile. The first field that maps to a key wins, blank answers are skipped, and
  * arrays/objects/booleans never reach a text column.
@@ -85,7 +96,7 @@ export function mapAnswers(
     if (!key || SOCIAL_FIELD_IDS.has(key) || seen.has(key)) continue;
 
     const text = answerText(responses[field.id]);
-    if (!text) continue;
+    if (!text || !plausibleFor(key, text)) continue;
 
     if (TOP_LEVEL_COLUMNS.has(key)) {
       const value = key === 'website' ? normalizeExternalUrl(text) : text;

@@ -76,14 +76,28 @@ describePg('LegacyDataService (Postgres)', () => {
           { id: 'businessName', label: 'Business name', type: 'text' },
           { id: 'phone', label: 'Phone', type: 'text' },
           { id: 'businessDescription', label: 'Describe your business', type: 'textarea' },
+          { id: 'type-of-assistance-needed', label: 'Type of assistance needed', type: 'textarea' },
         ],
       },
     });
-    await prisma.cfFormAssignment.create({
+    const intakeAssignment = await prisma.cfFormAssignment.create({
       data: {
         ...scope, clientId: onlyLegacy.id, formId: intakeForm.id, status: 'submitted', submittedAt: new Date(),
-        responses: { businessName: 'Renamed Biz', phone: '313-555-0100', businessDescription: 'Neighborhood bakery' },
+        responses: { businessName: 'Renamed Biz', phone: '313-555-0100', businessDescription: 'Neighborhood bakery', 'type-of-assistance-needed': 'Grant writing' },
       },
+    });
+    // The website was asked in the program's section of that intake.
+    const submission = await prisma.cfIntakeSubmission.create({
+      data: { ...scope, clientId: onlyLegacy.id, formAssignmentId: intakeAssignment.id, idempotencyKey: 'k1', requestHash: 'h1', configurationToken: '', responsePayload: {}, resultPayload: {}, source: 'email', submitterEmail: 'x@x.test', submittedAt: new Date() },
+    });
+    await prisma.cfIntakeSubmissionSnapshot.create({
+      data: {
+        ...scope, intakeSubmissionId: submission.id, coreTemplateId: intakeForm.id, coreTemplateVersion: 1, selectedProgramIds: [program.id],
+        renderedSections: [{ kind: 'core', fields: [] }, { kind: 'program', programId: program.id, fields: [{ id: 'company-website', label: 'Company website', type: 'url' }] }],
+      },
+    });
+    await prisma.cfIntakeSubmissionProgram.create({
+      data: { ...scope, intakeSubmissionId: submission.id, programId: program.id, enrollmentId: ids.enrollOnly, responsePayload: { 'company-website': 'eabakery.com' } },
     });
 
     // Rows of a client deleted before permanent delete existed.
@@ -108,7 +122,7 @@ describePg('LegacyDataService (Postgres)', () => {
       expect.objectContaining({ clientId: ids.onlyLegacy, enrollmentId: ids.enrollOnly, programName: 'Inspired Detroit' }),
     ]);
     expect(report.profilesFilled).toEqual([
-      { clientId: ids.onlyLegacy, businessName: 'OnlyLegacy', fields: ['Phone', 'Business description'] },
+      { clientId: ids.onlyLegacy, businessName: 'OnlyLegacy', fields: ['Phone', 'Business description', 'Assistance requested', 'Website'] },
     ]);
     expect(report.orphans.clientIds).toBe(1);
     expect(await prisma.cfContract.count({ where: { organizationId: orgId } })).toBe(before);
@@ -136,7 +150,10 @@ describePg('LegacyDataService (Postgres)', () => {
     expect(draftEmail!.contractId).toBeNull();
 
     const filled = await prisma.cfClient.findUnique({ where: { id: ids.onlyLegacy } });
-    expect(filled).toMatchObject({ businessName: 'OnlyLegacy', phone: '313-555-0100', intake: { businessDescription: 'Neighborhood bakery' } });
+    expect(filled).toMatchObject({
+      businessName: 'OnlyLegacy', phone: '313-555-0100', website: 'https://eabakery.com',
+      intake: { businessDescription: 'Neighborhood bakery', assistanceRequested: 'Grant writing' },
+    });
 
     const audit = await prisma.auditLog.findMany({ where: { organizationId: orgId, targetType: 'LEGACY_DATA_CLEANUP' } });
     expect(audit).toHaveLength(1);

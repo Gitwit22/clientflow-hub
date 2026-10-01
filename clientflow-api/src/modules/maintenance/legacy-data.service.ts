@@ -6,7 +6,7 @@ import { deleteClientOwnedRows } from '../clients/client-deletion.service';
 import { CLIENT_DELETION_STEPS } from '../clients/client-deletion.manifest';
 import { CONTRACT_STATUS } from '../contracts/contract-lifecycle';
 import { LEGACY_CONTRACT_WHERE } from '../contracts/legacy-contract';
-import { normalizeFormFields } from '../forms/form-field-mapping';
+import { normalizeFormFields, programSectionsOf } from '../forms/form-field-mapping';
 import { CurrentProfile, mapAnswers, profileUpdateFromAnswers } from '../forms/form-profile-mapper';
 
 /** Audit event written when the cleanup is applied (counts only, no client details). */
@@ -214,6 +214,25 @@ export class LegacyDataService {
     ]);
     const fieldsByTemplate = new Map(templates.map((template) => [template.id, normalizeFormFields(template.fields)]));
 
+    // Program-section answers from intake submissions, with the section fields the client saw.
+    const [submissions, snapshots, programAnswers] = await Promise.all([
+      db.cfIntakeSubmission.findMany({ where: scope, select: { id: true, clientId: true } }),
+      db.cfIntakeSubmissionSnapshot.findMany({ where: scope, select: { intakeSubmissionId: true, renderedSections: true } }),
+      db.cfIntakeSubmissionProgram.findMany({ where: scope, select: { intakeSubmissionId: true, programId: true, responsePayload: true } }),
+    ]);
+    const clientOfSubmission = new Map(submissions.map((row) => [row.id, row.clientId]));
+    const sectionsOfSubmission = new Map(snapshots.map((row) => [row.intakeSubmissionId, programSectionsOf(row.renderedSections)]));
+    const programAnswersByClient = new Map<string, Array<{ fields: ReturnType<typeof normalizeFormFields>; responses: Record<string, unknown> }>>();
+    for (const answer of programAnswers) {
+      const clientId = clientOfSubmission.get(answer.intakeSubmissionId);
+      const section = sectionsOfSubmission.get(answer.intakeSubmissionId)?.find((candidate) => candidate.programId === answer.programId);
+      const responses = answer.responsePayload;
+      if (!clientId || !section || typeof responses !== 'object' || responses === null || Array.isArray(responses)) continue;
+      const list = programAnswersByClient.get(clientId) ?? [];
+      list.push({ fields: normalizeFormFields(section.fields), responses: responses });
+      programAnswersByClient.set(clientId, list);
+    }
+
     const filled: LegacyDataReport['profilesFilled'] = [];
     for (const client of clients) {
       let profile = client as CurrentProfile;
@@ -223,6 +242,13 @@ export class LegacyDataService {
         const fields = fieldsByTemplate.get(assignment.formId);
         const responses = assignment.responses;
         if (!fields || typeof responses !== 'object' || responses === null || Array.isArray(responses)) continue;
+        const update = profileUpdateFromAnswers(mapAnswers(fields, responses), profile, 'fill-blanks');
+        if (!update.labels.length) continue;
+        Object.assign(data, update.data);
+        labels.push(...update.labels.filter((label) => !labels.includes(label)));
+        profile = { ...profile, ...update.data };
+      }
+      for (const { fields, responses } of programAnswersByClient.get(client.id) ?? []) {
         const update = profileUpdateFromAnswers(mapAnswers(fields, responses), profile, 'fill-blanks');
         if (!update.labels.length) continue;
         Object.assign(data, update.data);
