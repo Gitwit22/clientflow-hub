@@ -63,7 +63,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM_NAME
-        value: EA Management
+        value: EA Management LLC
       - key: EMAIL_FROM_ADDRESS
         sync: false
       - key: EMAIL_REPLY_TO

@@ -27,6 +27,7 @@ email was right; the beginning and end were n8n's.
 |---|---|
 | `subject` | The resolved subject, exactly as it should read (variables already substituted). |
 | `body` | The resolved body, exactly as it should read (variables substituted; plain text with `\n` line breaks). |
+| `bodyHtml` | `body` as HTML: escaped, blank lines become paragraphs and single line breaks become `<br>`. The HTML part of the email uses it; `body` stays the plain-text part. |
 | `renderMode` | Always `"verbatim"`: send `body` as the message with **no business wording added before or after it**. |
 | `welcome` | Which ClientFlow copy produced this email (see below). |
 | `nextStep` | The same text as `body`. Kept only so the current n8n validation keeps passing; new logic should not use it. |

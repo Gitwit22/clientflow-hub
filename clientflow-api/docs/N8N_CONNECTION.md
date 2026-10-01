@@ -233,8 +233,9 @@ the subject, body or htmlBody: `422`, `errorCode: "VALIDATION_FAILED"`,
   Sign Contract", `contract.copy` "View Signed Agreement"). **Never added to `welcome.send`.**
 - **Frame around every email, including welcome:** header is the organization logo (`headerImageUrl` /
   `logoUrl`, sent on every event) shown full width (up to 600px, scaling down on phones), or the
-  text "EA MANAGEMENT" when no logo is configured; footer is "Thank you, / EA Management" (also appended to the
-  plain-text version). The old invented welcome wording ("Welcome, {name}!", "Thank you for completing the
+  text "EA MANAGEMENT" when no logo is configured; footer is "Thank you, / EA Management LLC" (also appended to the
+  plain-text version). Both Gmail nodes send as "EA Management LLC". The welcome HTML uses ClientFlow's
+  `bodyHtml` (paragraphs and line breaks), falling back to converting `body` the same way. The old invented welcome wording ("Welcome, {name}!", "Thank you for completing the
   previous step", "Your next step:") is gone.
 
 ### 4.7 Attachments
