@@ -44,6 +44,7 @@ import {
   cfCompleteStoredFileUpload,
   cfGetDocumentDownload,
   cfGetExecutedContractDownload,
+  acfSendContractCopy,
   cfCreateCommunication,
   cfCreateFinalReport,
   cfUpdateFormAssignment,
@@ -71,6 +72,7 @@ import type {
   RelationshipType,
   Terms,
 } from "@/types";
+import { newIdempotencyKey } from "./client-send";
 
 const delay = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 120));
 
@@ -747,12 +749,13 @@ export async function archiveAfterFinalReport(clientId: string, decision: string
 
 /* --------------------------- Documents / comms / log ------------------------- */
 
-export async function uploadDocument(clientId: string, file: File) {
+export async function uploadDocument(clientId: string, file: File, enrollmentId?: string) {
   const contentType = file.type || "application/octet-stream";
   const intent = await cfCreateDocumentUpload(clientId, {
     name: file.name,
     type: contentType,
     byteSize: file.size,
+    ...(enrollmentId ? { enrollmentId } : {}),
   });
   const uploadResponse = await fetch(intent.uploadUrl, {
     method: "PUT",
@@ -765,8 +768,9 @@ export async function uploadDocument(clientId: string, file: File) {
   return delay(doc);
 }
 
-export async function downloadDocument(documentId: string) {
-  const result = await cfGetDocumentDownload(documentId);
+/** Opens a client document: `view` shows it in a new tab, otherwise it downloads. */
+export async function downloadDocument(documentId: string, options: { view?: boolean } = {}) {
+  const result = await cfGetDocumentDownload(documentId, { inline: options.view });
   window.open(result.url, "_blank", "noopener,noreferrer");
 }
 
@@ -787,9 +791,24 @@ export async function uploadStoredFile(file: File, storageKeyPrefix: string) {
   return cfCompleteStoredFileUpload(intent.storedFile.id);
 }
 
-export async function downloadExecutedContract(clientId: string, contractId: string) {
-  const result = await cfGetExecutedContractDownload(clientId, contractId);
+export async function downloadExecutedContract(
+  clientId: string,
+  contractId: string,
+  options: { view?: boolean } = {},
+) {
+  const result = await cfGetExecutedContractDownload(clientId, contractId, {
+    inline: options.view,
+  });
   window.open(result.url, "_blank", "noopener,noreferrer");
+}
+
+/** Emails the client the signed copy of one agreement; the outcome is logged in Communications. */
+export async function sendSignedAgreementCopy(clientId: string, contractId: string) {
+  const result = await acfSendContractCopy(clientId, contractId, {
+    idempotencyKey: newIdempotencyKey(),
+  });
+  await refreshClientCommunications(clientId).catch(() => undefined);
+  return result.emailDelivery;
 }
 
 export async function addCommunication(

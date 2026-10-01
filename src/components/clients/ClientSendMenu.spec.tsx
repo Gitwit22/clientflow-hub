@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROGRAM_REQUIRED_REASON } from "@/lib/client-send";
-import { ClientSendMenu, SendToClientPanel } from "./ClientSendMenu";
+import { ClientSendMenu } from "./ClientSendMenu";
 
 afterEach(cleanup);
 
@@ -57,31 +57,5 @@ describe("ClientSendMenu", () => {
     openMenu();
     fireEvent.click(item(/Send contract/));
     expect(onSelect).toHaveBeenCalledWith("contract");
-  });
-});
-
-describe("SendToClientPanel", () => {
-  it("shows the four actions, with the same enrollment rules as the menu", () => {
-    const onSelect = vi.fn();
-    render(<SendToClientPanel hasEnrollment={false} onSelect={onSelect} />);
-
-    const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
-    expect(button("General Form").disabled).toBe(false);
-    for (const name of ["Program Form", "Contract", "Welcome Email"])
-      expect(button(name).disabled).toBe(true);
-    expect(screen.getByText(PROGRAM_REQUIRED_REASON)).toBeTruthy();
-
-    fireEvent.click(button("General Form"));
-    expect(onSelect).toHaveBeenCalledWith("general_form");
-  });
-
-  it("enables everything for a client with an enrollment", () => {
-    const onSelect = vi.fn();
-    render(<SendToClientPanel hasEnrollment onSelect={onSelect} />);
-    for (const name of ["Program Form", "General Form", "Contract", "Welcome Email"]) {
-      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
-    }
-    fireEvent.click(screen.getByRole("button", { name: "Welcome Email" }));
-    expect(onSelect).toHaveBeenCalledWith("welcome");
   });
 });

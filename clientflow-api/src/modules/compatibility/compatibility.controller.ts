@@ -1568,6 +1568,7 @@ export class ClientflowCompatibilityController {
     @Req() request: Request,
     @Param('clientId') clientId: string,
     @Param('contractId') contractId: string,
+    @Query('disposition') disposition?: string,
   ) {
     const { orgId } = await this.requireOrgFromRequest(request);
     const storage = this.requireStorage();
@@ -1598,6 +1599,7 @@ export class ClientflowCompatibilityController {
     const download = await storage.createPresignedDownloadUrl(executed.storageKey, 300, {
       downloadFileName: executed.downloadFileName,
       contentType: EXECUTED_CONTRACT_MIME_TYPE,
+      inline: disposition === 'inline',
     });
     return { url: download.url, expiresInSeconds: download.expiresInSeconds };
   }
@@ -1698,7 +1700,7 @@ export class ClientflowCompatibilityController {
     }
     return completed;
   }
-  @Get('documents/:id/download') async downloadDocument(@Req() request: Request, @Param('id') id: string) {
+  @Get('documents/:id/download') async downloadDocument(@Req() request: Request, @Param('id') id: string, @Query('disposition') disposition?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
     const document = await this.requirePrisma().cfDocument.findFirst({ where: { id, organizationId: orgId } });
     if (!document) throw new NotFoundException('Document not found.');
@@ -1707,7 +1709,12 @@ export class ClientflowCompatibilityController {
       where: { id: document.storedFileId, organizationId: orgId },
     });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    const download = await this.requireStorage().createPresignedDownloadUrl(storedFile.storageKey, 300);
+    // Named after the upload, as a download or (View) shown in the browser.
+    const download = await this.requireStorage().createPresignedDownloadUrl(storedFile.storageKey, 300, {
+      downloadFileName: storedFile.originalFileName || document.name,
+      contentType: storedFile.mimeType || undefined,
+      inline: disposition === 'inline',
+    });
     return { url: download.url, expiresInSeconds: download.expiresInSeconds };
   }
   @Get('clients/:clientId/communications') async listCommunications(@Req() request: Request, @Param('clientId') clientId: string) {

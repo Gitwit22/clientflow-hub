@@ -6,7 +6,6 @@ export const CLIENT_TABS = [
   "program",
   "billing",
   "forms",
-  "contracts",
   "documents",
   "communications",
   "monitoring",
@@ -21,7 +20,6 @@ export const CLIENT_TAB_LABELS: Record<ClientTab, string> = {
   program: "Program",
   billing: "Billing",
   forms: "Forms",
-  contracts: "Contracts",
   documents: "Documents",
   communications: "Communications",
   monitoring: "Monitoring",
@@ -37,10 +35,17 @@ export interface ClientProfileSearch {
   tab?: ClientTab;
 }
 
+/** Tabs that were folded into another: an old link still lands where that content lives now. */
+const RETIRED_TABS: Record<string, ClientTab> = {
+  // Signed agreements are files (Documents); a pending agreement is on Overview/Program.
+  contracts: "documents",
+};
+
 /** Route `validateSearch`: keeps only known values so a bad URL degrades to the defaults. */
 export function parseClientProfileSearch(search: Record<string, unknown>): ClientProfileSearch {
-  const tab = (CLIENT_TABS as readonly string[]).includes(search.tab as string)
-    ? (search.tab as ClientTab)
+  const requested = typeof search.tab === "string" ? (RETIRED_TABS[search.tab] ?? search.tab) : "";
+  const tab = (CLIENT_TABS as readonly string[]).includes(requested)
+    ? (requested as ClientTab)
     : undefined;
   return {
     enrollmentId:

@@ -919,9 +919,13 @@ export async function cfCompleteDocumentUpload(documentId: string) {
     method: "POST",
   });
 }
-export async function cfGetDocumentDownload(documentId: string) {
+/** `inline` returns a link that opens the file in the browser (View) instead of saving it. */
+export async function cfGetDocumentDownload(
+  documentId: string,
+  options: { inline?: boolean } = {},
+) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(
-    `${CF}/documents/${documentId}/download`,
+    `${CF}/documents/${documentId}/download${options.inline ? "?disposition=inline" : ""}`,
   );
 }
 export async function cfCreateStoredFileUpload(data: {
@@ -959,9 +963,13 @@ export async function cfCompleteStoredFileUpload(fileId: string) {
 export async function cfGetStoredFileDownload(fileId: string) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(`${CF}/files/${fileId}/download`);
 }
-export async function cfGetExecutedContractDownload(clientId: string, contractId: string) {
+export async function cfGetExecutedContractDownload(
+  clientId: string,
+  contractId: string,
+  options: { inline?: boolean } = {},
+) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(
-    `${CF}/clients/${clientId}/contracts/${contractId}/download`,
+    `${CF}/clients/${clientId}/contracts/${contractId}/download${options.inline ? "?disposition=inline" : ""}`,
   );
 }
 export async function cfListAllDocuments() {
