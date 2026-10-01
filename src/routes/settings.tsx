@@ -63,11 +63,12 @@ export const Route = createFileRoute("/settings")({
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 
-const DISPLAY_ROLES = ["Admin", "Manager", "Staff", "Viewer"] as const;
+// The server has two staff roles; the picker offers exactly those, so what you choose is what is saved.
+const DISPLAY_ROLES = ["Admin", "Staff"] as const;
 type DisplayRole = (typeof DISPLAY_ROLES)[number];
 
 function toBackendRole(label: DisplayRole): "org_admin" | "reviewer" {
-  return label === "Admin" || label === "Manager" ? "org_admin" : "reviewer";
+  return label === "Admin" ? "org_admin" : "reviewer";
 }
 
 function toDisplayRole(role: BackendRole): DisplayRole {
@@ -376,8 +377,9 @@ function SettingsPage() {
     try {
       const updated = await updateOrganizationSettings(orgId, {
         name: companyName.trim() || undefined,
-        replyToEmail: replyTo.trim() || undefined,
-        defaultMonitoringFrequency: monitoringFreq.trim() || undefined,
+        // An emptied field is sent as "" so it clears instead of keeping the old value.
+        replyToEmail: replyTo.trim(),
+        defaultMonitoringFrequency: monitoringFreq.trim(),
       });
       setCompanyName(updated.name ?? "");
       toast.success("Company profile saved.");
@@ -513,7 +515,12 @@ function SettingsPage() {
                     <Select
                       value={currentDisplay}
                       onValueChange={(v) => handleRoleChange(member, v as DisplayRole)}
-                      disabled={controlsLocked || roleUpdating === member.id}
+                      // Only a super admin can change another super admin; the server refuses anyone else.
+                      disabled={
+                        controlsLocked ||
+                        roleUpdating === member.id ||
+                        member.role === "super_admin"
+                      }
                     >
                       <SelectTrigger className="h-7 w-28 text-xs shrink-0">
                         <SelectValue />

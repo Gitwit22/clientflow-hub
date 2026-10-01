@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { createEnrollment, reactivateEnrollment } from "@/lib/api";
+import { canReinstateEnrollment } from "@/lib/enrollment-status";
 import { useAppState } from "@/lib/store";
 import type { Program } from "@/types";
 
@@ -38,7 +39,9 @@ export function ManageProgramMembersDialog({
       ),
     }))
     .filter(({ client, enrollment }) => {
+      // Current members aren't candidates; of past ones only a withdrawn member can come back.
       if (enrollment && !CLOSED_STATUSES.has(enrollment.status)) return false;
+      if (enrollment && !canReinstateEnrollment(enrollment.status)) return false;
       if (!normalizedQuery) return true;
       return [client.businessName, client.primaryContactName, client.email].some((value) =>
         value.toLowerCase().includes(normalizedQuery),

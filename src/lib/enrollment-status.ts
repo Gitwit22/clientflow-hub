@@ -82,3 +82,13 @@ export function hasOpenEnrollment(
       !isTerminalEnrollmentStatus(enrollment.status),
   );
 }
+
+/** Mirrors the server's transition table: only an active or on-hold member can be marked completed. */
+export function canCompleteEnrollment(status: string): boolean {
+  return isActiveEnrollmentStatus(status);
+}
+
+/** Of the closed memberships, only a withdrawn one can be reinstated; completed and declined are final. */
+export function canReinstateEnrollment(status: string): boolean {
+  return status === "withdrawn";
+}

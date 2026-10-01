@@ -92,8 +92,14 @@ describe('buildClientProfileUpdate', () => {
 
   it('keeps the workflow-status and lifecycle guards', () => {
     expect(() => buildClientProfileUpdate({ status: 'ONBOARDING' })).toThrow(
-      'Client workflow statuses cannot be changed through the generic update endpoint.',
+      'That status is set by the intake and contract workflow',
     );
+    expect(() => buildClientProfileUpdate({ status: 'ONBOARDING' }, { status: 'PROGRAM_SELECTED' })).toThrow(
+      'That status is set by the intake and contract workflow',
+    );
+    // Unchanged workflow status = no change; moving out of a workflow status by hand is allowed.
+    expect(buildClientProfileUpdate({ status: 'PROGRAM_SELECTED', phone: '1' }, { status: 'PROGRAM_SELECTED' })).toEqual({ phone: '1' });
+    expect(buildClientProfileUpdate({ status: 'Active' }, { status: 'PROGRAM_SELECTED' })).toEqual({ status: 'Active' });
     expect(() => buildClientProfileUpdate({ lifecycleStatus: 'active' })).toThrow(
       'Client lifecycle state cannot be changed through the generic update endpoint.',
     );

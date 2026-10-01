@@ -102,12 +102,44 @@ const FIELD_TYPES = new Set([
  * The canonical profile key a field writes to (a CfClient column, an intake key, or a social id),
  * or null when the field is program-specific and does not belong on the profile.
  */
-export function canonicalFieldKey(field: MappableFormField): string | null {
+export function canonicalFieldKey(field: MappableFormField & { type?: string }): string | null {
   const key = field.prefillKey ?? field.id;
   if (field.id === 'contact' && /preferred/i.test(field.label)) return 'preferredContact';
   return TOP_LEVEL_FIELD_KEYS[key]
     ?? INTAKE_FIELD_KEYS[key]
-    ?? (SOCIAL_FIELD_IDS.has(field.id) ? field.id : null);
+    ?? (SOCIAL_FIELD_IDS.has(field.id) ? field.id : null)
+    // Fields built in the form editor get ids from their label ("brief-business-description"), so a
+    // field the id doesn't name is recognised by what it asks.
+    ?? (field.prefillKey ? null : keyFromLabel(field.label, field.type));
+}
+
+/**
+ * What a question asks, read from its label (case and punctuation ignored), in priority order: the
+ * more specific phrases come first so "Type of assistance needed" is assistance, not business type,
+ * and "Preferred contact method" is the contact preference, not the contact's name.
+ */
+const LABEL_RULES: Array<[RegExp, string]> = [
+  [/\bpreferred\b.*\b(contact|reach|communicat)|best way to (reach|contact)|how (should|can|do) we (reach|contact)/, 'preferredContact'],
+  [/\bassistance\b|help (do )?you need|kind of help|type of (help|support|service)|services? (needed|requested)|what do you need/, 'assistanceRequested'],
+  [/business description|describe (your )?business|about (your )?business|what does your business do|tell us about/, 'businessDescription'],
+  [/hear about|heard about|how did you find|referred by|referral source/, 'heardAboutUs'],
+  [/\bbudget\b|funding (need|amount|request)|amount (needed|requested)/, 'budgetNeed'],
+  [/additional (comments|information|notes)|anything else|other comments/, 'additionalComments'],
+  [/business type|type of business|\bindustry\b/, 'businessType'],
+  [/program (or service )?of interest|interested in which program/, 'programOfInterest'],
+  [/\bweb ?site\b|\bweb address\b|\burl\b/, 'website'],
+  [/\be-?mail\b/, 'email'],
+  [/\bphone\b|\bmobile\b|\bcell\b|telephone/, 'phone'],
+  [/business name|company name|organi[sz]ation name|name of (your )?(business|company|organi[sz]ation)/, 'businessName'],
+  [/^(your |full |contact |applicant )?name$|^(first and last|full) name|contact person/, 'primaryContactName'],
+];
+
+const TYPE_KEYS: Record<string, string> = { url: 'website', email: 'email', phone: 'phone' };
+
+function keyFromLabel(label: string, type?: string): string | null {
+  const text = label.toLowerCase().replace(/[^a-z0-9@ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const [pattern, key] of LABEL_RULES) if (pattern.test(text)) return key;
+  return (type && TYPE_KEYS[type]) || null;
 }
 
 /** Normalizes a CfFormTemplate.fields JSON value into typed fields, dropping malformed entries. */
@@ -137,4 +169,14 @@ export function normalizeFormFields(rawFields: unknown): FormFieldShape[] {
     });
   }
   return normalized;
+}
+
+/** The program sections of the form the client saw (`GET /s/:token` render), with their fields. */
+export function programSectionsOf(renderedSections: unknown): Array<{ programId: string; fields: unknown }> {
+  if (!Array.isArray(renderedSections)) return [];
+  return renderedSections.filter(
+    (section): section is { programId: string; fields: unknown } =>
+      typeof section === 'object' && section !== null && (section as Record<string, unknown>).kind === 'program'
+      && typeof (section as Record<string, unknown>).programId === 'string',
+  );
 }

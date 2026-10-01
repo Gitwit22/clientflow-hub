@@ -139,7 +139,7 @@ describe('profileUpdateFromAnswers', () => {
     businessName: 'New Biz',
     primaryContactName: 'New Name',
     email: 'new@example.com',
-    phone: '777',
+    phone: '313-555-0177',
     businessDescription: 'We bake bread',
     assistanceRequested: 'Funding',
   };
@@ -147,7 +147,7 @@ describe('profileUpdateFromAnswers', () => {
   it('on submit, the answers become the profile but names only fill blanks and email never changes', () => {
     const update = profileUpdateFromAnswers(mapAnswers(fields, answers), profile(), 'submit');
     expect(update.data).toEqual({
-      phone: '777',
+      phone: '313-555-0177',
       intake: { businessDescription: 'We bake bread', assistanceRequested: 'Funding', uploadedFiles: ['a.pdf'] },
     });
     expect(update.labels).toEqual(['Phone', 'Business description', 'Assistance requested']);
@@ -192,5 +192,50 @@ describe('links from answers', () => {
         value: ['https://instagram.com/eabakery', '@eabakery', 'https://x.com/eabakery'],
       }),
     ]);
+  });
+});
+
+describe('fields recognised by their label (form-editor ids are slugs of the label)', () => {
+  const slugField = (label: string, type = 'text') =>
+    field(label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), { label, type });
+
+  it('maps the Master Intake questions as staff wrote them', () => {
+    const fields = [
+      slugField('Brief business description', 'textarea'),
+      slugField('Type of assistance needed', 'textarea'),
+      slugField('Preferred contact method', 'select'),
+      slugField('Business website', 'url'),
+      slugField('Business / Organization Name'),
+      slugField('How did you hear about us?'),
+      slugField('What type of business is it?'),
+    ];
+    const answers = {
+      'brief-business-description': 'IT services for small businesses',
+      'type-of-assistance-needed': 'Grant writing',
+      'preferred-contact-method': 'Phone',
+      'business-website': 'nxtlvltech.com',
+      'business-organization-name': 'Nxt Lvl Technology',
+      'how-did-you-hear-about-us': 'A friend',
+      'what-type-of-business-is-it': 'Technology',
+    };
+    expect(Object.fromEntries(mapAnswers(fields, answers).map((a) => [a.key, a.value]))).toEqual({
+      businessDescription: 'IT services for small businesses',
+      assistanceRequested: 'Grant writing',
+      preferredContact: 'Phone',
+      website: 'https://nxtlvltech.com',
+      businessName: 'Nxt Lvl Technology',
+      heardAboutUs: 'A friend',
+      businessType: 'Technology',
+    });
+  });
+
+  it('falls back to the field type, and skips answers that are not that kind of value', () => {
+    const fields = [slugField('Your site', 'url'), slugField('Do you have a website?', 'select'), slugField('Best number', 'phone')];
+    expect(mapAnswers(fields, { 'your-site': 'Yes', 'do-you-have-a-website': 'Yes', 'best-number': '313-555-0100' })
+      .map((a) => [a.key, a.value])).toEqual([['phone', '313-555-0100']]);
+  });
+
+  it('leaves program-specific questions alone', () => {
+    expect(mapAnswers([slugField('How many employees do you have?')], { 'how-many-employees-do-you-have': '5' })).toEqual([]);
   });
 });

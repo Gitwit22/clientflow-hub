@@ -23,9 +23,7 @@ import { ApiError, inviteMember } from "@/lib/apiClient";
 
 const ROLE_OPTIONS = [
   { label: "Admin", value: "org_admin" },
-  { label: "Manager", value: "org_admin" },
   { label: "Staff", value: "reviewer" },
-  { label: "Viewer", value: "reviewer" },
 ] as const;
 
 interface InviteUserDialogProps {
@@ -58,7 +56,7 @@ export function InviteUserDialog({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setIsSubmitting(true);
-    const backendRole = roleLabel === "Admin" || roleLabel === "Manager" ? "org_admin" : "reviewer";
+    const backendRole = roleLabel === "Admin" ? "org_admin" : "reviewer";
     try {
       const result = await inviteMember(organizationId, {
         email: email.trim(),

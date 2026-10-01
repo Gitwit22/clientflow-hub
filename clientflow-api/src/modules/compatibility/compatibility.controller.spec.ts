@@ -66,9 +66,13 @@ describe('compatibility route scaffold', () => {
       expect(result).toEqual(enrollment);
     });
 
-    it('rejects direct client status mutation through the generic update endpoint', async () => {
-      const prisma = {
-        cfClient: { update: jest.fn() },
+    it('rejects moving a client into a workflow status by hand, but accepts the status it already has', async () => {
+      const prisma: Record<string, any> = {
+        cfClient: {
+          update: jest.fn().mockResolvedValue({ id: 'client-1' }),
+          findFirst: jest.fn().mockResolvedValue({ id: 'client-1', organizationId: 'org-1', status: 'PROGRAM_SELECTED', isArchived: false, archivedAt: null }),
+        },
+        $transaction: jest.fn(async (callback: (value: unknown) => unknown) => callback(prisma)),
       };
       const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
       jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
@@ -77,8 +81,50 @@ describe('compatibility route scaffold', () => {
       });
 
       await expect(controller.updateClient({} as never, 'client-1', { status: 'ONBOARDING' }))
-        .rejects.toThrow('Client workflow statuses cannot be changed through the generic update endpoint.');
+        .rejects.toThrow('That status is set by the intake and contract workflow');
       expect(prisma.cfClient.update).not.toHaveBeenCalled();
+
+      // The Edit client form sends the whole profile back, unchanged status included.
+      await controller.updateClient({} as never, 'client-1', { status: 'PROGRAM_SELECTED', phone: '313-555-0100' });
+      expect(prisma.cfClient.update).toHaveBeenCalledWith({
+        where: { id: 'client-1', organizationId: 'org-1' },
+        data: { phone: '313-555-0100' },
+      });
+    });
+
+    it('saves a seeded program whose stored form template no longer exists, unless staff pick a missing one', async () => {
+      const prisma: Record<string, any> = {
+        cfProgram: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'program-1', organizationId: 'org-1', defaultFormTemplateId: 'general-intake' }),
+          update: jest.fn().mockResolvedValue({ id: 'program-1' }),
+        },
+        cfFormTemplate: { findFirst: jest.fn().mockResolvedValue(null) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1', admin: { id: 'admin-1' } });
+
+      await controller.updateProgram({} as never, 'program-1', { name: 'IDI', defaultFormTemplateId: 'general-intake' });
+      expect(prisma.cfProgram.update).toHaveBeenCalledWith({ where: { id: 'program-1', organizationId: 'org-1' }, data: { name: 'IDI' } });
+
+      await expect(controller.updateProgram({} as never, 'program-1', { defaultFormTemplateId: 'other-missing' }))
+        .rejects.toThrow('Form template not found.');
+    });
+
+    it('saves an older template whose scope is legacy, and still refuses setting scope to legacy', async () => {
+      const prisma: Record<string, any> = {
+        cfFormTemplate: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'form-1', organizationId: 'org-1', scope: 'legacy' }),
+          update: jest.fn().mockResolvedValue({ id: 'form-1' }),
+        },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1', admin: { id: 'admin-1' } });
+
+      await controller.updateFormTemplate({} as never, 'form-1', { name: 'Check-in', scope: 'legacy' });
+      expect(prisma.cfFormTemplate.update).toHaveBeenCalledWith({ where: { id: 'form-1', organizationId: 'org-1' }, data: { name: 'Check-in' } });
+
+      prisma.cfFormTemplate.findFirst.mockResolvedValue({ id: 'form-1', organizationId: 'org-1', scope: 'program_section' });
+      await expect(controller.updateFormTemplate({} as never, 'form-1', { scope: 'legacy' })).rejects.toThrow('scope must be one of');
     });
 
     it('never passes an arbitrary request body to Prisma from the generic client update', async () => {

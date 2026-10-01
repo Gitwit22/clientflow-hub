@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { CLIENT_STATUS, FORM_STATUS } from './intake-lifecycle';
-import { normalizeFormFields } from './form-field-mapping';
+import { normalizeFormFields, programSectionsOf } from './form-field-mapping';
 import { mapAnswers, profileUpdateFromAnswers } from './form-profile-mapper';
 import { assertPublicFormLinkUsable, PUBLIC_FORM_ALREADY_SUBMITTED, resolvePublicFormLink } from './public-form-link';
 
@@ -175,6 +175,16 @@ export class IntakeWorkflowService {
         client,
         'submit',
       );
+      // Answers in the selected programs' sections (a website asked there, say) fill what is still blank.
+      for (const section of programSectionsOf(renderedSections)) {
+        if (!selectedProgramIds.includes(section.programId)) continue;
+        const responses = programResponses[section.programId];
+        if (!isRecord(responses)) continue;
+        const current = { ...client, ...profile.data } as typeof client;
+        const extra = profileUpdateFromAnswers(mapAnswers(normalizeFormFields(section.fields), responses), current, 'fill-blanks');
+        Object.assign(profile.data, extra.data);
+        profile.labels.push(...extra.labels.filter((label) => !profile.labels.includes(label)));
+      }
       const { intake: answeredIntake, ...profileColumns } = profile.data;
       const intake = {
         ...(answeredIntake ?? (isRecord(client.intake) ? client.intake : {})),

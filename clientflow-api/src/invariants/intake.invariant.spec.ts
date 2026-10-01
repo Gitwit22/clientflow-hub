@@ -176,3 +176,33 @@ describe('intake answers reach the client profile', () => {
     expect(rows.cfActivityLog.find((row) => row.action === 'INTAKE_SUBMITTED')?.description).toContain('Profile updated from the answers: Phone, Business description, Assistance requested.');
   });
 });
+
+describe('program section answers fill blank profile fields', () => {
+  it('uses the website asked in a program section when the core form had none, and slug-id core fields map by label', async () => {
+    const { rows, service } = setup();
+    rows.cfFormTemplate[0].fields = [
+      { id: 'brief-business-description', label: 'Brief business description', type: 'textarea' },
+      { id: 'type-of-assistance-needed', label: 'Type of assistance needed', type: 'textarea' },
+    ];
+    Object.assign(rows.cfClient[0], { businessName: 'Nxt Lvl', email: 'pat@example.com', phone: '', website: null, socialLinks: [] });
+    rows.cfIntakeRenderSession = [{
+      organizationId: ORG, formAssignmentId: 'fa-1', configurationToken: 'cfg-1', expiresAt: new Date(Date.now() + 3600_000),
+      renderedSections: [
+        { kind: 'core', fields: [] },
+        { kind: 'program', programId: 'p-grant', fields: [{ id: 'company-website', label: 'Company website', type: 'url' }] },
+      ],
+    }];
+
+    await service.submit(token, {
+      ...input,
+      configurationToken: 'cfg-1',
+      coreResponses: { 'brief-business-description': 'IT services', 'type-of-assistance-needed': 'Grant writing' },
+      programResponses: { 'p-grant': { 'company-website': 'nxtlvltech.com' } },
+    });
+
+    expect(rows.cfClient[0]).toEqual(expect.objectContaining({
+      website: 'https://nxtlvltech.com',
+      intake: expect.objectContaining({ businessDescription: 'IT services', assistanceRequested: 'Grant writing' }),
+    }));
+  });
+});
