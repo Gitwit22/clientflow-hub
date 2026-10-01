@@ -149,3 +149,60 @@ export function diffProfile(mapped: readonly MappedAnswer[], current: CurrentPro
 
   return changes;
 }
+
+/**
+ * How submitted answers reach the profile without staff approving each field:
+ * - `submit` (the client just sent their intake): their answers become the profile, except the
+ *   business and contact names, which only fill blanks because staff entered them when adding the
+ *   client and contracts are addressed with them;
+ * - `fill-blanks` (catching up older clients): only empty profile fields are filled, so nothing
+ *   staff have edited since is overwritten.
+ * The email is never changed this way: it is the address every link is delivered to.
+ */
+export type ProfileFillMode = 'submit' | 'fill-blanks';
+
+const FILL_BLANKS_ONLY = new Set(['businessName', 'primaryContactName']);
+const NEVER_FILLED = new Set(['email']);
+
+export interface ProfileUpdate {
+  data: {
+    businessName?: string;
+    primaryContactName?: string;
+    phone?: string;
+    website?: string;
+    socialLinks?: string[];
+    intake?: Record<string, unknown>;
+  };
+  /** Labels of the fields written, for the activity log. */
+  labels: string[];
+}
+
+export function profileUpdateFromAnswers(
+  mapped: readonly MappedAnswer[],
+  current: CurrentProfile,
+  mode: ProfileFillMode,
+): ProfileUpdate {
+  const data: ProfileUpdate['data'] = {};
+  const labels: string[] = [];
+  const intakeChanges: Record<string, string> = {};
+
+  for (const change of diffProfile(mapped, current)) {
+    if (NEVER_FILLED.has(change.key)) continue;
+    const blank = change.currentValue.trim() === '';
+    if (!blank && (mode === 'fill-blanks' || FILL_BLANKS_ONLY.has(change.key))) continue;
+
+    if (change.target === 'socialLinks') {
+      data.socialLinks = socialLinksOf(change.value);
+    } else if (change.target === 'top') {
+      (data as Record<string, unknown>)[change.key] = change.newValue;
+    } else {
+      intakeChanges[change.key] = change.newValue;
+    }
+    labels.push(change.label);
+  }
+
+  if (Object.keys(intakeChanges).length > 0) {
+    data.intake = { ...(isRecord(current.intake) ? current.intake : {}), ...intakeChanges };
+  }
+  return { data, labels };
+}
