@@ -223,11 +223,11 @@ export class LegacyDataService {
         const fields = fieldsByTemplate.get(assignment.formId);
         const responses = assignment.responses;
         if (!fields || typeof responses !== 'object' || responses === null || Array.isArray(responses)) continue;
-        const update = profileUpdateFromAnswers(mapAnswers(fields, responses as Record<string, unknown>), profile, 'fill-blanks');
+        const update = profileUpdateFromAnswers(mapAnswers(fields, responses), profile, 'fill-blanks');
         if (!update.labels.length) continue;
         Object.assign(data, update.data);
         labels.push(...update.labels.filter((label) => !labels.includes(label)));
-        profile = { ...profile, ...update.data } as CurrentProfile;
+        profile = { ...profile, ...update.data };
       }
       if (!labels.length) continue;
       filled.push({ clientId: client.id, businessName: client.businessName, fields: labels });

@@ -21,6 +21,7 @@ import type {
   WelcomeEmailPayload,
   WelcomeSendLifecyclePayload,
 } from './n8n.types';
+import { plainTextToEmailHtml } from './email-body';
 
 const HEADER_IMAGE_CACHE_MS = 5 * 60 * 1000;
 
@@ -220,6 +221,7 @@ export class N8nService {
   ): Promise<WelcomeEmailDeliveryResult> {
     return this.sendViaDeliver<WelcomeSendLifecyclePayload>(this.getWelcomeAvailability(), eventId, {
       ...payload,
+      bodyHtml: plainTextToEmailHtml(payload.body),
       eventType: 'welcome.send',
     });
   }

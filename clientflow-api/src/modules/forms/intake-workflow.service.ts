@@ -6,7 +6,7 @@ import { ProgramAutomationService } from '../automation/program-automation.servi
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { CLIENT_STATUS, FORM_STATUS } from './intake-lifecycle';
 import { normalizeFormFields } from './form-field-mapping';
-import { CurrentProfile, mapAnswers, profileUpdateFromAnswers } from './form-profile-mapper';
+import { mapAnswers, profileUpdateFromAnswers } from './form-profile-mapper';
 import { assertPublicFormLinkUsable, PUBLIC_FORM_ALREADY_SUBMITTED, resolvePublicFormLink } from './public-form-link';
 
 export interface IntakeSubmissionInput {
@@ -172,7 +172,7 @@ export class IntakeWorkflowService {
       // The client's answers become their profile, so the Overview shows what they submitted.
       const profile = profileUpdateFromAnswers(
         mapAnswers(normalizeFormFields(template.fields), coreResponses),
-        client as CurrentProfile,
+        client,
         'submit',
       );
       const { intake: answeredIntake, ...profileColumns } = profile.data;
@@ -187,7 +187,7 @@ export class IntakeWorkflowService {
           status: primaryProgram ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted,
           // Legacy mirror for older screens; workflow decisions read the enrollments.
           ...(primaryProgram ? { programId: primaryProgram.id } : {}),
-          ...(primaryProgram || answeredIntake ? { intake: intake as Prisma.InputJsonObject } : {}),
+          ...(primaryProgram || answeredIntake ? { intake: intake } : {}),
         },
       });
       await transaction.cfActivityLog.create({

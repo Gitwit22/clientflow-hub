@@ -94,6 +94,8 @@ export interface WelcomeSendLifecyclePayload extends LifecycleEventBase {
   programName: string;
   subject: string;
   body: string;
+  /** `body` as HTML paragraphs and line breaks, for the email's HTML part (`body` stays the text part). */
+  bodyHtml: string;
   renderMode: 'verbatim';
   welcome: WelcomeCopyMetadata;
   nextStep: string;
