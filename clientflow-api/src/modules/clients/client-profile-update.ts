@@ -51,17 +51,22 @@ export type ClientProfileUpdate = Record<string, string | string[] | boolean | D
  *
  * Unknown keys are rejected (not silently dropped) so a frontend regression is loud.
  */
-export function buildClientProfileUpdate(body: unknown): ClientProfileUpdate {
+export function buildClientProfileUpdate(body: unknown, current?: { status: string }): ClientProfileUpdate {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new BadRequestException('A JSON object body is required.');
   }
-  const input = body as Record<string, unknown>;
+  const input = { ...(body as Record<string, unknown>) };
 
   if (input.lifecycleStatus !== undefined) {
     throw new BadRequestException('Client lifecycle state cannot be changed through the generic update endpoint.');
   }
+  // Re-sending the status the client already has is not a change (an edit form sends the whole
+  // profile back); only moving a client INTO a workflow status by hand is refused.
+  if (current && input.status === current.status) delete input.status;
   if (typeof input.status === 'string' && AUTOMATED_CLIENT_STATUSES.has(input.status)) {
-    throw new BadRequestException('Client workflow statuses cannot be changed through the generic update endpoint.');
+    throw new BadRequestException(
+      'That status is set by the intake and contract workflow and can\'t be chosen by hand. Pick another status, or leave it as it is.',
+    );
   }
 
   const unknownKeys = Object.keys(input).filter((key) => input[key] !== undefined && !ALLOWED_FIELDS.has(key));

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { RepeatableSocialLinksInput } from "@/components/SocialMediaInput";
 import { updateClient } from "@/lib/api";
+import { changedFields } from "@/lib/changed-fields";
 import { toExternalUrl } from "@/lib/external-links";
 import { invalidSocialLinks } from "@/lib/social-platforms";
 import {
@@ -97,11 +98,52 @@ export function EditClientDialog({
       toast.error("Business name, contact name, and email are required.");
       return;
     }
-    if (website.trim() && !toExternalUrl(website)) {
+    const selectedMember = activeMembers.find((member) => member.id === assignedUserId);
+    const next: Record<string, unknown> = {
+      businessName: businessName.trim(),
+      primaryContactName: primaryContactName.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      website: website.trim(),
+      socialLinks,
+      profileType,
+      relationshipType,
+      status,
+      assignedUserId:
+        assignedUserId === "__legacy" ? client.assignedUserId : (selectedMember?.id ?? null),
+      assignedStaff:
+        assignedUserId === "__legacy"
+          ? client.assignedStaff
+          : selectedMember
+            ? memberName(selectedMember)
+            : "",
+      nextFollowUpDate,
+    };
+    // Only what staff changed is sent: re-sending untouched values (a status the workflow set, an
+    // old social handle) must never be what blocks a save.
+    const changes = changedFields(next, {
+      businessName: client.businessName,
+      primaryContactName: client.primaryContactName,
+      email: client.email,
+      phone: client.phone ?? "",
+      website: client.website ?? "",
+      socialLinks: client.socialLinks ?? [],
+      profileType: client.profileType ?? "business",
+      relationshipType: client.relationshipType ?? "prospect",
+      status: client.status,
+      assignedUserId: client.assignedUserId ?? null,
+      assignedStaff: client.assignedStaff ?? "",
+      nextFollowUpDate: dateInputValue(client.nextFollowUpDate),
+    });
+    if (Object.keys(changes).length === 0) {
+      onOpenChange(false);
+      return;
+    }
+    if ("website" in changes && website.trim() && !toExternalUrl(website)) {
       toast.error("The website isn't a web address. Enter something like eabakery.com.");
       return;
     }
-    if (invalidSocialLinks(socialLinks).length > 0) {
+    if ("socialLinks" in changes && invalidSocialLinks(socialLinks).length > 0) {
       toast.error(
         "Fix the social media links: choose the site for each one or paste the full link.",
       );
@@ -110,27 +152,7 @@ export function EditClientDialog({
 
     setSaving(true);
     try {
-      const selectedMember = activeMembers.find((member) => member.id === assignedUserId);
-      await updateClient(client.id, {
-        businessName: businessName.trim(),
-        primaryContactName: primaryContactName.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        website: website.trim(),
-        socialLinks,
-        profileType,
-        relationshipType,
-        status,
-        assignedUserId:
-          assignedUserId === "__legacy" ? client.assignedUserId : (selectedMember?.id ?? null),
-        assignedStaff:
-          assignedUserId === "__legacy"
-            ? client.assignedStaff
-            : selectedMember
-              ? memberName(selectedMember)
-              : "",
-        nextFollowUpDate,
-      });
+      await updateClient(client.id, changes as Partial<Client>);
       toast.success("Client updated.");
       onOpenChange(false);
     } catch (error) {
@@ -250,6 +272,11 @@ export function EditClientDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {!CLIENT_STATUSES.includes(client.status) && (
+                    <SelectItem value={client.status}>
+                      {client.status} (set by the workflow)
+                    </SelectItem>
+                  )}
                   {CLIENT_STATUSES.map((clientStatus) => (
                     <SelectItem key={clientStatus} value={clientStatus}>
                       {clientStatus}

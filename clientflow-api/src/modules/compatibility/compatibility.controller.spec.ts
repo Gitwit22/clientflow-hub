@@ -66,9 +66,13 @@ describe('compatibility route scaffold', () => {
       expect(result).toEqual(enrollment);
     });
 
-    it('rejects direct client status mutation through the generic update endpoint', async () => {
-      const prisma = {
-        cfClient: { update: jest.fn() },
+    it('rejects moving a client into a workflow status by hand, but accepts the status it already has', async () => {
+      const prisma: Record<string, any> = {
+        cfClient: {
+          update: jest.fn().mockResolvedValue({ id: 'client-1' }),
+          findFirst: jest.fn().mockResolvedValue({ id: 'client-1', organizationId: 'org-1', status: 'PROGRAM_SELECTED', isArchived: false, archivedAt: null }),
+        },
+        $transaction: jest.fn(async (callback: (value: unknown) => unknown) => callback(prisma)),
       };
       const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
       jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({
@@ -77,8 +81,15 @@ describe('compatibility route scaffold', () => {
       });
 
       await expect(controller.updateClient({} as never, 'client-1', { status: 'ONBOARDING' }))
-        .rejects.toThrow('Client workflow statuses cannot be changed through the generic update endpoint.');
+        .rejects.toThrow('That status is set by the intake and contract workflow');
       expect(prisma.cfClient.update).not.toHaveBeenCalled();
+
+      // The Edit client form sends the whole profile back, unchanged status included.
+      await controller.updateClient({} as never, 'client-1', { status: 'PROGRAM_SELECTED', phone: '313-555-0100' });
+      expect(prisma.cfClient.update).toHaveBeenCalledWith({
+        where: { id: 'client-1', organizationId: 'org-1' },
+        data: { phone: '313-555-0100' },
+      });
     });
 
     it('never passes an arbitrary request body to Prisma from the generic client update', async () => {

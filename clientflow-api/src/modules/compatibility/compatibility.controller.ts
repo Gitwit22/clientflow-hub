@@ -439,9 +439,9 @@ export class ClientflowCompatibilityController {
   @Patch('clients/:id') async updateClient(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     // Explicit allowlist: the request body is never passed to Prisma directly.
-    const data = buildClientProfileUpdate(body);
     const prisma = this.requirePrisma();
     const previous = await findClientForOrg(prisma, orgId, id, { includeArchived: true });
+    const data = buildClientProfileUpdate(body, previous);
     const archiving = data.isArchived === true && !previous.isArchived;
     const restoring = data.isArchived === false && previous.isArchived;
     const previousArchivedAt = previous.archivedAt;

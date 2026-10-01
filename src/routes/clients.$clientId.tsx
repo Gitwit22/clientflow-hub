@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, SendToClientPanel } from "@/components/clients/ClientSendMenu";
 import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
 import { ExternalLinks } from "@/components/clients/ExternalLinks";
+import { PreferredContact } from "@/components/clients/PreferredContact";
 import { toText } from "@/lib/answer-text";
 import {
   contractSendState,
@@ -774,13 +775,25 @@ function ClientProfile() {
                 </CardHeader>
                 <CardContent className="grid gap-x-8 sm:grid-cols-2">
                   <dl>
-                    <Row label="Business description" value={client.intake?.businessDescription} />
-                    <Row label="Assistance requested" value={client.intake?.assistanceRequested} />
+                    <Row
+                      label="Brief business description"
+                      value={client.intake?.businessDescription}
+                    />
+                    <Row
+                      label="Type of assistance needed"
+                      value={client.intake?.assistanceRequested}
+                    />
                     <Row label="Program of interest" value={client.intake?.programOfInterest} />
                     <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
                   </dl>
                   <dl>
-                    <Row label="Preferred contact" value={client.intake?.preferredContact} />
+                    <Row label="Preferred contact">
+                      <PreferredContact
+                        preference={client.intake?.preferredContact}
+                        phone={client.phone}
+                        email={client.email}
+                      />
+                    </Row>
                     <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
                     <Row label="Additional comments" value={client.intake?.additionalComments} />
                     <Row
@@ -874,8 +887,18 @@ function ClientProfile() {
             </CardHeader>
             <CardContent>
               <dl>
-                <Row label="Business description" value={client.intake?.businessDescription} />
-                <Row label="What they need" value={client.intake?.assistanceRequested} />
+                <Row
+                  label="Brief business description"
+                  value={client.intake?.businessDescription}
+                />
+                <Row label="Type of assistance needed" value={client.intake?.assistanceRequested} />
+                <Row label="Preferred contact">
+                  <PreferredContact
+                    preference={client.intake?.preferredContact}
+                    phone={client.phone}
+                    email={client.email}
+                  />
+                </Row>
                 <Row label="Website">
                   <ExternalLinks links={[client.website]} />
                 </Row>
@@ -1103,7 +1126,7 @@ function ClientProfile() {
                   <>
                     {hasActiveIntakeField("businessDescription") && (
                       <Row
-                        label="Business description"
+                        label="Brief business description"
                         value={client.intake?.businessDescription}
                       />
                     )}
@@ -1128,7 +1151,7 @@ function ClientProfile() {
                   <>
                     {hasActiveIntakeField("assistanceRequested") && (
                       <Row
-                        label="Type of assistance requested"
+                        label="Type of assistance needed"
                         value={client.intake?.assistanceRequested}
                       />
                     )}
@@ -1139,10 +1162,13 @@ function ClientProfile() {
                       <Row label="Budget or funding need" value={client.intake?.budgetNeed} />
                     )}
                     {hasActiveIntakeField("preferredContact") && (
-                      <Row
-                        label="Preferred contact method"
-                        value={client.intake?.preferredContact}
-                      />
+                      <Row label="Preferred contact method">
+                        <PreferredContact
+                          preference={client.intake?.preferredContact}
+                          phone={client.phone}
+                          email={client.email}
+                        />
+                      </Row>
                     )}
                     {hasActiveIntakeField("heardAboutUs") && (
                       <Row label="How they heard about us" value={client.intake?.heardAboutUs} />
