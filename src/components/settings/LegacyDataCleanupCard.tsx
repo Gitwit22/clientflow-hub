@@ -28,6 +28,7 @@ function hasLegacyWork(report: LegacyDataReport) {
     report.contracts.remove.length > 0 ||
     report.contracts.cancel.length > 0 ||
     totalLinked(report) > 0 ||
+    (report.profilesFilled?.length ?? 0) > 0 ||
     report.orphans.clientIds > 0
   );
 }
@@ -104,9 +105,10 @@ export function LegacyDataCleanupCard() {
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Removes the old placeholder contracts created before program contract templates, attaches
-          forms and records sent before enrollments existed to the right program, and clears rows
-          left by deleted clients. Signed contracts are always kept. Preview first; nothing changes
-          until you apply.
+          forms and records sent before enrollments existed to the right program, fills blank client
+          profile details from intake answers already submitted, and clears rows left by deleted
+          clients. Signed contracts and details staff entered are always kept. Preview first;
+          nothing changes until you apply.
         </p>
 
         {report && (
@@ -137,6 +139,14 @@ export function LegacyDataCleanupCard() {
                       ? "Attached to their program: "
                       : "Will attach to their program: "}
                     {linked.join(", ")}.
+                  </p>
+                )}
+                {(report.profilesFilled?.length ?? 0) > 0 && (
+                  <p className="text-sm">
+                    {report.applied ? "Filled" : "Will fill"} blank profile details from submitted
+                    intake answers for {report.profilesFilled?.length} client
+                    {report.profilesFilled?.length === 1 ? "" : "s"}:{" "}
+                    {report.profilesFilled?.map((entry) => entry.businessName).join(", ")}.
                   </p>
                 )}
                 {report.orphans.clientIds > 0 && (

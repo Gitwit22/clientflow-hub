@@ -3,6 +3,7 @@ import {
   RepeatableSocialLinksInput,
   SocialMediaInput,
 } from "@/components/SocialMediaInput";
+import { invalidSocialLinks } from "@/lib/social-platforms";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { PublicFormField, PublicFormResponseValue } from "@/lib/apiClient";
+import { toExternalUrl } from "@/lib/external-links";
 
 export function isBlank(value: PublicFormResponseValue | undefined): boolean {
   return (
@@ -233,4 +235,20 @@ export function PublicFieldInput({
       placeholder="Enter your answer…"
     />
   );
+}
+
+/** Fields whose links can't be opened (a handle with no site, text instead of a link). */
+export function fieldsWithBadLinks(
+  fields: readonly PublicFormField[],
+  responses: Record<string, PublicFormResponseValue | undefined>,
+): string[] {
+  return fields
+    .filter((field) => {
+      const value = responses[field.id];
+      if (field.type === "social_links") return invalidSocialLinks(value).length > 0;
+      if (field.type === "url")
+        return typeof value === "string" && !!value.trim() && !toExternalUrl(value);
+      return false;
+    })
+    .map(publicFieldLabel);
 }

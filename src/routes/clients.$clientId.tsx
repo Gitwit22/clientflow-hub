@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, SendToClientPanel } from "@/components/clients/ClientSendMenu";
 import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
+import { ExternalLinks } from "@/components/clients/ExternalLinks";
 import { toText } from "@/lib/answer-text";
 import {
   contractSendState,
@@ -122,13 +123,13 @@ export const Route = createFileRoute("/clients/$clientId")({
   component: ClientProfile,
 });
 
-function Row({ label, value }: { label: string; value?: string }) {
+function Row({ label, value, children }: { label: string; value?: string; children?: ReactNode }) {
   return (
     <div className="border-b border-border py-2 last:border-0">
       <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm">{value || "—"}</dd>
+      <dd className="mt-0.5 text-sm">{children ?? (value || "—")}</dd>
     </div>
   );
 }
@@ -875,6 +876,12 @@ function ClientProfile() {
               <dl>
                 <Row label="Business description" value={client.intake?.businessDescription} />
                 <Row label="What they need" value={client.intake?.assistanceRequested} />
+                <Row label="Website">
+                  <ExternalLinks links={[client.website]} />
+                </Row>
+                <Row label="Social media">
+                  <ExternalLinks links={client.socialLinks ?? []} />
+                </Row>
                 <Row
                   label="Program enrollments"
                   value={
@@ -1086,8 +1093,12 @@ function ClientProfile() {
                 <Row label="Business name" value={client.businessName} />
                 <Row label="Email" value={client.email} />
                 <Row label="Phone" value={client.phone} />
-                <Row label="Website" value={client.website} />
-                <Row label="Social media links" value={client.socialLinks?.join(", ")} />
+                <Row label="Website">
+                  <ExternalLinks links={[client.website]} />
+                </Row>
+                <Row label="Social media links">
+                  <ExternalLinks links={client.socialLinks ?? []} />
+                </Row>
                 {!submittedFields && (
                   <>
                     {hasActiveIntakeField("businessDescription") && (
@@ -1104,9 +1115,15 @@ function ClientProfile() {
               </dl>
               <dl>
                 {submittedFields ? (
-                  submittedFields.map(({ field, value }) => (
-                    <Row key={field.id} label={field.label} value={value} />
-                  ))
+                  submittedFields.map(({ field, value }) =>
+                    field.type === "url" ? (
+                      <Row key={field.id} label={field.label}>
+                        <ExternalLinks links={[value]} />
+                      </Row>
+                    ) : (
+                      <Row key={field.id} label={field.label} value={value} />
+                    ),
+                  )
                 ) : (
                   <>
                     {hasActiveIntakeField("assistanceRequested") && (

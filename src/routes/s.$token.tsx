@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   isPublicFieldRequired,
+  fieldsWithBadLinks,
   isRequiredResponseComplete,
   PublicFieldInput,
   publicFieldLabel,
@@ -123,6 +124,13 @@ function PublicFormPage() {
       toast.error(
         `Please complete: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ` (+${missing.length - 3} more)` : ""}`,
       );
+      return;
+    }
+    const bad = visibleSections.flatMap((section) =>
+      fieldsWithBadLinks(section.fields, responsesFor(section)),
+    );
+    if (bad.length > 0) {
+      toast.error(`Please fix the link${bad.length > 1 ? "s" : ""} in: ${bad.join(", ")}.`);
       return;
     }
 

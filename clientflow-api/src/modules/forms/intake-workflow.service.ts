@@ -5,6 +5,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { CLIENT_STATUS, FORM_STATUS } from './intake-lifecycle';
+import { normalizeFormFields } from './form-field-mapping';
+import { mapAnswers, profileUpdateFromAnswers } from './form-profile-mapper';
 import { assertPublicFormLinkUsable, PUBLIC_FORM_ALREADY_SUBMITTED, resolvePublicFormLink } from './public-form-link';
 
 export interface IntakeSubmissionInput {
@@ -56,7 +58,7 @@ export class IntakeWorkflowService {
 
   async submit(rawToken: string, input: IntakeSubmissionInput): Promise<IntakeSubmissionResult> {
     // 'view' first: a submitted link must still resolve so a retry can be answered from the record.
-    const { assignment, client } = await resolvePublicFormLink(this.prisma, rawToken, 'view');
+    const { assignment, client, template } = await resolvePublicFormLink(this.prisma, rawToken, 'view');
     const coreResponses = isRecord(input.coreResponses) ? input.coreResponses : {};
     const programResponses = isRecord(input.programResponses) ? input.programResponses : {};
     const selectedProgramIds = [...new Set((input.selectedProgramIds ?? []).filter((id) => typeof id === 'string' && id))];
@@ -167,15 +169,25 @@ export class IntakeWorkflowService {
       }
 
       const primaryProgram = selectedProgramIds.length ? programById.get(selectedProgramIds[0]) : undefined;
+      // The client's answers become their profile, so the Overview shows what they submitted.
+      const profile = profileUpdateFromAnswers(
+        mapAnswers(normalizeFormFields(template.fields), coreResponses),
+        client,
+        'submit',
+      );
+      const { intake: answeredIntake, ...profileColumns } = profile.data;
+      const intake = {
+        ...(answeredIntake ?? (isRecord(client.intake) ? client.intake : {})),
+        ...(primaryProgram ? { programOfInterest: primaryProgram.name } : {}),
+      };
       await transaction.cfClient.update({
         where: { id: client.id },
         data: {
+          ...profileColumns,
           status: primaryProgram ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted,
           // Legacy mirror for older screens; workflow decisions read the enrollments.
           ...(primaryProgram ? { programId: primaryProgram.id } : {}),
-          ...(primaryProgram
-            ? { intake: { ...(isRecord(client.intake) ? client.intake : {}), programOfInterest: primaryProgram.name } }
-            : {}),
+          ...(primaryProgram || answeredIntake ? { intake: intake } : {}),
         },
       });
       await transaction.cfActivityLog.create({
@@ -183,9 +195,10 @@ export class IntakeWorkflowService {
           organizationId: assignment.organizationId,
           clientId: client.id,
           action: 'INTAKE_SUBMITTED',
-          description: selectedProgramIds.length
+          description: (selectedProgramIds.length
             ? `Intake submitted for ${programs.map((program) => program.name).join(', ')}.`
-            : 'Intake submitted without a program selection.',
+            : 'Intake submitted without a program selection.')
+            + (profile.labels.length ? ` Profile updated from the answers: ${profile.labels.join(', ')}.` : ''),
           user: actor,
           isDemo: client.isDemo,
         },

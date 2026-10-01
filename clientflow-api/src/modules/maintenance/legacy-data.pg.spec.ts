@@ -68,6 +68,24 @@ describePg('LegacyDataService (Postgres)', () => {
       data: { ...scope, clientId: onlyLegacy.id, formAssignmentId: ids.programFormAssignment, type: 'form_email', direction: 'outbound', subject: 'x', date: new Date(), staffMember: 'x' },
     });
 
+    // An intake submitted before answers were written to the profile.
+    const intakeForm = await prisma.cfFormTemplate.create({
+      data: {
+        ...scope, name: 'Intake', description: '', emailTemplate: '',
+        fields: [
+          { id: 'businessName', label: 'Business name', type: 'text' },
+          { id: 'phone', label: 'Phone', type: 'text' },
+          { id: 'businessDescription', label: 'Describe your business', type: 'textarea' },
+        ],
+      },
+    });
+    await prisma.cfFormAssignment.create({
+      data: {
+        ...scope, clientId: onlyLegacy.id, formId: intakeForm.id, status: 'submitted', submittedAt: new Date(),
+        responses: { businessName: 'Renamed Biz', phone: '313-555-0100', businessDescription: 'Neighborhood bakery' },
+      },
+    });
+
     // Rows of a client deleted before permanent delete existed.
     await prisma.cfActivityLog.create({ data: { ...scope, clientId: 'gone-client', action: 'x', description: 'x', user: 'x' } });
     await prisma.cfFormAssignment.create({ data: { ...scope, clientId: 'gone-client', formId: generalForm.id } });
@@ -88,6 +106,9 @@ describePg('LegacyDataService (Postgres)', () => {
     expect(report.linked.formAssignments).toBe(1); // the program form; the general form stays client-wide
     expect(report.clientsNeedingContract).toEqual([
       expect.objectContaining({ clientId: ids.onlyLegacy, enrollmentId: ids.enrollOnly, programName: 'Inspired Detroit' }),
+    ]);
+    expect(report.profilesFilled).toEqual([
+      { clientId: ids.onlyLegacy, businessName: 'OnlyLegacy', fields: ['Phone', 'Business description'] },
     ]);
     expect(report.orphans.clientIds).toBe(1);
     expect(await prisma.cfContract.count({ where: { organizationId: orgId } })).toBe(before);
@@ -114,6 +135,9 @@ describePg('LegacyDataService (Postgres)', () => {
     const draftEmail = await prisma.cfCommunication.findFirst({ where: { organizationId: orgId, type: 'contract_email' } });
     expect(draftEmail!.contractId).toBeNull();
 
+    const filled = await prisma.cfClient.findUnique({ where: { id: ids.onlyLegacy } });
+    expect(filled).toMatchObject({ businessName: 'OnlyLegacy', phone: '313-555-0100', intake: { businessDescription: 'Neighborhood bakery' } });
+
     const audit = await prisma.auditLog.findMany({ where: { organizationId: orgId, targetType: 'LEGACY_DATA_CLEANUP' } });
     expect(audit).toHaveLength(1);
   });
@@ -124,6 +148,7 @@ describePg('LegacyDataService (Postgres)', () => {
     expect(report.contracts.cancel).toEqual([]);
     expect(Object.values(report.linked).every((count) => count === 0)).toBe(true);
     expect(report.orphans.clientIds).toBe(0);
+    expect(report.profilesFilled).toEqual([]);
   });
 
   it('is for organization admins only', async () => {

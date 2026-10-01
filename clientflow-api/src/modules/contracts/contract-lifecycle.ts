@@ -63,7 +63,7 @@ export const PROGRAM_WELCOME_MESSAGES: Partial<Record<string, string>> = {
     + 'Your agreement has been received and your enrollment is now moving into onboarding.\n\n'
     + "We've attached your Welcome Guide, which explains the program, what to expect, and your next steps.\n\n"
     + '[View Welcome Guide]\n\n'
-    + 'EA Management',
+    + 'EA Management LLC',
 };
 
 const IDI_WELCOME_GUIDE_PATH = '/contracts and emails/IDI Member Welcome Guide.pdf';

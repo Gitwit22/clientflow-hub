@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
+  fieldsWithBadLinks,
   isPublicFieldRequired,
   isRequiredResponseComplete,
   PublicFieldInput,
@@ -71,6 +72,11 @@ function PublicIntakePage() {
       .map(publicFieldLabel);
     if (missing.length > 0) {
       toast.error(`Please complete: ${missing.join(", ")}`);
+      return;
+    }
+    const bad = fieldsWithBadLinks(formData.form.fields, answers);
+    if (bad.length > 0) {
+      toast.error(`Please fix the link${bad.length > 1 ? "s" : ""} in: ${bad.join(", ")}.`);
       return;
     }
 

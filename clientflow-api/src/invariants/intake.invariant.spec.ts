@@ -141,3 +141,38 @@ describe('INVARIANT: a retried intake submission creates nothing new', () => {
     expect(rows.cfFormAssignment[0].status).toBe('cancelled');
   });
 });
+
+describe('intake answers reach the client profile', () => {
+  it('writes the submitted answers to the profile, keeping the email and staff-entered names', async () => {
+    const { rows, service } = setup();
+    rows.cfFormTemplate[0].fields = [
+      { id: 'businessName', label: 'Business name', type: 'text' },
+      { id: 'email', label: 'Email', type: 'email' },
+      { id: 'phone', label: 'Phone', type: 'text' },
+      { id: 'businessDescription', label: 'Describe your business', type: 'textarea' },
+      { id: 'assistanceRequested', label: 'What help do you need?', type: 'textarea' },
+    ];
+    Object.assign(rows.cfClient[0], { businessName: 'Pat Bakery', email: 'pat@example.com', phone: '', website: null, socialLinks: [] });
+
+    await service.submit(token, {
+      ...input,
+      coreResponses: {
+        businessName: 'Pat B. LLC', email: 'other@example.com', phone: '313-555-0100',
+        businessDescription: 'Neighborhood bakery', assistanceRequested: 'Funding',
+      },
+    });
+
+    expect(rows.cfClient[0]).toEqual(expect.objectContaining({
+      businessName: 'Pat Bakery',
+      email: 'pat@example.com',
+      phone: '313-555-0100',
+      intake: {
+        referralSource: 'event',
+        businessDescription: 'Neighborhood bakery',
+        assistanceRequested: 'Funding',
+        programOfInterest: 'Grant',
+      },
+    }));
+    expect(rows.cfActivityLog.find((row) => row.action === 'INTAKE_SUBMITTED')?.description).toContain('Profile updated from the answers: Phone, Business description, Assistance requested.');
+  });
+});

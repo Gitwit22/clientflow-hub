@@ -64,7 +64,6 @@ describe('buildClientProfileUpdate', () => {
     ['programId', 'program-1'],
     ['source', 'x'],
     ['intake', { businessDescription: 'overwritten' }],
-    ['socialLinks', ['https://x.test']],
     ['snapchat', {}],
     ['createdAt', '2020-01-01'],
     ['updatedAt', '2020-01-01'],
@@ -98,5 +97,16 @@ describe('buildClientProfileUpdate', () => {
     expect(() => buildClientProfileUpdate({ lifecycleStatus: 'active' })).toThrow(
       'Client lifecycle state cannot be changed through the generic update endpoint.',
     );
+  });
+
+  it('accepts social links as openable addresses and refuses anything else', () => {
+    expect(buildClientProfileUpdate({ socialLinks: [' instagram.com/eabakery ', 'https://x.com/eabakery', ''] })).toEqual({
+      socialLinks: ['https://instagram.com/eabakery', 'https://x.com/eabakery'],
+    });
+    expect(buildClientProfileUpdate({ socialLinks: [] })).toEqual({ socialLinks: [] });
+    expect(() => buildClientProfileUpdate({ socialLinks: ['@eabakery'] })).toThrow('not web addresses: @eabakery');
+    expect(() => buildClientProfileUpdate({ socialLinks: ['javascript:alert(1)'] })).toThrow(BadRequestException);
+    expect(() => buildClientProfileUpdate({ socialLinks: 'https://x.test' })).toThrow('list of up to 10 links');
+    expect(() => buildClientProfileUpdate({ socialLinks: Array(11).fill('https://x.test') })).toThrow('list of up to 10 links');
   });
 });

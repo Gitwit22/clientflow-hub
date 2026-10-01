@@ -17,7 +17,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { RepeatableSocialLinksInput } from "@/components/SocialMediaInput";
 import { updateClient } from "@/lib/api";
+import { toExternalUrl } from "@/lib/external-links";
+import { invalidSocialLinks } from "@/lib/social-platforms";
 import {
   memberName,
   memberOptionLabel,
@@ -62,6 +65,7 @@ export function EditClientDialog({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [website, setWebsite] = useState("");
+  const [socialLinks, setSocialLinks] = useState<string[]>([]);
   const [profileType, setProfileType] = useState<ProfileType>("business");
   const [relationshipType, setRelationshipType] = useState<RelationshipType>("prospect");
   const [status, setStatus] = useState<ClientStatus>("New Intake");
@@ -77,6 +81,7 @@ export function EditClientDialog({
     setEmail(client.email);
     setPhone(client.phone);
     setWebsite(client.website ?? "");
+    setSocialLinks(client.socialLinks ?? []);
     setProfileType(client.profileType ?? "business");
     setRelationshipType(client.relationshipType ?? "prospect");
     setStatus(client.status);
@@ -92,6 +97,16 @@ export function EditClientDialog({
       toast.error("Business name, contact name, and email are required.");
       return;
     }
+    if (website.trim() && !toExternalUrl(website)) {
+      toast.error("The website isn't a web address. Enter something like eabakery.com.");
+      return;
+    }
+    if (invalidSocialLinks(socialLinks).length > 0) {
+      toast.error(
+        "Fix the social media links: choose the site for each one or paste the full link.",
+      );
+      return;
+    }
 
     setSaving(true);
     try {
@@ -102,6 +117,7 @@ export function EditClientDialog({
         email: email.trim(),
         phone: phone.trim(),
         website: website.trim(),
+        socialLinks,
         profileType,
         relationshipType,
         status,
@@ -174,10 +190,21 @@ export function EditClientDialog({
               <Label htmlFor="client-website">Website</Label>
               <Input
                 id="client-website"
-                type="url"
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={website}
                 onChange={(event) => setWebsite(event.target.value)}
-                placeholder="https://"
+                placeholder="eabakery.com"
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="client-social-links">Social media</Label>
+              <RepeatableSocialLinksInput
+                inputId="client-social-links"
+                value={socialLinks}
+                onChange={setSocialLinks}
               />
             </div>
             <div className="space-y-1.5">

@@ -68,6 +68,7 @@ import { Throttle } from '@nestjs/throttler';
 import { resolveAppUrl } from '../../config/env';
 import { assertSessionActive } from '../../common/guards/session-state';
 import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storage/upload-rules';
+import { socialLinksOf } from '../forms/form-profile-mapper';
 
 /** Sign-in endpoints: 10 attempts a minute per visitor, so passwords and tokens can't be guessed. */
 export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
@@ -428,7 +429,7 @@ export class ClientflowCompatibilityController {
         phone: String(body.phone ?? ''),
         assignedStaff: String(body.assignedStaff ?? 'Unassigned'),
         intake: (isRecord(body.intake) ? body.intake : {}) as any,
-        socialLinks: Array.isArray(body.socialLinks) ? body.socialLinks.filter((link) => typeof link === 'string') : [],
+        socialLinks: socialLinksOf(body.socialLinks),
         status,
         lifecycleStatus: 'intake_pending',
         intakeSource: String(body.intakeSource ?? 'admin_created'),

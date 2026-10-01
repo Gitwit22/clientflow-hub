@@ -1,5 +1,5 @@
 import { canonicalFieldKey, FormFieldShape, normalizeFormFields } from './form-field-mapping';
-import { answerText, diffProfile, mapAnswers, CurrentProfile } from './form-profile-mapper';
+import { answerText, diffProfile, mapAnswers, CurrentProfile, profileUpdateFromAnswers } from './form-profile-mapper';
 
 const field = (id: string, extra: Partial<FormFieldShape> = {}): FormFieldShape => ({
   id,
@@ -123,5 +123,74 @@ describe('diffProfile', () => {
   it('tolerates a null or malformed intake', () => {
     const mapped = mapAnswers([field('description')], { description: 'x' });
     expect(diffProfile(mapped, profile({ intake: null })).map((c) => c.key)).toEqual(['businessDescription']);
+  });
+});
+
+describe('profileUpdateFromAnswers', () => {
+  const fields = [
+    field('businessName'),
+    field('primaryContactName'),
+    field('email'),
+    field('phone'),
+    field('businessDescription'),
+    field('assistanceRequested'),
+  ];
+  const answers = {
+    businessName: 'New Biz',
+    primaryContactName: 'New Name',
+    email: 'new@example.com',
+    phone: '777',
+    businessDescription: 'We bake bread',
+    assistanceRequested: 'Funding',
+  };
+
+  it('on submit, the answers become the profile but names only fill blanks and email never changes', () => {
+    const update = profileUpdateFromAnswers(mapAnswers(fields, answers), profile(), 'submit');
+    expect(update.data).toEqual({
+      phone: '777',
+      intake: { businessDescription: 'We bake bread', assistanceRequested: 'Funding', uploadedFiles: ['a.pdf'] },
+    });
+    expect(update.labels).toEqual(['Phone', 'Business description', 'Assistance requested']);
+
+    const blankNames = profileUpdateFromAnswers(
+      mapAnswers(fields, answers),
+      profile({ businessName: '', primaryContactName: ' ' }),
+      'submit',
+    );
+    expect(blankNames.data).toMatchObject({ businessName: 'New Biz', primaryContactName: 'New Name' });
+    expect(blankNames.data).not.toHaveProperty('email');
+  });
+
+  it('when catching up, only blank fields are filled', () => {
+    const update = profileUpdateFromAnswers(mapAnswers(fields, answers), profile(), 'fill-blanks');
+    expect(update.data).toEqual({
+      intake: { businessDescription: 'Old description', assistanceRequested: 'Funding', uploadedFiles: ['a.pdf'] },
+    });
+    expect(update.labels).toEqual(['Assistance requested']);
+  });
+
+  it('returns nothing to write when the profile already matches', () => {
+    const update = profileUpdateFromAnswers(
+      mapAnswers(fields, { businessDescription: 'Old description' }),
+      profile(),
+      'submit',
+    );
+    expect(update).toEqual({ data: {}, labels: [] });
+  });
+});
+
+describe('links from answers', () => {
+  it('stores website and social links as openable https addresses, keeping handles as typed', () => {
+    const mapped = mapAnswers(
+      [field('website'), field('socials', { type: 'social_links' })],
+      { website: 'eabakery.com', socials: ['instagram.com/eabakery', '@eabakery', 'https://x.com/eabakery'] },
+    );
+    expect(mapped).toEqual([
+      expect.objectContaining({ key: 'website', value: 'https://eabakery.com' }),
+      expect.objectContaining({
+        key: 'socialLinks',
+        value: ['https://instagram.com/eabakery', '@eabakery', 'https://x.com/eabakery'],
+      }),
+    ]);
   });
 });

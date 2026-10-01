@@ -23,7 +23,7 @@ const environmentObjectSchema = z.object({
   R2_PUBLIC_URL: z.string().url().optional(),
   STORAGE_ENABLED: booleanFlag,
   RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM_NAME: z.string().default('EA Management'),
+  EMAIL_FROM_NAME: z.string().default('EA Management LLC'),
   EMAIL_FROM_ADDRESS: z.string().email().optional(),
   EMAIL_REPLY_TO: z.string().email().optional(),
   EMAIL_SEND_ENABLED: booleanFlag,

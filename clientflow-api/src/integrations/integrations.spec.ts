@@ -180,6 +180,7 @@ describe('disabled integrations', () => {
     const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]!.body));
     expect(sentBody).toEqual({
       ...payload,
+      bodyHtml: expect.any(String),
       eventId: 'welcome.send:contract-1',
       eventType: 'welcome.send',
       occurredAt: expect.any(String),
@@ -191,6 +192,9 @@ describe('disabled integrations', () => {
     // tells n8n to add no business wording around them, and which version produced the copy.
     expect(sentBody.subject).toBe('Welcome to The Inspired Detroit Initiative');
     expect(sentBody.body).toBe(sentBody.nextStep);
+    expect(sentBody.bodyHtml).toBe(
+      '<p style="margin:0 0 16px 0;">Your agreement has been received and your enrollment is now moving into onboarding.</p>',
+    );
     expect(sentBody.renderMode).toBe('verbatim');
     expect(sentBody.welcome).toEqual({
       source: 'program_version',
@@ -219,6 +223,7 @@ describe('disabled integrations', () => {
       programName: 'The Inspired Detroit Initiative',
       subject: 'Welcome',
       body: 'Welcome aboard.',
+      bodyHtml: '<p>Welcome aboard.</p>',
       renderMode: 'verbatim',
       welcome: { source: 'default', templateId: null, templateName: null, versionId: null, versionNumber: null },
       nextStep: 'Welcome aboard.',

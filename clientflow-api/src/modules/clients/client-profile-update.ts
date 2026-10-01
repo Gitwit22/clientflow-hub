@@ -1,4 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
+import { isOpenableUrl, normalizeExternalUrl } from '../../common/validation/external-url';
+import { socialLinksOf } from '../forms/form-profile-mapper';
 
 /**
  * Client workflow states are owned by the intake/contract automation and may not be set through
@@ -35,16 +37,17 @@ const ALLOWED_FIELDS = new Set<string>([
   ...NULLABLE_STRING_FIELDS,
   ...NULLABLE_DATE_FIELDS,
   ...BOOLEAN_FIELDS,
+  'socialLinks',
   // Rejected with a specific message below rather than as an unknown field.
   'lifecycleStatus',
 ]);
 
-export type ClientProfileUpdate = Record<string, string | boolean | Date | null>;
+export type ClientProfileUpdate = Record<string, string | string[] | boolean | Date | null>;
 
 /**
  * Builds the Prisma `data` for PATCH admin/cf/clients/:id from an explicit allowlist, so a request
- * body can never write `organizationId`, `isDemo`, `programId`, `source`, `intake`, `socialLinks`
- * or any other column that has its own controlled path.
+ * body can never write `organizationId`, `isDemo`, `programId`, `source`, `intake` or any other
+ * column that has its own controlled path. Social links must each be an openable web address.
  *
  * Unknown keys are rejected (not silently dropped) so a frontend regression is loud.
  */
@@ -79,7 +82,20 @@ export function buildClientProfileUpdate(body: unknown): ClientProfileUpdate {
     const value = input[field];
     if (value === undefined) continue;
     if (value !== null && typeof value !== 'string') throw new BadRequestException(`${field} must be a string or null.`);
-    data[field] = value;
+    data[field] = field === 'website' && value ? normalizeExternalUrl(value) : value;
+  }
+
+  if (input.socialLinks !== undefined) {
+    const raw: unknown = input.socialLinks;
+    if (!Array.isArray(raw) || raw.length > 10 || !raw.every((link) => typeof link === 'string' && link.length <= 500)) {
+      throw new BadRequestException('socialLinks must be a list of up to 10 links.');
+    }
+    const links = raw as string[];
+    const unusable = links.filter((link) => link.trim() && !isOpenableUrl(link));
+    if (unusable.length > 0) {
+      throw new BadRequestException(`These social links are not web addresses: ${unusable.join(', ')}.`);
+    }
+    data.socialLinks = socialLinksOf(links);
   }
 
   for (const field of NULLABLE_DATE_FIELDS) {

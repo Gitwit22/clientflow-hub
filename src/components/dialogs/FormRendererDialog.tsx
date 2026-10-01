@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { fieldsWithBadLinks } from "@/components/PublicFieldInput";
 import {
   changeAssignmentStatus,
   saveFormDraft,
@@ -304,6 +305,11 @@ export function FormRendererDialog({
       toast.error(
         `${missingRequired.length} required field${missingRequired.length !== 1 ? "s" : ""} still empty`,
       );
+      return;
+    }
+    const bad = fieldsWithBadLinks(template?.fields ?? [], responses);
+    if (bad.length > 0) {
+      toast.error(`Please fix the link${bad.length > 1 ? "s" : ""} in: ${bad.join(", ")}.`);
       return;
     }
     setSubmitting(true);
