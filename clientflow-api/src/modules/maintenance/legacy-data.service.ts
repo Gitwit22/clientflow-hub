@@ -6,6 +6,8 @@ import { deleteClientOwnedRows } from '../clients/client-deletion.service';
 import { CLIENT_DELETION_STEPS } from '../clients/client-deletion.manifest';
 import { CONTRACT_STATUS } from '../contracts/contract-lifecycle';
 import { LEGACY_CONTRACT_WHERE } from '../contracts/legacy-contract';
+import { normalizeFormFields } from '../forms/form-field-mapping';
+import { CurrentProfile, mapAnswers, profileUpdateFromAnswers } from '../forms/form-profile-mapper';
 
 /** Audit event written when the cleanup is applied (counts only, no client details). */
 export const LEGACY_DATA_CLEANUP = 'LEGACY_DATA_CLEANUP';
@@ -42,6 +44,8 @@ export interface LegacyDataReport {
     programName: string | null;
     enrollmentStatus: string;
   }>;
+  /** Clients whose blank profile fields are filled from the forms they already submitted. */
+  profilesFilled: Array<{ clientId: string; businessName: string; fields: string[] }>;
   /** Rows whose client no longer exists (left by deletes from before permanent delete). */
   orphans: { clientIds: number; rows: Record<string, number> };
 }
@@ -85,6 +89,7 @@ export class LegacyDataService {
             contractsCancelled: report.contracts.cancel.length,
             contractsKept: report.contracts.keep.length,
             linked: report.linked,
+            profilesFilled: report.profilesFilled.length,
             orphanClientIds: report.orphans.clientIds,
             orphanRows: report.orphans.rows,
           },
@@ -181,7 +186,66 @@ export class LegacyDataService {
       }
     }
 
-    return { applied: apply, contracts: { remove, cancel, keep }, linked, clientsNeedingContract, orphans };
+    // 5. Profiles of clients who submitted their intake before answers were written to the profile.
+    const profilesFilled = await this.fillProfilesFromAnswers(db, organizationId, apply);
+
+    return { applied: apply, contracts: { remove, cancel, keep }, linked, clientsNeedingContract, profilesFilled, orphans };
+  }
+
+  /**
+   * Fills each client's BLANK profile fields from the forms they submitted, newest answers first.
+   * Nothing already on the profile is overwritten (staff may have edited it) and the email is
+   * never changed, so running this again finds nothing to do.
+   */
+  private async fillProfilesFromAnswers(db: TenantDb, organizationId: string, apply: boolean) {
+    const scope = { organizationId };
+    const submitted = await db.cfFormAssignment.findMany({
+      where: { ...scope, submittedAt: { not: null } },
+      orderBy: { submittedAt: 'desc' },
+      select: { clientId: true, formId: true, responses: true },
+    });
+    if (!submitted.length) return [];
+    const [clients, templates] = await Promise.all([
+      db.cfClient.findMany({ where: { ...scope, id: { in: [...new Set(submitted.map((row) => row.clientId))] } } }),
+      db.cfFormTemplate.findMany({
+        where: { ...scope, id: { in: [...new Set(submitted.map((row) => row.formId))] } },
+        select: { id: true, fields: true },
+      }),
+    ]);
+    const fieldsByTemplate = new Map(templates.map((template) => [template.id, normalizeFormFields(template.fields)]));
+
+    const filled: LegacyDataReport['profilesFilled'] = [];
+    for (const client of clients) {
+      let profile = client as CurrentProfile;
+      const data: Record<string, unknown> = {};
+      const labels: string[] = [];
+      for (const assignment of submitted.filter((row) => row.clientId === client.id)) {
+        const fields = fieldsByTemplate.get(assignment.formId);
+        const responses = assignment.responses;
+        if (!fields || typeof responses !== 'object' || responses === null || Array.isArray(responses)) continue;
+        const update = profileUpdateFromAnswers(mapAnswers(fields, responses as Record<string, unknown>), profile, 'fill-blanks');
+        if (!update.labels.length) continue;
+        Object.assign(data, update.data);
+        labels.push(...update.labels.filter((label) => !labels.includes(label)));
+        profile = { ...profile, ...update.data } as CurrentProfile;
+      }
+      if (!labels.length) continue;
+      filled.push({ clientId: client.id, businessName: client.businessName, fields: labels });
+      if (apply) {
+        await db.cfClient.update({ where: { id: client.id }, data });
+        await db.cfActivityLog.create({
+          data: {
+            organizationId,
+            clientId: client.id,
+            action: 'PROFILE_FILLED_FROM_FORMS',
+            description: `Filled ${labels.join(', ')} from the client's submitted forms.`,
+            user: 'Legacy data cleanup',
+            isDemo: client.isDemo,
+          },
+        });
+      }
+    }
+    return filled;
   }
 
   /**

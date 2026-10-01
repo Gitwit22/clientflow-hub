@@ -1516,6 +1516,8 @@ export interface LegacyDataReport {
     programName: string | null;
     enrollmentStatus: string;
   }>;
+  /** Clients whose blank profile fields are filled from forms they submitted (absent on older APIs). */
+  profilesFilled?: Array<{ clientId: string; businessName: string; fields: string[] }>;
   orphans: { clientIds: number; rows: Record<string, number> };
 }
 
