@@ -7,10 +7,10 @@ export function ExternalLinks({ links }: { links: Array<string | null | undefine
   if (!values.length) return <>—</>;
   return (
     <ul className="space-y-0.5">
-      {values.map((value) => {
+      {values.map((value, index) => {
         const href = toExternalUrl(value);
         return (
-          <li key={value} className="break-all">
+          <li key={`${index}-${value}`} className="break-all">
             {href ? (
               <a
                 href={href}
@@ -22,7 +22,12 @@ export function ExternalLinks({ links }: { links: Array<string | null | undefine
                 <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
               </a>
             ) : (
-              value
+              <>
+                {value}
+                <span className="ml-1 text-xs text-muted-foreground">
+                  (not a link: choose its site in Edit client)
+                </span>
+              </>
             )}
           </li>
         );

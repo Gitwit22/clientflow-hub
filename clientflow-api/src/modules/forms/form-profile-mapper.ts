@@ -6,7 +6,7 @@ import {
   SOCIAL_FIELD_IDS,
   TOP_LEVEL_COLUMNS,
 } from './form-field-mapping';
-import { normalizeExternalUrl } from '../../common/validation/external-url';
+import { normalizeExternalUrl, platformFieldUrl } from '../../common/validation/external-url';
 
 export type ProfileTarget = 'top' | 'intake' | 'socialLinks';
 
@@ -104,7 +104,7 @@ export function mapAnswers(
     : socialLinksOf(
         fields
           .filter((field) => LEGACY_SOCIAL_FIELD_IDS.includes(field.id))
-          .map((field) => answerText(responses[field.id]))
+          .map((field) => platformFieldUrl(field.id, answerText(responses[field.id])))
           .filter(Boolean),
       );
   if (links.length > 0) {

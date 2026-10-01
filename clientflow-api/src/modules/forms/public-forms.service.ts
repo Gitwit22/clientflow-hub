@@ -9,6 +9,7 @@ import {
   isProgramOption,
   publicIntakeFields,
 } from './intake-lifecycle';
+import { isOpenableUrl } from '../../common/validation/external-url';
 
 
 
@@ -121,10 +122,8 @@ export class PublicFormsService {
         if (typeof link !== 'string' || !link.trim()) {
           throw new BadRequestException(`Answer for ${fieldId} is invalid.`);
         }
-        try {
-          const url = new URL(link.trim());
-          if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('bad protocol');
-        } catch {
+        // "instagram.com/name" is fine (stored with https://); handles and other schemes are not.
+        if (!isOpenableUrl(link)) {
           throw new BadRequestException(`Answer for ${fieldId} contains an invalid link.`);
         }
       }
