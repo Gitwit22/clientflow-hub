@@ -178,3 +178,19 @@ describe('profileUpdateFromAnswers', () => {
     expect(update).toEqual({ data: {}, labels: [] });
   });
 });
+
+describe('links from answers', () => {
+  it('stores website and social links as openable https addresses, keeping handles as typed', () => {
+    const mapped = mapAnswers(
+      [field('website'), field('socials', { type: 'social_links' })],
+      { website: 'eabakery.com', socials: ['instagram.com/eabakery', '@eabakery', 'https://x.com/eabakery'] },
+    );
+    expect(mapped).toEqual([
+      expect.objectContaining({ key: 'website', value: 'https://eabakery.com' }),
+      expect.objectContaining({
+        key: 'socialLinks',
+        value: ['https://instagram.com/eabakery', '@eabakery', 'https://x.com/eabakery'],
+      }),
+    ]);
+  });
+});

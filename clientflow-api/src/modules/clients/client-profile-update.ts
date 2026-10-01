@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { normalizeExternalUrl } from '../../common/validation/external-url';
 
 /**
  * Client workflow states are owned by the intake/contract automation and may not be set through
@@ -79,7 +80,7 @@ export function buildClientProfileUpdate(body: unknown): ClientProfileUpdate {
     const value = input[field];
     if (value === undefined) continue;
     if (value !== null && typeof value !== 'string') throw new BadRequestException(`${field} must be a string or null.`);
-    data[field] = value;
+    data[field] = field === 'website' && value ? normalizeExternalUrl(value) : value;
   }
 
   for (const field of NULLABLE_DATE_FIELDS) {

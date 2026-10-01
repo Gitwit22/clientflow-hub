@@ -6,6 +6,7 @@ import {
   SOCIAL_FIELD_IDS,
   TOP_LEVEL_COLUMNS,
 } from './form-field-mapping';
+import { normalizeExternalUrl } from '../../common/validation/external-url';
 
 export type ProfileTarget = 'top' | 'intake' | 'socialLinks';
 
@@ -57,7 +58,7 @@ export function socialLinksOf(value: unknown): string[] {
   const seen = new Set<string>();
   const links: string[] = [];
   for (const entry of value) {
-    const link = typeof entry === 'string' ? entry.trim() : '';
+    const link = typeof entry === 'string' ? normalizeExternalUrl(entry) : '';
     const key = link.toLowerCase();
     if (link && !seen.has(key)) {
       seen.add(key);
@@ -87,7 +88,8 @@ export function mapAnswers(
     if (!text) continue;
 
     if (TOP_LEVEL_COLUMNS.has(key)) {
-      mapped.push({ key, label: PROFILE_FIELD_LABELS[key] ?? key, target: 'top', value: text });
+      const value = key === 'website' ? normalizeExternalUrl(text) : text;
+      mapped.push({ key, label: PROFILE_FIELD_LABELS[key] ?? key, target: 'top', value });
     } else if (INTAKE_KEYS.has(key)) {
       mapped.push({ key, label: PROFILE_FIELD_LABELS[key] ?? key, target: 'intake', value: text });
     } else {
