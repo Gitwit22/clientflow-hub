@@ -68,11 +68,16 @@ function PublicFormPage() {
           const target =
             section.kind === "core" ? initialCore : (initialPrograms[section.programId!] ??= {});
           for (const field of section.fields) {
-            target[field.id] = section.kind === "core" ? (data.prefill[field.id] ?? "") : "";
+            target[field.id] =
+              (section.kind === "core"
+                ? data.prefill[field.id]
+                : data.programPrefill?.[section.programId!]?.[field.id]) ?? "";
           }
         }
         setCoreResponses(initialCore);
         setProgramResponses(initialPrograms);
+        const offered = new Set(data.intakeConfiguration.programs.map((program) => program.id));
+        setSelectedProgramIds((data.selectedProgramIds ?? []).filter((id) => offered.has(id)));
         if (["submitted", "under_review", "approved"].includes(data.assignment.status)) {
           setStatus("already_submitted");
         } else {

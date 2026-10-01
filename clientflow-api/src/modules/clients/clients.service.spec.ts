@@ -387,13 +387,41 @@ describe('ClientsService', () => {
       expect(prisma.cfFormAssignment.update).not.toHaveBeenCalled();
     });
 
-    it('refuses to resend an intake the client already submitted', async () => {
-      const { service, n8n } = build({
-        cfFormAssignment: { findFirst: jest.fn().mockResolvedValue({ ...assignment, submittedAt: new Date() }), update: jest.fn() },
+    it('sends a new copy of the intake when the last one was already submitted', async () => {
+      const copy = { ...assignment, id: 'assignment-2', status: 'draft', submittedAt: null };
+      const createAssignment = jest.fn().mockResolvedValue(copy);
+      const { service, prisma, n8n } = build({
+        cfFormAssignment: {
+          findFirst: jest.fn().mockResolvedValue({ ...assignment, formId: 'form-1', submittedAt: new Date() }),
+          create: createAssignment,
+          update: jest.fn().mockResolvedValue(copy),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        cfFormTemplate: {
+          findMany: jest.fn().mockResolvedValue([{ id: 'master-template-1', dueInDays: 7 }, { id: 'form-1', dueInDays: 14 }]),
+          findFirst: jest.fn().mockResolvedValue({ dueInDays: 14 }),
+        },
       });
 
-      await expect(service.sendIntakeNow('org-1', 'client-1', { actor })).rejects.toThrow('already submitted');
-      expect(n8n.sendIntake).not.toHaveBeenCalled();
+      const result = await service.sendIntakeNow('org-1', 'client-1', { actor });
+
+      expect(result.emailDelivery).toEqual(expect.objectContaining({ status: 'sent' }));
+      // Same intake form as last time, as a fresh draft the send then opens.
+      expect(createAssignment).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          organizationId: 'org-1',
+          clientId: 'client-1',
+          formId: 'form-1',
+          status: 'draft',
+          recipientEmail: 'alicia@example.com',
+          createdByUserId: 'admin-1',
+        }),
+      });
+      expect(prisma.cfFormAssignment.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'assignment-2' },
+        data: expect.objectContaining({ status: 'sent' }),
+      }));
+      expect(n8n.sendIntake).toHaveBeenCalledTimes(1);
     });
 
     it('rotates a fresh token and sends with a communication-based event id', async () => {
@@ -502,12 +530,13 @@ describe('ClientsService', () => {
       expect(prisma.cfCommunication.create).not.toHaveBeenCalled();
     });
 
-    it('reports a clear error when the client has no general-intake assignment', async () => {
+    it('reports a clear error when no intake form is set up', async () => {
       const { service, n8n } = build({
         cfFormAssignment: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+        cfFormTemplate: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       });
       await expect(service.sendIntakeNow('org-1', 'client-1', { actor })).rejects.toThrow(
-        'No General Intake assignment found for this client.',
+        'No active General Intake form is set up for this organization.',
       );
       expect(n8n.sendIntake).not.toHaveBeenCalled();
     });
