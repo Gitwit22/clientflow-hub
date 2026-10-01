@@ -63,13 +63,44 @@ describe('buildClientProfileUpdate', () => {
     ['isDemo', true],
     ['programId', 'program-1'],
     ['source', 'x'],
-    ['intake', { businessDescription: 'overwritten' }],
     ['snapchat', {}],
     ['createdAt', '2020-01-01'],
     ['updatedAt', '2020-01-01'],
   ])('rejects %s instead of passing it to the database', (field, value) => {
     expect(() => buildClientProfileUpdate({ businessName: 'Acme', [field]: value })).toThrow(
       new BadRequestException(`These fields cannot be updated on a client: ${field}.`),
+    );
+  });
+
+  it('merges an intake patch into the current intake, keeping other keys', () => {
+    const current = {
+      status: 'ACTIVE',
+      intake: { businessDescription: 'Old', budgetNeed: '$5k', uploadedFiles: [{ name: 'a.pdf' }], legacyKey: 'kept' },
+    };
+    expect(
+      buildClientProfileUpdate(
+        { intake: { businessDescription: '  Bakery and cafe ', budgetNeed: '', cellPhone: '555-0100', heardAboutUs: null } },
+        current,
+      ),
+    ).toEqual({
+      intake: { businessDescription: 'Bakery and cafe', cellPhone: '555-0100', uploadedFiles: [{ name: 'a.pdf' }], legacyKey: 'kept' },
+    });
+    expect(buildClientProfileUpdate({ intake: { workPhone: '555-0199' } }, { status: 'ACTIVE', intake: null })).toEqual({
+      intake: { workPhone: '555-0199' },
+    });
+  });
+
+  it('refuses intake keys that are not editable answers and non-text values', () => {
+    expect(() => buildClientProfileUpdate({ intake: { uploadedFiles: [] } })).toThrow(
+      'These intake answers cannot be edited on a client: uploadedFiles.',
+    );
+    expect(() => buildClientProfileUpdate({ intake: { programOfInterest: 'x', evil: 'y' } })).toThrow(
+      'These intake answers cannot be edited on a client: programOfInterest, evil.',
+    );
+    expect(() => buildClientProfileUpdate({ intake: { budgetNeed: 5 } })).toThrow('intake.budgetNeed must be text.');
+    expect(() => buildClientProfileUpdate({ intake: ['a'] })).toThrow('intake must be an object of intake answers.');
+    expect(() => buildClientProfileUpdate({ intake: { additionalComments: 'x'.repeat(5001) } })).toThrow(
+      'intake.additionalComments must be at most 5000 characters.',
     );
   });
 

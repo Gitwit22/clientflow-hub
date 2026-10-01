@@ -131,7 +131,10 @@ describe('compatibility route scaffold', () => {
       const prisma: Record<string, any> = {
         cfClient: {
           update: jest.fn().mockResolvedValue({ id: 'client-1' }),
-          findFirst: jest.fn().mockResolvedValue({ id: 'client-1', organizationId: 'org-1', isArchived: false, archivedAt: null }),
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'client-1', organizationId: 'org-1', isArchived: false, archivedAt: null,
+            intake: { businessDescription: 'Old', uploadedFiles: ['f.pdf'] },
+          }),
         },
         $transaction: jest.fn(async (callback: (value: unknown) => unknown) => callback(prisma)),
       };
@@ -141,14 +144,21 @@ describe('compatibility route scaffold', () => {
         admin: { id: 'admin-1', email: 'admin@example.com' },
       });
 
-      await expect(controller.updateClient({} as never, 'client-1', { organizationId: 'org-2', intake: {} }))
-        .rejects.toThrow('These fields cannot be updated on a client: organizationId, intake.');
+      await expect(controller.updateClient({} as never, 'client-1', { organizationId: 'org-2', isDemo: true }))
+        .rejects.toThrow('These fields cannot be updated on a client: organizationId, isDemo.');
       expect(prisma.cfClient.update).not.toHaveBeenCalled();
 
       await controller.updateClient({} as never, 'client-1', { businessName: 'New Name', nextFollowUpDate: '' });
       expect(prisma.cfClient.update).toHaveBeenCalledWith({
         where: { id: 'client-1', organizationId: 'org-1' },
         data: { businessName: 'New Name', nextFollowUpDate: null },
+      });
+
+      // Edit client corrects intake answers by merging into the stored intake.
+      await controller.updateClient({} as never, 'client-1', { intake: { businessDescription: 'Bakery' } });
+      expect(prisma.cfClient.update).toHaveBeenLastCalledWith({
+        where: { id: 'client-1', organizationId: 'org-1' },
+        data: { intake: { businessDescription: 'Bakery', uploadedFiles: ['f.pdf'] } },
       });
     });
 

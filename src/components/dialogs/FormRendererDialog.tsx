@@ -206,6 +206,11 @@ interface FormRendererDialogProps {
   readOnly?: boolean;
   /** Open a submitted form straight into editing its answers. */
   startEditing?: boolean;
+  /**
+   * False for a record that must stay as submitted (the Master Intake: client details are
+   * corrected through Edit client instead).
+   */
+  allowEdit?: boolean;
 }
 
 export function FormRendererDialog({
@@ -215,6 +220,7 @@ export function FormRendererDialog({
   onOpenChange,
   readOnly = false,
   startEditing = false,
+  allowEdit = true,
 }: FormRendererDialogProps) {
   const { formTemplates, programs } = useAppState();
   const cachedTemplate = assignment ? formTemplates.find((t) => t.id === assignment.formId) : null;
@@ -260,7 +266,7 @@ export function FormRendererDialog({
   const [submitting, setSubmitting] = useState(false);
   const [nextStatus, setNextStatus] = useState<FormAssignmentStatus | "">("");
   const [changingStatus, setChangingStatus] = useState(false);
-  const [editing, setEditing] = useState(readOnly && startEditing);
+  const [editing, setEditing] = useState(readOnly && startEditing && allowEdit);
   const [savingEdits, setSavingEdits] = useState(false);
   const [originalResponses] = useState<Record<string, PublicFormResponseValue>>(
     () => assignment?.responses ?? {},
@@ -501,9 +507,15 @@ export function FormRendererDialog({
                 Close
               </Button>
               {readOnly ? (
-                <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                  Edit Responses
-                </Button>
+                allowEdit ? (
+                  <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                    Edit Responses
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    This is what the client submitted. To correct client details, use Edit client.
+                  </p>
+                )
               ) : (
                 <div className="flex gap-2">
                   <Button

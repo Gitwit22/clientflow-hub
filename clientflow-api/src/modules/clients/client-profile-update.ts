@@ -31,6 +31,24 @@ const NULLABLE_STRING_FIELDS = [
 /** Nullable timestamp columns: an ISO/date string, or ''/null to clear. */
 const NULLABLE_DATE_FIELDS = ['nextFollowUpDate', 'convertedAt', 'archivedAt'] as const;
 const BOOLEAN_FIELDS = ['isArchived'] as const;
+/**
+ * Intake answers staff may correct through Edit client (the profile is the one place to change
+ * client details). `programOfInterest` follows the program pick and `uploadedFiles` the uploads, so
+ * neither is editable here.
+ */
+export const EDITABLE_INTAKE_KEYS = [
+  'businessDescription',
+  'assistanceRequested',
+  'businessType',
+  'preferredContact',
+  'workPhone',
+  'cellPhone',
+  'budgetNeed',
+  'heardAboutUs',
+  'additionalComments',
+] as const;
+const EDITABLE_INTAKE_KEY_SET = new Set<string>(EDITABLE_INTAKE_KEYS);
+const MAX_INTAKE_VALUE_LENGTH = 5000;
 
 const ALLOWED_FIELDS = new Set<string>([
   ...REQUIRED_STRING_FIELDS,
@@ -38,20 +56,26 @@ const ALLOWED_FIELDS = new Set<string>([
   ...NULLABLE_DATE_FIELDS,
   ...BOOLEAN_FIELDS,
   'socialLinks',
+  'intake',
   // Rejected with a specific message below rather than as an unknown field.
   'lifecycleStatus',
 ]);
 
-export type ClientProfileUpdate = Record<string, string | string[] | boolean | Date | null>;
+export type ClientProfileUpdate = Record<string, string | string[] | boolean | Date | null | Record<string, unknown>>;
 
 /**
  * Builds the Prisma `data` for PATCH admin/cf/clients/:id from an explicit allowlist, so a request
- * body can never write `organizationId`, `isDemo`, `programId`, `source`, `intake` or any other
- * column that has its own controlled path. Social links must each be an openable web address.
+ * body can never write `organizationId`, `isDemo`, `programId`, `source` or any other column that
+ * has its own controlled path. Social links must each be an openable web address. `intake` is a
+ * partial patch of the editable intake answers, merged into the client's current intake (other
+ * keys, such as uploaded files, are kept); `null` or "" clears an answer.
  *
  * Unknown keys are rejected (not silently dropped) so a frontend regression is loud.
  */
-export function buildClientProfileUpdate(body: unknown, current?: { status: string }): ClientProfileUpdate {
+export function buildClientProfileUpdate(
+  body: unknown,
+  current?: { status: string; intake?: unknown },
+): ClientProfileUpdate {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new BadRequestException('A JSON object body is required.');
   }
@@ -103,6 +127,10 @@ export function buildClientProfileUpdate(body: unknown, current?: { status: stri
     data.socialLinks = socialLinksOf(links);
   }
 
+  if (input.intake !== undefined) {
+    data.intake = mergeIntakePatch(current?.intake, input.intake);
+  }
+
   for (const field of NULLABLE_DATE_FIELDS) {
     const value = input[field];
     if (value === undefined) continue;
@@ -124,4 +152,29 @@ export function buildClientProfileUpdate(body: unknown, current?: { status: stri
   }
 
   return data;
+}
+
+function mergeIntakePatch(currentIntake: unknown, patch: unknown): Record<string, unknown> {
+  if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+    throw new BadRequestException('intake must be an object of intake answers.');
+  }
+  const entries = Object.entries(patch as Record<string, unknown>).filter(([, value]) => value !== undefined);
+  const unknownKeys = entries.map(([key]) => key).filter((key) => !EDITABLE_INTAKE_KEY_SET.has(key));
+  if (unknownKeys.length > 0) {
+    throw new BadRequestException(`These intake answers cannot be edited on a client: ${unknownKeys.join(', ')}.`);
+  }
+  const merged: Record<string, unknown> =
+    typeof currentIntake === 'object' && currentIntake !== null && !Array.isArray(currentIntake)
+      ? { ...(currentIntake as Record<string, unknown>) }
+      : {};
+  for (const [key, value] of entries) {
+    if (value !== null && typeof value !== 'string') throw new BadRequestException(`intake.${key} must be text.`);
+    if (typeof value === 'string' && value.length > MAX_INTAKE_VALUE_LENGTH) {
+      throw new BadRequestException(`intake.${key} must be at most ${MAX_INTAKE_VALUE_LENGTH} characters.`);
+    }
+    const text = value?.trim() ?? '';
+    if (text) merged[key] = text;
+    else delete merged[key];
+  }
+  return merged;
 }

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -31,6 +32,7 @@ import {
   CLIENT_STATUSES,
   type Client,
   type ClientStatus,
+  type IntakeDetails,
   type ProfileType,
   type RelationshipType,
 } from "@/types";
@@ -47,6 +49,30 @@ const RELATIONSHIP_TYPES: { value: RelationshipType; label: string }[] = [
   { value: "client", label: "Client" },
   { value: "sponsor", label: "Sponsor" },
 ];
+
+/** Intake answers staff correct here: the profile is the one place to change client details. */
+const INTAKE_FIELDS: { key: EditableIntakeKey; label: string; multiline?: boolean }[] = [
+  { key: "businessDescription", label: "Brief business description", multiline: true },
+  { key: "assistanceRequested", label: "Type of assistance needed", multiline: true },
+  { key: "businessType", label: "Business type" },
+  { key: "preferredContact", label: "Preferred contact method" },
+  { key: "workPhone", label: "Work phone" },
+  { key: "cellPhone", label: "Cell phone" },
+  { key: "budgetNeed", label: "Budget or funding need" },
+  { key: "heardAboutUs", label: "How they heard about us" },
+  { key: "additionalComments", label: "Additional comments", multiline: true },
+];
+
+type EditableIntakeKey = keyof Omit<IntakeDetails, "programOfInterest" | "uploadedFiles">;
+
+function intakeValues(client: Client): Record<string, string> {
+  return Object.fromEntries(
+    INTAKE_FIELDS.map(({ key }) => {
+      const value: unknown = client.intake?.[key];
+      return [key, typeof value === "string" ? value : ""];
+    }),
+  );
+}
 
 function dateInputValue(value?: string) {
   return value ? value.slice(0, 10) : "";
@@ -73,6 +99,7 @@ export function EditClientDialog({
   const { activeMembers } = useOrganizationMembers();
   const [assignedUserId, setAssignedUserId] = useState("__unassigned");
   const [nextFollowUpDate, setNextFollowUpDate] = useState("");
+  const [intake, setIntake] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -90,6 +117,7 @@ export function EditClientDialog({
       client.assignedUserId ?? (client.assignedStaff ? "__legacy" : "__unassigned"),
     );
     setNextFollowUpDate(dateInputValue(client.nextFollowUpDate));
+    setIntake(intakeValues(client));
   }, [client, open]);
 
   async function handleSubmit(event: FormEvent) {
@@ -135,6 +163,12 @@ export function EditClientDialog({
       assignedStaff: client.assignedStaff ?? "",
       nextFollowUpDate: dateInputValue(client.nextFollowUpDate),
     });
+    // Intake answers go as a partial patch the server merges into the stored intake.
+    const intakeChanges = changedFields(
+      Object.fromEntries(Object.entries(intake).map(([key, value]) => [key, value.trim()])),
+      intakeValues(client),
+    );
+    if (Object.keys(intakeChanges).length > 0) changes.intake = intakeChanges;
     if (Object.keys(changes).length === 0) {
       onOpenChange(false);
       return;
@@ -316,6 +350,42 @@ export function EditClientDialog({
               />
             </div>
           </div>
+
+          <fieldset className="space-y-4 border-t border-border pt-4">
+            <legend className="text-sm font-semibold">Intake details</legend>
+            <p className="text-xs text-muted-foreground">
+              Corrections here update the client profile. The submitted intake stays as the client
+              sent it.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {INTAKE_FIELDS.map(({ key, label, multiline }) => (
+                <div key={key} className={multiline ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
+                  <Label htmlFor={`client-intake-${key}`}>{label}</Label>
+                  {multiline ? (
+                    <Textarea
+                      id={`client-intake-${key}`}
+                      rows={3}
+                      maxLength={5000}
+                      value={intake[key] ?? ""}
+                      onChange={(event) =>
+                        setIntake((current) => ({ ...current, [key]: event.target.value }))
+                      }
+                    />
+                  ) : (
+                    <Input
+                      id={`client-intake-${key}`}
+                      type={key === "workPhone" || key === "cellPhone" ? "tel" : "text"}
+                      maxLength={5000}
+                      value={intake[key] ?? ""}
+                      onChange={(event) =>
+                        setIntake((current) => ({ ...current, [key]: event.target.value }))
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </fieldset>
         </form>
 
         <DialogFooter>

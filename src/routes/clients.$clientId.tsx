@@ -136,37 +136,19 @@ function Row({ label, value, children }: { label: string; value?: string; childr
   );
 }
 
-const PROFILE_FIELD_IDS = new Set([
-  "name",
-  "primaryContactName",
-  "fullName",
-  "applicant",
-  "business",
-  "businessName",
-  "email",
-  "phone",
-  "website",
-  "socialLinks",
-  "facebookUrl",
-  "instagramUrl",
-  "linkedinUrl",
-  "tiktokUrl",
-  "youtubeUrl",
-]);
-
 function submittedCoreFields(submission: IntakeSubmission | undefined) {
   const coreSection = submission?.snapshot?.renderedSections.find(
     (section) => section.kind === "core",
   );
   if (!submission || !coreSection) return null;
 
+  // Every core answer, contact details included: the card is the record of what was submitted.
   return coreSection.fields
-    .filter(
-      (field) => !PROFILE_FIELD_IDS.has(field.id) && !PROFILE_FIELD_IDS.has(field.prefillKey ?? ""),
-    )
+    .filter((field) => field.type !== "signature")
     .map((field) => ({
       field,
       value: toText(submission.responsePayload[field.id]),
+      raw: submission.responsePayload[field.id],
     }));
 }
 
@@ -450,8 +432,16 @@ function ClientProfile() {
     )
     .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0];
   const submittedFields = submittedCoreFields(latestCoreSubmission);
-  // The newest submitted intake is shown (and edited) on the Intake card; its answers are on the
-  // profile already, so it has no card of its own below.
+  // The newest submitted intake is shown on the Intake card as the record of what the client sent;
+  // its answers are on the profile already, so it has no card of its own below. Intake records are
+  // read-only: client details are corrected through Edit client (one source of truth).
+  const intakeAssignmentIds = new Set(
+    intakeSubmissions
+      .filter((submission) =>
+        submission.snapshot?.renderedSections.some((section) => section.kind === "core"),
+      )
+      .map((submission) => submission.formAssignmentId),
+  );
   const latestIntakeAssignment = latestCoreSubmission
     ? assignments.find((assignment) => assignment.id === latestCoreSubmission.formAssignmentId)
     : undefined;
@@ -1303,15 +1293,16 @@ function ClientProfile() {
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
               <div>
                 <CardTitle className="font-display text-base">Master Intake</CardTitle>
-                {latestIntakeAssignment?.submittedAt && (
-                  <p className="text-xs text-muted-foreground">
-                    Submitted {new Date(latestIntakeAssignment.submittedAt).toLocaleString()} · on
-                    the profile
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  {latestCoreSubmission
+                    ? `What ${client.primaryContactName || client.businessName} submitted on ${new Date(
+                        latestCoreSubmission.submittedAt,
+                      ).toLocaleDateString()}. To correct client details, use Edit client.`
+                    : "No intake submitted yet. Showing the details on file; use Edit client to change them."}
+                </p>
               </div>
-              {latestIntakeAssignment && (
-                <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2">
+                {latestIntakeAssignment && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -1323,59 +1314,56 @@ function ClientProfile() {
                   >
                     Review answers
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setFormReadOnly(true);
-                      setStartEditing(true);
-                      setActiveAssignment(latestIntakeAssignment);
-                    }}
-                  >
-                    <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                    Edit
-                  </Button>
-                </div>
-              )}
-            </CardHeader>
-            <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
-              <dl>
-                <Row label="Client name" value={client.primaryContactName} />
-                <Row label="Business name" value={client.businessName} />
-                <Row label="Email" value={client.email} />
-                <Row label="Phone" value={client.phone} />
-                <Row label="Website">
-                  <ExternalLinks links={[client.website]} />
-                </Row>
-                <Row label="Social media links">
-                  <ExternalLinks links={client.socialLinks ?? []} />
-                </Row>
-                {!submittedFields && (
-                  <>
-                    {hasActiveIntakeField("businessDescription") && (
-                      <Row
-                        label="Brief business description"
-                        value={client.intake?.businessDescription}
-                      />
-                    )}
-                    {hasActiveIntakeField("businessType") && (
-                      <Row label="Business type" value={client.intake?.businessType} />
-                    )}
-                  </>
                 )}
-              </dl>
-              <dl>
-                {submittedFields ? (
-                  submittedFields.map(({ field, value }) =>
-                    field.type === "url" ? (
-                      <Row key={field.id} label={field.label}>
-                        <ExternalLinks links={[value]} />
-                      </Row>
-                    ) : (
-                      <Row key={field.id} label={field.label} value={value} />
-                    ),
-                  )
-                ) : (
+                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                  <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                  Edit client
+                </Button>
+              </div>
+            </CardHeader>
+            {submittedFields ? (
+              <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
+                {[
+                  submittedFields.slice(0, Math.ceil(submittedFields.length / 2)),
+                  submittedFields.slice(Math.ceil(submittedFields.length / 2)),
+                ].map((column, index) => (
+                  <dl key={index}>
+                    {column.map(({ field, value, raw }) =>
+                      field.type === "url" || field.type === "social_links" ? (
+                        <Row key={field.id} label={field.label}>
+                          <ExternalLinks links={Array.isArray(raw) ? raw.map(String) : [value]} />
+                        </Row>
+                      ) : (
+                        <Row key={field.id} label={field.label} value={value} />
+                      ),
+                    )}
+                  </dl>
+                ))}
+              </CardContent>
+            ) : (
+              <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
+                <dl>
+                  <Row label="Client name" value={client.primaryContactName} />
+                  <Row label="Business name" value={client.businessName} />
+                  <Row label="Email" value={client.email} />
+                  <Row label="Phone" value={client.phone} />
+                  <Row label="Website">
+                    <ExternalLinks links={[client.website]} />
+                  </Row>
+                  <Row label="Social media links">
+                    <ExternalLinks links={client.socialLinks ?? []} />
+                  </Row>
+                  {hasActiveIntakeField("businessDescription") && (
+                    <Row
+                      label="Brief business description"
+                      value={client.intake?.businessDescription}
+                    />
+                  )}
+                  {hasActiveIntakeField("businessType") && (
+                    <Row label="Business type" value={client.intake?.businessType} />
+                  )}
+                </dl>
+                <dl>
                   <>
                     {hasActiveIntakeField("assistanceRequested") && (
                       <Row
@@ -1411,9 +1399,9 @@ function ClientProfile() {
                       value={(client.intake?.uploadedFiles ?? []).join(", ")}
                     />
                   </>
-                )}
-              </dl>
-            </CardContent>
+                </dl>
+              </CardContent>
+            )}
           </Card>
           {listedForms.length === 0 && programAnswerGroups.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1946,6 +1934,7 @@ function ClientProfile() {
         }}
         readOnly={formReadOnly}
         startEditing={startEditing}
+        allowEdit={!activeAssignment || !intakeAssignmentIds.has(activeAssignment.id)}
       />
       <SendFormDialog
         client={client}

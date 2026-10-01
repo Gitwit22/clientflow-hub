@@ -477,6 +477,65 @@ describe("one Send workflow in the client header", () => {
     }
   });
 
+  it("the Master Intake card is the read-only record: submitted answers, Review answers and Edit client", async () => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    setState((state) => ({
+      ...state,
+      formTemplates: [
+        ...state.formTemplates,
+        { id: "intake", name: "Master Intake", fields: [] },
+      ] as never,
+      formAssignments: [
+        ...state.formAssignments,
+        {
+          id: "ia",
+          clientId: "c1",
+          formId: "intake",
+          status: "submitted",
+          submittedAt: "2026-02-01T12:00:00.000Z",
+        },
+      ] as never,
+      intakeSubmissions: [
+        {
+          id: "s1",
+          clientId: "c1",
+          formAssignmentId: "ia",
+          submittedAt: "2026-02-01T12:00:00.000Z",
+          responsePayload: { email: "sent@example.com", "brief-business-description": "Bakery" },
+          resultPayload: {},
+          programs: [],
+          snapshot: {
+            selectedProgramIds: [],
+            renderedSections: [
+              {
+                id: "core",
+                kind: "core",
+                fields: [
+                  { id: "email", label: "Email", type: "email" },
+                  {
+                    id: "brief-business-description",
+                    label: "Brief business description",
+                    type: "textarea",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ] as never,
+    }));
+    mountRouter("/clients/c1?enrollmentId=e1&tab=forms");
+
+    expect(
+      await screen.findByText(/submitted on .*To correct client details, use Edit client\./),
+    ).toBeTruthy();
+    expect(screen.getByText("sent@example.com")).toBeTruthy();
+    expect(screen.getByText("Bakery")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Review answers" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Edit client/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
   it("an empty Forms tab points to Send ▼", async () => {
     seed({ enrollments: [] });
     setState((state) => ({ ...state, formAssignments: [] }));
