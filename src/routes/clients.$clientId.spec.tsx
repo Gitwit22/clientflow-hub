@@ -50,10 +50,6 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 // Dialogs are not under test; stub them so the route renders on its own.
 vi.mock("@/components/dialogs/FormRendererDialog", () => ({ FormRendererDialog: () => null }));
 vi.mock("@/components/dialogs/EditClientDialog", () => ({ EditClientDialog: () => null }));
-vi.mock("@/components/dialogs/SendFormDialog", () => ({
-  SendFormDialog: ({ open, kind }: { open: boolean; kind?: string }) =>
-    open ? <div data-testid={`dialog-form-${kind ?? "legacy"}`} /> : null,
-}));
 vi.mock("@/components/dialogs/SendContractDialog", () => ({
   SendContractDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="dialog-contract" /> : null,
@@ -432,8 +428,6 @@ describe("one Send workflow in the client header", () => {
 
     const cases: [RegExp, string][] = [
       [/Send \/ resend intake/, "dialog-intake"],
-      [/Send program form/, "dialog-form-program"],
-      [/Send general form/, "dialog-form-general"],
       [/Send contract/, "dialog-contract"],
       [/Send \/ resend welcome email/, "dialog-welcome"],
     ];
@@ -445,23 +439,22 @@ describe("one Send workflow in the client header", () => {
     }
   });
 
-  it("zero enrollments: program-specific sends are disabled with the reason; intake and general forms still work", async () => {
+  it("zero enrollments: program-specific sends are disabled with the reason; the intake still works", async () => {
     seed({ enrollments: [] });
     mountRouter("/clients/c1");
     await screen.findByRole("tab", { name: "Billing" });
 
     openSendMenu();
-    expect(isDisabled(menuItem(/Send program form/))).toBe(true);
     expect(isDisabled(menuItem(/Send contract/))).toBe(true);
     expect(isDisabled(menuItem(/Send \/ resend welcome email/))).toBe(true);
     expect(
       screen.getByText("Assign the client to a program before sending program-specific materials."),
     ).toBeTruthy();
     expect(isDisabled(menuItem(/Send \/ resend intake/))).toBe(false);
-    expect(isDisabled(menuItem(/Send general form/))).toBe(false);
+    expect(screen.queryByRole("menuitem", { name: /Send (program|general) form/ })).toBeNull();
 
-    fireEvent.click(menuItem(/Send general form/));
-    expect(await screen.findByTestId("dialog-form-general")).toBeTruthy();
+    fireEvent.click(menuItem(/Send \/ resend intake/));
+    expect(await screen.findByTestId("dialog-intake")).toBeTruthy();
   });
 
   it("the Forms tab offers every send action and groups forms by kind", async () => {
@@ -472,14 +465,11 @@ describe("one Send workflow in the client header", () => {
     expect(screen.getByText("Master Intake")).toBeTruthy();
     expect(screen.getByText("Program forms")).toBeTruthy();
     expect(screen.getByText("Send to client")).toBeTruthy();
-    for (const name of [
-      "Send / resend intake",
-      "Send program form",
-      "Send general form",
-      "Send contract",
-      "Send / resend welcome email",
-    ]) {
+    for (const name of ["Send / resend intake", "Send contract", "Send / resend welcome email"]) {
       expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
+    }
+    for (const name of ["Send program form", "Send general form"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
     }
   });
 
@@ -546,7 +536,7 @@ describe("one Send workflow in the client header", () => {
     seed({ enrollments: [] });
     setState((state) => ({ ...state, formAssignments: [] }));
     mountRouter("/clients/c1?tab=forms");
-    expect(await screen.findByText(/Send one with Send to client above/)).toBeTruthy();
+    expect(await screen.findByText(/No other forms yet/)).toBeTruthy();
   });
 
   it("Program owns the enrollment and its pending agreement; Overview owns follow-up", async () => {

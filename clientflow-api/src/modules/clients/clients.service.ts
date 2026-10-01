@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
@@ -443,7 +443,7 @@ export class ClientsService {
       generalIntakeTemplateId(client.organizationId),
       ...masterTemplates.map((template) => template.id),
     ];
-    const assignment = await this.prisma.cfFormAssignment.findFirst({
+    const latest = await this.prisma.cfFormAssignment.findFirst({
       where: {
         clientId: client.id,
         organizationId: client.organizationId,
@@ -452,10 +452,11 @@ export class ClientsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    if (!assignment) throw new NotFoundException('No General Intake assignment found for this client.');
-    if (assignment.submittedAt) {
-      throw new ConflictException('This client has already submitted their intake.');
-    }
+    // After a submission (or for a client who never had one) staff can send a new copy of the
+    // intake; the form page fills it in with what is already on file.
+    const assignment = latest && !latest.submittedAt
+      ? latest
+      : await this.createIntakeCopy(client, latest?.formId ?? null, masterTemplates.map((template) => template.id), options.actor ?? null);
 
     const manual = DELIVERY_SOURCE.manual;
     const staffName = options.actor?.name?.trim() || 'staff';
@@ -575,6 +576,50 @@ export class ClientsService {
       },
     });
     return { emailDelivery };
+  }
+
+  /**
+   * A new intake assignment for a client whose last intake was already submitted. It starts as a
+   * draft with an unusable token: the send below rotates in the real link and marks it sent only
+   * when the email can go out, so a failed send leaves one reusable draft, not a pile of them.
+   */
+  private async createIntakeCopy(
+    client: { id: string; organizationId: string; email: string; phone: string; assignedUserId: string | null },
+    previousFormId: string | null,
+    masterTemplateIds: string[],
+    actor: { id: string | null; name: string } | null,
+  ) {
+    // The same intake form as last time while it is active, otherwise the current master intake.
+    const activeTemplates = await this.prisma.cfFormTemplate.findMany({
+      where: {
+        organizationId: client.organizationId,
+        isActive: true,
+        id: { in: [previousFormId, ...masterTemplateIds].filter((id): id is string => !!id) },
+      },
+      select: { id: true, dueInDays: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const template = activeTemplates.find((candidate) => candidate.id === previousFormId) ?? activeTemplates[0];
+    const formId = template?.id ?? previousFormId;
+    if (!formId) throw new NotFoundException('No active General Intake form is set up for this organization.');
+    const dueAt = new Date(Date.now() + (template?.dueInDays ?? 7) * 86_400_000);
+    return this.prisma.cfFormAssignment.create({
+      data: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        formId,
+        assignedUserId: client.assignedUserId,
+        deliveryMethod: 'email',
+        recipientEmail: client.email,
+        recipientPhone: client.phone || null,
+        status: 'draft',
+        dueAt,
+        dueDate: dueAt.toISOString().slice(0, 10),
+        expiresAt: dueAt,
+        secureLinkToken: hashPublicToken(generatePublicToken()),
+        createdByUserId: actor?.id ?? null,
+      },
+    });
   }
 
   private safeClient(client: {

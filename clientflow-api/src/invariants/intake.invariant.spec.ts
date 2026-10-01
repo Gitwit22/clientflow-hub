@@ -206,3 +206,43 @@ describe('program section answers fill blank profile fields', () => {
     }));
   });
 });
+
+describe('a repeat intake (staff sent a new copy after a submission)', () => {
+  function repeatSetup() {
+    const context = setup();
+    // The client already submitted an earlier intake and is now onboarding in coaching.
+    context.rows.cfIntakeSubmission.push({ id: 'earlier', organizationId: ORG, clientId: 'client-1', formAssignmentId: 'fa-0' });
+    Object.assign(context.rows.cfClient[0], {
+      status: 'ONBOARDING', programId: 'p-coach', intake: { programOfInterest: 'Coaching', businessDescription: 'Old' },
+    });
+    context.rows.cfFormTemplate[0].fields = [{ id: 'businessDescription', label: 'Describe your business', type: 'textarea' }];
+    return context;
+  }
+
+  it('updates the details but keeps the client where they are in the workflow', async () => {
+    const { rows, service, automation } = repeatSetup();
+    const result = await service.submit(token, {
+      ...input,
+      coreResponses: { businessDescription: 'New description' },
+    });
+
+    expect(rows.cfClient[0]).toEqual(expect.objectContaining({
+      status: 'ONBOARDING',
+      programId: 'p-coach',
+      intake: { programOfInterest: 'Coaching', businessDescription: 'New description' },
+    }));
+    // Only the newly chosen program (Grant) starts its intake workflow; coaching is left alone.
+    const triggers = automation.runTrigger.mock.calls.map(([request]) => request);
+    expect(triggers).toEqual([
+      expect.objectContaining({ trigger: 'intake.submitted', programIds: ['p-grant'], idempotencySeed: `intake.submitted:${result.submissionId}` }),
+      expect.objectContaining({ trigger: 'enrollment.created', programIds: ['p-grant'] }),
+    ]);
+    expect(rows.cfActivityLog.find((row) => row.action === 'INTAKE_SUBMITTED')?.description).toMatch(/^Updated intake\. /);
+  });
+
+  it('starts no program workflow when no new program was chosen', async () => {
+    const { service, automation } = repeatSetup();
+    await service.submit(token, { ...input, selectedProgramIds: ['p-coach'], programResponses: {} });
+    expect(automation.runTrigger).not.toHaveBeenCalled();
+  });
+});

@@ -489,6 +489,10 @@ export interface PublicFormData {
   program: { name: string };
   contact: { name: string };
   prefill: Record<string, PublicFormResponseValue>;
+  /** Previous answers per program section, for a new copy of the intake. */
+  programPrefill?: Record<string, Record<string, PublicFormResponseValue>>;
+  /** Programs the client is already in, pre-selected on a new copy of the intake. */
+  selectedProgramIds?: string[];
   intakeConfiguration: {
     configurationToken: string;
     programs: Array<{ id: string; name: string }>;

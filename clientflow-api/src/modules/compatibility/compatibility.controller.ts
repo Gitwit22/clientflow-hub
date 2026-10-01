@@ -69,6 +69,8 @@ import { resolveAppUrl } from '../../config/env';
 import { assertSessionActive } from '../../common/guards/session-state';
 import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storage/upload-rules';
 import { socialLinksOf } from '../forms/form-profile-mapper';
+import { normalizeFormFields } from '../forms/form-field-mapping';
+import { buildIntakePrefill, buildProgramPrefill, type PrefillValue } from '../forms/intake-prefill';
 
 /** Sign-in endpoints: 10 attempts a minute per visitor, so passwords and tokens can't be guessed. */
 export const SIGN_IN_LIMIT = { default: { limit: 10, ttl: 60_000 } };
@@ -1901,19 +1903,6 @@ function pickOrganizationSettings(body: Record<string, unknown>): Record<string,
   return settings;
 }
 
-const PUBLIC_FIELD_ALIASES: Record<string, 'primaryContactName' | 'businessName' | 'email' | 'phone' | 'website'> = {
-  name: 'primaryContactName',
-  contact: 'primaryContactName',
-  fullName: 'primaryContactName',
-  primaryContactName: 'primaryContactName',
-  business: 'businessName',
-  businessName: 'businessName',
-  bizName: 'businessName',
-  email: 'email',
-  phone: 'phone',
-  website: 'website',
-};
-
 interface NormalizedPublicField {
   id: string;
   label: string;
@@ -1951,21 +1940,6 @@ function normalizePublicFields(rawFields: unknown): NormalizedPublicField[] {
     normalized.push({ id, label, type, required, ...(options?.length ? { options } : {}), ...(helpText ? { helpText } : {}) });
   });
   return normalized.length ? normalized : FALLBACK_PUBLIC_FIELDS;
-}
-
-function resolvePublicPrefill(
-  fields: NormalizedPublicField[],
-  client: { primaryContactName: string; businessName: string; email: string; phone: string; website: string | null } | null,
-): Record<string, string> {
-  if (!client) return {};
-  const prefill: Record<string, string> = {};
-  for (const field of fields) {
-    const mappedKey = PUBLIC_FIELD_ALIASES[field.id];
-    if (!mappedKey) continue;
-    const value = client[mappedKey];
-    if (value) prefill[field.id] = value;
-  }
-  return prefill;
 }
 
 @Controller('public/form')
@@ -2039,6 +2013,48 @@ export class PublicFormCompatibilityController {
     });
     const renderedSections = [coreSection, ...programSections];
 
+    // A new copy of the intake (staff resent it after a submission) starts filled in: profile
+    // questions from the profile, everything else from the client's previous answers, and the
+    // programs they are already in pre-selected.
+    const prisma = this.requirePrisma();
+    const previous = client
+      ? await prisma.cfIntakeSubmission.findFirst({
+          where: { organizationId: formAssignment.organizationId, clientId: client.id },
+          orderBy: { submittedAt: 'desc' },
+        })
+      : null;
+    const previousPrograms = previous
+      ? await prisma.cfIntakeSubmissionProgram.findMany({
+          where: { organizationId: formAssignment.organizationId, intakeSubmissionId: previous.id },
+        })
+      : [];
+    const openEnrollments = client
+      ? await prisma.cfProgramEnrollment.findMany({
+          where: {
+            organizationId: formAssignment.organizationId,
+            clientId: client.id,
+            isArchived: false,
+            status: { notIn: ['completed', 'declined', 'withdrawn'] },
+          },
+          select: { programId: true },
+        })
+      : [];
+    const prefillKeys = new Map(normalizeFormFields(template.fields).map((field) => [field.id, field.prefillKey]));
+    const prefill = buildIntakePrefill(
+      fields.map((field) => ({ ...field, prefillKey: prefillKeys.get(field.id) })),
+      client,
+      previous?.responsePayload,
+    );
+    const programPrefill: Record<string, Record<string, PrefillValue>> = {};
+    for (const section of programSections) {
+      const answers = previousPrograms.find((row) => row.programId === section.programId)?.responsePayload;
+      const values = buildProgramPrefill(section.fields, answers);
+      if (Object.keys(values).length) programPrefill[section.programId] = values;
+    }
+    const activeProgramIds = new Set(programs.map((program) => program.id));
+    const selectedProgramIds = [...new Set(openEnrollments.map((enrollment) => enrollment.programId))]
+      .filter((programId) => activeProgramIds.has(programId));
+
     const configurationToken = randomBytes(32).toString('hex');
     await this.requirePrisma().cfIntakeRenderSession.create({
       data: {
@@ -2057,7 +2073,9 @@ export class PublicFormCompatibilityController {
       form: { id: template.id, name: template.name, description: template.description, fields },
       program: { name: 'EA Management Program' },
       contact: { name: client?.primaryContactName ?? formAssignment.recipientEmail ?? 'Client' },
-      prefill: resolvePublicPrefill(fields, client),
+      prefill,
+      programPrefill,
+      selectedProgramIds,
       intakeConfiguration: {
         configurationToken,
         programs: programs.map(({ id, name }) => ({ id, name })),

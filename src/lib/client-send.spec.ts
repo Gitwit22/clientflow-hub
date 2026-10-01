@@ -38,11 +38,10 @@ const communication = (overrides: Partial<Communication> = {}) =>
   }) as Communication;
 
 describe("sendAvailability", () => {
-  it("with no enrollment, only the intake and general forms can be sent", () => {
+  it("with no enrollment, only the intake can be sent", () => {
     const availability = sendAvailability({ hasEnrollment: false });
     expect(availability.intake.enabled).toBe(true);
-    expect(availability.general_form.enabled).toBe(true);
-    for (const kind of ["program_form", "contract", "welcome"] as const) {
+    for (const kind of ["contract", "welcome"] as const) {
       expect(availability[kind]).toEqual({ enabled: false, reason: PROGRAM_REQUIRED_REASON });
     }
   });

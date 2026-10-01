@@ -1,12 +1,10 @@
 import type { Communication, Contract } from "@/types";
 
 /** Everything staff can send to a client from one place. */
-export type SendKind = "intake" | "program_form" | "general_form" | "contract" | "welcome";
+export type SendKind = "intake" | "contract" | "welcome";
 
 export const SEND_KINDS: readonly { kind: SendKind; label: string; hint: string }[] = [
   { kind: "intake", label: "Send / resend intake", hint: "The General Intake form" },
-  { kind: "program_form", label: "Send program form", hint: "A form for the selected program" },
-  { kind: "general_form", label: "Send general form", hint: "A form that isn't tied to a program" },
   { kind: "contract", label: "Send contract", hint: "The selected program's agreement" },
   { kind: "welcome", label: "Send / resend welcome email", hint: "After the contract is signed" },
 ] as const;
@@ -21,8 +19,8 @@ export interface SendAvailability {
 }
 
 /**
- * Program context comes only from the client's enrollment: with none, only the intake and general
- * forms can go out; everything program-specific is disabled with an explanation.
+ * Program context comes only from the client's enrollment: with none, only the intake can go out;
+ * the contract and welcome email are disabled with an explanation.
  */
 export function sendAvailability(input: {
   hasEnrollment: boolean;
@@ -32,8 +30,6 @@ export function sendAvailability(input: {
     : { enabled: false, reason: PROGRAM_REQUIRED_REASON };
   return {
     intake: { enabled: true },
-    general_form: { enabled: true },
-    program_form: programOnly,
     contract: programOnly,
     welcome: programOnly,
   };

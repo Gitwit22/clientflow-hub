@@ -50,7 +50,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
 import { SendContractDialog } from "@/components/dialogs/SendContractDialog";
-import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { SendIntakeDialog } from "@/components/dialogs/SendIntakeDialog";
 import { SendWelcomeDialog } from "@/components/dialogs/SendWelcomeDialog";
 import { TermsDialog } from "@/components/dialogs/TermsDialog";
@@ -1405,9 +1404,7 @@ function ClientProfile() {
             )}
           </Card>
           {listedForms.length === 0 && programAnswerGroups.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No other forms yet. Send one with Send to client above.
-            </p>
+            <p className="py-6 text-center text-sm text-muted-foreground">No other forms yet.</p>
           )}
           {(programForms.length > 0 || programAnswerGroups.length > 0) && (
             <section className="space-y-3">
@@ -1936,19 +1933,6 @@ function ClientProfile() {
         readOnly={formReadOnly}
         startEditing={startEditing}
         allowEdit={!activeAssignment || !intakeAssignmentIds.has(activeAssignment.id)}
-      />
-      <SendFormDialog
-        client={client}
-        kind="program"
-        enrollment={selectedEnrollment ?? null}
-        open={sendDialog === "program_form"}
-        onOpenChange={closeSend}
-      />
-      <SendFormDialog
-        client={client}
-        kind="general"
-        open={sendDialog === "general_form"}
-        onOpenChange={closeSend}
       />
       <SendIntakeDialog client={client} open={sendDialog === "intake"} onOpenChange={closeSend} />
       {selectedEnrollment && (

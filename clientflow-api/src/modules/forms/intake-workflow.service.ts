@@ -34,6 +34,16 @@ export interface IntakeSubmissionResult {
   replayed?: true;
 }
 
+/**
+ * Client statuses at or before the intake. A repeat intake moves a client on only from one of
+ * these; a client already in review, under contract or onboarding keeps their status.
+ */
+const INTAKE_STAGE_STATUSES: readonly string[] = [
+  'New Intake',
+  CLIENT_STATUS.intakeSent,
+  CLIENT_STATUS.intakeSubmitted,
+];
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -100,6 +110,13 @@ export class IntakeWorkflowService {
     }
     const programById = new Map(programs.map((program) => [program.id, program]));
     const actor = input.actorDisplayName ?? 'Client submission';
+    // A repeat intake (staff sent a new copy after an earlier submission) updates the client's
+    // details and adds any newly chosen program, but never moves the client back to an earlier
+    // stage or restarts the workflow for programs they are already in.
+    const isRepeat = (await this.prisma.cfIntakeSubmission.count({
+      where: { organizationId: assignment.organizationId, clientId: client.id },
+    })) > 0;
+    const advanceStatus = !isRepeat || INTAKE_STAGE_STATUSES.includes(client.status);
     const submittedAt = new Date();
 
     const { submission, enrollmentIds, enrollmentIdsByProgramId, createdProgramIds } = await this.prisma.$transaction(async (transaction) => {
@@ -186,17 +203,21 @@ export class IntakeWorkflowService {
         profile.labels.push(...extra.labels.filter((label) => !profile.labels.includes(label)));
       }
       const { intake: answeredIntake, ...profileColumns } = profile.data;
+      const currentIntake = isRecord(client.intake) ? client.intake : {};
+      const keepProgramOfInterest = isRepeat && typeof currentIntake.programOfInterest === 'string' && currentIntake.programOfInterest;
       const intake = {
-        ...(answeredIntake ?? (isRecord(client.intake) ? client.intake : {})),
-        ...(primaryProgram ? { programOfInterest: primaryProgram.name } : {}),
+        ...(answeredIntake ?? currentIntake),
+        ...(primaryProgram && !keepProgramOfInterest ? { programOfInterest: primaryProgram.name } : {}),
       };
       await transaction.cfClient.update({
         where: { id: client.id },
         data: {
           ...profileColumns,
-          status: primaryProgram ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted,
+          ...(advanceStatus
+            ? { status: primaryProgram ? CLIENT_STATUS.programSelected : CLIENT_STATUS.intakeSubmitted }
+            : {}),
           // Legacy mirror for older screens; workflow decisions read the enrollments.
-          ...(primaryProgram ? { programId: primaryProgram.id } : {}),
+          ...(primaryProgram && (!isRepeat || !client.programId) ? { programId: primaryProgram.id } : {}),
           ...(primaryProgram || answeredIntake ? { intake: intake } : {}),
         },
       });
@@ -205,7 +226,7 @@ export class IntakeWorkflowService {
           organizationId: assignment.organizationId,
           clientId: client.id,
           action: 'INTAKE_SUBMITTED',
-          description: (selectedProgramIds.length
+          description: (isRepeat ? 'Updated intake. ' : '') + (selectedProgramIds.length
             ? `Intake submitted for ${programs.map((program) => program.name).join(', ')}.`
             : 'Intake submitted without a program selection.')
             + (profile.labels.length ? ` Profile updated from the answers: ${profile.labels.join(', ')}.` : ''),
@@ -221,18 +242,23 @@ export class IntakeWorkflowService {
       organizationId: assignment.organizationId,
       clientId: client.id,
       submissionId: submission.id,
-      message: programs.length
+      message: isRepeat
+        ? `${client.primaryContactName} submitted an updated intake.`
+        : programs.length
         ? `${client.primaryContactName} submitted intake and selected ${programs.map((program) => program.name).join(', ')}.`
         : `${client.primaryContactName} submitted intake without choosing a program.`,
       isDemo: client.isDemo,
     });
 
-    const automation = selectedProgramIds.length
+    // On a repeat intake only programs the client newly joined start their intake workflow
+    // (contract or staff review); programs already under way are left alone.
+    const intakeTriggerProgramIds = isRepeat ? createdProgramIds : selectedProgramIds;
+    const automation = intakeTriggerProgramIds.length
       ? await this.fireTrigger({
           organizationId: assignment.organizationId,
           clientId: client.id,
           trigger: 'intake.submitted',
-          programIds: selectedProgramIds,
+          programIds: intakeTriggerProgramIds,
           enrollmentIdsByProgramId,
           actorDisplayName: actor,
           idempotencySeed: `intake.submitted:${submission.id}`,

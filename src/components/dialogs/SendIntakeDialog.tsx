@@ -53,7 +53,8 @@ export function SendIntakeDialog({
           <DialogTitle className="font-display">Send intake email</DialogTitle>
           <DialogDescription>
             Emails a fresh secure link to the General Intake form. Any earlier intake link stops
-            working.
+            working. If they already submitted one, they get a new copy filled in with what's on
+            file, and their updated answers refresh the profile.
           </DialogDescription>
         </DialogHeader>
         <dl className="space-y-1 text-sm">
