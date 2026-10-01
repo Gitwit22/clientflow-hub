@@ -92,6 +92,41 @@ describe('compatibility route scaffold', () => {
       });
     });
 
+    it('saves a seeded program whose stored form template no longer exists, unless staff pick a missing one', async () => {
+      const prisma: Record<string, any> = {
+        cfProgram: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'program-1', organizationId: 'org-1', defaultFormTemplateId: 'general-intake' }),
+          update: jest.fn().mockResolvedValue({ id: 'program-1' }),
+        },
+        cfFormTemplate: { findFirst: jest.fn().mockResolvedValue(null) },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1', admin: { id: 'admin-1' } });
+
+      await controller.updateProgram({} as never, 'program-1', { name: 'IDI', defaultFormTemplateId: 'general-intake' });
+      expect(prisma.cfProgram.update).toHaveBeenCalledWith({ where: { id: 'program-1', organizationId: 'org-1' }, data: { name: 'IDI' } });
+
+      await expect(controller.updateProgram({} as never, 'program-1', { defaultFormTemplateId: 'other-missing' }))
+        .rejects.toThrow('Form template not found.');
+    });
+
+    it('saves an older template whose scope is legacy, and still refuses setting scope to legacy', async () => {
+      const prisma: Record<string, any> = {
+        cfFormTemplate: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'form-1', organizationId: 'org-1', scope: 'legacy' }),
+          update: jest.fn().mockResolvedValue({ id: 'form-1' }),
+        },
+      };
+      const controller = new ClientflowCompatibilityController(scaffold, prisma as never);
+      jest.spyOn(controller as any, 'requireOrgFromRequest').mockResolvedValue({ orgId: 'org-1', admin: { id: 'admin-1' } });
+
+      await controller.updateFormTemplate({} as never, 'form-1', { name: 'Check-in', scope: 'legacy' });
+      expect(prisma.cfFormTemplate.update).toHaveBeenCalledWith({ where: { id: 'form-1', organizationId: 'org-1' }, data: { name: 'Check-in' } });
+
+      prisma.cfFormTemplate.findFirst.mockResolvedValue({ id: 'form-1', organizationId: 'org-1', scope: 'program_section' });
+      await expect(controller.updateFormTemplate({} as never, 'form-1', { scope: 'legacy' })).rejects.toThrow('scope must be one of');
+    });
+
     it('never passes an arbitrary request body to Prisma from the generic client update', async () => {
       const prisma: Record<string, any> = {
         cfClient: {

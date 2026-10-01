@@ -60,6 +60,7 @@ import type {
   ProgramEnrollment,
   ProgramParticipantDetail,
 } from "@/types";
+import { canCompleteEnrollment } from "@/lib/enrollment-status";
 
 const BILLING_FREQUENCIES: BillingFrequency[] = [
   "one_time",
@@ -322,7 +323,7 @@ function ProgramDetailPage() {
             )}
             stepBusy={stepLoadingId === participant.enrollment.id}
             onStep={() => void openStep(participant)}
-            canComplete={!past}
+            canComplete={canCompleteEnrollment(participant.enrollment.status)}
             onComplete={() => {
               void completeEnrollment(participant.enrollment.id)
                 .then(() => {

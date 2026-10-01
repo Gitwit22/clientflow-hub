@@ -23,6 +23,7 @@ import { createProgram, updateProgram } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { DEFAULT_JOURNEY, journeyToProgramFields } from "@/lib/program-journey";
 import type { ContractType, MonitoringFrequency, Program } from "@/types";
+import { changedFields } from "@/lib/changed-fields";
 
 const MONITORING_FREQUENCIES: MonitoringFrequency[] = [
   "Weekly",
@@ -95,7 +96,10 @@ export function AddEditProgramDialog({
       toast.error("Program name is required.");
       return;
     }
-    if (!defaultFormTemplateId) {
+    const formTemplateChanged = defaultFormTemplateId !== (program?.defaultFormTemplateId ?? "");
+    // A saved program may point at a template that no longer exists; that only blocks a save when
+    // staff are actually choosing the template.
+    if (!defaultFormTemplateId && (!isEdit || formTemplateChanged)) {
       toast.error("Choose a default form template.");
       return;
     }
@@ -112,7 +116,18 @@ export function AddEditProgramDialog({
       // Workflow, required documents and the status pipeline are edited on the program page;
       // an edit here leaves them untouched.
       if (isEdit && program) {
-        await updateProgram(program.id, data);
+        // Only what changed is sent, so an untouched value the server would refuse never blocks a save.
+        await updateProgram(
+          program.id,
+          changedFields(data, {
+            name: program.name,
+            description: program.description ?? "",
+            isActive: program.isActive,
+            defaultFormTemplateId: program.defaultFormTemplateId ?? "",
+            defaultMonitoringFrequency: program.defaultMonitoringFrequency,
+            defaultContractTemplateId: program.defaultContractTemplateId,
+          }),
+        );
         toast.success("Program updated.");
       } else {
         await createProgram({

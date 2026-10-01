@@ -647,7 +647,7 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs') async createProgram(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const program = await this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [] } });
+    const program = await this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [], ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}) } });
     // Only treat this as an explicit staff choice when the request actually carries workflow
     // settings - otherwise this would fake an "administrator configured this" update.
     if (body.sendContractAfterIntake !== undefined || body.sendWelcomeAfterContractSigned !== undefined) {
@@ -664,6 +664,10 @@ export class ClientflowCompatibilityController {
   @Patch('programs/:id') async updateProgram(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     const data = pickFields(body, PROGRAM_UPDATE_FIELDS);
+    const existing = await findProgramForOrg(this.requirePrisma(), orgId, id);
+    // Re-sending the template the program already points at is no change, even if that template is
+    // gone (seeded programs point at 'general-intake'); only a newly chosen template is checked.
+    if (data.defaultFormTemplateId === existing.defaultFormTemplateId) delete data.defaultFormTemplateId;
     if (typeof data.defaultFormTemplateId === 'string' && data.defaultFormTemplateId) {
       await findFormTemplateForOrg(this.requirePrisma(), orgId, data.defaultFormTemplateId);
     }
@@ -1262,11 +1266,14 @@ export class ClientflowCompatibilityController {
   }
   @Post('form-templates') async createFormTemplate(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().cfFormTemplate.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Form'), description: String(body.description ?? ''), fields: Array.isArray(body.fields) ? body.fields : [], emailTemplate: String(body.emailTemplate ?? 'general-intake'), dueInDays: Number(body.dueInDays ?? 7), scope: String(body.scope ?? 'legacy'), version: Number(body.version ?? 1), sortOrder: Number(body.sortOrder ?? 0), programId: body.programId ? String(body.programId) : null, internalNotes: body.internalNotes ? String(body.internalNotes) : null } });
+    return this.requirePrisma().cfFormTemplate.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Form'), description: String(body.description ?? ''), fields: Array.isArray(body.fields) ? body.fields : [], emailTemplate: String(body.emailTemplate ?? 'general-intake'), dueInDays: Number(body.dueInDays ?? 7), scope: String(body.scope ?? 'legacy'), version: Number(body.version ?? 1), sortOrder: Number(body.sortOrder ?? 0), programId: body.programId ? String(body.programId) : null, internalNotes: body.internalNotes ? String(body.internalNotes) : null, ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}) } });
   }
   @Patch('form-templates/:id') async updateFormTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    const data = pickFields(body, FORM_TEMPLATE_UPDATE_FIELDS);
+    const existing = await findFormTemplateForOrg(this.requirePrisma(), orgId, id);
+    // Older templates carry scope 'legacy'; sending that back unchanged is not a scope change.
+    const input = body.scope !== undefined && body.scope === existing.scope ? { ...body, scope: undefined } : body;
+    const data = pickFields(input, FORM_TEMPLATE_UPDATE_FIELDS);
     if (typeof data.programId === 'string' && data.programId) {
       await findProgramForOrg(this.requirePrisma(), orgId, data.programId);
     }
@@ -1274,8 +1281,14 @@ export class ClientflowCompatibilityController {
   }
   @Delete('form-templates/:id') async deleteFormTemplate(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    await this.requirePrisma().cfFormTemplate.update({ where: { id, organizationId: orgId }, data: { isActive: false } });
-    return { id, unlinkedProgramIds: [], cancelledAssignments: 0 };
+    const prisma = this.requirePrisma();
+    await prisma.cfFormTemplate.update({ where: { id, organizationId: orgId }, data: { isActive: false } });
+    // Programs that used it as their default form stop pointing at a template that is gone.
+    const linked = await prisma.cfProgram.findMany({ where: { organizationId: orgId, defaultFormTemplateId: id }, select: { id: true } });
+    if (linked.length) {
+      await prisma.cfProgram.updateMany({ where: { organizationId: orgId, defaultFormTemplateId: id }, data: { defaultFormTemplateId: '' } });
+    }
+    return { id, unlinkedProgramIds: linked.map((program) => program.id), cancelledAssignments: 0 };
   }
   @Get('form-assignments') async listFormAssignments(@Req() request: Request, @Query('clientId') clientId?: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -2341,6 +2354,12 @@ export class OrganizationsCompatibilityController {
       await findStoredFileForOrg(this.requirePrisma(), orgId, changes.logoStoredFileId);
     }
     const nextSettings: Record<string, unknown> = { ...currentSettings, ...changes };
+    // Toggle maps merge key by key: turning one notification off must not reset the others.
+    for (const key of ['features', 'notificationTemplateToggles'] as const) {
+      if (isRecord(changes[key])) {
+        nextSettings[key] = { ...(isRecord(currentSettings[key]) ? currentSettings[key] : {}), ...changes[key] };
+      }
+    }
     const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : undefined;
     const updated = await this.requirePrisma().organization.update({ where: { id: orgId }, data: { name, settings: nextSettings as any } });
     return { id: updated.id, name: updated.name, settings: nextSettings, liveMode: updated.liveMode, demoRemovedAt: updated.demoRemovedAt, principal: null };
@@ -2348,8 +2367,9 @@ export class OrganizationsCompatibilityController {
 
   @Get(':orgId/members') async listMembers(@Req() request: Request, @Param('orgId') orgId: string) {
     await this.requireOrgAccess(request, orgId);
+    const org = await this.requirePrisma().organization.findUnique({ where: { id: orgId }, select: { principalAdminId: true } });
     const members = await this.requirePrisma().adminUser.findMany({ where: { organizationId: orgId }, select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, isActive: true, createdAt: true, invitation: { select: { acceptedAt: true, revokedAt: true } } }, orderBy: { createdAt: 'asc' } });
-    return members.map((member) => ({ id: member.id, email: member.email, firstName: member.firstName, lastName: member.lastName, jobTitle: member.jobTitle, role: member.role, isActive: member.isActive, createdAt: member.createdAt.toISOString(), invitePending: !member.invitation || (!member.invitation.acceptedAt && !member.invitation.revokedAt), isPrincipal: false }));
+    return members.map((member) => ({ id: member.id, email: member.email, firstName: member.firstName, lastName: member.lastName, jobTitle: member.jobTitle, role: member.role, isActive: member.isActive, createdAt: member.createdAt.toISOString(), invitePending: !member.invitation || (!member.invitation.acceptedAt && !member.invitation.revokedAt), isPrincipal: member.id === org?.principalAdminId }));
   }
 
   @Post(':orgId/invitations') async inviteMember(@Req() request: Request, @Param('orgId') orgId: string, @Body() body: Record<string, unknown>) {
