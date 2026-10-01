@@ -212,3 +212,34 @@ describe('FormProfileService.apply', () => {
     );
   });
 });
+
+describe('FormProfileService.syncEditedAnswers', () => {
+  function withSubmissions(overrides: Parameters<typeof build>[0] = {}) {
+    const built = build({ ...overrides, assignment: { submittedAt: new Date(), ...overrides.assignment } });
+    const db = built.db as MockDb & { cfIntakeSubmission?: { updateMany: jest.Mock } };
+    db.cfIntakeSubmission = { updateMany: jest.fn().mockResolvedValue({ count: 1 }) };
+    return { ...built, db: db as MockDb & { cfIntakeSubmission: { updateMany: jest.Mock } } };
+  }
+
+  it('updates the profile from the edited answers and the stored intake submission', async () => {
+    const { db, service } = withSubmissions();
+    const result = await service.syncEditedAnswers('org-1', actor, 'assign-1');
+
+    expect(db.cfIntakeSubmission.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organizationId: 'org-1', formAssignmentId: 'assign-1' },
+    }));
+    expect(result.applied).toEqual(expect.arrayContaining(['Business description', 'Social media links']));
+    expect(updateArg(db).data).toMatchObject({
+      socialLinks: ['https://a.test'],
+      intake: { businessDescription: 'New description', budgetNeed: '5000', uploadedFiles: ['a.pdf'] },
+    });
+    expect(updateArg(db).data).not.toHaveProperty('email');
+    expect(db.cfActivityLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing for a form that was never submitted', async () => {
+    const { db, service } = withSubmissions({ assignment: { submittedAt: null } });
+    expect(await service.syncEditedAnswers('org-1', actor, 'assign-1')).toEqual({ applied: [] });
+    expect(db.cfClient.update).not.toHaveBeenCalled();
+  });
+});

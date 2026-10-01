@@ -204,6 +204,8 @@ interface FormRendererDialogProps {
   onOpenChange: (v: boolean) => void;
   /** When true, fields are displayed read-only (for reviewing submitted responses). */
   readOnly?: boolean;
+  /** Open a submitted form straight into editing its answers. */
+  startEditing?: boolean;
 }
 
 export function FormRendererDialog({
@@ -212,6 +214,7 @@ export function FormRendererDialog({
   open,
   onOpenChange,
   readOnly = false,
+  startEditing = false,
 }: FormRendererDialogProps) {
   const { formTemplates, programs } = useAppState();
   const cachedTemplate = assignment ? formTemplates.find((t) => t.id === assignment.formId) : null;
@@ -257,7 +260,7 @@ export function FormRendererDialog({
   const [submitting, setSubmitting] = useState(false);
   const [nextStatus, setNextStatus] = useState<FormAssignmentStatus | "">("");
   const [changingStatus, setChangingStatus] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(readOnly && startEditing);
   const [savingEdits, setSavingEdits] = useState(false);
   const [originalResponses] = useState<Record<string, PublicFormResponseValue>>(
     () => assignment?.responses ?? {},

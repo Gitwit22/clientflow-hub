@@ -607,33 +607,6 @@ export async function cfUpdateClient(id: string, data: Record<string, unknown>) 
 }
 
 /** One profile field a submitted form would change. Values are computed by the server. */
-export interface ProfileChangePreview {
-  key: string;
-  label: string;
-  target: "top" | "intake" | "socialLinks";
-  currentValue: string;
-  newValue: string;
-}
-
-export async function cfPreviewApplyFormResponses(clientId: string, assignmentId: string) {
-  return apiRequest<ProfileChangePreview[]>(
-    `${CF}/clients/${clientId}/apply-form-responses/preview`,
-    { method: "POST", body: JSON.stringify({ assignmentId }) },
-  );
-}
-
-/** `fields` are the approved keys from the preview; the server recomputes the values itself. */
-export async function cfApplyFormResponses(
-  clientId: string,
-  assignmentId: string,
-  fields: string[],
-) {
-  return apiRequest<{ client: unknown; applied: string[] }>(
-    `${CF}/clients/${clientId}/apply-form-responses`,
-    { method: "POST", body: JSON.stringify({ assignmentId, fields }) },
-  );
-}
-
 /**
  * DELETE /clients/:id/permanent — erases the client and everything recorded for them, including
  * billing agreements and payments. `confirmation` must be the business name, typed by staff.

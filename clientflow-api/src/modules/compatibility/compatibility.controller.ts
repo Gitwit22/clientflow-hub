@@ -1314,11 +1314,16 @@ export class ClientflowCompatibilityController {
     });
   }
   @Patch('form-assignments/:id') async updateFormAssignment(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    const { orgId } = await this.requireOrgFromRequest(request);
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
     const updated = await this.requirePrisma().cfFormAssignment.update({
       where: { id, organizationId: orgId },
       data: pickFields(body, FORM_ASSIGNMENT_UPDATE_FIELDS),
     });
+    // Edited answers on a submitted form flow to the profile, like the original submission did.
+    if (body.responses !== undefined && updated.submittedAt && this.formProfile) {
+      const displayName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
+      await this.formProfile.syncEditedAnswers(orgId, { id: admin.id, displayName }, id);
+    }
     return withoutLinkSecrets(updated);
   }
   @Get('intake-submissions') async listIntakeSubmissions(@Req() request: Request, @Query('clientId') clientId?: string, @Query('programId') programId?: string) {

@@ -18,8 +18,6 @@ import {
   cfGetClient,
   cfListFormAssignments,
   cfUpdateClient,
-  cfPreviewApplyFormResponses,
-  cfApplyFormResponses,
   cfCreateProgram,
   cfGetProgramDetail,
   cfUpdateProgram,
@@ -198,25 +196,10 @@ export async function updateClient(id: string, data: Partial<Client>) {
   return delay(updatedClient);
 }
 
-/** What a submitted form would change on the client profile (values computed by the server). */
-export async function previewFormResponsesForProfile(clientId: string, assignmentId: string) {
-  return cfPreviewApplyFormResponses(clientId, assignmentId);
-}
-
 /**
  * Applies the approved profile fields from a submitted form. The server merges into the current
  * database state; the store is then refreshed from the server rather than patched from a local copy.
  */
-export async function applyFormResponsesToProfile(
-  clientId: string,
-  assignmentId: string,
-  fields: string[],
-) {
-  const result = await cfApplyFormResponses(clientId, assignmentId, fields);
-  await refreshClientProfile(clientId);
-  return result;
-}
-
 export async function archiveClient(
   id: string,
   reason = "Archived by staff",
@@ -611,7 +594,16 @@ export async function saveFormEdits(
     formAssignments: s.formAssignments.map((a) =>
       a.id === id ? { ...a, responses: newResponses, editHistory: nextHistory } : a,
     ),
+    // The Intake card reads the stored submission; the server updates it with the edited answers.
+    intakeSubmissions: s.intakeSubmissions.map((submission) =>
+      submission.formAssignmentId === id
+        ? { ...submission, responsePayload: newResponses as Record<string, unknown> }
+        : submission,
+    ),
   }));
+  // The server applies edited answers on a submitted form to the profile; show the result.
+  if (assignment.submittedAt)
+    await refreshClientProfile(assignment.clientId).catch(() => undefined);
 
   await log(
     assignment.clientId,

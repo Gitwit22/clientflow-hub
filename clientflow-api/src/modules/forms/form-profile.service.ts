@@ -7,6 +7,7 @@ import {
   diffProfile,
   mapAnswers,
   ProfileChange,
+  profileUpdateFromAnswers,
   socialLinksOf,
 } from './form-profile-mapper';
 
@@ -125,6 +126,44 @@ export class FormProfileService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Staff edited a submitted form's answers: the client's profile follows the edited answers (as on
+   * submit: names fill blanks only, the email never changes), and the stored intake submission shows
+   * them too, so the profile's Intake card and Overview always match the latest answers.
+   */
+  async syncEditedAnswers(organizationId: string, actor: ProfileActor, assignmentId: string) {
+    const assignment = await this.prisma.cfFormAssignment.findFirst({ where: { id: assignmentId, organizationId } });
+    if (!assignment?.submittedAt || !isRecord(assignment.responses)) return { applied: [] as string[] };
+    await this.prisma.cfIntakeSubmission.updateMany({
+      where: { organizationId, formAssignmentId: assignment.id },
+      data: { responsePayload: assignment.responses },
+    });
+
+    const { mapped, templateName } = await this.loadMappedAnswers(this.prisma, organizationId, assignment.clientId, assignment.id);
+    const client = await this.requireClient(this.prisma, organizationId, assignment.clientId);
+    const update = profileUpdateFromAnswers(mapped, client, 'submit');
+    if (!update.labels.length) return { applied: [] as string[] };
+
+    const { intake, ...columns } = update.data;
+    await this.prisma.cfClient.update({
+      where: { id: client.id },
+      data: { ...columns, ...(intake ? { intake: intake as Prisma.InputJsonObject } : {}) },
+    });
+    await this.prisma.cfActivityLog.create({
+      data: {
+        organizationId,
+        clientId: client.id,
+        enrollmentId: assignment.enrollmentId,
+        actorUserId: actor.id,
+        action: 'FORM_RESPONSES_APPLIED',
+        description: `Profile updated from edited answers on "${templateName}": ${update.labels.join(', ')}.`,
+        user: actor.displayName,
+        isDemo: client.isDemo,
+      },
+    });
+    return { applied: update.labels };
   }
 
   private async requireClient(db: Prisma.TransactionClient | PrismaService, organizationId: string, clientId: string) {

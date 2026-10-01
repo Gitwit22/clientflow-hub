@@ -48,7 +48,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
-import { MergeResponsesDialog } from "@/components/dialogs/MergeResponsesDialog";
 import { SendContractDialog } from "@/components/dialogs/SendContractDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { SendIntakeDialog } from "@/components/dialogs/SendIntakeDialog";
@@ -220,7 +219,7 @@ function ClientProfile() {
   const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
   const [schedulingFollowUp, setSchedulingFollowUp] = useState(false);
   const [activeAssignment, setActiveAssignment] = useState<FormAssignment | null>(null);
-  const [mergeAssignment, setMergeAssignment] = useState<FormAssignment | null>(null);
+  const [startEditing, setStartEditing] = useState(false);
   const [formReadOnly, setFormReadOnly] = useState(false);
 
   // Billing & payments (fetched on-demand per selected enrollment, not part of the global store)
@@ -431,6 +430,11 @@ function ClientProfile() {
     )
     .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0];
   const submittedFields = submittedCoreFields(latestCoreSubmission);
+  // The newest submitted intake is shown (and edited) on the Intake card; its answers are on the
+  // profile already, so it has no card of its own below.
+  const latestIntakeAssignment = latestCoreSubmission
+    ? assignments.find((assignment) => assignment.id === latestCoreSubmission.formAssignmentId)
+    : undefined;
   const latestCoreFieldTokens = latestCoreSubmission
     ? new Set(
         (
@@ -1113,8 +1117,42 @@ function ClientProfile() {
         <TabsContent value="forms" className="mt-4 space-y-3">
           <SendToClientPanel hasEnrollment={!!selectedEnrollment} onSelect={openSend} />
           <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Intake</CardTitle>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+              <div>
+                <CardTitle className="font-display text-base">Intake</CardTitle>
+                {latestIntakeAssignment?.submittedAt && (
+                  <p className="text-xs text-muted-foreground">
+                    Submitted {new Date(latestIntakeAssignment.submittedAt).toLocaleString()} · on
+                    the profile
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {latestIntakeAssignment && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFormReadOnly(true);
+                      setStartEditing(true);
+                      setActiveAssignment(latestIntakeAssignment);
+                    }}
+                  >
+                    <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                    Edit
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSendTemplateId(latestIntakeAssignment?.formId ?? null);
+                    setSendOpen(true);
+                  }}
+                >
+                  Send another form
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
               <dl>
@@ -1221,226 +1259,210 @@ function ClientProfile() {
               No forms have been assigned to this profile yet.
             </p>
           )}
-          {assignments.map((a) => {
-            const prog = s.formTemplates.find((t) => t.id === a.formId);
-            const progName = prog
-              ? (s.programs.find((p) => p.id === prog.programId)?.name ?? "—")
-              : "—";
-            return (
-              <Card key={a.id} className="shadow-card">
-                <CardContent className="space-y-3 p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{templateName(a.formId)}</p>
-                      <p className="text-xs text-muted-foreground">{progName}</p>
+          {assignments
+            .filter((a) => a.id !== latestIntakeAssignment?.id)
+            .map((a) => {
+              const prog = s.formTemplates.find((t) => t.id === a.formId);
+              const progName = prog
+                ? (s.programs.find((p) => p.id === prog.programId)?.name ?? "—")
+                : "—";
+              return (
+                <Card key={a.id} className="shadow-card">
+                  <CardContent className="space-y-3 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium">{templateName(a.formId)}</p>
+                        <p className="text-xs text-muted-foreground">{progName}</p>
+                      </div>
+                      <StatusBadge status={a.status} />
                     </div>
-                    <StatusBadge status={a.status} />
-                  </div>
-                  <div className="grid gap-x-6 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
-                    <span>
-                      Method:{" "}
-                      <span className="capitalize font-medium text-foreground">
-                        {a.completionMethod?.replace(/_/g, " ") ?? "—"}
+                    <div className="grid gap-x-6 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+                      <span>
+                        Method:{" "}
+                        <span className="capitalize font-medium text-foreground">
+                          {a.completionMethod?.replace(/_/g, " ") ?? "—"}
+                        </span>
                       </span>
-                    </span>
-                    <span>Sent: {a.sentAt ? new Date(a.sentAt).toLocaleDateString() : "—"}</span>
-                    <span>Due: {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—"}</span>
-                    <span>
-                      Opened: {a.openedAt ? new Date(a.openedAt).toLocaleDateString() : "—"}
-                    </span>
-                    <span>
-                      Submitted:{" "}
-                      {a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "—"}
-                    </span>
-                    <span>Staff: {a.assignedUserId ?? client.assignedStaff}</span>
-                  </div>
-                  {a.secureLink && (
-                    <p className="font-mono text-xs text-muted-foreground truncate">
-                      {a.secureLink}
-                    </p>
-                  )}
-                  {/* Status-based actions */}
-                  <div className="flex flex-wrap gap-2">
-                    {a.status === "draft" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(false);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Continue
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={sendingDraftId === a.id}
-                          onClick={() => void sendDraftAssignment(a)}
-                        >
-                          {sendingDraftId === a.id ? "Sending…" : "Send to Client"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={action.busy === `cancel:${a.id}`}
-                          onClick={() =>
-                            void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
-                              success: "Form cancelled",
-                              error: "Unable to cancel this form.",
-                            })
-                          }
-                        >
-                          {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel"}
-                        </Button>
-                      </>
-                    )}
-                    {(["sent", "delivered", "opened", "in_progress"] as const).includes(
-                      a.status as "sent" | "delivered" | "opened" | "in_progress",
-                    ) && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Preview
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setFormReadOnly(false);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Fill Out With Client
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={action.busy === `cancel:${a.id}`}
-                          onClick={() =>
-                            void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
-                              success: "Link cancelled",
-                              error: "Unable to cancel this form.",
-                            })
-                          }
-                        >
-                          {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel Link"}
-                        </Button>
-                      </>
-                    )}
-                    {a.status === "submitted" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSendTemplateId(a.formId);
-                            setSendOpen(true);
-                          }}
-                        >
-                          Send another form
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Review Answers
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setMergeAssignment(a)}
-                        >
-                          Apply to Profile
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("File attachments not yet available")}
-                        >
-                          View Attachments
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("Use the Communications tab to add notes")}
-                        >
-                          Add Note
-                        </Button>
-                      </>
-                    )}
-                    {a.status === "under_review" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          Review Answers
-                        </Button>
-                      </>
-                    )}
-                    {a.status === "approved" && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setFormReadOnly(true);
-                            setActiveAssignment(a);
-                          }}
-                        >
-                          View Submission
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("File attachments not yet available")}
-                        >
-                          View Attachments
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("PDF download not yet available")}
-                        >
-                          Download
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => toast.info("Archive not yet configured")}
-                        >
-                          Archive
-                        </Button>
-                      </>
-                    )}
-                    {(a.status === "cancelled" || a.status === "expired") && (
-                      <span className="text-xs text-muted-foreground self-center">
-                        No actions available
+                      <span>Sent: {a.sentAt ? new Date(a.sentAt).toLocaleDateString() : "—"}</span>
+                      <span>Due: {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—"}</span>
+                      <span>
+                        Opened: {a.openedAt ? new Date(a.openedAt).toLocaleDateString() : "—"}
                       </span>
+                      <span>
+                        Submitted:{" "}
+                        {a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : "—"}
+                      </span>
+                      <span>Staff: {a.assignedUserId ?? client.assignedStaff}</span>
+                    </div>
+                    {a.secureLink && (
+                      <p className="font-mono text-xs text-muted-foreground truncate">
+                        {a.secureLink}
+                      </p>
                     )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    {/* Status-based actions */}
+                    <div className="flex flex-wrap gap-2">
+                      {a.status === "draft" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setFormReadOnly(false);
+                              setActiveAssignment(a);
+                            }}
+                          >
+                            Continue
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={sendingDraftId === a.id}
+                            onClick={() => void sendDraftAssignment(a)}
+                          >
+                            {sendingDraftId === a.id ? "Sending…" : "Send to Client"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={action.busy === `cancel:${a.id}`}
+                            onClick={() =>
+                              void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
+                                success: "Form cancelled",
+                                error: "Unable to cancel this form.",
+                              })
+                            }
+                          >
+                            {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel"}
+                          </Button>
+                        </>
+                      )}
+                      {(["sent", "delivered", "opened", "in_progress"] as const).includes(
+                        a.status as "sent" | "delivered" | "opened" | "in_progress",
+                      ) && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setFormReadOnly(true);
+                              setActiveAssignment(a);
+                            }}
+                          >
+                            Preview
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setFormReadOnly(false);
+                              setActiveAssignment(a);
+                            }}
+                          >
+                            Fill Out With Client
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={action.busy === `cancel:${a.id}`}
+                            onClick={() =>
+                              void action.run(`cancel:${a.id}`, () => cancelFormAssignment(a.id), {
+                                success: "Link cancelled",
+                                error: "Unable to cancel this form.",
+                              })
+                            }
+                          >
+                            {action.busy === `cancel:${a.id}` ? "Cancelling…" : "Cancel Link"}
+                          </Button>
+                        </>
+                      )}
+                      {a.status === "submitted" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setFormReadOnly(true);
+                              setActiveAssignment(a);
+                            }}
+                          >
+                            Review Answers
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toast.info("File attachments not yet available")}
+                          >
+                            View Attachments
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toast.info("Use the Communications tab to add notes")}
+                          >
+                            Add Note
+                          </Button>
+                        </>
+                      )}
+                      {a.status === "under_review" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setFormReadOnly(true);
+                              setActiveAssignment(a);
+                            }}
+                          >
+                            Review Answers
+                          </Button>
+                        </>
+                      )}
+                      {a.status === "approved" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setFormReadOnly(true);
+                              setActiveAssignment(a);
+                            }}
+                          >
+                            View Submission
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toast.info("File attachments not yet available")}
+                          >
+                            View Attachments
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toast.info("PDF download not yet available")}
+                          >
+                            Download
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toast.info("Archive not yet configured")}
+                          >
+                            Archive
+                          </Button>
+                        </>
+                      )}
+                      {(a.status === "cancelled" || a.status === "expired") && (
+                        <span className="text-xs text-muted-foreground self-center">
+                          No actions available
+                        </span>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           <Button
             type="button"
             onClick={() => openSend(selectedEnrollment ? "program_form" : "general_form")}
@@ -1884,18 +1906,15 @@ function ClientProfile() {
         assignment={activeAssignment}
         client={client}
         open={!!activeAssignment}
-        onOpenChange={(v) => !v && setActiveAssignment(null)}
+        onOpenChange={(v) => {
+          if (!v) {
+            setActiveAssignment(null);
+            setStartEditing(false);
+          }
+        }}
         readOnly={formReadOnly}
+        startEditing={startEditing}
       />
-      {mergeAssignment && (
-        <MergeResponsesDialog
-          key={mergeAssignment.id}
-          assignment={mergeAssignment}
-          client={client}
-          open={!!mergeAssignment}
-          onOpenChange={(v) => !v && setMergeAssignment(null)}
-        />
-      )}
       <SendFormDialog
         client={client}
         templateId={sendTemplateId}

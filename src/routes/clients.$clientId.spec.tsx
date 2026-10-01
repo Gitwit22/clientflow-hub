@@ -47,7 +47,6 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 // Dialogs are not under test; stub them so the route renders on its own.
 vi.mock("@/components/dialogs/FormRendererDialog", () => ({ FormRendererDialog: () => null }));
 vi.mock("@/components/dialogs/EditClientDialog", () => ({ EditClientDialog: () => null }));
-vi.mock("@/components/dialogs/MergeResponsesDialog", () => ({ MergeResponsesDialog: () => null }));
 vi.mock("@/components/dialogs/SendFormDialog", () => ({
   SendFormDialog: ({ open, kind }: { open: boolean; kind?: string }) =>
     open ? <div data-testid={`dialog-form-${kind ?? "legacy"}`} /> : null,
