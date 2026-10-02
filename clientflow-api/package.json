@@ -15,7 +15,7 @@
     "lint": "eslint \"src/**/*.ts\"",
     "test": "jest --runInBand",
     "prisma:generate": "prisma generate",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "DATABASE_URL=\"${DIRECT_URL:-$DATABASE_URL}\" prisma migrate deploy"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1078.0",

@@ -30,6 +30,9 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      # Direct (non-pooled) Neon connection, used only by `npm run prisma:deploy`.
+      - key: DIRECT_URL
+        sync: false
       - key: ALLOW_UNAUTHENTICATED_CLIENT_CREATION
         value: "false"
       - key: ALLOW_UNAUTHENTICATED_CONTRACT_MANAGEMENT
