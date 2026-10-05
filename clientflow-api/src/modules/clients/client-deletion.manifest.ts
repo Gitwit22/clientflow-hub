@@ -19,6 +19,8 @@ export type ClientDataKey =
 export type ClientOwnedModel =
   | 'cfPaymentRecord'
   | 'cfEnrollmentBillingAgreement'
+  | 'cfEnrollmentDeliverable'
+  | 'cfEnrollmentDeliverableCycle'
   | 'cfEnrollmentMonitoringEvidence'
   | 'cfEnrollmentMonitoringHistory'
   | 'cfEnrollmentMonitoring'
@@ -65,6 +67,8 @@ export const CLIENT_DELETION_STEPS: readonly ClientDeletionStep[] = [
   { model: 'cfPaymentRecord', by: 'billingAgreementId' },
   { model: 'cfEnrollmentBillingAgreement', by: 'enrollmentId' },
   // Enrollment detail.
+  { model: 'cfEnrollmentDeliverable', by: 'enrollmentId' },
+  { model: 'cfEnrollmentDeliverableCycle', by: 'enrollmentId' },
   { model: 'cfEnrollmentMonitoringEvidence', by: 'enrollmentId' },
   { model: 'cfEnrollmentMonitoringHistory', by: 'enrollmentId' },
   { model: 'cfEnrollmentMonitoring', by: 'enrollmentId' },
