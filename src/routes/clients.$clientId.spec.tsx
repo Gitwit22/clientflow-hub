@@ -17,6 +17,7 @@ const cfGetProgramBillingConfig = vi.fn();
 const cfGetBillingDashboard = vi.fn();
 const downloadExecutedContract = vi.fn();
 const sendSignedAgreementCopy = vi.fn();
+const updateEnrollment = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   addCommunication: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("@/lib/api", () => ({
   recordMonitoringResult: vi.fn(),
   restoreClient: vi.fn(),
   updateClient: vi.fn(),
+  updateEnrollment: (...args: unknown[]) => updateEnrollment(...args),
   uploadDocument: vi.fn(),
 }));
 
@@ -530,6 +532,47 @@ describe("one Send workflow in the client header", () => {
     expect(screen.getByRole("button", { name: "Review answers" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /Edit client/ }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  it("Overview lists each program with when the client joined and when it ended", async () => {
+    seed({
+      enrollments: [
+        {
+          ...enrollment("e2", "p2"),
+          status: "completed",
+          startDate: "2025-03-09T12:00:00.000Z",
+          completedAt: "2025-12-15T12:00:00.000Z",
+        } as never,
+        { ...enrollment("e1", "p1"), startDate: "2026-10-01T12:00:00.000Z" } as never,
+      ],
+    });
+    mountRouter("/clients/c1?enrollmentId=e1&tab=overview");
+
+    const joined = await screen.findByText(
+      `Joined ${new Date("2026-10-01T12:00:00.000Z").toLocaleDateString()}`,
+    );
+    const ended = screen.getByText(
+      `Joined ${new Date("2025-03-09T12:00:00.000Z").toLocaleDateString()} · Ended ${new Date("2025-12-15T12:00:00.000Z").toLocaleDateString()}`,
+    );
+    // The current program is listed before the one that ended.
+    expect(joined.compareDocumentPosition(ended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("staff can correct the joined date on the Program tab", async () => {
+    seed({ enrollments: [enrollment("e1", "p1")] });
+    updateEnrollment.mockResolvedValue({});
+    mountRouter("/clients/c1?enrollmentId=e1&tab=program");
+
+    expect(await screen.findByText("Set when the contract is signed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Joined date"), { target: { value: "2025-03-02" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(updateEnrollment).toHaveBeenCalledWith("e1", {
+        startDate: new Date("2025-03-02T12:00:00").toISOString(),
+      }),
+    );
   });
 
   it("an empty Forms tab points to the send buttons", async () => {

@@ -768,7 +768,10 @@ describe('ContractsService', () => {
     }));
   });
 
-  it('transitions a linked non-terminal enrollment to active when its contract is signed', async () => {
+  it.each([
+    ['records the signing day as the joined date', null, { startDate: expect.any(Date) }],
+    ['keeps a joined date staff already entered', new Date('2025-03-02T00:00:00.000Z'), {}],
+  ])('transitions a linked non-terminal enrollment to active when its contract is signed and %s', async (_label, startDate, joined) => {
     const linkedSentContract = { ...sentContract, enrollmentId: 'enroll-1' };
     const transaction = {
       cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -785,7 +788,7 @@ describe('ContractsService', () => {
         create: jest.fn().mockResolvedValue({ id: 'welcome-communication', status: 'skipped' }),
       },
       cfProgramEnrollment: {
-        findFirst: jest.fn().mockResolvedValue({ status: 'onboarding' }),
+        findFirst: jest.fn().mockResolvedValue({ status: 'onboarding', startDate }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
@@ -823,7 +826,7 @@ describe('ContractsService', () => {
     });
     expect(transaction.cfProgramEnrollment.updateMany).toHaveBeenCalledWith({
       where: { id: 'enroll-1', organizationId: 'org-1', status: 'onboarding' },
-      data: { status: 'active', lastProgressUpdate: expect.any(Date) },
+      data: { status: 'active', lastProgressUpdate: expect.any(Date), ...joined },
     });
     expect(transaction.cfEnrollmentStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ previousStatus: 'onboarding', newStatus: 'active' }),
