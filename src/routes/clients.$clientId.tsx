@@ -5,6 +5,12 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSendMenu";
+import { JoinedDateEditor } from "@/components/clients/JoinedDateEditor";
+import {
+  enrollmentDatesLabel,
+  enrollmentEndedAt,
+  sortByProgramHistory,
+} from "@/lib/enrollment-dates";
 import { EnrollmentContextBar } from "@/components/clients/EnrollmentContextBar";
 import { ExternalLinks } from "@/components/clients/ExternalLinks";
 import { PreferredContact } from "@/components/clients/PreferredContact";
@@ -1059,7 +1065,7 @@ function ClientProfile() {
                   client.
                 </p>
               ) : (
-                enrollments.map((enrollment) => {
+                sortByProgramHistory(enrollments).map((enrollment) => {
                   const enrollmentProgram = s.programs.find(
                     (item) => item.id === enrollment.programId,
                   );
@@ -1078,7 +1084,8 @@ function ClientProfile() {
                           </p>
                           <StatusBadge status={displayEnrollmentStatus(enrollment.status)} />
                         </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-1 text-xs">{enrollmentDatesLabel(enrollment)}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           Assigned to {enrollment.assignedStaff || "Unassigned"}
                           {enrollment.nextAction ? ` · Next: ${enrollment.nextAction}` : ""}
                         </p>
@@ -1108,14 +1115,20 @@ function ClientProfile() {
                         label="Assigned staff"
                         value={selectedEnrollment.assignedStaff ?? undefined}
                       />
-                      <Row
-                        label="Start date"
-                        value={
-                          selectedEnrollment.startDate
-                            ? new Date(selectedEnrollment.startDate).toLocaleDateString()
-                            : undefined
-                        }
-                      />
+                      <Row label="Joined">
+                        <JoinedDateEditor
+                          key={selectedEnrollment.id}
+                          enrollment={selectedEnrollment}
+                        />
+                      </Row>
+                      {enrollmentEndedAt(selectedEnrollment) && (
+                        <Row
+                          label="Ended"
+                          value={new Date(
+                            enrollmentEndedAt(selectedEnrollment)!,
+                          ).toLocaleDateString()}
+                        />
+                      )}
                       <Row
                         label="Monitoring"
                         value={selectedProgram.defaultMonitoringFrequency || undefined}

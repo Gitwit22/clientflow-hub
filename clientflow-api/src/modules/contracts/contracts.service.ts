@@ -962,21 +962,28 @@ export class ContractsService {
       if (contract.enrollmentId) {
         const enrollment = await transaction.cfProgramEnrollment.findFirst({
           where: { id: contract.enrollmentId, organizationId: client.organizationId },
-          select: { status: true },
+          select: { status: true, startDate: true },
         });
         // A closed enrollment can never be onboarded by signing (checked again here, inside the
         // transaction, in case it closed after the link was resolved).
         if (enrollment && isClosedEnrollment(enrollment.status)) {
           throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
         }
+        // Signing is the day the client joined the program, unless staff already recorded one.
+        const joined = enrollment && !enrollment.startDate ? { startDate: now } : {};
         if (enrollment && canTransitionEnrollment(enrollment.status, 'active')) {
           await transitionEnrollment(transaction, {
             organizationId: client.organizationId,
             enrollmentId: contract.enrollmentId,
             from: enrollment.status,
             to: 'active',
-            data: { lastProgressUpdate: now },
+            data: { lastProgressUpdate: now, ...joined },
             history: { changedByUserId: null, changedByDisplayName: 'system', reason: 'Contract signed by client.' },
+          });
+        } else if (enrollment && !enrollment.startDate) {
+          await transaction.cfProgramEnrollment.updateMany({
+            where: { id: contract.enrollmentId, organizationId: client.organizationId, startDate: null },
+            data: joined,
           });
         }
       }
