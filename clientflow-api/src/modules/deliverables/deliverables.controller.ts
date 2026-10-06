@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   type AuthenticatedRequest,
@@ -8,6 +8,7 @@ import {
 import {
   CreateDeliverableTemplateDto,
   ReorderDeliverableTemplatesDto,
+  SetProgramDeliverableDateDto,
   UpdateDeliverableTemplateDto,
 } from './dto/deliverable-template.dto';
 import { UpdateEnrollmentDeliverableDto } from './dto/update-enrollment-deliverable.dto';
@@ -36,6 +37,27 @@ export class ProgramDeliverablesController {
     @Body() dto: CreateDeliverableTemplateDto,
   ) {
     return this.deliverables.createTemplate(request.adminUser!.organizationId, programId, dto);
+  }
+
+  /** Program-wide deliverables and their date for one month (?month=2026-10). */
+  @Get('schedule')
+  schedule(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Query('month') month: string,
+  ) {
+    return this.deliverables.listProgramDates(request.adminUser!.organizationId, programId, String(month ?? ''));
+  }
+
+  /** Sets or clears a program-wide deliverable's date for a month, for every member. */
+  @Put(':templateId/schedule')
+  setDate(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Param('templateId') templateId: string,
+    @Body() dto: SetProgramDeliverableDateDto,
+  ) {
+    return this.deliverables.setProgramDate(request.adminUser!.organizationId, programId, templateId, dto);
   }
 
   // Declared before ':templateId' so "reorder" is never read as a template id.

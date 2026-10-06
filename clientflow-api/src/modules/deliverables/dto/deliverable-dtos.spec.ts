@@ -1,6 +1,10 @@
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { CreateDeliverableTemplateDto, ReorderDeliverableTemplatesDto } from './deliverable-template.dto';
+import {
+  CreateDeliverableTemplateDto,
+  ReorderDeliverableTemplatesDto,
+  SetProgramDeliverableDateDto,
+} from './deliverable-template.dto';
 import { UpdateEnrollmentDeliverableDto } from './update-enrollment-deliverable.dto';
 
 const errors = <T extends object>(type: new () => T, body: object) =>
@@ -25,5 +29,12 @@ describe('deliverable request validation', () => {
     expect(errors(CreateDeliverableTemplateDto, { title: '', cadence: 'WEEKLY' })).toEqual(['title', 'cadence']);
     expect(errors(CreateDeliverableTemplateDto, { title: 'x', programId: 'other' })).toEqual(['programId']);
     expect(errors(ReorderDeliverableTemplatesDto, { orderedIds: ['a', 2] })).toEqual(['orderedIds']);
+  });
+
+  it('validates a program-wide date', () => {
+    expect(errors(SetProgramDeliverableDateDto, { month: '2026-10', scheduledFor: '2026-10-18' })).toEqual([]);
+    expect(errors(SetProgramDeliverableDateDto, { month: '2026-10', scheduledFor: null })).toEqual([]);
+    expect(errors(SetProgramDeliverableDateDto, { month: '2026-13', scheduledFor: '2026-10-18T10:00:00Z' })).toEqual(['month', 'scheduledFor']);
+    expect(errors(CreateDeliverableTemplateDto, { title: 'Grant Day', programWideDate: 'yes' })).toEqual(['programWideDate']);
   });
 });

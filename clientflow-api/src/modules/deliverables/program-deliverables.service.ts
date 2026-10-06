@@ -20,6 +20,7 @@ import {
 import type {
   CreateDeliverableTemplateDto,
   ReorderDeliverableTemplatesDto,
+  SetProgramDeliverableDateDto,
   UpdateDeliverableTemplateDto,
 } from './dto/deliverable-template.dto';
 import type { UpdateEnrollmentDeliverableDto } from './dto/update-enrollment-deliverable.dto';
@@ -46,11 +47,14 @@ const STATUS_LABELS: Record<CfDeliverableStatus, string> = {
   NOT_APPLICABLE: 'Not applicable',
 };
 
+/** A client deliverable as shown to staff: whether its date comes from the program. */
+export type DeliverableView = CfEnrollmentDeliverable & { dateSetByProgram: boolean };
+
 export interface CycleView {
   cycle: CfEnrollmentDeliverableCycle;
-  items: CfEnrollmentDeliverable[];
+  items: DeliverableView[];
   summary: DeliverableSummary;
-  nextAction: CfEnrollmentDeliverable | null;
+  nextAction: DeliverableView | null;
 }
 
 export type CurrentCycleView =
@@ -67,6 +71,8 @@ function isValidTimezone(timezone: string): boolean {
     return false;
   }
 }
+
+const MONTH_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 /** "" and whitespace-only text are stored as null. */
 function optionalText(value: string | null | undefined): string | null | undefined {
@@ -115,6 +121,7 @@ export class ProgramDeliverablesService {
         description: optionalText(dto.description) ?? null,
         cadence: dto.cadence ?? 'MONTHLY',
         active: dto.active ?? true,
+        programWideDate: dto.programWideDate ?? false,
         sortOrder: (last?.sortOrder ?? -1) + 1,
       },
     });
@@ -136,6 +143,7 @@ export class ProgramDeliverablesService {
     if (dto.description !== undefined) data.description = optionalText(dto.description);
     if (dto.cadence !== undefined) data.cadence = dto.cadence;
     if (dto.active !== undefined) data.active = dto.active;
+    if (dto.programWideDate !== undefined) data.programWideDate = dto.programWideDate;
     return this.prisma.cfProgramDeliverableTemplate.update({ where: { id: templateId, organizationId }, data });
   }
 
@@ -168,6 +176,127 @@ export class ProgramDeliverablesService {
     });
     if (!template) throw new NotFoundException('Program deliverable not found.');
     return template;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Program-wide dates
+  // ---------------------------------------------------------------------------------------------
+
+  /** The month a "YYYY-MM" names, in the organization's timezone (the same bounds as cycles). */
+  private async monthBounds(organizationId: string, month: string) {
+    const match = MONTH_PATTERN.exec(month);
+    if (!match) throw new BadRequestException('month must look like 2026-10.');
+    const timezone = await this.resolveOrgTimezone(organizationId);
+    // Mid-month at noon UTC is inside that calendar month in every timezone.
+    const reference = new Date(`${month}-15T12:00:00.000Z`);
+    const { start, end } = getCalendarPeriodBounds('month', reference, timezone);
+    const label = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: timezone }).format(reference);
+    return { start, end, label };
+  }
+
+  private async programDatesFor(organizationId: string, programId: string, periodStart: Date) {
+    const rows = await this.prisma.cfProgramDeliverableSchedule.findMany({
+      where: { organizationId, programId, periodStart },
+      select: { templateId: true, scheduledFor: true },
+    });
+    return new Map(rows.map((row) => [row.templateId, row.scheduledFor]));
+  }
+
+  /** The program-wide deliverables and the date each has for `month` (null when not set yet). */
+  async listProgramDates(organizationId: string, programId: string, month: string) {
+    await findProgramForOrg(this.prisma, organizationId, programId);
+    const { start, label } = await this.monthBounds(organizationId, month);
+    const templates = await this.prisma.cfProgramDeliverableTemplate.findMany({
+      where: { organizationId, programId, programWideDate: true, active: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    const dates = await this.programDatesFor(organizationId, programId, start);
+    return {
+      month,
+      label,
+      items: templates.map((template) => ({
+        templateId: template.id,
+        title: template.title,
+        scheduledFor: dates.get(template.id) ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Sets (or clears) a program-wide deliverable's date for one month and applies it to every
+   * member's open checklist for that month. Not-started items become scheduled; other statuses,
+   * finalized months and other months are left alone. Clients whose month starts later pick the
+   * date up when their checklist is created.
+   */
+  async setProgramDate(
+    organizationId: string,
+    programId: string,
+    templateId: string,
+    dto: SetProgramDeliverableDateDto,
+  ) {
+    const template = await this.requireTemplate(organizationId, programId, templateId);
+    if (!template.programWideDate) {
+      throw new BadRequestException(
+        `${template.title} is dated per client. Turn on "Same date for everyone" to set it for the program.`,
+      );
+    }
+    const { start, label } = await this.monthBounds(organizationId, dto.month);
+    const scheduledFor = dto.scheduledFor ? new Date(dto.scheduledFor) : null;
+    if (dto.scheduledFor && !dto.scheduledFor.startsWith(dto.month)) {
+      throw new BadRequestException(`Pick a date in ${label}.`);
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      if (scheduledFor) {
+        const existing = await transaction.cfProgramDeliverableSchedule.findFirst({
+          where: { organizationId, templateId, periodStart: start },
+        });
+        if (existing) {
+          await transaction.cfProgramDeliverableSchedule.update({
+            where: { id: existing.id, organizationId },
+            data: { scheduledFor },
+          });
+        } else {
+          await transaction.cfProgramDeliverableSchedule.create({
+            data: { organizationId, programId, templateId, periodStart: start, scheduledFor },
+          });
+        }
+      } else {
+        await transaction.cfProgramDeliverableSchedule.deleteMany({
+          where: { organizationId, templateId, periodStart: start },
+        });
+      }
+
+      const enrollments = await transaction.cfProgramEnrollment.findMany({
+        where: { organizationId, programId },
+        select: { id: true },
+      });
+      const cycles = enrollments.length
+        ? await transaction.cfEnrollmentDeliverableCycle.findMany({
+            where: {
+              organizationId,
+              enrollmentId: { in: enrollments.map((enrollment) => enrollment.id) },
+              cadence: 'MONTHLY',
+              periodStart: start,
+              status: 'OPEN',
+            },
+            select: { id: true },
+          })
+        : [];
+      const cycleIds = cycles.map((cycle) => cycle.id);
+      let updated = 0;
+      if (cycleIds.length) {
+        const where = { organizationId, cycleId: { in: cycleIds }, programDeliverableTemplateId: templateId };
+        updated = (await transaction.cfEnrollmentDeliverable.updateMany({ where, data: { scheduledFor } })).count;
+        if (scheduledFor) {
+          await transaction.cfEnrollmentDeliverable.updateMany({
+            where: { ...where, status: 'NOT_STARTED' },
+            data: { status: 'SCHEDULED' },
+          });
+        }
+      }
+      return { templateId, month: dto.month, label, scheduledFor, clientsUpdated: updated };
+    });
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -205,6 +334,8 @@ export class ProgramDeliverablesService {
     if (templates.length === 0) return null;
 
     const label = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: timezone }).format(now);
+    // Dates the program already set for this month (an event everyone attends) start on the checklist.
+    const programDates = await this.programDatesFor(enrollment.organizationId, enrollment.programId, start);
     try {
       return await this.prisma.$transaction(async (transaction) => {
         const cycle = await transaction.cfEnrollmentDeliverableCycle.create({
@@ -227,7 +358,9 @@ export class ProgramDeliverablesService {
             titleSnapshot: template.title,
             descriptionSnapshot: template.description,
             sortOrder: index,
-            status: 'NOT_STARTED' as const,
+            ...(template.programWideDate && programDates.has(template.id)
+              ? { status: 'SCHEDULED' as const, scheduledFor: programDates.get(template.id)! }
+              : { status: 'NOT_STARTED' as const }),
             isNextAction: false,
           })),
           skipDuplicates: true,
@@ -286,10 +419,23 @@ export class ProgramDeliverablesService {
   }
 
   private async viewOf(cycle: CfEnrollmentDeliverableCycle): Promise<CycleView> {
-    const items = await this.prisma.cfEnrollmentDeliverable.findMany({
+    const rows = await this.prisma.cfEnrollmentDeliverable.findMany({
       where: { organizationId: cycle.organizationId, cycleId: cycle.id },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+    const programWide = new Set(
+      (
+        await this.prisma.cfProgramDeliverableTemplate.findMany({
+          where: {
+            organizationId: cycle.organizationId,
+            id: { in: rows.map((row) => row.programDeliverableTemplateId) },
+            programWideDate: true,
+          },
+          select: { id: true },
+        })
+      ).map((template) => template.id),
+    );
+    const items = rows.map((row) => ({ ...row, dateSetByProgram: programWide.has(row.programDeliverableTemplateId) }));
     return { cycle, items, summary: summarizeDeliverables(items), nextAction: selectNextAction(items) };
   }
 
@@ -325,6 +471,18 @@ export class ProgramDeliverablesService {
   ) {
     const enrollment = await findEnrollmentForOrg(this.prisma, organizationId, enrollmentId);
     const { deliverable, cycle } = await this.requireEditable(this.prisma, organizationId, enrollmentId, deliverableId);
+
+    if (dto.scheduledFor !== undefined) {
+      const template = await this.prisma.cfProgramDeliverableTemplate.findFirst({
+        where: { id: deliverable.programDeliverableTemplateId, organizationId },
+        select: { programWideDate: true },
+      });
+      if (template?.programWideDate) {
+        throw new ConflictException(
+          `The date for ${deliverable.titleSnapshot} is set for the whole program in Programs › Deliverables.`,
+        );
+      }
+    }
 
     const previousStatus = deliverable.status;
     const data: Prisma.CfEnrollmentDeliverableUpdateInput = {};
