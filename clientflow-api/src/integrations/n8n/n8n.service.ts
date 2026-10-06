@@ -17,6 +17,11 @@ import type {
   IntakeEmailPayload,
   N8nDeliveryReceipt,
   N8nHttpFailureReason,
+  StaffEmailDeliveryResult,
+  StaffInviteEmailPayload,
+  StaffInviteLifecyclePayload,
+  StaffPasswordResetEmailPayload,
+  StaffPasswordResetLifecyclePayload,
   WelcomeEmailDeliveryResult,
   WelcomeEmailPayload,
   WelcomeSendLifecyclePayload,
@@ -243,6 +248,42 @@ export class N8nService {
       programName: payload.programName,
       executedCopyUrl: payload.executedCopyUrl,
       source: payload.source,
+    });
+  }
+
+  /** Emails a new staff member their sign-up link (eventType staff.invite). */
+  async sendStaffInvite(eventId: string, payload: StaffInviteEmailPayload): Promise<StaffEmailDeliveryResult> {
+    return this.sendViaDeliver<StaffInviteLifecyclePayload>(this.getIntakeAvailability(), eventId, {
+      eventType: 'staff.invite',
+      organizationId: payload.organizationId,
+      clientId: payload.clientId,
+      sentByUserId: payload.sentByUserId,
+      recipientEmail: payload.recipientEmail,
+      clientName: payload.clientName,
+      actionUrl: payload.actionUrl,
+      inviterName: payload.inviterName,
+      organizationName: payload.organizationName,
+      roleLabel: payload.roleLabel,
+      expiresInHours: payload.expiresInHours,
+    });
+  }
+
+  /** Emails a staff member a one-time password reset link (eventType staff.password_reset). */
+  async sendStaffPasswordReset(
+    eventId: string,
+    payload: StaffPasswordResetEmailPayload,
+  ): Promise<StaffEmailDeliveryResult> {
+    return this.sendViaDeliver<StaffPasswordResetLifecyclePayload>(this.getIntakeAvailability(), eventId, {
+      eventType: 'staff.password_reset',
+      organizationId: payload.organizationId,
+      clientId: payload.clientId,
+      sentByUserId: payload.sentByUserId,
+      recipientEmail: payload.recipientEmail,
+      clientName: payload.clientName,
+      actionUrl: payload.actionUrl,
+      requestedByName: payload.requestedByName,
+      organizationName: payload.organizationName,
+      expiresInMinutes: payload.expiresInMinutes,
     });
   }
 

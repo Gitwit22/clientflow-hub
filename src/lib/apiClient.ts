@@ -44,6 +44,7 @@ import type {
   DeliverableCycleView,
   DeliverableStatus,
   EnrollmentDeliverable,
+  ProgramDeliverableDates,
   ProgramDeliverableTemplate,
 } from "@/lib/program-deliverables";
 export type { PublicFormResponseValue } from "@/types";
@@ -366,31 +367,40 @@ export interface InviteMemberPayload {
   role?: "org_admin" | "reviewer";
 }
 
+/** Whether a staff invite or reset email went out. The link is returned either way. */
+export type StaffEmailDelivery =
+  { status: "sent"; sentAt: string } | { status: "skipped" | "failed"; reason: string };
+
 export async function inviteMember(
   organizationId: string,
   payload: InviteMemberPayload,
-): Promise<{ message: string; inviteUrl: string }> {
+): Promise<{
+  message: string;
+  inviteUrl: string;
+  expiresInHours?: number;
+  emailDelivery?: StaffEmailDelivery;
+}> {
   return apiRequest(`/api/v1/organizations/${organizationId}/invitations`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-/** A fresh invite link for a member who hasn't joined yet (the previous link stops working). */
+/** A fresh invite link for a member who hasn't joined yet, emailed to them (the previous link stops working). */
 export async function newMemberInviteLink(
   organizationId: string,
   memberId: string,
-): Promise<{ inviteUrl: string; expiresInHours: number }> {
+): Promise<{ inviteUrl: string; expiresInHours: number; emailDelivery?: StaffEmailDelivery }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/invite-link`, {
     method: "POST",
   });
 }
 
-/** A one-time, one-hour link for a member to set a new password. */
+/** A one-time, one-hour link for a member to set a new password, emailed to them. */
 export async function newMemberResetLink(
   organizationId: string,
   memberId: string,
-): Promise<{ resetUrl: string; expiresInMinutes: number }> {
+): Promise<{ resetUrl: string; expiresInMinutes: number; emailDelivery?: StaffEmailDelivery }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/reset-link`, {
     method: "POST",
   });
@@ -1540,7 +1550,12 @@ export async function cfListProgramDeliverables(programId: string) {
 /** POST /programs/:programId/deliverables */
 export async function cfCreateProgramDeliverable(
   programId: string,
-  data: { title: string; description?: string | null; cadence?: DeliverableCadence },
+  data: {
+    title: string;
+    description?: string | null;
+    cadence?: DeliverableCadence;
+    programWideDate?: boolean;
+  },
 ) {
   return apiRequest<ProgramDeliverableTemplate>(programDeliverablesPath(programId), {
     method: "POST",
@@ -1552,11 +1567,36 @@ export async function cfCreateProgramDeliverable(
 export async function cfUpdateProgramDeliverable(
   programId: string,
   templateId: string,
-  data: Partial<Pick<ProgramDeliverableTemplate, "title" | "description" | "cadence" | "active">>,
+  data: Partial<
+    Pick<
+      ProgramDeliverableTemplate,
+      "title" | "description" | "cadence" | "active" | "programWideDate"
+    >
+  >,
 ) {
   return apiRequest<ProgramDeliverableTemplate>(
     `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}`,
     { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+/** GET /programs/:programId/deliverables/schedule?month=YYYY-MM */
+export async function cfListProgramDeliverableDates(programId: string, month: string) {
+  return apiRequest<ProgramDeliverableDates>(
+    `${programDeliverablesPath(programId)}/schedule?month=${encodeURIComponent(month)}`,
+  );
+}
+
+/** PUT /programs/:programId/deliverables/:templateId/schedule — applies to every member that month. */
+export async function cfSetProgramDeliverableDate(
+  programId: string,
+  templateId: string,
+  month: string,
+  scheduledFor: string | null,
+) {
+  return apiRequest<{ label: string; clientsUpdated: number; scheduledFor: string | null }>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/schedule`,
+    { method: "PUT", body: JSON.stringify({ month, scheduledFor }) },
   );
 }
 
@@ -1575,7 +1615,9 @@ export async function cfGetCurrentDeliverables(enrollmentId: string) {
 
 /** GET /enrollments/:enrollmentId/deliverables/history */
 export async function cfListDeliverableHistory(enrollmentId: string) {
-  return apiRequest<DeliverableCycleHistoryEntry[]>(`${enrollmentDeliverablesPath(enrollmentId)}/history`);
+  return apiRequest<DeliverableCycleHistoryEntry[]>(
+    `${enrollmentDeliverablesPath(enrollmentId)}/history`,
+  );
 }
 
 /** GET /enrollments/:enrollmentId/deliverables/cycles/:cycleId */

@@ -26,6 +26,7 @@ function setup() {
     cfProgramEnrollment: [
       { id: 'e-idi', organizationId: ORG, clientId: 'c1', programId: 'p-idi', status: 'active', isArchived: false, isDemo: false },
       { id: 'e-coach', organizationId: ORG, clientId: 'c1', programId: 'p-coach', status: 'active', isArchived: false, isDemo: false },
+      { id: 'e-idi-2', organizationId: ORG, clientId: 'c4', programId: 'p-idi', status: 'active', isArchived: false, isDemo: false },
       { id: 'e-empty', organizationId: ORG, clientId: 'c2', programId: 'p-empty', status: 'active', isArchived: false, isDemo: false },
       { id: 'e-onboarding', organizationId: ORG, clientId: 'c3', programId: 'p-idi', status: 'onboarding', isArchived: false, isDemo: false },
       { id: 'e-foreign', organizationId: OTHER_ORG, clientId: 'cx', programId: 'p-foreign', status: 'active', isArchived: false, isDemo: false },
@@ -41,12 +42,14 @@ function setup() {
       template('t-foreign', 'p-foreign', 'Their Deliverable', 0, { organizationId: OTHER_ORG }),
     ],
     cfEnrollmentDeliverableCycle: [],
+    cfProgramDeliverableSchedule: [],
     cfEnrollmentDeliverable: [],
     cfActivityLog: [],
   };
   const db = inMemoryDb(rows, {
     cfEnrollmentDeliverableCycle: [['enrollmentId', 'cadence', 'periodStart']],
     cfEnrollmentDeliverable: [['cycleId', 'programDeliverableTemplateId']],
+    cfProgramDeliverableSchedule: [['templateId', 'periodStart']],
   });
   const service = new ProgramDeliverablesService(db as unknown as PrismaService);
   return { rows, service };
@@ -61,6 +64,7 @@ function template(id: string, programId: string, title: string, sortOrder: numbe
     description: null,
     cadence: 'MONTHLY',
     active: true,
+    programWideDate: false,
     sortOrder,
     createdAt: new Date('2026-09-01T00:00:00.000Z'),
     ...extra,
@@ -308,5 +312,103 @@ describe('ProgramDeliverablesService: tenant isolation', () => {
 
     expect(rows.cfEnrollmentDeliverable.find((row) => row.id === theirItem.id)).toEqual(expect.objectContaining({ status: 'NOT_STARTED', isNextAction: false }));
     expect(rows.cfProgramDeliverableTemplate.find((row) => row.id === 't-foreign')?.title).toBe('Their Deliverable');
+  });
+});
+
+describe('ProgramDeliverablesService: program-wide dates', () => {
+  const titled = <T extends { titleSnapshot: string }>(items: T[], title: string): T =>
+    items.find((item) => item.titleSnapshot === title)!;
+
+  async function withProgramWideGiveaway() {
+    const context = setup();
+    await context.service.updateTemplate(ORG, 'p-idi', 't-giveaway', { programWideDate: true });
+    return context;
+  }
+
+  it("applies the program's date to every member's open checklist for that month", async () => {
+    const { service } = await withProgramWideGiveaway();
+    const first = await service.getCurrent(ORG, 'e-idi', OCT);
+    await service.getCurrent(ORG, 'e-idi-2', OCT);
+    // One member already received it; their status stays, only the date is filled in.
+    await service.updateDeliverable(ORG, staff, 'e-idi', titled(first.items, 'Grant Giveaway').id, { status: 'DELIVERED' });
+
+    const result = await service.setProgramDate(ORG, 'p-idi', 't-giveaway', { month: '2026-10', scheduledFor: '2026-10-18' });
+    expect(result).toEqual(expect.objectContaining({ label: 'October 2026', clientsUpdated: 2 }));
+
+    const mine = titled((await service.getCurrent(ORG, 'e-idi', OCT)).items, 'Grant Giveaway');
+    const theirs = await service.getCurrent(ORG, 'e-idi-2', OCT);
+    const theirGiveaway = titled(theirs.items, 'Grant Giveaway');
+    expect(mine).toEqual(expect.objectContaining({ status: 'DELIVERED', scheduledFor: new Date('2026-10-18'), dateSetByProgram: true }));
+    expect(theirGiveaway).toEqual(expect.objectContaining({ status: 'SCHEDULED', scheduledFor: new Date('2026-10-18'), dateSetByProgram: true }));
+    // Other deliverables keep per-client dates, and the date becomes the next program action.
+    expect(titled(theirs.items, 'Networking Event').dateSetByProgram).toBe(false);
+    expect(theirs.nextAction?.titleSnapshot).toBe('Grant Giveaway');
+  });
+
+  it('leaves finalized months, other months and other programs alone', async () => {
+    const { rows, service } = await withProgramWideGiveaway();
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    await service.finalizeCycle(ORG, staff, 'e-idi', october.cycle!.id);
+    await service.getCurrent(ORG, 'e-idi', NOV);
+    await service.getCurrent(ORG, 'e-coach', OCT);
+
+    const result = await service.setProgramDate(ORG, 'p-idi', 't-giveaway', { month: '2026-10', scheduledFor: '2026-10-18' });
+    expect(result.clientsUpdated).toBe(0);
+    expect(rows.cfEnrollmentDeliverable.filter((row) => row.scheduledFor)).toHaveLength(0);
+  });
+
+  it('pre-fills the date on checklists created after it was set', async () => {
+    const { service } = await withProgramWideGiveaway();
+    await service.setProgramDate(ORG, 'p-idi', 't-giveaway', { month: '2026-11', scheduledFor: '2026-11-15' });
+
+    const november = await service.getCurrent(ORG, 'e-idi', NOV);
+    expect(titled(november.items, 'Grant Giveaway')).toEqual(expect.objectContaining({ status: 'SCHEDULED', scheduledFor: new Date('2026-11-15') }));
+    expect(titled(november.items, 'Networking Event')).toEqual(expect.objectContaining({ status: 'NOT_STARTED' }));
+    // October has no program date, so October's checklist starts undated.
+    expect(titled((await service.getCurrent(ORG, 'e-idi', OCT)).items, 'Grant Giveaway').scheduledFor ?? null).toBeNull();
+  });
+
+  it("locks the date on the client's checklist while it is program-wide, and frees it when turned off", async () => {
+    const { service } = await withProgramWideGiveaway();
+    const id = titled((await service.getCurrent(ORG, 'e-idi', OCT)).items, 'Grant Giveaway').id;
+
+    await expect(service.updateDeliverable(ORG, staff, 'e-idi', id, { scheduledFor: '2026-10-20' })).rejects.toBeInstanceOf(ConflictException);
+    // Status, notes and outcome stay per client.
+    await expect(service.updateDeliverable(ORG, staff, 'e-idi', id, { status: 'COMPLETED', notes: 'Attended' })).resolves.toEqual(
+      expect.objectContaining({ status: 'COMPLETED', notes: 'Attended' }),
+    );
+
+    await service.updateTemplate(ORG, 'p-idi', 't-giveaway', { programWideDate: false });
+    await expect(service.updateDeliverable(ORG, staff, 'e-idi', id, { scheduledFor: '2026-10-20' })).resolves.toEqual(
+      expect.objectContaining({ scheduledFor: new Date('2026-10-20') }),
+    );
+  });
+
+  it('lists the month, clears a date, and refuses per-client deliverables and dates outside the month', async () => {
+    const { rows, service } = await withProgramWideGiveaway();
+    await service.getCurrent(ORG, 'e-idi', OCT);
+    await service.setProgramDate(ORG, 'p-idi', 't-giveaway', { month: '2026-10', scheduledFor: '2026-10-18' });
+    expect(await service.listProgramDates(ORG, 'p-idi', '2026-10')).toEqual({
+      month: '2026-10',
+      label: 'October 2026',
+      items: [{ templateId: 't-giveaway', title: 'Grant Giveaway', scheduledFor: new Date('2026-10-18') }],
+    });
+
+    await service.setProgramDate(ORG, 'p-idi', 't-giveaway', { month: '2026-10', scheduledFor: null });
+    expect(rows.cfProgramDeliverableSchedule).toHaveLength(0);
+    expect((await service.listProgramDates(ORG, 'p-idi', '2026-10')).items[0].scheduledFor).toBeNull();
+    expect(titled((await service.getCurrent(ORG, 'e-idi', OCT)).items, 'Grant Giveaway').scheduledFor).toBeNull();
+
+    await expect(service.setProgramDate(ORG, 'p-idi', 't-event', { month: '2026-10', scheduledFor: '2026-10-18' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.setProgramDate(ORG, 'p-idi', 't-giveaway', { month: '2026-10', scheduledFor: '2026-11-01' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.listProgramDates(ORG, 'p-idi', 'October')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("never sets dates on another organization's program", async () => {
+    const { rows, service } = await withProgramWideGiveaway();
+    await expect(service.setProgramDate(OTHER_ORG, 'p-idi', 't-giveaway', { month: '2026-10', scheduledFor: '2026-10-18' })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.setProgramDate(ORG, 'p-foreign', 't-foreign', { month: '2026-10', scheduledFor: '2026-10-18' })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.listProgramDates(ORG, 'p-foreign', '2026-10')).rejects.toBeInstanceOf(NotFoundException);
+    expect(rows.cfProgramDeliverableSchedule).toHaveLength(0);
   });
 });

@@ -81,6 +81,31 @@ const UNKNOWN_USER_PASSWORD_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO5YbYp1yQy7lZ5o9
 const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * Still waiting on an invitation: one was sent, it hasn't been accepted or revoked, and the member
+ * has never signed in. Members created without an invitation (e.g. the organization's first admin)
+ * are never pending.
+ */
+export function isInvitePending(member: {
+  lastLoginAt?: Date | null;
+  invitation?: { acceptedAt: Date | null; revokedAt: Date | null } | null;
+  _count?: { sessions: number };
+}): boolean {
+  if (!member.invitation || member.invitation.acceptedAt || member.invitation.revokedAt) return false;
+  return !member.lastLoginAt && !(member._count?.sessions ?? 0);
+}
+
+/** Whether a staff invite/reset email went out; the link is returned either way. */
+export type StaffEmailDelivery =
+  | { status: 'sent'; sentAt: string }
+  | { status: 'skipped' | 'failed'; reason: string };
+
+const STAFF_ROLE_LABELS: Record<string, string> = { super_admin: 'Super admin', org_admin: 'Admin', reviewer: 'Staff' };
+
+function staffName(person: { email: string; firstName?: string | null; lastName?: string | null }): string {
+  return [person.firstName, person.lastName].map((part) => part?.trim()).filter(Boolean).join(' ') || person.email;
+}
+
 function inviteUrl(plainToken: string): string {
   return `${resolveAppUrl(process.env)}/accept-invite?token=${plainToken}`;
 }
@@ -2155,6 +2180,7 @@ export class AuthCompatibilityController {
     const refreshToken = `${sessionId}.${randomBytes(32).toString('base64url')}`;
     const refreshHash = hashRefreshToken(refreshToken);
     await this.requirePrisma().authSession.create({ data: { id: sessionId, adminUserId: admin.id, jti, expiresAt: new Date(Date.now() + ACCESS_TTL_MS), refreshTokenHash: refreshHash, refreshExpiresAt: new Date(Date.now() + REFRESH_TTL_MS) } });
+    await this.requirePrisma().adminUser.update({ where: { id: admin.id }, data: { lastLoginAt: new Date() } });
     setSessionCookies(response, accessToken, refreshToken);
     return { admin: this.buildSessionData(admin) };
   }
@@ -2282,7 +2308,7 @@ export class AuthCompatibilityController {
     if (invitation.expiresAt < new Date()) throw new BadRequestException('Invitation has expired.');
     const passwordHash = await hash(newPassword, 12);
     await this.requirePrisma().$transaction([
-      this.requirePrisma().adminUser.update({ where: { id: invitation.adminUserId }, data: { passwordHash, isActive: true } }),
+      this.requirePrisma().adminUser.update({ where: { id: invitation.adminUserId }, data: { passwordHash, isActive: true, lastLoginAt: new Date() } }),
       this.requirePrisma().adminInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } }),
     ]);
     const sessionId = randomUUID();
@@ -2350,7 +2376,47 @@ export class AuthCompatibilityController {
 
 @Controller('organizations')
 export class OrganizationsCompatibilityController {
-  constructor(private readonly scaffold: ScaffoldService, private readonly prisma?: PrismaService) {}
+  private readonly logger = new Logger(OrganizationsCompatibilityController.name);
+
+  constructor(
+    private readonly scaffold: ScaffoldService,
+    private readonly prisma?: PrismaService,
+    private readonly n8n?: N8nService,
+  ) {}
+
+  /**
+   * Emails a staff member their invite or reset link through n8n. The link is already stored, and
+   * the admin always gets it back to copy, so a failed email never fails the request.
+   */
+  private async emailStaffLink(
+    kind: 'invite' | 'reset',
+    actor: { id: string; email: string; firstName?: string | null; lastName?: string | null },
+    member: { id: string; email: string; organizationId: string; firstName?: string | null; lastName?: string | null; role: string },
+    actionUrl: string,
+  ): Promise<StaffEmailDelivery> {
+    if (!this.n8n) return { status: 'skipped', reason: 'not_configured' };
+    try {
+      const org = await this.requirePrisma().organization.findUnique({ where: { id: member.organizationId }, select: { name: true } });
+      const common = {
+        organizationId: member.organizationId,
+        clientId: member.id,
+        sentByUserId: actor.id,
+        recipientEmail: member.email,
+        clientName: staffName(member),
+        actionUrl,
+        organizationName: org?.name ?? 'ClientFlow',
+      };
+      const result = kind === 'invite'
+        ? await this.n8n.sendStaffInvite(`staff.invite:${member.id}:${randomUUID()}`, { ...common, inviterName: staffName(actor), roleLabel: STAFF_ROLE_LABELS[member.role] ?? member.role, expiresInHours: INVITE_TTL_MS / 3_600_000 })
+        : await this.n8n.sendStaffPasswordReset(`staff.password_reset:${member.id}:${randomUUID()}`, { ...common, requestedByName: staffName(actor), expiresInMinutes: RESET_TTL_MS / 60_000 });
+      if (result.status === 'sent') return { status: 'sent', sentAt: result.sentAt };
+      this.logger.warn(`Staff ${kind} email for member ${member.id} not sent: ${result.status} (${result.reason})`);
+      return { status: result.status, reason: result.reason };
+    } catch (error) {
+      this.logger.warn(`Staff ${kind} email for member ${member.id} failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      return { status: 'failed', reason: 'unavailable' };
+    }
+  }
 
   private requirePrisma(): PrismaService {
     if (!this.prisma) throw this.scaffold.notImplemented('Organizations');
@@ -2361,7 +2427,7 @@ export class OrganizationsCompatibilityController {
     const accessToken = (request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : undefined) ?? getCookieValue(request, ACCESS_COOKIE_NAME);
     if (!accessToken) throw new UnauthorizedException('Missing authenticated session.');
     const payload = getSessionTokenPayload(accessToken, 'access');
-    const admin = await this.requirePrisma().adminUser.findUnique({ where: { id: payload.sub ?? '' }, select: { id: true, email: true, organizationId: true, role: true, isActive: true } });
+    const admin = await this.requirePrisma().adminUser.findUnique({ where: { id: payload.sub ?? '' }, select: { id: true, email: true, firstName: true, lastName: true, organizationId: true, role: true, isActive: true } });
     if (!admin || !admin.isActive || admin.organizationId !== orgId) throw new ForbiddenException('Access denied to this organization.');
     await assertSessionActive(this.requirePrisma(), payload.jti);
     return admin;
@@ -2398,8 +2464,8 @@ export class OrganizationsCompatibilityController {
   @Get(':orgId/members') async listMembers(@Req() request: Request, @Param('orgId') orgId: string) {
     await this.requireOrgAccess(request, orgId);
     const org = await this.requirePrisma().organization.findUnique({ where: { id: orgId }, select: { principalAdminId: true } });
-    const members = await this.requirePrisma().adminUser.findMany({ where: { organizationId: orgId }, select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, isActive: true, createdAt: true, invitation: { select: { acceptedAt: true, revokedAt: true } } }, orderBy: { createdAt: 'asc' } });
-    return members.map((member) => ({ id: member.id, email: member.email, firstName: member.firstName, lastName: member.lastName, jobTitle: member.jobTitle, role: member.role, isActive: member.isActive, createdAt: member.createdAt.toISOString(), invitePending: !member.invitation || (!member.invitation.acceptedAt && !member.invitation.revokedAt), isPrincipal: member.id === org?.principalAdminId }));
+    const members = await this.requirePrisma().adminUser.findMany({ where: { organizationId: orgId }, select: { id: true, email: true, firstName: true, lastName: true, jobTitle: true, role: true, isActive: true, createdAt: true, lastLoginAt: true, invitation: { select: { acceptedAt: true, revokedAt: true } }, _count: { select: { sessions: true } } }, orderBy: { createdAt: 'asc' } });
+    return members.map((member) => ({ id: member.id, email: member.email, firstName: member.firstName, lastName: member.lastName, jobTitle: member.jobTitle, role: member.role, isActive: member.isActive, createdAt: member.createdAt.toISOString(), invitePending: isInvitePending(member), isPrincipal: member.id === org?.principalAdminId }));
   }
 
   @Post(':orgId/invitations') async inviteMember(@Req() request: Request, @Param('orgId') orgId: string, @Body() body: Record<string, unknown>) {
@@ -2413,10 +2479,12 @@ export class OrganizationsCompatibilityController {
     const plainToken = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(plainToken).digest('hex');
     const randomPasswordHash = await hash(randomBytes(32).toString('hex'), 12);
-    await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role, isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + INVITE_TTL_MS) } } } });
-    // No email is sent: the admin copies this link to the new member. It's shown once; a fresh one
-    // can be made later with invite-link.
-    return { message: `Invitation created for ${email}. Copy the link and send it to them.`, inviteUrl: inviteUrl(plainToken) };
+    const member = await this.requirePrisma().adminUser.create({ data: { organizationId: orgId, email, firstName: String(body.firstName ?? ''), lastName: body.lastName ? String(body.lastName) : null, jobTitle: body.jobTitle ? String(body.jobTitle) : null, passwordHash: randomPasswordHash, role, isActive: false, invitation: { create: { tokenHash, expiresAt: new Date(Date.now() + INVITE_TTL_MS) } } } });
+    // The link is emailed and also returned once, so the admin can copy it if the email didn't
+    // go out. A fresh one can be made later with invite-link.
+    const url = inviteUrl(plainToken);
+    const emailDelivery = await this.emailStaffLink('invite', actor, member, url);
+    return { message: `Invitation created for ${email}.`, inviteUrl: url, expiresInHours: INVITE_TTL_MS / 3_600_000, emailDelivery };
   }
 
   /** A fresh invite link for a member who hasn't accepted yet (the old link stops working). */
@@ -2432,12 +2500,14 @@ export class OrganizationsCompatibilityController {
       where: { id: member.invitation.id },
       data: { tokenHash: createHash('sha256').update(plainToken).digest('hex'), expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
     });
-    return { inviteUrl: inviteUrl(plainToken), expiresInHours: INVITE_TTL_MS / 3_600_000 };
+    const url = inviteUrl(plainToken);
+    const emailDelivery = await this.emailStaffLink('invite', actor, member, url);
+    return { inviteUrl: url, expiresInHours: INVITE_TTL_MS / 3_600_000, emailDelivery };
   }
 
   /**
-   * A one-time, one-hour link for an active member to set a new password (there is no emailed
-   * reset). Earlier unused links for that member stop working.
+   * A one-time, one-hour link for an active member to set a new password, emailed to them and
+   * returned to copy. Earlier unused links for that member stop working.
    */
   @Post(':orgId/members/:memberId/reset-link') async passwordResetLink(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {
     const actor = await this.requireOrgAccess(request, orgId);
@@ -2453,7 +2523,9 @@ export class OrganizationsCompatibilityController {
         data: { adminUserId: member.id, tokenHash: createHash('sha256').update(plainToken).digest('hex'), expiresAt: new Date(now.getTime() + RESET_TTL_MS), createdByAdminId: actor.id },
       }),
     ]);
-    return { resetUrl: `${resolveAppUrl(process.env)}/reset-password?token=${plainToken}`, expiresInMinutes: RESET_TTL_MS / 60_000 };
+    const resetUrl = `${resolveAppUrl(process.env)}/reset-password?token=${plainToken}`;
+    const emailDelivery = await this.emailStaffLink('reset', actor, member, resetUrl);
+    return { resetUrl, expiresInMinutes: RESET_TTL_MS / 60_000, emailDelivery };
   }
 
   @Post(':orgId/invitations/:memberId/revoke') async revokeInvite(@Req() request: Request, @Param('orgId') orgId: string, @Param('memberId') memberId: string) {

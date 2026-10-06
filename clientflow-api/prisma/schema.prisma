@@ -1393,18 +1393,36 @@ enum CfDeliverableStatus {
 
 /// What a program promises its clients each period. Titles and descriptions are program-defined.
 model CfProgramDeliverableTemplate {
-  id             String               @id @default(cuid())
-  organizationId String
-  programId      String
-  title          String
-  description    String?
-  cadence        CfDeliverableCadence @default(MONTHLY)
-  active         Boolean              @default(true)
-  sortOrder      Int                  @default(0)
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id              String               @id @default(cuid())
+  organizationId  String
+  programId       String
+  title           String
+  description     String?
+  cadence         CfDeliverableCadence @default(MONTHLY)
+  active          Boolean              @default(true)
+  sortOrder       Int                  @default(0)
+  /// The date is set once per month for the whole program (an event everyone attends) instead of
+  /// on each client's checklist.
+  programWideDate Boolean              @default(false)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   @@index([organizationId, programId, active])
+}
+
+/// A program-wide deliverable's date for one month, applied to every member's checklist.
+model CfProgramDeliverableSchedule {
+  id             String   @id @default(cuid())
+  organizationId String
+  programId      String
+  templateId     String
+  periodStart    DateTime
+  scheduledFor   DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([templateId, periodStart])
+  @@index([organizationId, programId, periodStart])
 }
 
 /// One reporting period (normally a month) of deliverables for one enrollment.

@@ -1,5 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import type { CfDeliverableCadence } from '../../../generated/clientflow';
 
 export const DELIVERABLE_CADENCES: CfDeliverableCadence[] = ['MONTHLY', 'QUARTERLY', 'ONE_TIME', 'AS_NEEDED'];
@@ -26,6 +37,11 @@ export class CreateDeliverableTemplateDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({ description: 'The date is set once per month for the whole program.' })
+  @IsOptional()
+  @IsBoolean()
+  programWideDate?: boolean;
 }
 
 export class UpdateDeliverableTemplateDto {
@@ -51,6 +67,11 @@ export class UpdateDeliverableTemplateDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({ description: 'The date is set once per month for the whole program.' })
+  @IsOptional()
+  @IsBoolean()
+  programWideDate?: boolean;
 }
 
 export class ReorderDeliverableTemplatesDto {
@@ -59,4 +80,16 @@ export class ReorderDeliverableTemplatesDto {
   @ArrayMaxSize(200)
   @IsString({ each: true })
   orderedIds!: string[];
+}
+
+export class SetProgramDeliverableDateDto {
+  @ApiProperty({ example: '2026-10', description: 'The month the date is for.' })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must look like 2026-10.' })
+  month!: string;
+
+  @ApiPropertyOptional({ example: '2026-10-18', description: 'null clears the date for that month.' })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'scheduledFor must be a date like 2026-10-18.' })
+  scheduledFor?: string | null;
 }

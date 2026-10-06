@@ -6,15 +6,35 @@ const list = vi.fn();
 const create = vi.fn();
 const update = vi.fn();
 const reorder = vi.fn();
+const listDates = vi.fn();
+const setDate = vi.fn();
 vi.mock("@/lib/apiClient", () => ({
   cfListProgramDeliverables: (...a: unknown[]) => list(...a),
   cfCreateProgramDeliverable: (...a: unknown[]) => create(...a),
   cfUpdateProgramDeliverable: (...a: unknown[]) => update(...a),
   cfReorderProgramDeliverables: (...a: unknown[]) => reorder(...a),
+  cfListProgramDeliverableDates: (...a: unknown[]) => listDates(...a),
+  cfSetProgramDeliverableDate: (...a: unknown[]) => setDate(...a),
 }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const toastSuccess = vi.fn();
+vi.mock("sonner", () => ({
+  toast: { success: (...a: unknown[]) => toastSuccess(...a), error: vi.fn() },
+}));
 
-const row = (id: string, title: string, sortOrder: number, active = true) => ({
+// jsdom lacks ResizeObserver, which Radix's checkbox measures with.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
+
+const row = (
+  id: string,
+  title: string,
+  sortOrder: number,
+  active = true,
+  programWideDate = false,
+) => ({
   id,
   programId: "p1",
   title,
@@ -22,6 +42,7 @@ const row = (id: string, title: string, sortOrder: number, active = true) => ({
   cadence: "MONTHLY",
   active,
   sortOrder,
+  programWideDate,
 });
 const rows = [row("t1", "Coaching Session", 0), row("t2", "Financial Review", 1)];
 
@@ -59,6 +80,7 @@ describe("ProgramDeliverablesConfig", () => {
       expect(create).toHaveBeenCalledWith("p1", {
         title: "Business Plan Update",
         description: null,
+        programWideDate: false,
         cadence: "MONTHLY",
       }),
     );
@@ -80,6 +102,7 @@ describe("ProgramDeliverablesConfig", () => {
       expect(update).toHaveBeenCalledWith("p1", "t1", {
         title: "Coaching Call",
         description: null,
+        programWideDate: false,
       }),
     );
 
@@ -94,5 +117,63 @@ describe("ProgramDeliverablesConfig", () => {
         "Disabled",
       ),
     ).toBeTruthy();
+  });
+
+  it("marks a deliverable as the same date for everyone", async () => {
+    update.mockResolvedValue({ ...rows[0], programWideDate: true });
+    listDates.mockResolvedValue({ month: "2026-10", label: "October 2026", items: [] });
+    render(<ProgramDeliverablesConfig programId="p1" />);
+    await screen.findByText("Coaching Session");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Coaching Session" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("p1", "t1", {
+        title: "Coaching Session",
+        description: null,
+        programWideDate: true,
+      }),
+    );
+    expect(await screen.findByText("Monthly · Program date")).toBeTruthy();
+    expect(await screen.findByText("Program dates")).toBeTruthy();
+  });
+
+  it("sets this month's date for everyone in Program dates", async () => {
+    list.mockResolvedValue([row("t1", "Grant Day", 0, true, true), rows[1]]);
+    listDates.mockResolvedValue({
+      month: "2026-10",
+      label: "October 2026",
+      items: [{ templateId: "t1", title: "Grant Day", scheduledFor: null }],
+    });
+    setDate.mockResolvedValue({
+      label: "October 2026",
+      clientsUpdated: 5,
+      scheduledFor: "2026-10-18T00:00:00.000Z",
+    });
+    render(<ProgramDeliverablesConfig programId="p1" />);
+
+    const line = await screen.findByRole("listitem", { name: "Grant Day date" });
+    expect(within(line).getByText("No date set for October 2026")).toBeTruthy();
+    const month = listDates.mock.calls[0][1] as string;
+    fireEvent.change(within(line).getByLabelText("Grant Day date for October 2026"), {
+      target: { value: `${month}-18` },
+    });
+    fireEvent.click(within(line).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(setDate).toHaveBeenCalledWith("p1", "t1", month, `${month}-18`));
+    expect(toastSuccess).toHaveBeenCalledWith(
+      "Date saved for October 2026. Updated 5 member checklists.",
+    );
+    expect(await within(line).findByText("October 2026: October 18, 2026")).toBeTruthy();
+    // Only program-wide deliverables appear there.
+    expect(screen.queryByRole("listitem", { name: "Financial Review date" })).toBeNull();
+  });
+
+  it("hides Program dates when no deliverable is program-wide", async () => {
+    render(<ProgramDeliverablesConfig programId="p1" />);
+    await screen.findByText("Coaching Session");
+    expect(screen.queryByText("Program dates")).toBeNull();
+    expect(listDates).not.toHaveBeenCalled();
   });
 });
