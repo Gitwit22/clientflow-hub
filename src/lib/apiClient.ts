@@ -44,6 +44,7 @@ import type {
   DeliverableCycleView,
   DeliverableStatus,
   EnrollmentDeliverable,
+  ProgramDeliverableDates,
   ProgramDeliverableTemplate,
 } from "@/lib/program-deliverables";
 export type { PublicFormResponseValue } from "@/types";
@@ -1540,7 +1541,12 @@ export async function cfListProgramDeliverables(programId: string) {
 /** POST /programs/:programId/deliverables */
 export async function cfCreateProgramDeliverable(
   programId: string,
-  data: { title: string; description?: string | null; cadence?: DeliverableCadence },
+  data: {
+    title: string;
+    description?: string | null;
+    cadence?: DeliverableCadence;
+    programWideDate?: boolean;
+  },
 ) {
   return apiRequest<ProgramDeliverableTemplate>(programDeliverablesPath(programId), {
     method: "POST",
@@ -1552,11 +1558,36 @@ export async function cfCreateProgramDeliverable(
 export async function cfUpdateProgramDeliverable(
   programId: string,
   templateId: string,
-  data: Partial<Pick<ProgramDeliverableTemplate, "title" | "description" | "cadence" | "active">>,
+  data: Partial<
+    Pick<
+      ProgramDeliverableTemplate,
+      "title" | "description" | "cadence" | "active" | "programWideDate"
+    >
+  >,
 ) {
   return apiRequest<ProgramDeliverableTemplate>(
     `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}`,
     { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+/** GET /programs/:programId/deliverables/schedule?month=YYYY-MM */
+export async function cfListProgramDeliverableDates(programId: string, month: string) {
+  return apiRequest<ProgramDeliverableDates>(
+    `${programDeliverablesPath(programId)}/schedule?month=${encodeURIComponent(month)}`,
+  );
+}
+
+/** PUT /programs/:programId/deliverables/:templateId/schedule — applies to every member that month. */
+export async function cfSetProgramDeliverableDate(
+  programId: string,
+  templateId: string,
+  month: string,
+  scheduledFor: string | null,
+) {
+  return apiRequest<{ label: string; clientsUpdated: number; scheduledFor: string | null }>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/schedule`,
+    { method: "PUT", body: JSON.stringify({ month, scheduledFor }) },
   );
 }
 
@@ -1575,7 +1606,9 @@ export async function cfGetCurrentDeliverables(enrollmentId: string) {
 
 /** GET /enrollments/:enrollmentId/deliverables/history */
 export async function cfListDeliverableHistory(enrollmentId: string) {
-  return apiRequest<DeliverableCycleHistoryEntry[]>(`${enrollmentDeliverablesPath(enrollmentId)}/history`);
+  return apiRequest<DeliverableCycleHistoryEntry[]>(
+    `${enrollmentDeliverablesPath(enrollmentId)}/history`,
+  );
 }
 
 /** GET /enrollments/:enrollmentId/deliverables/cycles/:cycleId */

@@ -18,6 +18,8 @@ export interface ProgramDeliverableTemplate {
   cadence: DeliverableCadence;
   active: boolean;
   sortOrder: number;
+  /** The date is set once per month for the whole program instead of per client. */
+  programWideDate: boolean;
 }
 
 export interface DeliverableCycle {
@@ -45,6 +47,8 @@ export interface EnrollmentDeliverable {
   notes: string | null;
   outcome: string | null;
   isNextAction: boolean;
+  /** The date comes from the program (same for every member) and can't be changed per client. */
+  dateSetByProgram?: boolean;
 }
 
 export interface DeliverableSummary {
@@ -64,6 +68,12 @@ export interface DeliverableCycleView {
 }
 
 export type DeliverableCycleHistoryEntry = DeliverableCycle & { summary: DeliverableSummary };
+
+export interface ProgramDeliverableDates {
+  month: string;
+  label: string;
+  items: { templateId: string; title: string; scheduledFor: string | null }[];
+}
 
 export const CADENCE_LABELS: Record<DeliverableCadence, string> = {
   MONTHLY: "Monthly",

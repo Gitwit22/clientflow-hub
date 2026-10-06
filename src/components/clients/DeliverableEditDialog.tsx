@@ -24,6 +24,7 @@ import { cfSetDeliverableNextAction, cfUpdateEnrollmentDeliverable } from "@/lib
 import {
   DELIVERABLE_STATUSES,
   DELIVERABLE_STATUS_LABELS,
+  formatDeliverableDate,
   isResolvedStatus,
   type DeliverableStatus,
   type EnrollmentDeliverable,
@@ -66,7 +67,11 @@ export function DeliverableEditDialog({
     const changes: Parameters<typeof cfUpdateEnrollmentDeliverable>[2] = {};
     if (status !== deliverable.status) changes.status = status;
     const date = scheduledFor || null;
-    if (date !== (deliverable.scheduledFor ? deliverable.scheduledFor.slice(0, 10) : null)) {
+    // A program-wide date is set in Programs › Deliverables, never per client.
+    if (
+      !deliverable.dateSetByProgram &&
+      date !== (deliverable.scheduledFor ? deliverable.scheduledFor.slice(0, 10) : null)
+    ) {
       changes.scheduledFor = date;
     }
     if (notes.trim() !== (deliverable.notes ?? "")) changes.notes = notes.trim() || null;
@@ -122,13 +127,29 @@ export function DeliverableEditDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="deliverable-date">Date (optional)</Label>
-              <Input
-                id="deliverable-date"
-                type="date"
-                value={scheduledFor}
-                onChange={(event) => setScheduledFor(event.target.value)}
-              />
+              {deliverable.dateSetByProgram ? (
+                <>
+                  <Label>Date</Label>
+                  <p className="text-sm" aria-label="Program date">
+                    {deliverable.scheduledFor
+                      ? formatDeliverableDate(deliverable.scheduledFor, "long")
+                      : "Not set yet"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Set for the whole program in Programs › Deliverables.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Label htmlFor="deliverable-date">Date (optional)</Label>
+                  <Input
+                    id="deliverable-date"
+                    type="date"
+                    value={scheduledFor}
+                    onChange={(event) => setScheduledFor(event.target.value)}
+                  />
+                </>
+              )}
             </div>
           </div>
           <div className="space-y-1.5">

@@ -199,4 +199,25 @@ describe("ProgramDeliverablesCard", () => {
     renderCard();
     expect(await screen.findByText("No program deliverables configured.")).toBeTruthy();
   });
+
+  it("shows a program-wide date read-only and never sends a date for it", async () => {
+    getCurrent.mockResolvedValue({
+      ...view(),
+      items: [
+        item("d1", "LIVE Grant Giveaway", "SCHEDULED", {
+          scheduledFor: "2026-10-18T00:00:00.000Z",
+          dateSetByProgram: true,
+        }),
+      ],
+    });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Update LIVE Grant Giveaway" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("Program date").textContent).toBe("October 18, 2026");
+    expect(within(dialog).queryByLabelText("Date (optional)")).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Notes"), { target: { value: "Attended" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateItem).toHaveBeenCalledWith("e1", "d1", { notes: "Attended" }));
+  });
 });
