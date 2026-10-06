@@ -4,6 +4,8 @@ export type ClientflowLifecycleEventType =
   | 'contract.send'
   | 'welcome.send'
   | 'contract.copy'
+  | 'staff.invite'
+  | 'staff.password_reset'
   | 'form.submitted'
   | 'contract.completed'
   | 'email.status';
@@ -124,12 +126,40 @@ export interface ContractCopyLifecyclePayload extends LifecycleEventBase {
   source: 'automation' | 'manual_staff_action';
 }
 
+/**
+ * Emails a new staff member their sign-up link. Staff aren't clients, but n8n's common validator
+ * requires clientId/clientName, so they carry the member's id and name.
+ */
+export interface StaffInviteLifecyclePayload extends LifecycleEventBase {
+  eventType: 'staff.invite';
+  /** The invited member's name (or email when no name was entered). */
+  clientName: string;
+  /** The accept-invite link, where they set their password. */
+  actionUrl: string;
+  inviterName: string;
+  organizationName: string;
+  roleLabel: string;
+  expiresInHours: number;
+}
+
+/** Emails a staff member a one-time link to set a new password. */
+export interface StaffPasswordResetLifecyclePayload extends LifecycleEventBase {
+  eventType: 'staff.password_reset';
+  clientName: string;
+  actionUrl: string;
+  requestedByName: string;
+  organizationName: string;
+  expiresInMinutes: number;
+}
+
 export type ClientflowLifecyclePayload =
   | FormSendLifecyclePayload
   | IntakeSendLifecyclePayload
   | ContractSendLifecyclePayload
   | WelcomeSendLifecyclePayload
-  | ContractCopyLifecyclePayload;
+  | ContractCopyLifecyclePayload
+  | StaffInviteLifecyclePayload
+  | StaffPasswordResetLifecyclePayload;
 
 export interface N8nDeliveryReceipt {
   success: true;
@@ -201,3 +231,9 @@ export type WelcomeEmailDeliveryResult = IntakeEmailDeliveryResult;
 export type ContractCopyEmailPayload = Omit<ContractCopyLifecyclePayload, 'eventType' | 'eventId' | 'occurredAt'>;
 
 export type ContractCopyEmailDeliveryResult = IntakeEmailDeliveryResult;
+
+export type StaffInviteEmailPayload = Omit<StaffInviteLifecyclePayload, 'eventType' | 'eventId' | 'occurredAt'>;
+
+export type StaffPasswordResetEmailPayload = Omit<StaffPasswordResetLifecyclePayload, 'eventType' | 'eventId' | 'occurredAt'>;
+
+export type StaffEmailDeliveryResult = IntakeEmailDeliveryResult;

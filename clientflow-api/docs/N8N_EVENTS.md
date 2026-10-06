@@ -2,8 +2,8 @@
 
 ClientFlow sends one webhook per email. n8n routes on `eventType` and owns delivery, branding and
 receipts. This is the short summary; **`N8N_CONNECTION.md` is the full reference** (transport, the workflow's
-normalization and validation rules, compatibility, and open items). See also `N8N_WELCOME_EMAIL.md` and
-`N8N_CONTRACT_COPY.md`.
+normalization and validation rules, compatibility, and open items). See also `N8N_WELCOME_EMAIL.md`,
+`N8N_CONTRACT_COPY.md` and `N8N_STAFF_EMAILS.md`.
 
 ## Events ClientFlow sends
 
@@ -14,6 +14,8 @@ normalization and validation rules, compatibility, and open items). See also `N8
 | `contract.send` | Contract, or resending its signing link | `contractUrl` (a signing link) | none |
 | `contract.copy` | Signed copy of a completed contract | `executedCopyUrl` (never a signing link) | none |
 | `welcome.send` | After signature, manual welcome, automation `send_email` | none | `subject` + `body` (verbatim) |
+| `staff.invite` | Settings › Invite, and "New invite link" | `actionUrl` (accept-invite link, 72 h) | none — see `N8N_STAFF_EMAILS.md` |
+| `staff.password_reset` | Settings › "Password reset link" | `actionUrl` (reset link, 60 min) | none — see `N8N_STAFF_EMAILS.md` |
 
 Common fields on every event: `eventId`, `eventType`, `occurredAt`, `organizationId`, `clientId`,
 `recipientEmail`, `sentByUserId`. `Idempotency-Key` header equals `eventId`.
