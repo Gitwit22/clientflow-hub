@@ -367,31 +367,40 @@ export interface InviteMemberPayload {
   role?: "org_admin" | "reviewer";
 }
 
+/** Whether a staff invite or reset email went out. The link is returned either way. */
+export type StaffEmailDelivery =
+  { status: "sent"; sentAt: string } | { status: "skipped" | "failed"; reason: string };
+
 export async function inviteMember(
   organizationId: string,
   payload: InviteMemberPayload,
-): Promise<{ message: string; inviteUrl: string }> {
+): Promise<{
+  message: string;
+  inviteUrl: string;
+  expiresInHours?: number;
+  emailDelivery?: StaffEmailDelivery;
+}> {
   return apiRequest(`/api/v1/organizations/${organizationId}/invitations`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-/** A fresh invite link for a member who hasn't joined yet (the previous link stops working). */
+/** A fresh invite link for a member who hasn't joined yet, emailed to them (the previous link stops working). */
 export async function newMemberInviteLink(
   organizationId: string,
   memberId: string,
-): Promise<{ inviteUrl: string; expiresInHours: number }> {
+): Promise<{ inviteUrl: string; expiresInHours: number; emailDelivery?: StaffEmailDelivery }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/invite-link`, {
     method: "POST",
   });
 }
 
-/** A one-time, one-hour link for a member to set a new password. */
+/** A one-time, one-hour link for a member to set a new password, emailed to them. */
 export async function newMemberResetLink(
   organizationId: string,
   memberId: string,
-): Promise<{ resetUrl: string; expiresInMinutes: number }> {
+): Promise<{ resetUrl: string; expiresInMinutes: number; emailDelivery?: StaffEmailDelivery }> {
   return apiRequest(`/api/v1/organizations/${organizationId}/members/${memberId}/reset-link`, {
     method: "POST",
   });

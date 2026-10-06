@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ApiError, inviteMember } from "@/lib/apiClient";
+import { ApiError, inviteMember, type StaffEmailDelivery } from "@/lib/apiClient";
 
 const ROLE_OPTIONS = [
   { label: "Admin", value: "org_admin" },
@@ -44,7 +44,12 @@ export function InviteUserDialog({
   const [email, setEmail] = useState("");
   const [roleLabel, setRoleLabel] = useState<string>("Staff");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [invite, setInvite] = useState<{ email: string; link: string } | null>(null);
+  const [invite, setInvite] = useState<{
+    email: string;
+    link: string;
+    hours: number;
+    emailDelivery?: StaffEmailDelivery;
+  } | null>(null);
 
   function reset() {
     setFirstName("");
@@ -64,7 +69,12 @@ export function InviteUserDialog({
         lastName: lastName.trim() || undefined,
         role: backendRole,
       });
-      setInvite({ email: email.trim(), link: result.inviteUrl });
+      setInvite({
+        email: email.trim(),
+        link: result.inviteUrl,
+        hours: result.expiresInHours ?? 72,
+        emailDelivery: result.emailDelivery,
+      });
       reset();
       onOpenChange(false);
       onSuccess();
@@ -83,9 +93,13 @@ export function InviteUserDialog({
         <CopyLinkDialog
           open
           onOpenChange={(value) => !value && setInvite(null)}
-          title="Send this sign-up link"
-          description={`Send this link to ${invite.email}. They'll set their password and join. It works for 72 hours.`}
+          title={
+            invite.emailDelivery?.status === "sent" ? "Invitation sent" : "Send this sign-up link"
+          }
+          description={`With this link ${invite.email} sets their password and joins. It works for ${invite.hours} hours.`}
           link={invite.link}
+          recipientEmail={invite.email}
+          emailDelivery={invite.emailDelivery}
         />
       )}
       <Dialog
@@ -99,7 +113,7 @@ export function InviteUserDialog({
           <DialogHeader>
             <DialogTitle className="font-display">Invite team member</DialogTitle>
             <DialogDescription>
-              You'll get a sign-up link to send them. It works for 72 hours.
+              We'll email them a sign-up link (you can copy it too). It works for 72 hours.
             </DialogDescription>
           </DialogHeader>
           <form id="invite-form" onSubmit={handleSubmit} className="space-y-4 py-2">

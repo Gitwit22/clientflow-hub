@@ -33,6 +33,7 @@ import {
   updateProfile,
   updateMemberRole,
   updateOrganizationSettings,
+  type StaffEmailDelivery,
 } from "@/lib/apiClient";
 import { uploadStoredFile } from "@/lib/api";
 import { useAppState, retryBootstrap } from "@/lib/store";
@@ -127,6 +128,8 @@ function SettingsPage() {
     title: string;
     description: string;
     link: string;
+    recipientEmail: string;
+    emailDelivery?: StaffEmailDelivery;
   } | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
   const [roleUpdating, setRoleUpdating] = useState<string | null>(null);
@@ -326,7 +329,7 @@ function SettingsPage() {
     }
   }
 
-  // Invites and password resets aren't emailed: the admin copies the link and sends it.
+  // The new link is emailed to the member; the dialog says whether it went out and offers it to copy.
   async function handleMemberLink(member: OrgMember) {
     if (!orgId || linkLoading) return;
     setLinkLoading(member.id);
@@ -334,16 +337,21 @@ function SettingsPage() {
       if (member.invitePending) {
         const result = await newMemberInviteLink(orgId, member.id);
         setMemberLink({
-          title: "New sign-up link",
-          description: `Send this to ${member.email}. The earlier invite link no longer works. This one works for ${result.expiresInHours} hours.`,
+          title: result.emailDelivery?.status === "sent" ? "Invite sent again" : "New sign-up link",
+          description: `The earlier invite link no longer works. This one works for ${result.expiresInHours} hours.`,
           link: result.inviteUrl,
+          recipientEmail: member.email,
+          emailDelivery: result.emailDelivery,
         });
       } else {
         const result = await newMemberResetLink(orgId, member.id);
         setMemberLink({
-          title: "Password reset link",
-          description: `Send this to ${member.email} so they can set a new password. It works once, for ${result.expiresInMinutes} minutes, and signs them out everywhere.`,
+          title:
+            result.emailDelivery?.status === "sent" ? "Password reset sent" : "Password reset link",
+          description: `With this link ${member.email} sets a new password. It works once, for ${result.expiresInMinutes} minutes, and signs them out everywhere.`,
           link: result.resetUrl,
+          recipientEmail: member.email,
+          emailDelivery: result.emailDelivery,
         });
       }
     } catch (error) {
@@ -548,7 +556,11 @@ function SettingsPage() {
                               ? `New invite link for ${member.email}`
                               : `Password reset link for ${member.email}`
                           }
-                          title={member.invitePending ? "New invite link" : "Password reset link"}
+                          title={
+                            member.invitePending
+                              ? "Email a new invite link"
+                              : "Email a password reset link"
+                          }
                         >
                           {member.invitePending ? (
                             <Link2 className="size-4" />
@@ -932,6 +944,8 @@ function SettingsPage() {
           title={memberLink.title}
           description={memberLink.description}
           link={memberLink.link}
+          recipientEmail={memberLink.recipientEmail}
+          emailDelivery={memberLink.emailDelivery}
         />
       )}
 
