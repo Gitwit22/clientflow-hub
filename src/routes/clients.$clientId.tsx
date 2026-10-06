@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSendMenu";
 import { JoinedDateEditor } from "@/components/clients/JoinedDateEditor";
+import { NextProgramAction } from "@/components/clients/NextProgramAction";
+import { ProgramDeliverablesCard } from "@/components/clients/ProgramDeliverablesCard";
 import {
   enrollmentDatesLabel,
   enrollmentEndedAt,
@@ -939,6 +941,12 @@ function ClientProfile() {
                       : undefined
                   }
                 />
+                {selectedEnrollment && (
+                  <NextProgramAction
+                    enrollmentId={selectedEnrollment.id}
+                    onViewDeliverables={() => goToTab("program")}
+                  />
+                )}
                 <Row label="Next follow-up">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>
@@ -1183,6 +1191,12 @@ function ClientProfile() {
                 </CardContent>
               </Card>
 
+              <ProgramDeliverablesCard
+                key={selectedEnrollment.id}
+                enrollmentId={selectedEnrollment.id}
+                clientName={client.businessName}
+                programName={selectedProgram.name}
+              />
               <Card className="shadow-card">
                 <CardHeader>
                   <CardTitle className="font-display text-base">Funding & service terms</CardTitle>

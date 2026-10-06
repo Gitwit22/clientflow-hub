@@ -56,12 +56,12 @@ model AdminUser {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  organization Organization     @relation("OrganizationMembers", fields: [organizationId], references: [id], onDelete: Cascade)
-  principalOf  Organization?    @relation("OrganizationPrincipal")
-  invitation   AdminInvitation?
+  organization   Organization         @relation("OrganizationMembers", fields: [organizationId], references: [id], onDelete: Cascade)
+  principalOf    Organization?        @relation("OrganizationPrincipal")
+  invitation     AdminInvitation?
   passwordResets AdminPasswordReset[]
-  sessions     AuthSession[]
-  notifications CfNotification[]
+  sessions       AuthSession[]
+  notifications  CfNotification[]
   auditLogs      AuditLog[]
 
   @@index([organizationId, role])
@@ -121,17 +121,17 @@ model AdminInvitation {
 }
 
 model AuthSession {
-  id                 String    @id
-  adminUserId        String
-  jti                String    @unique
-  expiresAt          DateTime
-  refreshTokenHash   String?   @unique
+  id                       String    @id
+  adminUserId              String
+  jti                      String    @unique
+  expiresAt                DateTime
+  refreshTokenHash         String?   @unique
   /// The refresh token replaced by the last rotation; accepted briefly so concurrent tabs stay in.
   previousRefreshTokenHash String?
-  refreshExpiresAt   DateTime?
-  refreshRotatedAt   DateTime?
-  revokedAt          DateTime?
-  createdAt          DateTime  @default(now())
+  refreshExpiresAt         DateTime?
+  refreshRotatedAt         DateTime?
+  revokedAt                DateTime?
+  createdAt                DateTime  @default(now())
 
   adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
 
@@ -330,18 +330,18 @@ model CfProgram {
 }
 
 model CfProgramWorkflowConfig {
-  id                               String   @id @default(cuid())
-  organizationId                   String
-  programId                        String
-  enabled                          Boolean  @default(true)
-  sendContractAfterIntake          Boolean  @default(false)
-  sendWelcomeAfterContractSigned   Boolean  @default(false)
-  activeContractTemplateId         String?
-  activeContractVersionId          String?
-  activeWelcomeEmailTemplateId     String?
-  activeWelcomeEmailVersionId      String?
-  createdAt                        DateTime @default(now())
-  updatedAt                        DateTime @updatedAt
+  id                             String   @id @default(cuid())
+  organizationId                 String
+  programId                      String
+  enabled                        Boolean  @default(true)
+  sendContractAfterIntake        Boolean  @default(false)
+  sendWelcomeAfterContractSigned Boolean  @default(false)
+  activeContractTemplateId       String?
+  activeContractVersionId        String?
+  activeWelcomeEmailTemplateId   String?
+  activeWelcomeEmailVersionId    String?
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
 
   @@unique([organizationId, programId])
   @@index([organizationId, programId])
@@ -396,16 +396,16 @@ model CfProgramWelcomeEmailTemplate {
 }
 
 model CfProgramWelcomeEmailVersion {
-  id               String   @id @default(cuid())
-  organizationId   String
-  templateId       String
-  version          Int
-  subject          String
-  body             String   @db.Text
+  id                String   @id @default(cuid())
+  organizationId    String
+  templateId        String
+  version           Int
+  subject           String
+  body              String   @db.Text
   guideStoredFileId String?
-  createdBy        String
-  allowedVariables Json     @default("[]")
-  createdAt        DateTime @default(now())
+  createdBy         String
+  allowedVariables  Json     @default("[]")
+  createdAt         DateTime @default(now())
 
   guideStoredFile CfStoredFile? @relation("ProgramWelcomeGuideStoredFile", fields: [guideStoredFileId], references: [id], onDelete: SetNull)
 
@@ -432,19 +432,19 @@ model CfProgramAutomationRule {
 }
 
 model CfProgramDocumentTemplate {
-  id                String           @id @default(cuid())
+  id                String            @id @default(cuid())
   organizationId    String
   programId         String
   name              String
   type              String
-  required          Boolean          @default(true)
-  signatureRequired Boolean          @default(false)
-  autoSend          Boolean          @default(false)
+  required          Boolean           @default(true)
+  signatureRequired Boolean           @default(false)
+  autoSend          Boolean           @default(false)
   trigger           CfProgramTrigger?
   activeVersionId   String?
-  isActive          Boolean          @default(true)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@unique([organizationId, programId, name])
   @@index([organizationId, programId, isActive])
@@ -606,21 +606,21 @@ model CfProgramBillingConfig {
 /// changing them ends this row and inserts a new one. A hand-written partial unique index
 /// (see migration SQL) enforces at most one row with status = 'active' per enrollmentId.
 model CfEnrollmentBillingAgreement {
-  id                    String                    @id @default(cuid())
-  organizationId        String
-  enrollmentId          String
-  amount                Decimal                   @default(0) @db.Decimal(10, 2)
-  frequency             CfBillingFrequency
-  customIntervalDays    Int?
-  startDate             DateTime
-  endDate               DateTime?
-  defaultDueDay         Int?
-  status                CfBillingAgreementStatus  @default(active)
-  nextDueDate           DateTime?
-  createdByUserId       String?
-  createdByDisplayName  String?
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  id                   String                   @id @default(cuid())
+  organizationId       String
+  enrollmentId         String
+  amount               Decimal                  @default(0) @db.Decimal(10, 2)
+  frequency            CfBillingFrequency
+  customIntervalDays   Int?
+  startDate            DateTime
+  endDate              DateTime?
+  defaultDueDay        Int?
+  status               CfBillingAgreementStatus @default(active)
+  nextDueDate          DateTime?
+  createdByUserId      String?
+  createdByDisplayName String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
 
   @@index([organizationId, enrollmentId, status])
 }
@@ -631,26 +631,26 @@ model CfEnrollmentBillingAgreement {
 /// rows for the same enrollment+period; ordinary manual payments are not constrained, since
 /// partial/multiple payments within the same period are an intentional, supported case.
 model CfPaymentRecord {
-  id                   String          @id @default(cuid())
-  organizationId       String
-  enrollmentId         String
-  billingAgreementId   String
-  amount               Decimal         @db.Decimal(10, 2)
-  paymentDate          DateTime
-  paymentMethod        CfPaymentMethod
-  billingPeriodStart   DateTime
-  billingPeriodEnd     DateTime
-  source               CfPaymentSource @default(manual)
-  note                 String?
-  recordedByUserId     String?
+  id                    String          @id @default(cuid())
+  organizationId        String
+  enrollmentId          String
+  billingAgreementId    String
+  amount                Decimal         @db.Decimal(10, 2)
+  paymentDate           DateTime
+  paymentMethod         CfPaymentMethod
+  billingPeriodStart    DateTime
+  billingPeriodEnd      DateTime
+  source                CfPaymentSource @default(manual)
+  note                  String?
+  recordedByUserId      String?
   recordedByDisplayName String?
-  voidedAt             DateTime?
-  voidedByUserId       String?
-  voidedByDisplayName  String?
-  voidReason           String?
+  voidedAt              DateTime?
+  voidedByUserId        String?
+  voidedByDisplayName   String?
+  voidReason            String?
   /// Set by the client for a recorded payment so a retried request can't record it twice.
-  idempotencyKey       String?
-  createdAt            DateTime        @default(now())
+  idempotencyKey        String?
+  createdAt             DateTime        @default(now())
 
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, enrollmentId, paymentDate])
@@ -713,7 +713,6 @@ model CfContract {
   @@index([executedStoredFileId])
 }
 
-
 model CfMonitoringTask {
   id              String   @id @default(cuid())
   organizationId  String
@@ -763,15 +762,15 @@ model CfDocument {
 }
 
 model CfStoredFile {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   organizationId   String
-  storageKey       String   @unique
+  storageKey       String    @unique
   originalFileName String
   mimeType         String
   sizeBytes        Int
-  status           String   @default("REQUESTED")
+  status           String    @default("REQUESTED")
   uploadedByUserId String?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
   completedAt      DateTime?
 
   documents            CfDocument[]                   @relation("ClientDocumentStoredFile")
@@ -812,35 +811,35 @@ model CfCommunication {
   organizationId   String
   clientId         String
   enrollmentId     String?
-  eventId           String?   @unique
+  eventId          String?   @unique
   formAssignmentId String?
-  formId            String?
-  contractId        String?
-  recipientEmail    String?
-  channel           String?
-  provider          String?
-  status            String?
-  requestedAt       DateTime?
-  sentAt            DateTime?
-  failedAt          DateTime?
-  errorCode         String?
-  createdByUserId   String?
-  type               String
-  direction          String
-  subject            String
-  notes              String    @default("")
-  renderedSubject    String?
-  renderedBody       String?
-  templateContext    Json?
-  date               DateTime
-  staffMember        String
+  formId           String?
+  contractId       String?
+  recipientEmail   String?
+  channel          String?
+  provider         String?
+  status           String?
+  requestedAt      DateTime?
+  sentAt           DateTime?
+  failedAt         DateTime?
+  errorCode        String?
+  createdByUserId  String?
+  type             String
+  direction        String
+  subject          String
+  notes            String    @default("")
+  renderedSubject  String?
+  renderedBody     String?
+  templateContext  Json?
+  date             DateTime
+  staffMember      String
   /// Where the send came from: manual_staff_action, automation. Null on older rows.
-  source             String?
+  source           String?
   /// One key per send attempt. A retried request reuses it, so it cannot send twice.
-  idempotencyKey     String?
-  isDemo             Boolean   @default(false)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  idempotencyKey   String?
+  isDemo           Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, isDemo])
@@ -919,37 +918,37 @@ model CfProgramAutomationExecution {
 }
 
 model CfProgramEnrollment {
-  id                   String                 @id @default(cuid())
-  organizationId       String
-  clientId             String
-  programId            String
-  status               CfEnrollmentStatus     @default(interested)
-  assignedUserId       String?
-  assignedStaff        String?
-  lastModifiedByUserId String?
+  id                        String                 @id @default(cuid())
+  organizationId            String
+  clientId                  String
+  programId                 String
+  status                    CfEnrollmentStatus     @default(interested)
+  assignedUserId            String?
+  assignedStaff             String?
+  lastModifiedByUserId      String?
   lastModifiedByDisplayName String?
-  startDate            DateTime?
-  nextAction           String?
-  nextActionDate       DateTime?
-  progressPercentage   Int                    @default(0)
-  targetCompletionDate DateTime?
-  currentGoalId        String?
-  lastProgressUpdate   DateTime?
-  clientResponsiveness CfClientResponsiveness @default(unknown)
-  currentBlockers      String?
-  riskLevel            CfEnrollmentRiskLevel  @default(low)
-  staffProgressNotes   String?
-  meetingsAttended     Int                    @default(0)
-  outcomeAchieved      CfOutcomeAchieved      @default(pending)
-  finalOutcomeSummary  String?
-  completedAt          DateTime?
-  withdrawnAt          DateTime?
-  onHoldReason         String?
-  isDemo               Boolean                @default(false)
-  isArchived           Boolean                @default(false)
-  archivedAt           DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  startDate                 DateTime?
+  nextAction                String?
+  nextActionDate            DateTime?
+  progressPercentage        Int                    @default(0)
+  targetCompletionDate      DateTime?
+  currentGoalId             String?
+  lastProgressUpdate        DateTime?
+  clientResponsiveness      CfClientResponsiveness @default(unknown)
+  currentBlockers           String?
+  riskLevel                 CfEnrollmentRiskLevel  @default(low)
+  staffProgressNotes        String?
+  meetingsAttended          Int                    @default(0)
+  outcomeAchieved           CfOutcomeAchieved      @default(pending)
+  finalOutcomeSummary       String?
+  completedAt               DateTime?
+  withdrawnAt               DateTime?
+  onHoldReason              String?
+  isDemo                    Boolean                @default(false)
+  isArchived                Boolean                @default(false)
+  archivedAt                DateTime?
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
 
   @@unique([clientId, programId])
   @@index([organizationId])
@@ -960,15 +959,15 @@ model CfProgramEnrollment {
 }
 
 model CfEnrollmentStatusHistory {
-  id              String              @id @default(cuid())
-  organizationId  String
-  enrollmentId    String
-  previousStatus  CfEnrollmentStatus?
-  newStatus       CfEnrollmentStatus
-  changedByUserId String?
+  id                   String              @id @default(cuid())
+  organizationId       String
+  enrollmentId         String
+  previousStatus       CfEnrollmentStatus?
+  newStatus            CfEnrollmentStatus
+  changedByUserId      String?
   changedByDisplayName String?
-  reason          String?
-  createdAt       DateTime            @default(now())
+  reason               String?
+  createdAt            DateTime            @default(now())
 
   @@index([organizationId, enrollmentId])
   @@index([enrollmentId, createdAt])
@@ -1366,4 +1365,89 @@ model CfEnrollmentMonitoringEvidence {
   @@index([organizationId, enrollmentId])
   @@index([organizationId, documentId])
   @@index([organizationId, isDemo])
+}
+
+/// How often a program deliverable recurs. Only MONTHLY is instantiated per client today; the
+/// other values are accepted on templates so new cadences don't need a schema change.
+enum CfDeliverableCadence {
+  MONTHLY
+  QUARTERLY
+  ONE_TIME
+  AS_NEEDED
+}
+
+enum CfDeliverableCycleStatus {
+  OPEN
+  FINALIZED
+}
+
+enum CfDeliverableStatus {
+  NOT_STARTED
+  AVAILABLE
+  SCHEDULED
+  IN_PROGRESS
+  DELIVERED
+  COMPLETED
+  NOT_APPLICABLE
+}
+
+/// What a program promises its clients each period. Titles and descriptions are program-defined.
+model CfProgramDeliverableTemplate {
+  id             String               @id @default(cuid())
+  organizationId String
+  programId      String
+  title          String
+  description    String?
+  cadence        CfDeliverableCadence @default(MONTHLY)
+  active         Boolean              @default(true)
+  sortOrder      Int                  @default(0)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, programId, active])
+}
+
+/// One reporting period (normally a month) of deliverables for one enrollment.
+model CfEnrollmentDeliverableCycle {
+  id                     String                   @id @default(cuid())
+  organizationId         String
+  enrollmentId           String
+  cadence                CfDeliverableCadence     @default(MONTHLY)
+  periodStart            DateTime
+  periodEnd              DateTime
+  label                  String
+  status                 CfDeliverableCycleStatus @default(OPEN)
+  finalizedAt            DateTime?
+  finalizedByUserId      String?
+  finalizedByDisplayName String?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+
+  @@unique([enrollmentId, cadence, periodStart])
+  @@index([organizationId, enrollmentId])
+}
+
+/// A deliverable tracked for one client's enrollment in one cycle. Title and description are
+/// snapshots taken when the cycle was created, so later template edits never rewrite history.
+model CfEnrollmentDeliverable {
+  id                           String              @id @default(cuid())
+  organizationId               String
+  cycleId                      String
+  enrollmentId                 String
+  programDeliverableTemplateId String
+  titleSnapshot                String
+  descriptionSnapshot          String?
+  sortOrder                    Int                 @default(0)
+  status                       CfDeliverableStatus @default(NOT_STARTED)
+  scheduledFor                 DateTime?
+  completedAt                  DateTime?
+  notes                        String?
+  outcome                      String?
+  isNextAction                 Boolean             @default(false)
+  createdAt                    DateTime            @default(now())
+  updatedAt                    DateTime            @updatedAt
+
+  @@unique([cycleId, programDeliverableTemplateId])
+  @@index([organizationId, enrollmentId])
+  @@index([cycleId])
 }

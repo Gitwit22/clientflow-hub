@@ -37,6 +37,15 @@ import type {
   Terms,
 } from "@/types";
 
+import type {
+  DeliverableCadence,
+  DeliverableCycle,
+  DeliverableCycleHistoryEntry,
+  DeliverableCycleView,
+  DeliverableStatus,
+  EnrollmentDeliverable,
+  ProgramDeliverableTemplate,
+} from "@/lib/program-deliverables";
 export type { PublicFormResponseValue } from "@/types";
 
 const CLIENTFLOW_API_URL =
@@ -1514,4 +1523,98 @@ export async function acfPreviewLegacyData() {
 /** POST /maintenance/legacy-data/apply — apply the legacy cleanup (org admins, idempotent). */
 export async function acfApplyLegacyData() {
   return apiRequest<LegacyDataReport>("/api/v1/maintenance/legacy-data/apply", { method: "POST" });
+}
+
+// --- Program Deliverables --------------------------------------------------------------------
+
+const programDeliverablesPath = (programId: string) =>
+  `/api/v1/programs/${encodeURIComponent(programId)}/deliverables`;
+const enrollmentDeliverablesPath = (enrollmentId: string) =>
+  `/api/v1/enrollments/${encodeURIComponent(enrollmentId)}/deliverables`;
+
+/** GET /programs/:programId/deliverables */
+export async function cfListProgramDeliverables(programId: string) {
+  return apiRequest<ProgramDeliverableTemplate[]>(programDeliverablesPath(programId));
+}
+
+/** POST /programs/:programId/deliverables */
+export async function cfCreateProgramDeliverable(
+  programId: string,
+  data: { title: string; description?: string | null; cadence?: DeliverableCadence },
+) {
+  return apiRequest<ProgramDeliverableTemplate>(programDeliverablesPath(programId), {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** PATCH /programs/:programId/deliverables/:templateId */
+export async function cfUpdateProgramDeliverable(
+  programId: string,
+  templateId: string,
+  data: Partial<Pick<ProgramDeliverableTemplate, "title" | "description" | "cadence" | "active">>,
+) {
+  return apiRequest<ProgramDeliverableTemplate>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}`,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+/** POST /programs/:programId/deliverables/reorder */
+export async function cfReorderProgramDeliverables(programId: string, orderedIds: string[]) {
+  return apiRequest<ProgramDeliverableTemplate[]>(`${programDeliverablesPath(programId)}/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ orderedIds }),
+  });
+}
+
+/** GET /enrollments/:enrollmentId/deliverables/current — creates this month's cycle on first use. */
+export async function cfGetCurrentDeliverables(enrollmentId: string) {
+  return apiRequest<DeliverableCycleView>(`${enrollmentDeliverablesPath(enrollmentId)}/current`);
+}
+
+/** GET /enrollments/:enrollmentId/deliverables/history */
+export async function cfListDeliverableHistory(enrollmentId: string) {
+  return apiRequest<DeliverableCycleHistoryEntry[]>(`${enrollmentDeliverablesPath(enrollmentId)}/history`);
+}
+
+/** GET /enrollments/:enrollmentId/deliverables/cycles/:cycleId */
+export async function cfGetDeliverableCycle(enrollmentId: string, cycleId: string) {
+  return apiRequest<DeliverableCycleView>(
+    `${enrollmentDeliverablesPath(enrollmentId)}/cycles/${encodeURIComponent(cycleId)}`,
+  );
+}
+
+/** PATCH /enrollments/:enrollmentId/deliverables/:deliverableId */
+export async function cfUpdateEnrollmentDeliverable(
+  enrollmentId: string,
+  deliverableId: string,
+  data: {
+    status?: DeliverableStatus;
+    scheduledFor?: string | null;
+    notes?: string | null;
+    outcome?: string | null;
+    isNextAction?: false;
+  },
+) {
+  return apiRequest<EnrollmentDeliverable>(
+    `${enrollmentDeliverablesPath(enrollmentId)}/${encodeURIComponent(deliverableId)}`,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+/** POST /enrollments/:enrollmentId/deliverables/:deliverableId/set-next-action */
+export async function cfSetDeliverableNextAction(enrollmentId: string, deliverableId: string) {
+  return apiRequest<EnrollmentDeliverable>(
+    `${enrollmentDeliverablesPath(enrollmentId)}/${encodeURIComponent(deliverableId)}/set-next-action`,
+    { method: "POST" },
+  );
+}
+
+/** POST /enrollments/:enrollmentId/deliverables/cycles/:cycleId/finalize */
+export async function cfFinalizeDeliverableCycle(enrollmentId: string, cycleId: string) {
+  return apiRequest<DeliverableCycle>(
+    `${enrollmentDeliverablesPath(enrollmentId)}/cycles/${encodeURIComponent(cycleId)}/finalize`,
+    { method: "POST" },
+  );
 }
