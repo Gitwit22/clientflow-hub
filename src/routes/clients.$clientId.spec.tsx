@@ -19,6 +19,8 @@ const downloadExecutedContract = vi.fn();
 const sendSignedAgreementCopy = vi.fn();
 const updateEnrollment = vi.fn();
 const cfGetCurrentDeliverables = vi.fn();
+const cfGetProgramHistory = vi.fn();
+const createFinalReport = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   addCommunication: vi.fn(),
@@ -26,7 +28,7 @@ vi.mock("@/lib/api", () => ({
   cancelFormAssignment: vi.fn(),
   createEnrollment: (...args: unknown[]) => createEnrollment(...args),
   createEnrollmentMonitoring: vi.fn(),
-  createFinalReport: vi.fn(),
+  createFinalReport: (...args: unknown[]) => createFinalReport(...args),
   downloadDocument: vi.fn(),
   downloadExecutedContract: (...args: unknown[]) => downloadExecutedContract(...args),
   sendSignedAgreementCopy: (...args: unknown[]) => sendSignedAgreementCopy(...args),
@@ -48,6 +50,7 @@ vi.mock("@/lib/apiClient", () => ({
   cfGetBillingDashboard: (...args: unknown[]) => cfGetBillingDashboard(...args),
   cfGetCurrentDeliverables: (...args: unknown[]) => cfGetCurrentDeliverables(...args),
   cfListDeliverableHistory: vi.fn().mockResolvedValue([]),
+  cfGetProgramHistory: (...args: unknown[]) => cfGetProgramHistory(...args),
   cfGetDeliverableCycle: vi.fn(),
   cfFinalizeDeliverableCycle: vi.fn(),
   cfUpdateEnrollmentDeliverable: vi.fn(),
@@ -632,32 +635,36 @@ describe("one Send workflow in the client header", () => {
       reason: null,
     };
 
-    it("Overview shows the next program action and the month's progress", async () => {
+    it("Overview shows the next action worked out from the deliverables, and the month's progress", async () => {
       seed({ enrollments: [enrollment("e1", "p1")] });
       cfGetCurrentDeliverables.mockResolvedValue(october);
       mountRouter("/clients/c1?enrollmentId=e1&tab=overview");
 
-      const block = await screen.findByLabelText("Next program action");
+      const block = await screen.findByLabelText("Next action");
       expect(within(block).getByText("LIVE Grant Giveaway")).toBeTruthy();
-      expect(within(block).getByText(/October 21, 2026/)).toBeTruthy();
+      expect(within(block).getByText(/Scheduled · October 21, 2026/)).toBeTruthy();
       expect(
-        within(block).getByText("October 2026 deliverables: 1 of 3 delivered · 1 not applicable"),
+        within(block).getByText("October 2026 · 1 of 3 delivered · 1 not applicable"),
       ).toBeTruthy();
       expect(cfGetCurrentDeliverables).toHaveBeenCalledWith("e1");
+      // No hand-typed next action anywhere on the Overview.
+      expect(screen.getAllByText("Next action")).toHaveLength(1);
     });
 
-    it("Overview says so when nothing is selected, and shows nothing without deliverables", async () => {
+    it("Overview says when everything is done, and when the program has no deliverables", async () => {
       seed({ enrollments: [enrollment("e1", "p1")] });
-      cfGetCurrentDeliverables.mockResolvedValue({ ...october, nextAction: null });
+      cfGetCurrentDeliverables.mockResolvedValue({
+        ...october,
+        nextAction: null,
+        summary: { total: 3, deliveredOrCompleted: 2, available: 0, notApplicable: 1, open: 0 },
+      });
       mountRouter("/clients/c1?enrollmentId=e1&tab=overview");
-      expect(await screen.findByText("No next program action selected")).toBeTruthy();
+      expect(await screen.findByText("All current deliverables completed")).toBeTruthy();
 
       cleanup();
       cfGetCurrentDeliverables.mockResolvedValue(noDeliverables);
       mountRouter("/clients/c1?enrollmentId=e1&tab=overview");
-      await screen.findByRole("tab", { name: "Billing" });
-      await waitFor(() => expect(cfGetCurrentDeliverables).toHaveBeenCalled());
-      expect(screen.queryByLabelText("Next program action")).toBeNull();
+      expect(await screen.findByText("No program deliverables set up")).toBeTruthy();
     });
 
     it("Program tab lists this month's deliverables with their status", async () => {
@@ -671,6 +678,84 @@ describe("one Send workflow in the client header", () => {
       expect(screen.getByText("Delivered · 4 shared")).toBeTruthy();
       expect(screen.getByText("Not applicable this period")).toBeTruthy();
       expect(screen.getByText("Next action")).toBeTruthy();
+    });
+
+    it("Final Report shows the original request and every month from the deliverable records", async () => {
+      seed({ enrollments: [enrollment("e1", "p1")] });
+      createFinalReport.mockResolvedValue({ id: "fr1" });
+      const summary = (delivered: number, total: number) => ({
+        total,
+        deliveredOrCompleted: delivered,
+        available: 0,
+        notApplicable: 0,
+        open: total - delivered,
+      });
+      cfGetProgramHistory.mockResolvedValue({
+        enrollmentId: "e1",
+        programId: "p1",
+        joinedAt: "2026-09-02T00:00:00.000Z",
+        endedAt: null,
+        originalRequest: { assistanceRequested: "Equipment grant", budgetNeed: "$25,000" },
+        months: [
+          {
+            cycleId: "cy1",
+            label: "October 2026",
+            periodStart: "2026-10-01T04:00:00.000Z",
+            periodEnd: "2026-11-01T04:00:00.000Z",
+            status: "FINALIZED",
+            finalizedAt: "2026-11-01T12:00:00.000Z",
+            summary: summary(1, 2),
+            items: [
+              {
+                id: "i1",
+                title: "Brand Exposure & Visibility",
+                status: "DELIVERED",
+                scheduledFor: null,
+                completedAt: null,
+                outcome: "2 features",
+              },
+              {
+                id: "i2",
+                title: "Monthly Event",
+                status: "SCHEDULED",
+                scheduledFor: "2026-10-18T00:00:00.000Z",
+                completedAt: null,
+                outcome: null,
+              },
+            ],
+          },
+          {
+            cycleId: "cy2",
+            label: "November 2026",
+            periodStart: "2026-11-01T04:00:00.000Z",
+            periodEnd: "2026-12-01T05:00:00.000Z",
+            status: "OPEN",
+            finalizedAt: null,
+            summary: summary(0, 2),
+            items: [],
+          },
+        ],
+      });
+      mountRouter("/clients/c1?enrollmentId=e1&tab=final");
+
+      const history = await screen.findByLabelText("Program performance");
+      expect(within(history).getByText("Equipment grant")).toBeTruthy();
+      expect(within(history).getByText("Stated funding need: $25,000")).toBeTruthy();
+      expect(within(history).getByText(/October 2026 — 1 of 2 delivered/)).toBeTruthy();
+      expect(within(history).getByText(/Delivered · 2 features/)).toBeTruthy();
+      expect(within(history).getByText("In progress")).toBeTruthy();
+      expect(screen.queryByText("Original need / assistance requested")).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Save final report" }));
+      await waitFor(() => expect(createFinalReport).toHaveBeenCalled());
+      expect(createFinalReport.mock.calls[0][1]).toEqual(
+        expect.objectContaining({
+          enrollmentId: "e1",
+          startDate: "2026-09-02T00:00:00.000Z",
+          originalNeed: "Equipment grant",
+          milestonesCompleted: "October 2026: 1 of 2 delivered; November 2026: 0 of 2 delivered",
+        }),
+      );
     });
 
     it("Program tab shows the empty state when the program has no deliverables", async () => {

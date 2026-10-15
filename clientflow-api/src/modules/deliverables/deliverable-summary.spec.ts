@@ -46,7 +46,19 @@ describe('selectNextAction', () => {
     expect(selectNextAction([item('DELIVERED', { scheduledFor: oct21 }), later])).toBe(later);
   });
 
-  it('never picks an unscheduled item on its own', () => {
-    expect(selectNextAction([item('AVAILABLE'), item('NOT_STARTED')])).toBeNull();
+  it('without a date, picks the first item in progress, then the first other open item', () => {
+    const first = item('NOT_STARTED', { sortOrder: 0 });
+    const working = item('IN_PROGRESS', { sortOrder: 2 });
+    expect(selectNextAction([item('AVAILABLE', { sortOrder: 1 }), working, first])).toBe(working);
+    expect(selectNextAction([item('AVAILABLE', { sortOrder: 1 }), first])).toBe(first);
+  });
+
+  it('a dated item comes before one in progress', () => {
+    const dated = item('NOT_STARTED', { scheduledFor: oct28, sortOrder: 5 });
+    expect(selectNextAction([item('IN_PROGRESS', { sortOrder: 0 }), dated])).toBe(dated);
+  });
+
+  it('returns nothing when every item is resolved', () => {
+    expect(selectNextAction([item('DELIVERED'), item('NOT_APPLICABLE'), item('COMPLETED')])).toBeNull();
   });
 });

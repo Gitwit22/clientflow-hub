@@ -7,6 +7,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSendMenu";
 import { JoinedDateEditor } from "@/components/clients/JoinedDateEditor";
 import { NextProgramAction } from "@/components/clients/NextProgramAction";
+import { ProgramHistoryReport } from "@/components/clients/ProgramHistoryReport";
+import { programHistorySummary, type ProgramHistory } from "@/lib/program-deliverables";
 import { ProgramDeliverablesCard } from "@/components/clients/ProgramDeliverablesCard";
 import {
   enrollmentDatesLabel,
@@ -228,8 +230,9 @@ function ClientProfile() {
   const [ledgerOpen, setLedgerOpen] = useState(false);
 
   const [note, setNote] = useState("");
+  // The selected enrollment's program history, shown at the top of the Final Report form.
+  const [reportHistory, setReportHistory] = useState<ProgramHistory | null>(null);
   const [report, setReport] = useState({
-    originalNeed: "",
     resultsAchieved: "",
     issuesEncountered: "",
     recommendedNextSteps: "",
@@ -929,18 +932,6 @@ function ClientProfile() {
                   label="Assigned staff"
                   value={selectedEnrollment?.assignedStaff || client.assignedStaff || undefined}
                 />
-                <Row
-                  label="Next action"
-                  value={
-                    selectedEnrollment?.nextAction
-                      ? `${selectedEnrollment.nextAction}${
-                          selectedEnrollment.nextActionDate
-                            ? ` · ${new Date(selectedEnrollment.nextActionDate).toLocaleDateString()}`
-                            : ""
-                        }`
-                      : undefined
-                  }
-                />
                 {selectedEnrollment && (
                   <NextProgramAction
                     enrollmentId={selectedEnrollment.id}
@@ -1095,7 +1086,6 @@ function ClientProfile() {
                         <p className="mt-1 text-xs">{enrollmentDatesLabel(enrollment)}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           Assigned to {enrollment.assignedStaff || "Unassigned"}
-                          {enrollment.nextAction ? ` · Next: ${enrollment.nextAction}` : ""}
                         </p>
                       </div>
                     </Link>
@@ -1143,15 +1133,6 @@ function ClientProfile() {
                       />
                     </dl>
                     <dl>
-                      <Row label="Next action" value={selectedEnrollment.nextAction ?? undefined} />
-                      <Row
-                        label="Next action date"
-                        value={
-                          selectedEnrollment.nextActionDate
-                            ? new Date(selectedEnrollment.nextActionDate).toLocaleDateString()
-                            : undefined
-                        }
-                      />
                       <Row
                         label="Open monitoring items"
                         value={String(
@@ -1823,30 +1804,38 @@ function ClientProfile() {
                   <Row label="Original need" value={f.originalNeed} />
                   <Row label="Support provided" value={f.supportProvided} />
                   <Row label="Funding provided" value={f.fundingProvided} />
-                  <Row label="Milestones completed" value={f.milestonesCompleted} />
                 </dl>
                 <dl>
                   <Row label="Results achieved" value={f.resultsAchieved} />
                   <Row label="Issues encountered" value={f.issuesEncountered} />
                   <Row label="Staff comments" value={f.staffComments} />
                   <Row label="Client outcome" value={f.clientOutcome} />
+                  <Row label="Recommended next steps" value={f.recommendedNextSteps} />
                   <Row label="Archive decision" value={f.archiveDecision} />
                 </dl>
+                {f.enrollmentId && (
+                  <div className="border-t border-border pt-4 sm:col-span-2">
+                    <ProgramHistoryReport enrollmentId={f.enrollmentId} />
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
           <Card className="shadow-card">
             <CardContent className="space-y-3 p-5">
               <CardTitle className="font-display text-base">Complete final report</CardTitle>
-              <div className="space-y-1.5">
-                <Label>Original need / assistance requested</Label>
-                <Textarea
-                  rows={2}
-                  value={report.originalNeed}
-                  placeholder={client.intake?.assistanceRequested}
-                  onChange={(e) => setReport({ ...report, originalNeed: e.target.value })}
-                />
-              </div>
+              {selectedEnrollment ? (
+                <div className="rounded-md border border-border p-4">
+                  <ProgramHistoryReport
+                    enrollmentId={selectedEnrollment.id}
+                    onLoaded={setReportHistory}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Select a program enrollment to include its program history.
+                </p>
+              )}
               <div className="space-y-1.5">
                 <Label>Results achieved</Label>
                 <Textarea
@@ -1895,12 +1884,19 @@ function ClientProfile() {
                       createFinalReport(client.id, {
                         programId: selectedEnrollment?.programId ?? "",
                         enrollmentId: selectedEnrollment?.id ?? null,
-                        startDate: client.createdAt,
-                        endDate: new Date().toISOString(),
-                        originalNeed: report.originalNeed || client.intake?.assistanceRequested,
+                        startDate: reportHistory?.joinedAt ?? client.createdAt,
+                        endDate: reportHistory?.endedAt ?? new Date().toISOString(),
+                        // Kept with the report for exports; the screen reads the live history.
+                        originalNeed:
+                          reportHistory?.originalRequest.assistanceRequested ??
+                          client.intake?.assistanceRequested ??
+                          "",
                         supportProvided: selectedProgram?.name ?? "",
                         fundingProvided: terms[0] ? formatMoney(terms[0].fundingAmount) : "—",
-                        milestonesCompleted: terms[0]?.milestones ?? "—",
+                        milestonesCompleted:
+                          reportHistory && reportHistory.enrollmentId === selectedEnrollment?.id
+                            ? programHistorySummary(reportHistory) || "—"
+                            : (terms[0]?.milestones ?? "—"),
                         resultsAchieved: report.resultsAchieved,
                         issuesEncountered: report.issuesEncountered || "None recorded",
                         staffComments: report.staffComments,

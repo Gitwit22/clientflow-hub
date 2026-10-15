@@ -61,6 +61,44 @@ export type CurrentCycleView =
   | (CycleView & { reason: null })
   | { cycle: null; items: []; summary: DeliverableSummary; nextAction: null; reason: 'no_deliverables_configured' | 'enrollment_not_active' };
 
+/** One member's next action for the program's member list. */
+export interface MemberNextAction {
+  cycleLabel: string;
+  title: string | null;
+  status: CfDeliverableStatus | null;
+  scheduledFor: Date | null;
+  delivered: number;
+  total: number;
+  /** Every deliverable this period is delivered, completed or not applicable. */
+  allResolved: boolean;
+}
+
+export interface ProgramHistory {
+  enrollmentId: string;
+  programId: string;
+  joinedAt: Date | null;
+  endedAt: Date | null;
+  /** What the client asked for on the intake. */
+  originalRequest: { assistanceRequested: string | null; budgetNeed: string | null };
+  months: Array<{
+    cycleId: string;
+    label: string;
+    periodStart: Date;
+    periodEnd: Date;
+    status: CfEnrollmentDeliverableCycle['status'];
+    finalizedAt: Date | null;
+    summary: DeliverableSummary;
+    items: Array<{
+      id: string;
+      title: string;
+      status: CfDeliverableStatus;
+      scheduledFor: Date | null;
+      completedAt: Date | null;
+      outcome: string | null;
+    }>;
+  }>;
+}
+
 const EMPTY_SUMMARY: DeliverableSummary = { total: 0, deliveredOrCompleted: 0, available: 0, notApplicable: 0, open: 0 };
 
 function isValidTimezone(timezone: string): boolean {
@@ -411,6 +449,104 @@ export class ProgramDeliverablesService {
       ...cycle,
       summary: summarizeDeliverables(items.filter((item) => item.cycleId === cycle.id)),
     }));
+  }
+
+  /**
+   * Each member's next action from their newest checklist (the same month the Overview shows),
+   * for the program's member list.
+   * Read-only: never creates a checklist. Members without one are left out.
+   */
+  async listNextActions(organizationId: string, programId: string): Promise<Record<string, MemberNextAction>> {
+    await findProgramForOrg(this.prisma, organizationId, programId);
+    const enrollments = await this.prisma.cfProgramEnrollment.findMany({
+      where: { organizationId, programId },
+      select: { id: true },
+    });
+    if (!enrollments.length) return {};
+    const cycles = await this.prisma.cfEnrollmentDeliverableCycle.findMany({
+      where: { organizationId, enrollmentId: { in: enrollments.map((enrollment) => enrollment.id) } },
+      orderBy: { periodStart: 'desc' },
+    });
+    const newest = new Map<string, CfEnrollmentDeliverableCycle>();
+    for (const cycle of cycles) if (!newest.has(cycle.enrollmentId)) newest.set(cycle.enrollmentId, cycle);
+    if (!newest.size) return {};
+    const items = await this.prisma.cfEnrollmentDeliverable.findMany({
+      where: { organizationId, cycleId: { in: [...newest.values()].map((cycle) => cycle.id) } },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    const result: Record<string, MemberNextAction> = {};
+    for (const [enrollmentId, cycle] of newest) {
+      const own = items.filter((item) => item.cycleId === cycle.id);
+      const summary = summarizeDeliverables(own);
+      const next = selectNextAction(own);
+      result[enrollmentId] = {
+        cycleLabel: cycle.label,
+        title: next?.titleSnapshot ?? null,
+        status: next?.status ?? null,
+        scheduledFor: next?.scheduledFor ?? null,
+        delivered: summary.deliveredOrCompleted,
+        total: summary.total,
+        allResolved: summary.total > 0 && summary.open === 0,
+      };
+    }
+    return result;
+  }
+
+  /**
+   * The enrollment's whole program history for the Final Report: what the client asked for, and
+   * every month's deliverables oldest first. Read straight from the stored checklists, so the report
+   * never holds a second copy of them.
+   */
+  async getProgramHistory(organizationId: string, enrollmentId: string): Promise<ProgramHistory> {
+    const enrollment = await findEnrollmentForOrg(this.prisma, organizationId, enrollmentId);
+    const client = await this.prisma.cfClient.findFirst({
+      where: { id: enrollment.clientId, organizationId },
+      select: { intake: true },
+    });
+    const intake = client?.intake && typeof client.intake === 'object' && !Array.isArray(client.intake)
+      ? (client.intake as Record<string, unknown>)
+      : {};
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+    const cycles = await this.prisma.cfEnrollmentDeliverableCycle.findMany({
+      where: { organizationId, enrollmentId },
+      orderBy: { periodStart: 'asc' },
+    });
+    const items = cycles.length
+      ? await this.prisma.cfEnrollmentDeliverable.findMany({
+          where: { organizationId, enrollmentId, cycleId: { in: cycles.map((cycle) => cycle.id) } },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        })
+      : [];
+    return {
+      enrollmentId: enrollment.id,
+      programId: enrollment.programId,
+      joinedAt: enrollment.startDate ?? null,
+      endedAt: enrollment.completedAt ?? enrollment.withdrawnAt ?? null,
+      originalRequest: {
+        assistanceRequested: text(intake.assistanceRequested),
+        budgetNeed: text(intake.budgetNeed),
+      },
+      months: cycles.map((cycle) => {
+        const own = items.filter((item) => item.cycleId === cycle.id);
+        return {
+          cycleId: cycle.id,
+          label: cycle.label,
+          periodStart: cycle.periodStart,
+          periodEnd: cycle.periodEnd,
+          status: cycle.status,
+          finalizedAt: cycle.finalizedAt,
+          summary: summarizeDeliverables(own),
+          items: own.map((item) => ({
+            id: item.id,
+            title: item.titleSnapshot,
+            status: item.status,
+            scheduledFor: item.scheduledFor,
+            completedAt: item.completedAt,
+            outcome: item.outcome,
+          })),
+        };
+      }),
+    };
   }
 
   async getCycle(organizationId: string, enrollmentId: string, cycleId: string): Promise<CycleView> {
