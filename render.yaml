@@ -83,3 +83,11 @@ services:
         value: org_ea_management
       - key: N8N_TIMEOUT_MS
         value: "15000"
+      # Support Hub monitoring (optional; telemetry is off until both are set)
+      - key: SUPPORT_HUB_URL
+        sync: false
+      - key: SUPPORT_HUB_TELEMETRY_KEY
+        sync: false
+      # Bearer token Support Hub uses for GET /api/v1/health/dependencies (32+ chars; endpoint off when unset)
+      - key: HEALTH_DEPENDENCIES_TOKEN
+        sync: false

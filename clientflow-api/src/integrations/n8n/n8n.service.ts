@@ -1,8 +1,9 @@
-import { Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { SUPPORT_HUB_TELEMETRY, supportHubTelemetry, toErrorCode, type TelemetryReporter } from '../support-hub/support-hub-telemetry';
 import { organizationHeaderImageUrl } from './email-branding';
 import type {
   ClientflowLifecyclePayload,
@@ -52,6 +53,8 @@ export class N8nService {
     private readonly config: ConfigService<Environment, true>,
     @Optional() private readonly prisma?: PrismaService,
     @Optional() private readonly storage?: StorageService,
+    // Not registered as a provider by default: falls back to the process-wide reporter.
+    @Optional() @Inject(SUPPORT_HUB_TELEMETRY) private readonly telemetry?: TelemetryReporter,
   ) {}
 
   /**
@@ -345,6 +348,15 @@ export class N8nService {
           : error instanceof N8nHttpError ? error.reason
             : error instanceof ServiceUnavailableException ? 'rejected' : 'unavailable';
       this.traceIntake('outbound.failed', payload, outboundFetchStarted, outboundStatus, errorCode);
+      // Every client email goes through here, so this is the email pipeline's failure signal.
+      // errorCode is already a safe classification (never the response body or the recipient).
+      (this.telemetry ?? supportHubTelemetry()).reportError({
+        severity: 'error',
+        component: 'email',
+        code: toErrorCode(`EMAIL_DELIVERY_${errorCode}`),
+        message: `n8n email delivery failed: ${errorCode}`,
+        context: { operation: payload.eventType, ...(outboundStatus ? { statusCode: outboundStatus } : {}) },
+      });
       throw error;
     } finally {
       clearTimeout(timeout);
