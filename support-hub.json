@@ -1,0 +1,19 @@
+{
+  "manifestVersion": 1,
+  "application": {
+    "id": "clientflow",
+    "name": "ClientFlow",
+    "description": "EA Management client lifecycle platform"
+  },
+  "healthChecks": [
+    { "name": "live", "path": "/api/v1/health/live" },
+    { "name": "ready", "path": "/api/v1/health/ready" },
+    { "name": "dependencies", "path": "/api/v1/health/dependencies", "requiresAuth": true }
+  ],
+  "environments": {
+    "production": {
+      "baseUrl": "https://clientflow-vjqd.onrender.com",
+      "authSecretName": "HC_CLIENTFLOW_PROD"
+    }
+  }
+}

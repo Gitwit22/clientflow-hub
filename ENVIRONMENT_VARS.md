@@ -49,6 +49,11 @@ request. A partial or malformed configuration disables telemetry with one warnin
 stops the API from starting. Only operational metadata is sent (component, error code, route template,
 request id, HTTP status), never client names, emails, form answers, contract content or tokens.
 
+On startup, ClientFlow sends one `info` event (`TELEMETRY_CONNECTED`, with the running version). It opens
+no incident; it is Support Hub's proof that the URL and key work. `support-hub.json` at the repo root is
+ClientFlow's monitoring manifest (health checks per environment), used by Support Hub's
+`npm run link-program` to link and verify this app.
+
 Health endpoints for Support Hub to poll:
 
 | Endpoint | Auth | Meaning |

@@ -1,5 +1,6 @@
 import {
   SupportHubTelemetry,
+  reportStartup,
   supportHubTelemetry,
   telemetryEnvironment,
   telemetryFromEnvironment,
@@ -139,3 +140,21 @@ describe('telemetry configuration', () => {
     expect(toErrorCode('!!!')).toBe('UNKNOWN_ERROR');
   });
 });
+
+describe('reportStartup', () => {
+  it('sends one info event that proves the link without opening an incident', async () => {
+    const fetchImpl = okFetch();
+    const telemetry = new SupportHubTelemetry({ eventsUrl: URL, telemetryKey: KEY, environment: 'production', version: 'abc123', fetchImpl });
+    reportStartup(telemetry);
+    await flush();
+    const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      type: 'info',
+      severity: 'info',
+      source: { service: 'clientflow-api', component: 'telemetry' },
+      error: { code: 'TELEMETRY_CONNECTED', message: 'ClientFlow API started' },
+      application: { id: 'clientflow', environment: 'production', version: 'abc123' },
+    });
+  });
+});
+

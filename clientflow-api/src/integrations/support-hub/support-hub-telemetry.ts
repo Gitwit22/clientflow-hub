@@ -26,8 +26,8 @@ export type TelemetryEnvironment = 'production' | 'staging' | 'development';
 export type TelemetrySeverity = 'critical' | 'error' | 'warning' | 'info';
 
 export interface TelemetryReport {
-  /** 'error' opens/joins an incident in Support Hub; 'warning' is recorded only. */
-  type?: 'error' | 'warning';
+  /** 'error' opens/joins an incident in Support Hub; 'warning' and 'info' are recorded only. */
+  type?: 'error' | 'warning' | 'info';
   severity: TelemetrySeverity;
   /** Functional area, e.g. "intake", "email", "clients". Becomes part of the incident fingerprint. */
   component: string;
@@ -258,4 +258,18 @@ export function supportHubTelemetry(): TelemetryReporter {
   if (process.env.NODE_ENV === 'test') return { reportError: () => undefined };
   shared ??= telemetryFromEnvironment(process.env);
   return shared;
+}
+
+/**
+ * One info event at startup. It opens no incident; it is Support Hub's proof that this deployment's
+ * SUPPORT_HUB_URL and key work (and it records which version is running). No-op when unconfigured.
+ */
+export function reportStartup(reporter: TelemetryReporter = supportHubTelemetry()): void {
+  reporter.reportError({
+    type: 'info',
+    severity: 'info',
+    component: 'telemetry',
+    code: 'TELEMETRY_CONNECTED',
+    message: 'ClientFlow API started',
+  });
 }

@@ -12,6 +12,7 @@ import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { CORS_ALLOWED_HEADERS } from './config/cors';
 import { sessionOriginCheck } from './config/origin-check';
 import { environmentSchema } from './config/env';
+import { reportStartup } from './integrations/support-hub/support-hub-telemetry';
 
 async function bootstrap(): Promise<void> {
   const environment = environmentSchema.parse(process.env);
@@ -51,6 +52,7 @@ async function bootstrap(): Promise<void> {
   }
 
   await app.listen(environment.PORT, environment.HOST);
+  reportStartup();
 }
 
 void bootstrap();
