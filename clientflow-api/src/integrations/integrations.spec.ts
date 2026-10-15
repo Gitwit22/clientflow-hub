@@ -4,6 +4,7 @@ import type { Environment } from '../config/env';
 import { EmailService } from './email/email.service';
 import { N8nService } from './n8n/n8n.service';
 import { StorageService } from './storage/storage.service';
+import type { TelemetryReport } from './support-hub/support-hub-telemetry';
 
 function disabledConfig(): ConfigService<Environment, true> {
   return { get: jest.fn().mockReturnValue('false') } as unknown as ConfigService<Environment, true>;
@@ -321,5 +322,59 @@ describe('email header logo on every n8n event', () => {
     await expect(service.sendContract('contract.send:c-1', contractSend))
       .resolves.toEqual(expect.objectContaining({ status: 'sent' }));
     expect(sentBody()).not.toHaveProperty('headerImageUrl');
+  });
+});
+
+describe('n8n delivery failures → Support Hub telemetry', () => {
+  const payload = {
+    organizationId: 'org_ea_management',
+    clientId: 'client_123',
+    recipientEmail: 'client@example.com',
+    clientName: 'Client Name',
+    programName: 'Brand Awareness Subscription',
+    contractName: 'Brand Awareness Service Agreement',
+    contractUrl: 'https://clientflow.example.com/contracts/token',
+    dueDate: '2026-09-28',
+    sentByUserId: 'system',
+  };
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('reports a rejected send with the safe failure reason and no recipient data', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response('internal details', { status: 500 }));
+    const reportError = jest.fn<void, [TelemetryReport]>();
+    const service = new N8nService(configuredN8n(), undefined, undefined, { reportError });
+
+    await expect(service.sendContract('contract.send:c1:e1', payload)).resolves.toEqual(
+      expect.objectContaining({ status: 'failed', reason: 'n8n_http_500' }),
+    );
+    expect(reportError).toHaveBeenCalledWith({
+      severity: 'error',
+      component: 'email',
+      code: 'EMAIL_DELIVERY_N8N_HTTP_500',
+      message: 'n8n email delivery failed: n8n_http_500',
+      context: { operation: 'contract.send', statusCode: 500 },
+    });
+    const sent = JSON.stringify(reportError.mock.calls);
+    expect(sent).not.toContain('client@example.com');
+    expect(sent).not.toContain('Client Name');
+    expect(sent).not.toContain('internal details');
+  });
+
+  it('reports network failures and does not report successful or skipped sends', async () => {
+    const reportError = jest.fn<void, [TelemetryReport]>();
+    jest.spyOn(global, 'fetch').mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }));
+    await new N8nService(configuredN8n(), undefined, undefined, { reportError }).sendContract('contract.send:c1:e2', payload);
+    expect(reportError.mock.calls[0][0]).toMatchObject({ code: 'EMAIL_DELIVERY_ECONNREFUSED', context: { operation: 'contract.send' } });
+
+    reportError.mockClear();
+    jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const sent = JSON.parse((init as RequestInit).body as string) as { eventId: string };
+      return new Response(JSON.stringify({ success: true, eventId: sent.eventId, sentAt: '2030-01-01T00:00:00.000Z' }), { status: 202 });
+    });
+    await new N8nService(configuredN8n(), undefined, undefined, { reportError }).sendContract('contract.send:c1:e3', payload);
+    await new N8nService(disabledConfig(), undefined, undefined, { reportError }).sendContract('contract.send:c1:e4', payload);
+    expect(reportError).not.toHaveBeenCalled();
   });
 });

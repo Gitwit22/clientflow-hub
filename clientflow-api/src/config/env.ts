@@ -42,6 +42,13 @@ const environmentObjectSchema = z.object({
   N8N_FORM_EMAIL_BEARER_TOKEN: z.string().optional(),
   N8N_FORM_EMAIL_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   N8N_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  // Support Hub telemetry. Optional, and never fatal: bad values disable telemetry with a warning
+  // instead of stopping ClientFlow from booting.
+  SUPPORT_HUB_URL: z.string().optional(),
+  SUPPORT_HUB_TELEMETRY_KEY: z.string().optional(),
+  SUPPORT_HUB_ENVIRONMENT: z.string().optional(),
+  // Bearer token for GET /health/dependencies (32+ characters); the endpoint is off when unset.
+  HEALTH_DEPENDENCIES_TOKEN: z.string().optional(),
 }).superRefine((environment, context) => {
   if (environment.NODE_ENV === 'production' && !environment.DATABASE_URL) {
     context.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'DATABASE_URL is required in production.' });
