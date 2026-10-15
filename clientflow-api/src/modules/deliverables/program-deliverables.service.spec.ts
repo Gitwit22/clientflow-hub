@@ -41,6 +41,10 @@ function setup() {
       template('t-review', 'p-coach', 'Financial Review', 1),
       template('t-foreign', 'p-foreign', 'Their Deliverable', 0, { organizationId: OTHER_ORG }),
     ],
+    cfClient: [
+      { id: 'c1', organizationId: ORG, intake: { assistanceRequested: 'Grant funding for equipment', budgetNeed: '$25,000' } },
+      { id: 'c4', organizationId: ORG, intake: {} },
+    ],
     cfEnrollmentDeliverableCycle: [],
     cfProgramDeliverableSchedule: [],
     cfEnrollmentDeliverable: [],
@@ -224,14 +228,15 @@ describe('ProgramDeliverablesService: tracking a deliverable', () => {
     expect(rows.cfActivityLog.filter((row) => row.action === DELIVERABLE_ACTIVITY.nextActionSet)).toHaveLength(2);
   });
 
-  it('drops a completed next action, then falls back to the nearest scheduled item, never an unscheduled one', async () => {
+  it('drops a completed next action, then falls back to the first open item, and a dated one wins', async () => {
     const { service, byTitle } = await october();
     await service.setNextAction(ORG, staff, 'e-idi', byTitle('Networking Event').id);
     await service.updateDeliverable(ORG, staff, 'e-idi', byTitle('Networking Event').id, { status: 'COMPLETED' });
 
     let view = await service.getCurrent(ORG, 'e-idi', OCT);
     expect(view.items.find((item) => item.titleSnapshot === 'Networking Event')?.isNextAction).toBe(false);
-    expect(view.nextAction).toBeNull(); // nothing scheduled: no arbitrary pick
+    // Nothing dated or in progress: the first open item in the program's order.
+    expect(view.nextAction?.titleSnapshot).toBe(view.items.find((item) => item.status !== 'COMPLETED')?.titleSnapshot);
 
     await service.updateDeliverable(ORG, staff, 'e-idi', byTitle('Grant Giveaway').id, { status: 'SCHEDULED', scheduledFor: '2026-10-21' });
     view = await service.getCurrent(ORG, 'e-idi', OCT);
@@ -252,6 +257,7 @@ describe('ProgramDeliverablesService: tracking a deliverable', () => {
 
     const view = await service.getCurrent(ORG, 'e-idi', OCT);
     expect(view.summary).toEqual({ total: 3, deliveredOrCompleted: 2, available: 0, notApplicable: 1, open: 0 });
+    expect(view.nextAction).toBeNull(); // everything resolved
   });
 
   it('makes a finalized cycle read-only', async () => {
@@ -410,5 +416,67 @@ describe('ProgramDeliverablesService: program-wide dates', () => {
     await expect(service.setProgramDate(ORG, 'p-foreign', 't-foreign', { month: '2026-10', scheduledFor: '2026-10-18' })).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.listProgramDates(ORG, 'p-foreign', '2026-10')).rejects.toBeInstanceOf(NotFoundException);
     expect(rows.cfProgramDeliverableSchedule).toHaveLength(0);
+  });
+});
+
+describe('ProgramDeliverablesService: next actions and program history', () => {
+  it("lists each member's next action from their newest checklist, without creating checklists", async () => {
+    const { service, rows } = setup();
+    expect(await service.listNextActions(ORG, 'p-idi')).toEqual({});
+    expect(rows.cfEnrollmentDeliverableCycle).toHaveLength(0);
+
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    const giveaway = october.items.find((item) => item.titleSnapshot === 'Grant Giveaway')!;
+    await service.updateDeliverable(ORG, staff, 'e-idi', giveaway.id, { status: 'DELIVERED' });
+    const event = october.items.find((item) => item.titleSnapshot === 'Networking Event')!;
+    await service.updateDeliverable(ORG, staff, 'e-idi', event.id, { status: 'SCHEDULED', scheduledFor: '2026-10-25' });
+
+    const result = await service.listNextActions(ORG, 'p-idi');
+    expect(Object.keys(result)).toEqual(['e-idi']); // e-idi-2 has no checklist yet
+    expect(result['e-idi']).toEqual(expect.objectContaining({
+      cycleLabel: october.cycle!.label,
+      title: 'Networking Event',
+      status: 'SCHEDULED',
+      delivered: 1,
+      total: 3,
+      allResolved: false,
+    }));
+    expect(rows.cfEnrollmentDeliverableCycle).toHaveLength(1);
+  });
+
+  it('uses the newest month, finalized or not, and reports when everything is resolved', async () => {
+    const { service } = setup();
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    const november = await service.getCurrent(ORG, 'e-idi', NOV);
+    for (const item of november.items) await service.updateDeliverable(ORG, staff, 'e-idi', item.id, { status: 'NOT_APPLICABLE' });
+    await service.finalizeCycle(ORG, staff, 'e-idi', november.cycle!.id);
+
+    const result = await service.listNextActions(ORG, 'p-idi');
+    expect(result['e-idi']).toEqual(expect.objectContaining({ cycleLabel: november.cycle!.label, title: null, allResolved: true }));
+    expect(october.cycle!.label).not.toBe(november.cycle!.label);
+  });
+
+  it('returns the whole history oldest first with the original request, read from the stored months', async () => {
+    const { service } = setup();
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    await service.updateDeliverable(ORG, staff, 'e-idi', october.items[0].id, { status: 'DELIVERED', outcome: '4 opportunities shared' });
+    await service.finalizeCycle(ORG, staff, 'e-idi', october.cycle!.id);
+    await service.getCurrent(ORG, 'e-idi', NOV);
+
+    const history = await service.getProgramHistory(ORG, 'e-idi');
+    expect(history.originalRequest).toEqual({ assistanceRequested: 'Grant funding for equipment', budgetNeed: '$25,000' });
+    expect(history.months.map((month) => month.status)).toEqual(['FINALIZED', 'OPEN']);
+    expect(history.months[0].summary.deliveredOrCompleted).toBe(1);
+    expect(history.months[0].items[0]).toEqual(expect.objectContaining({ title: 'Grant Giveaway', status: 'DELIVERED', outcome: '4 opportunities shared' }));
+    expect(history.months[1].items.every((item) => item.status === 'NOT_STARTED')).toBe(true);
+  });
+
+  it('returns no request when the intake is empty, and never another organization\'s data', async () => {
+    const { service } = setup();
+    const history = await service.getProgramHistory(ORG, 'e-idi-2');
+    expect(history.originalRequest).toEqual({ assistanceRequested: null, budgetNeed: null });
+    expect(history.months).toEqual([]);
+    await expect(service.getProgramHistory(ORG, 'e-foreign')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.listNextActions(ORG, 'p-foreign')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

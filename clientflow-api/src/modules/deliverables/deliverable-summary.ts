@@ -31,19 +31,24 @@ export function summarizeDeliverables(items: readonly { status: CfDeliverableSta
 }
 
 /**
- * The one deliverable shown as the enrollment's next program action:
+ * The one deliverable shown as the enrollment's next action. Worked out from the deliverables,
+ * so staff never maintain a separate "next action":
  * 1. the item staff explicitly marked, while it is unresolved;
- * 2. otherwise the unresolved item with the earliest scheduled date (an overdue one included);
- * 3. otherwise none. An unscheduled item is never picked on its own.
+ * 2. otherwise the unresolved item with the earliest date (an overdue one first);
+ * 3. otherwise the first item in progress;
+ * 4. otherwise the first other unresolved item (available or not started);
+ * 5. otherwise none: everything this period is resolved.
+ * Ties follow the program's order.
  */
 export function selectNextAction<
   T extends { status: CfDeliverableStatus; isNextAction: boolean; scheduledFor: Date | null; sortOrder: number },
 >(items: readonly T[]): T | null {
-  const unresolved = items.filter((item) => !isResolved(item.status));
+  const unresolved = [...items.filter((item) => !isResolved(item.status))].sort((a, b) => a.sortOrder - b.sortOrder);
   const explicit = unresolved.find((item) => item.isNextAction);
   if (explicit) return explicit;
   const scheduled = unresolved
     .filter((item) => item.scheduledFor)
     .sort((a, b) => a.scheduledFor!.getTime() - b.scheduledFor!.getTime() || a.sortOrder - b.sortOrder);
-  return scheduled[0] ?? null;
+  if (scheduled[0]) return scheduled[0];
+  return unresolved.find((item) => item.status === 'IN_PROGRESS') ?? unresolved[0] ?? null;
 }

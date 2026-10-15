@@ -39,6 +39,12 @@ export class ProgramDeliverablesController {
     return this.deliverables.createTemplate(request.adminUser!.organizationId, programId, dto);
   }
 
+  /** Each member's next action, from their current checklist (members without one are left out). */
+  @Get('next-actions')
+  nextActions(@Req() request: AuthenticatedRequest, @Param('programId') programId: string) {
+    return this.deliverables.listNextActions(request.adminUser!.organizationId, programId);
+  }
+
   /** Program-wide deliverables and their date for one month (?month=2026-10). */
   @Get('schedule')
   schedule(
@@ -92,6 +98,12 @@ export class EnrollmentDeliverablesController {
   @Get('current')
   current(@Req() request: AuthenticatedRequest, @Param('enrollmentId') enrollmentId: string) {
     return this.deliverables.getCurrent(request.adminUser!.organizationId, enrollmentId);
+  }
+
+  /** The whole program history (every month, oldest first) and the client's original request. */
+  @Get('report')
+  report(@Req() request: AuthenticatedRequest, @Param('enrollmentId') enrollmentId: string) {
+    return this.deliverables.getProgramHistory(request.adminUser!.organizationId, enrollmentId);
   }
 
   @Get('history')
