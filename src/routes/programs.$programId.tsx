@@ -39,7 +39,12 @@ import {
   uploadStoredFile,
   withdrawEnrollment,
 } from "@/lib/api";
-import { cfGetProgramBillingConfig, cfUpdateProgramBillingConfig } from "@/lib/apiClient";
+import {
+  cfGetProgramBillingConfig,
+  cfListProgramNextActions,
+  cfUpdateProgramBillingConfig,
+} from "@/lib/apiClient";
+import { nextActionText, type MemberNextAction } from "@/lib/program-deliverables";
 import {
   Select,
   SelectContent,
@@ -103,6 +108,7 @@ function ProgramDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
+  const [nextActions, setNextActions] = useState<Record<string, MemberNextAction>>({});
   const [withdrawing, setWithdrawing] = useState<ProgramEnrollment | null>(null);
   const [withdrawReason, setWithdrawReason] = useState("");
   const [savingWithdrawal, setSavingWithdrawal] = useState(false);
@@ -143,6 +149,17 @@ function ProgramDetailPage() {
       .finally(() => {
         if (!cancelled) setLoadingDetail(false);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [programId, refreshVersion]);
+
+  // Each member's next action, from their current program deliverables (best effort).
+  useEffect(() => {
+    let cancelled = false;
+    void cfListProgramNextActions(programId)
+      .then((result) => !cancelled && setNextActions(result))
+      .catch(() => !cancelled && setNextActions({}));
     return () => {
       cancelled = true;
     };
@@ -288,6 +305,17 @@ function ProgramDetailPage() {
         {records.map((participant) => (
           <ProgramParticipantRow
             key={participant.enrollment.id}
+            nextAction={(() => {
+              const next = nextActions[participant.enrollment.id];
+              return next
+                ? nextActionText(
+                    next.title && next.status
+                      ? { title: next.title, status: next.status, scheduledFor: next.scheduledFor }
+                      : null,
+                    next.allResolved,
+                  )
+                : null;
+            })()}
             participant={{
               ...participant,
               statusHistory: (participant.statusHistory ?? []).map((item) => ({

@@ -20,6 +20,7 @@ export function ParticipantProgressPanel({
   contracts,
   monitoring,
   statusHistory,
+  nextAction = null,
 }: {
   enrollment: ProgramEnrollment;
   assignedStaffName: string;
@@ -28,6 +29,8 @@ export function ParticipantProgressPanel({
   contracts: Contract[];
   monitoring: EnrollmentMonitoring[];
   statusHistory: EnrollmentStatusHistory[];
+  /** From the member's program deliverables. */
+  nextAction?: string | null;
 }) {
   const compliantMonitoring = monitoring.filter(
     (item) => item.complianceStatus === "compliant",
@@ -55,7 +58,7 @@ export function ParticipantProgressPanel({
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Next action</dt>
-            <dd>{enrollment.nextAction || "None scheduled"}</dd>
+            <dd>{nextAction || "None"}</dd>
           </div>
         </dl>
       </section>

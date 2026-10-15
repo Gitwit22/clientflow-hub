@@ -44,7 +44,9 @@ import type {
   DeliverableCycleView,
   DeliverableStatus,
   EnrollmentDeliverable,
+  MemberNextAction,
   ProgramDeliverableDates,
+  ProgramHistory,
   ProgramDeliverableTemplate,
 } from "@/lib/program-deliverables";
 export type { PublicFormResponseValue } from "@/types";
@@ -1611,6 +1613,18 @@ export async function cfReorderProgramDeliverables(programId: string, orderedIds
 /** GET /enrollments/:enrollmentId/deliverables/current — creates this month's cycle on first use. */
 export async function cfGetCurrentDeliverables(enrollmentId: string) {
   return apiRequest<DeliverableCycleView>(`${enrollmentDeliverablesPath(enrollmentId)}/current`);
+}
+
+/** GET /enrollments/:enrollmentId/deliverables/report — every month, oldest first, for the Final Report. */
+export async function cfGetProgramHistory(enrollmentId: string) {
+  return apiRequest<ProgramHistory>(`${enrollmentDeliverablesPath(enrollmentId)}/report`);
+}
+
+/** GET /programs/:programId/deliverables/next-actions — keyed by enrollment id. */
+export async function cfListProgramNextActions(programId: string) {
+  return apiRequest<Record<string, MemberNextAction>>(
+    `${programDeliverablesPath(programId)}/next-actions`,
+  );
 }
 
 /** GET /enrollments/:enrollmentId/deliverables/history */

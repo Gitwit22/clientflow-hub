@@ -260,7 +260,7 @@ function CycleChecklist({
             <div className="min-w-0">
               <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 {item.titleSnapshot}
-                {item.isNextAction && !isDoneStatus(item.status) && (
+                {item.id === view.nextAction?.id && (
                   <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-primary">
                     Next action
                   </span>

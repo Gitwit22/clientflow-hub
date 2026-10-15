@@ -69,6 +69,44 @@ export interface DeliverableCycleView {
 
 export type DeliverableCycleHistoryEntry = DeliverableCycle & { summary: DeliverableSummary };
 
+/** One member's next action, from their current checklist (program member list). */
+export interface MemberNextAction {
+  cycleLabel: string;
+  title: string | null;
+  status: DeliverableStatus | null;
+  scheduledFor: string | null;
+  delivered: number;
+  total: number;
+  /** Every deliverable this period is delivered, completed or not applicable. */
+  allResolved: boolean;
+}
+
+/** An enrollment's whole program history, for the Final Report. */
+export interface ProgramHistory {
+  enrollmentId: string;
+  programId: string;
+  joinedAt: string | null;
+  endedAt: string | null;
+  originalRequest: { assistanceRequested: string | null; budgetNeed: string | null };
+  months: {
+    cycleId: string;
+    label: string;
+    periodStart: string;
+    periodEnd: string;
+    status: "OPEN" | "FINALIZED";
+    finalizedAt: string | null;
+    summary: DeliverableSummary;
+    items: {
+      id: string;
+      title: string;
+      status: DeliverableStatus;
+      scheduledFor: string | null;
+      completedAt: string | null;
+      outcome: string | null;
+    }[];
+  }[];
+}
+
 export interface ProgramDeliverableDates {
   month: string;
   label: string;
@@ -122,4 +160,31 @@ export function deliverableStatusLine(item: EnrollmentDeliverable): string {
   if (item.scheduledFor) parts.push(formatDeliverableDate(item.scheduledFor));
   if (item.outcome) parts.push(item.outcome);
   return parts.join(" · ");
+}
+
+/**
+ * The next action in one line: "LIVE Grant Giveaway · Scheduled · Nov 2",
+ * "All current deliverables completed", or null when there is nothing to show.
+ */
+export function nextActionText(
+  next: { title: string; status: DeliverableStatus; scheduledFor: string | null } | null,
+  allResolved: boolean,
+): string | null {
+  if (next) {
+    const parts = [next.title, DELIVERABLE_STATUS_LABELS[next.status]];
+    if (next.scheduledFor) parts.push(formatDeliverableDate(next.scheduledFor));
+    return parts.join(" · ");
+  }
+  return allResolved ? "All current deliverables completed" : null;
+}
+
+/** Whether every deliverable in a period with deliverables is resolved. */
+export const allDeliverablesResolved = (summary: DeliverableSummary) =>
+  summary.total > 0 && summary.open === 0;
+
+/** "Oct 2026: 3 of 7 delivered; Nov 2026: 6 of 7 delivered" — the short form stored with a report. */
+export function programHistorySummary(history: ProgramHistory): string {
+  return history.months
+    .map((month) => `${month.label}: ${progressLabel(month.summary)}`)
+    .join("; ");
 }

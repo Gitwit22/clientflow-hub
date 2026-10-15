@@ -22,6 +22,7 @@ export function ProgramParticipantRow({
   step,
   onStep,
   stepBusy = false,
+  nextAction = null,
 }: {
   participant: ProgramParticipantDetail;
   assignedStaffName: string;
@@ -36,6 +37,8 @@ export function ProgramParticipantRow({
   step?: NextStep;
   onStep?: () => void;
   stepBusy?: boolean;
+  /** The member's next action from their program deliverables, e.g. "Monthly Event · Scheduled · Nov 2". */
+  nextAction?: string | null;
 }) {
   const { client, enrollment } = participant;
 
@@ -62,14 +65,7 @@ export function ProgramParticipantRow({
             Last changed by {lastModifiedByName} ·{" "}
             {new Date(enrollment.updatedAt).toLocaleDateString()}
           </p>
-          {enrollment.nextAction && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Next: {enrollment.nextAction}
-              {enrollment.nextActionDate
-                ? ` · ${new Date(enrollment.nextActionDate).toLocaleDateString()}`
-                : ""}
-            </p>
-          )}
+          {nextAction && <p className="mt-1 text-xs text-muted-foreground">Next: {nextAction}</p>}
         </div>
         <div className="flex items-center gap-2 md:justify-end">
           {step && step.kind !== "closed" && (
@@ -135,6 +131,7 @@ export function ProgramParticipantRow({
             contracts={participant.contracts}
             monitoring={participant.monitoring}
             statusHistory={participant.statusHistory}
+            nextAction={nextAction}
           />
         </div>
       </CollapsibleContent>
