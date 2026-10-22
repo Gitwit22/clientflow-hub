@@ -1,4 +1,4 @@
-import { selectNextAction, summarizeDeliverables } from './deliverable-summary';
+import { hasRecordedActivity, selectNextAction, summarizeDeliverables } from './deliverable-summary';
 
 const item = (status: string, extra: Partial<{ isNextAction: boolean; scheduledFor: Date | null; sortOrder: number }> = {}) => ({
   status: status as never,
@@ -20,7 +20,7 @@ describe('summarizeDeliverables', () => {
         item('AVAILABLE'),
         item('NOT_APPLICABLE'),
       ]),
-    ).toEqual({ total: 7, deliveredOrCompleted: 5, available: 1, notApplicable: 1, open: 1 });
+    ).toEqual({ total: 7, deliveredOrCompleted: 5, available: 1, notApplicable: 1, open: 1, withActivity: 7 });
   });
 
   it('never counts not applicable as delivered', () => {
@@ -60,5 +60,17 @@ describe('selectNextAction', () => {
 
   it('returns nothing when every item is resolved', () => {
     expect(selectNextAction([item('DELIVERED'), item('NOT_APPLICABLE'), item('COMPLETED')])).toBeNull();
+  });
+});
+
+describe('recorded activity', () => {
+  it('counts work, notes and outcomes, but not a plan alone', () => {
+    expect(hasRecordedActivity({ status: 'NOT_STARTED' })).toBe(false);
+    expect(hasRecordedActivity({ status: 'SCHEDULED' })).toBe(false);
+    expect(hasRecordedActivity({ status: 'SCHEDULED', notes: '  ' })).toBe(false);
+    expect(hasRecordedActivity({ status: 'NOT_STARTED', notes: 'Called, left a message' })).toBe(true);
+    expect(hasRecordedActivity({ status: 'IN_PROGRESS' })).toBe(true);
+    expect(hasRecordedActivity({ status: 'NOT_APPLICABLE' })).toBe(true);
+    expect(summarizeDeliverables([{ status: 'NOT_STARTED' }, { status: 'SCHEDULED' }]).withActivity).toBe(0);
   });
 });

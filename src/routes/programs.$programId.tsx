@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
 import { ProgramDeliverablesConfig } from "@/components/programs/ProgramDeliverablesConfig";
+import { ProgramEmailsPanel } from "@/components/programs/ProgramEmailsPanel";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
@@ -467,6 +468,7 @@ function ProgramDetailPage() {
           <TabsTrigger value="members">Members ({summary.current})</TabsTrigger>
           <TabsTrigger value="questions">Program questions</TabsTrigger>
           <TabsTrigger value="deliverables">Deliverables</TabsTrigger>
+          <TabsTrigger value="emails">Emails</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -1021,6 +1023,10 @@ function ProgramDetailPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="emails" className="mt-4">
+          <ProgramEmailsPanel programId={program.id} programName={program.name} />
         </TabsContent>
 
         <TabsContent value="deliverables" className="mt-4">

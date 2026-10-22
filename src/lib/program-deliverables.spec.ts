@@ -46,3 +46,26 @@ describe("program deliverable labels", () => {
     );
   });
 });
+
+describe("months with no recorded activity", () => {
+  const summary = { total: 7, deliveredOrCompleted: 0, available: 0, notApplicable: 0, open: 7 };
+
+  it("says so instead of '0 of 7 delivered'", () => {
+    expect(progressLabel({ ...summary, withActivity: 0 })).toBe(
+      "No activity recorded · 7 deliverables",
+    );
+    expect(progressLabel({ ...summary, withActivity: 1 })).toBe("0 of 7 delivered");
+    // Older API responses have no activity count: keep the plain count.
+    expect(progressLabel(summary)).toBe("0 of 7 delivered");
+  });
+
+  it("shows when a delivered item was completed", () => {
+    const line = deliverableStatusLine({
+      ...base,
+      status: "DELIVERED",
+      completedAt: "2026-10-21T15:00:00.000Z",
+      outcome: "4 shared",
+    });
+    expect(line).toBe("Delivered · completed Oct 21 · 4 shared");
+  });
+});

@@ -18,6 +18,9 @@ import type {
   IntakeEmailPayload,
   N8nDeliveryReceipt,
   N8nHttpFailureReason,
+  ProgramEmailDeliveryResult,
+  ProgramEmailLifecyclePayload,
+  ProgramEmailPayload,
   StaffEmailDeliveryResult,
   StaffInviteEmailPayload,
   StaffInviteLifecyclePayload,
@@ -287,6 +290,23 @@ export class N8nService {
       requestedByName: payload.requestedByName,
       organizationName: payload.organizationName,
       expiresInMinutes: payload.expiresInMinutes,
+    });
+  }
+
+  /** One recipient's copy of a program-wide email (eventType program.email). */
+  async sendProgramEmail(eventId: string, payload: ProgramEmailPayload): Promise<ProgramEmailDeliveryResult> {
+    return this.sendViaDeliver<ProgramEmailLifecyclePayload>(this.getIntakeAvailability(), eventId, {
+      eventType: 'program.email',
+      organizationId: payload.organizationId,
+      clientId: payload.clientId,
+      sentByUserId: payload.sentByUserId,
+      recipientEmail: payload.recipientEmail,
+      clientName: payload.clientName,
+      programName: payload.programName,
+      programEmailId: payload.programEmailId,
+      subject: payload.subject,
+      body: payload.body,
+      bodyHtml: plainTextToEmailHtml(payload.body),
     });
   }
 

@@ -49,6 +49,11 @@ import type {
   ProgramHistory,
   ProgramDeliverableTemplate,
 } from "@/lib/program-deliverables";
+import type {
+  ProgramEmailDetail,
+  ProgramEmailRecipientsPreview,
+  ProgramEmailSummary,
+} from "@/lib/program-emails";
 export type { PublicFormResponseValue } from "@/types";
 
 const CLIENTFLOW_API_URL =
@@ -1613,6 +1618,48 @@ export async function cfReorderProgramDeliverables(programId: string, orderedIds
 /** GET /enrollments/:enrollmentId/deliverables/current — creates this month's cycle on first use. */
 export async function cfGetCurrentDeliverables(enrollmentId: string) {
   return apiRequest<DeliverableCycleView>(`${enrollmentDeliverablesPath(enrollmentId)}/current`);
+}
+
+/** GET /programs/:programId/emails/recipients — who a program email would go to now. */
+export async function cfPreviewProgramEmailRecipients(programId: string) {
+  return apiRequest<ProgramEmailRecipientsPreview>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/emails/recipients`,
+  );
+}
+
+/** GET /programs/:programId/emails — the program's sent emails, newest first. */
+export async function cfListProgramEmails(programId: string) {
+  return apiRequest<ProgramEmailSummary[]>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/emails`,
+  );
+}
+
+/**
+ * POST /programs/:programId/emails — records the email and starts sending on the server. The same
+ * idempotency key returns the same email (a double-click or a retried request never sends twice).
+ */
+export async function cfSendProgramEmail(
+  programId: string,
+  data: { subject: string; body: string },
+  idempotencyKey: string,
+) {
+  return apiRequest<ProgramEmailDetail>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/emails`,
+    { method: "POST", body: JSON.stringify(data), headers: idempotencyHeaders(idempotencyKey) },
+  );
+}
+
+/** GET /program-emails/:emailId — one email with each recipient's outcome. */
+export async function cfGetProgramEmail(emailId: string) {
+  return apiRequest<ProgramEmailDetail>(`/api/v1/program-emails/${encodeURIComponent(emailId)}`);
+}
+
+/** POST /program-emails/:emailId/retry — resends only to recipients that failed. */
+export async function cfRetryProgramEmail(emailId: string) {
+  return apiRequest<ProgramEmailDetail>(
+    `/api/v1/program-emails/${encodeURIComponent(emailId)}/retry`,
+    { method: "POST" },
+  );
 }
 
 /** GET /enrollments/:enrollmentId/deliverables/report — every month, oldest first, for the Final Report. */

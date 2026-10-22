@@ -57,6 +57,8 @@ export interface DeliverableSummary {
   available: number;
   notApplicable: number;
   open: number;
+  /** Items staff recorded anything on. 0 means no activity that period (missing on older APIs). */
+  withActivity?: number;
 }
 
 export interface DeliverableCycleView {
@@ -89,11 +91,13 @@ export interface ProgramHistory {
   endedAt: string | null;
   originalRequest: { assistanceRequested: string | null; budgetNeed: string | null };
   months: {
-    cycleId: string;
+    /** Null for a month nobody opened: nothing was recorded, and nothing is filled in. */
+    cycleId: string | null;
+    recorded?: boolean;
     label: string;
     periodStart: string;
     periodEnd: string;
-    status: "OPEN" | "FINALIZED";
+    status: "OPEN" | "FINALIZED" | null;
     finalizedAt: string | null;
     summary: DeliverableSummary;
     items: {
@@ -103,6 +107,7 @@ export interface ProgramHistory {
       scheduledFor: string | null;
       completedAt: string | null;
       outcome: string | null;
+      notes?: string | null;
     }[];
   }[];
 }
@@ -137,8 +142,16 @@ export const isDoneStatus = (status: DeliverableStatus) =>
 export const isResolvedStatus = (status: DeliverableStatus) =>
   isDoneStatus(status) || status === "NOT_APPLICABLE";
 
-/** "4 of 7 delivered", plus "· 1 not applicable" so N/A is never counted as delivered. */
+/** Whether a period has deliverables but nothing was recorded on any of them. */
+export const hasNoActivity = (summary: DeliverableSummary) =>
+  summary.total > 0 && summary.withActivity === 0;
+
+/**
+ * "4 of 7 delivered", plus "· 1 not applicable" so N/A is never counted as delivered. A month with
+ * nothing recorded says so, so it is never mistaken for work that fell short.
+ */
 export function progressLabel(summary: DeliverableSummary): string {
+  if (hasNoActivity(summary)) return `No activity recorded · ${summary.total} deliverables`;
   const base = `${summary.deliveredOrCompleted} of ${summary.total} delivered`;
   return summary.notApplicable ? `${base} · ${summary.notApplicable} not applicable` : base;
 }
@@ -158,8 +171,14 @@ export function deliverableStatusLine(item: EnrollmentDeliverable): string {
   if (item.status === "NOT_APPLICABLE") return "Not applicable this period";
   const parts = [DELIVERABLE_STATUS_LABELS[item.status]];
   if (item.scheduledFor) parts.push(formatDeliverableDate(item.scheduledFor));
+  if (isDoneStatus(item.status) && item.completedAt) parts.push(completedLabel(item.completedAt));
   if (item.outcome) parts.push(item.outcome);
   return parts.join(" · ");
+}
+
+/** "completed Oct 21": when staff marked it delivered or completed (a real timestamp, local day). */
+export function completedLabel(completedAt: string): string {
+  return `completed ${new Date(completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 }
 
 /**
@@ -185,6 +204,9 @@ export const allDeliverablesResolved = (summary: DeliverableSummary) =>
 /** "Oct 2026: 3 of 7 delivered; Nov 2026: 6 of 7 delivered" — the short form stored with a report. */
 export function programHistorySummary(history: ProgramHistory): string {
   return history.months
-    .map((month) => `${month.label}: ${progressLabel(month.summary)}`)
+    .map(
+      (month) =>
+        `${month.label}: ${month.recorded === false ? "no activity recorded" : progressLabel(month.summary)}`,
+    )
     .join("; ");
 }

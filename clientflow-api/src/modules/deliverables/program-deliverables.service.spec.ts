@@ -94,7 +94,7 @@ describe('ProgramDeliverablesService: cycles', () => {
       'Networking Event',
       'Vetted Grant Opportunities',
     ]);
-    expect(view.summary).toEqual({ total: 3, deliveredOrCompleted: 0, available: 0, notApplicable: 0, open: 3 });
+    expect(view.summary).toEqual({ total: 3, deliveredOrCompleted: 0, available: 0, notApplicable: 0, open: 3, withActivity: 0 });
   });
 
   it('is idempotent: repeated and simultaneous loads never duplicate the cycle or its deliverables', async () => {
@@ -121,6 +121,34 @@ describe('ProgramDeliverablesService: cycles', () => {
     expect(rows.cfEnrollmentDeliverableCycle).toHaveLength(2);
     const history = await service.listHistory(ORG, 'e-idi');
     expect(history.map((cycle) => cycle.label)).toEqual(['November 2026', 'October 2026']);
+  });
+
+  it('a new month starts fresh: nothing is copied forward and the earlier month is untouched', async () => {
+    const { service } = setup();
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    const giveaway = october.items.find((item) => item.titleSnapshot === 'Grant Giveaway')!;
+    const event = october.items.find((item) => item.titleSnapshot === 'Networking Event')!;
+    await service.updateDeliverable(ORG, staff, 'e-idi', giveaway.id, { status: 'DELIVERED', notes: 'Shared 4 grants', outcome: '4 shared' });
+    await service.setNextAction(ORG, staff, 'e-idi', event.id);
+
+    const november = await service.getCurrent(ORG, 'e-idi', NOV);
+    expect(november.items.every((item) => item.status === 'NOT_STARTED' && !item.notes && !item.outcome && !item.completedAt)).toBe(true);
+    expect(november.items.some((item) => item.isNextAction)).toBe(false);
+    expect(november.summary.withActivity).toBe(0);
+
+    const octoberAgain = await service.getCycle(ORG, 'e-idi', october.cycle!.id);
+    const kept = octoberAgain.items.find((item) => item.id === giveaway.id)!;
+    expect(kept).toEqual(expect.objectContaining({ status: 'DELIVERED', notes: 'Shared 4 grants', outcome: '4 shared' }));
+    expect(kept.completedAt).toBeInstanceOf(Date);
+    expect(octoberAgain.items.find((item) => item.id === event.id)?.isNextAction).toBe(true);
+  });
+
+  it('uses the organization timezone for the month boundary', async () => {
+    const { service } = setup();
+    // 2026-11-01 02:00 UTC is still October 31 in Detroit.
+    const view = await service.getCurrent(ORG, 'e-idi', new Date('2026-11-01T02:00:00.000Z'));
+    expect(view.cycle?.label).toBe('October 2026');
+    expect(view.cycle?.periodStart.toISOString()).toBe('2026-10-01T04:00:00.000Z');
   });
 
   it('never rewrites an existing cycle when the program changes; new cycles use the new configuration', async () => {
@@ -256,7 +284,7 @@ describe('ProgramDeliverablesService: tracking a deliverable', () => {
     await service.updateDeliverable(ORG, staff, 'e-idi', byTitle('Vetted Grant Opportunities').id, { status: 'NOT_APPLICABLE' });
 
     const view = await service.getCurrent(ORG, 'e-idi', OCT);
-    expect(view.summary).toEqual({ total: 3, deliveredOrCompleted: 2, available: 0, notApplicable: 1, open: 0 });
+    expect(view.summary).toEqual({ total: 3, deliveredOrCompleted: 2, available: 0, notApplicable: 1, open: 0, withActivity: 3 });
     expect(view.nextAction).toBeNull(); // everything resolved
   });
 
@@ -463,12 +491,45 @@ describe('ProgramDeliverablesService: next actions and program history', () => {
     await service.finalizeCycle(ORG, staff, 'e-idi', october.cycle!.id);
     await service.getCurrent(ORG, 'e-idi', NOV);
 
-    const history = await service.getProgramHistory(ORG, 'e-idi');
+    const history = await service.getProgramHistory(ORG, 'e-idi', NOV);
     expect(history.originalRequest).toEqual({ assistanceRequested: 'Grant funding for equipment', budgetNeed: '$25,000' });
     expect(history.months.map((month) => month.status)).toEqual(['FINALIZED', 'OPEN']);
     expect(history.months[0].summary.deliveredOrCompleted).toBe(1);
     expect(history.months[0].items[0]).toEqual(expect.objectContaining({ title: 'Grant Giveaway', status: 'DELIVERED', outcome: '4 opportunities shared' }));
     expect(history.months[1].items.every((item) => item.status === 'NOT_STARTED')).toBe(true);
+  });
+
+  it('shows months nobody opened as unrecorded, and an untouched month as having no activity', async () => {
+    const { service, rows } = setup();
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    await service.updateDeliverable(ORG, staff, 'e-idi', october.items[0].id, { status: 'DELIVERED' });
+    await service.getCurrent(ORG, 'e-idi', new Date('2027-01-10T15:00:00.000Z')); // January opened, untouched
+
+    const history = await service.getProgramHistory(ORG, 'e-idi', new Date('2027-02-03T15:00:00.000Z'));
+    expect(history.months.map((month) => [month.label, month.recorded])).toEqual([
+      ['October 2026', true],
+      ['November 2026', false],
+      ['December 2026', false],
+      ['January 2027', true],
+      ['February 2027', false],
+    ]);
+    expect(history.months[0].summary).toEqual(expect.objectContaining({ deliveredOrCompleted: 1, withActivity: 1 }));
+    expect(history.months[3].summary).toEqual(expect.objectContaining({ total: 3, withActivity: 0 }));
+    expect(history.months[1]).toEqual(expect.objectContaining({ cycleId: null, status: null, items: [] }));
+    // Unrecorded months are only shown: no checklist rows were created for them.
+    expect(rows.cfEnrollmentDeliverableCycle).toHaveLength(2);
+  });
+
+  it('keeps the titles a month was tracked with after the program renames or removes a deliverable', async () => {
+    const { service } = setup();
+    await service.getCurrent(ORG, 'e-idi', OCT);
+    await service.updateTemplate(ORG, 'p-idi', 't-giveaway', { title: 'LIVE Grant Giveaway' });
+    await service.updateTemplate(ORG, 'p-idi', 't-event', { active: false });
+    await service.getCurrent(ORG, 'e-idi', NOV);
+
+    const history = await service.getProgramHistory(ORG, 'e-idi', NOV);
+    expect(history.months[0].items.map((item) => item.title)).toEqual(['Grant Giveaway', 'Networking Event', 'Vetted Grant Opportunities']);
+    expect(history.months[1].items.map((item) => item.title)).toEqual(['LIVE Grant Giveaway', 'Vetted Grant Opportunities']);
   });
 
   it('returns no request when the intake is empty, and never another organization\'s data', async () => {

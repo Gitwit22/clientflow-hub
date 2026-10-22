@@ -16,6 +16,7 @@ normalization and validation rules, compatibility, and open items). See also `N8
 | `welcome.send` | After signature, manual welcome, automation `send_email` | none | `subject` + `body` (verbatim) |
 | `staff.invite` | Settings › Invite, and "New invite link" | `actionUrl` (accept-invite link, 72 h) | none — see `N8N_STAFF_EMAILS.md` |
 | `staff.password_reset` | Settings › "Password reset link" | `actionUrl` (reset link, 60 min) | none — see `N8N_STAFF_EMAILS.md` |
+| `program.email` | Programs › Send program email (one event per member) | none | `subject` + `body` (verbatim) — see `N8N_PROGRAM_EMAIL.md` |
 
 Common fields on every event: `eventId`, `eventType`, `occurredAt`, `organizationId`, `clientId`,
 `recipientEmail`, `sentByUserId`. `Idempotency-Key` header equals `eventId`.

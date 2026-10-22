@@ -80,12 +80,18 @@ export interface ProgramHistory {
   endedAt: Date | null;
   /** What the client asked for on the intake. */
   originalRequest: { assistanceRequested: string | null; budgetNeed: string | null };
+  /**
+   * Every month from the first checklist to the current month (or the month the enrollment ended),
+   * oldest first. A month nobody opened has no record: `recorded: false`, no items. It is shown as
+   * such, never filled in.
+   */
   months: Array<{
-    cycleId: string;
+    cycleId: string | null;
+    recorded: boolean;
     label: string;
     periodStart: Date;
     periodEnd: Date;
-    status: CfEnrollmentDeliverableCycle['status'];
+    status: CfEnrollmentDeliverableCycle['status'] | null;
     finalizedAt: Date | null;
     summary: DeliverableSummary;
     items: Array<{
@@ -95,11 +101,12 @@ export interface ProgramHistory {
       scheduledFor: Date | null;
       completedAt: Date | null;
       outcome: string | null;
+      notes: string | null;
     }>;
   }>;
 }
 
-const EMPTY_SUMMARY: DeliverableSummary = { total: 0, deliveredOrCompleted: 0, available: 0, notApplicable: 0, open: 0 };
+const EMPTY_SUMMARY: DeliverableSummary = { total: 0, deliveredOrCompleted: 0, available: 0, notApplicable: 0, open: 0, withActivity: 0 };
 
 function isValidTimezone(timezone: string): boolean {
   try {
@@ -442,7 +449,7 @@ export class ProgramDeliverablesService {
     const items = cycles.length
       ? await this.prisma.cfEnrollmentDeliverable.findMany({
           where: { organizationId, enrollmentId, cycleId: { in: cycles.map((cycle) => cycle.id) } },
-          select: { cycleId: true, status: true },
+          select: { cycleId: true, status: true, notes: true, outcome: true },
         })
       : [];
     return cycles.map((cycle) => ({
@@ -497,7 +504,7 @@ export class ProgramDeliverablesService {
    * every month's deliverables oldest first. Read straight from the stored checklists, so the report
    * never holds a second copy of them.
    */
-  async getProgramHistory(organizationId: string, enrollmentId: string): Promise<ProgramHistory> {
+  async getProgramHistory(organizationId: string, enrollmentId: string, now: Date = new Date()): Promise<ProgramHistory> {
     const enrollment = await findEnrollmentForOrg(this.prisma, organizationId, enrollmentId);
     const client = await this.prisma.cfClient.findFirst({
       where: { id: enrollment.clientId, organizationId },
@@ -517,36 +524,80 @@ export class ProgramDeliverablesService {
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         })
       : [];
+    const recordedMonths: ProgramHistory['months'] = cycles.map((cycle) => {
+      const own = items.filter((item) => item.cycleId === cycle.id);
+      return {
+        cycleId: cycle.id,
+        recorded: true,
+        label: cycle.label,
+        periodStart: cycle.periodStart,
+        periodEnd: cycle.periodEnd,
+        status: cycle.status,
+        finalizedAt: cycle.finalizedAt,
+        summary: summarizeDeliverables(own),
+        items: own.map((item) => ({
+          id: item.id,
+          title: item.titleSnapshot,
+          status: item.status,
+          scheduledFor: item.scheduledFor,
+          completedAt: item.completedAt,
+          outcome: item.outcome,
+          notes: item.notes,
+        })),
+      };
+    });
+    const endedAt = enrollment.completedAt ?? enrollment.withdrawnAt ?? null;
+    const months = cycles.length
+      ? await this.withUnrecordedMonths(organizationId, recordedMonths, endedAt && endedAt < now ? endedAt : now)
+      : [];
     return {
       enrollmentId: enrollment.id,
       programId: enrollment.programId,
       joinedAt: enrollment.startDate ?? null,
-      endedAt: enrollment.completedAt ?? enrollment.withdrawnAt ?? null,
+      endedAt,
       originalRequest: {
         assistanceRequested: text(intake.assistanceRequested),
         budgetNeed: text(intake.budgetNeed),
       },
-      months: cycles.map((cycle) => {
-        const own = items.filter((item) => item.cycleId === cycle.id);
-        return {
-          cycleId: cycle.id,
-          label: cycle.label,
-          periodStart: cycle.periodStart,
-          periodEnd: cycle.periodEnd,
-          status: cycle.status,
-          finalizedAt: cycle.finalizedAt,
-          summary: summarizeDeliverables(own),
-          items: own.map((item) => ({
-            id: item.id,
-            title: item.titleSnapshot,
-            status: item.status,
-            scheduledFor: item.scheduledFor,
-            completedAt: item.completedAt,
-            outcome: item.outcome,
-          })),
-        };
-      }),
+      months,
     };
+  }
+
+  /**
+   * Inserts the months between the first checklist and `until` that have no checklist, in the
+   * organization's timezone, so a month with nothing recorded shows as such instead of vanishing.
+   */
+  private async withUnrecordedMonths(
+    organizationId: string,
+    recorded: ProgramHistory['months'],
+    until: Date,
+  ): Promise<ProgramHistory['months']> {
+    const timezone = await this.resolveOrgTimezone(organizationId);
+    const byStart = new Map(recorded.map((month) => [month.periodStart.getTime(), month]));
+    const lastStart = getCalendarPeriodBounds('month', until, timezone).start.getTime();
+    const result: ProgramHistory['months'] = [];
+    let bounds = getCalendarPeriodBounds('month', recorded[0].periodStart, timezone);
+    // Bounded: one entry per month, so a very old first record still stops at `until`.
+    for (let guard = 0; guard < 600 && bounds.start.getTime() <= lastStart; guard += 1) {
+      const existing = byStart.get(bounds.start.getTime());
+      result.push(
+        existing ?? {
+          cycleId: null,
+          recorded: false,
+          label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: timezone }).format(bounds.start),
+          periodStart: bounds.start,
+          periodEnd: bounds.end,
+          status: null,
+          finalizedAt: null,
+          summary: EMPTY_SUMMARY,
+          items: [],
+        },
+      );
+      bounds = getCalendarPeriodBounds('month', new Date(bounds.end.getTime() + 1), timezone);
+    }
+    // Any record outside the computed range (e.g. a timezone change) is still shown, never dropped.
+    for (const month of recorded) if (!result.includes(month)) result.push(month);
+    return result.sort((a, b) => a.periodStart.getTime() - b.periodStart.getTime());
   }
 
   async getCycle(organizationId: string, enrollmentId: string, cycleId: string): Promise<CycleView> {

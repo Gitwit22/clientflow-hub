@@ -837,11 +837,14 @@ model CfCommunication {
   source           String?
   /// One key per send attempt. A retried request reuses it, so it cannot send twice.
   idempotencyKey   String?
+  /// Set on the per-recipient rows of a program-wide email (CfProgramEmail).
+  programEmailId   String?
   isDemo           Boolean   @default(false)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   @@unique([organizationId, idempotencyKey])
+  @@index([programEmailId, status])
   @@index([organizationId, isDemo])
   @@index([organizationId, clientId])
   @@index([organizationId, status])
@@ -1468,4 +1471,32 @@ model CfEnrollmentDeliverable {
   @@unique([cycleId, programDeliverableTemplateId])
   @@index([organizationId, enrollmentId])
   @@index([cycleId])
+}
+
+/// A program-wide email: one message sent separately to every member of a program. Each
+/// recipient's delivery is its own CfCommunication row (programEmailId), so it also shows on the
+/// client's Communications tab and is retried on its own.
+model CfProgramEmail {
+  id                String    @id @default(cuid())
+  organizationId    String
+  programId         String
+  subject           String
+  body              String
+  sentByUserId      String?
+  sentByDisplayName String
+  /// The browser's key for this send; a repeated request returns this email instead of a new one.
+  idempotencyKey    String
+  /// SENDING while any recipient is waiting or being sent, COMPLETED once each has an outcome.
+  status            String    @default("SENDING")
+  recipientCount    Int
+  skippedCount      Int
+  /// Members not emailed and why (no usable address, or an address already on the list).
+  skipped           Json
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  completedAt       DateTime?
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, programId, createdAt])
+  @@index([status])
 }
