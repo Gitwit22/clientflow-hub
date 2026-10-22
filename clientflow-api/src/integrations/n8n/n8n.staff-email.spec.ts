@@ -78,3 +78,40 @@ describe('staff invite and password reset emails', () => {
     await expect(service({ N8N_ENABLED: 'false' }).sendStaffInvite('e2', payload)).resolves.toEqual({ status: 'skipped', reason: 'disabled' });
   });
 });
+
+describe('program email', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('sends program.email with the message as written plus its HTML paragraphs', async () => {
+    const eventId = 'program.email:pe-1:comm-1';
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true, status: 'SENT', eventId, sentAt })));
+    await expect(service().sendProgramEmail(eventId, {
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      sentByUserId: 'admin-1',
+      recipientEmail: 'tamika@example.com',
+      clientName: 'Tamika',
+      programName: 'The Inspired Detroit Initiative',
+      programEmailId: 'pe-1',
+      subject: 'Grant day Saturday',
+      body: 'Hello all,\n\nSee you <Saturday>.',
+    })).resolves.toEqual({ status: 'sent', sentAt });
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ headers: expect.objectContaining({ 'Idempotency-Key': eventId }) });
+    expect(sentBody(fetchMock)).toEqual({
+      eventId,
+      eventType: 'program.email',
+      occurredAt: expect.any(String),
+      organizationId: 'org-1',
+      clientId: 'client-1',
+      sentByUserId: 'admin-1',
+      recipientEmail: 'tamika@example.com',
+      clientName: 'Tamika',
+      programName: 'The Inspired Detroit Initiative',
+      programEmailId: 'pe-1',
+      subject: 'Grant day Saturday',
+      body: 'Hello all,\n\nSee you <Saturday>.',
+      bodyHtml: expect.stringContaining('See you &lt;Saturday&gt;.'),
+    });
+  });
+});

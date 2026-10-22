@@ -3,7 +3,7 @@
  * that return a fixed row, it evaluates `where` filters, so a query that forgets
  * `organizationId` really does return another organization's row, and the invariant fails.
  *
- * Supports: equality (Dates by time), `in`, `not`, compound unique keys
+ * Supports: equality (Dates by time), `in`, `not`, `lt`/`gt`, compound unique keys
  * (`{ a_b: { a, b } }`), AND via object keys, `orderBy`, and optional unique constraints.
  */
 import { Prisma } from '../generated/clientflow';
@@ -23,6 +23,11 @@ function matches(row: Row, where: Row | undefined): boolean {
       const filter = condition as Row;
       if ('in' in filter) return (filter.in as unknown[]).some((candidate) => sameValue(candidate, value));
       if ('not' in filter) return !sameValue(value, filter.not);
+      if ('lt' in filter || 'gt' in filter) {
+        const time = (input: unknown) => (input instanceof Date ? input.getTime() : (input as number));
+        if (value === undefined || value === null) return false;
+        return ('lt' in filter ? time(value) < time(filter.lt) : true) && ('gt' in filter ? time(value) > time(filter.gt) : true);
+      }
       // A compound unique key (`enrollmentId_cadence_periodStart: { … }`) names no column itself.
       if (value === undefined && !(key in row)) return matches(row, filter);
       return false;

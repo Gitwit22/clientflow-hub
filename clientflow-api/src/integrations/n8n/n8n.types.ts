@@ -6,6 +6,7 @@ export type ClientflowLifecycleEventType =
   | 'contract.copy'
   | 'staff.invite'
   | 'staff.password_reset'
+  | 'program.email'
   | 'form.submitted'
   | 'contract.completed'
   | 'email.status';
@@ -152,6 +153,22 @@ export interface StaffPasswordResetLifecyclePayload extends LifecycleEventBase {
   expiresInMinutes: number;
 }
 
+/**
+ * One recipient's copy of a program-wide email. Like welcome.send, ClientFlow owns the copy:
+ * `subject` and `body` are sent as written (`bodyHtml` is the same text as HTML paragraphs), and
+ * n8n adds only the shared header image and sign-off. See docs/N8N_PROGRAM_EMAIL.md.
+ */
+export interface ProgramEmailLifecyclePayload extends LifecycleEventBase {
+  eventType: 'program.email';
+  clientName: string;
+  programName: string;
+  subject: string;
+  body: string;
+  bodyHtml: string;
+  /** The CfProgramEmail this copy belongs to. */
+  programEmailId: string;
+}
+
 export type ClientflowLifecyclePayload =
   | FormSendLifecyclePayload
   | IntakeSendLifecyclePayload
@@ -159,7 +176,8 @@ export type ClientflowLifecyclePayload =
   | WelcomeSendLifecyclePayload
   | ContractCopyLifecyclePayload
   | StaffInviteLifecyclePayload
-  | StaffPasswordResetLifecyclePayload;
+  | StaffPasswordResetLifecyclePayload
+  | ProgramEmailLifecyclePayload;
 
 export interface N8nDeliveryReceipt {
   success: true;
@@ -237,3 +255,7 @@ export type StaffInviteEmailPayload = Omit<StaffInviteLifecyclePayload, 'eventTy
 export type StaffPasswordResetEmailPayload = Omit<StaffPasswordResetLifecyclePayload, 'eventType' | 'eventId' | 'occurredAt'>;
 
 export type StaffEmailDeliveryResult = IntakeEmailDeliveryResult;
+
+export type ProgramEmailPayload = Omit<ProgramEmailLifecyclePayload, 'eventType' | 'eventId' | 'occurredAt' | 'bodyHtml'>;
+
+export type ProgramEmailDeliveryResult = IntakeEmailDeliveryResult;

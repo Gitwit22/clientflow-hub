@@ -65,12 +65,12 @@ describe('selectNextAction', () => {
 
 describe('recorded activity', () => {
   it('counts work, notes and outcomes, but not a plan alone', () => {
-    expect(hasRecordedActivity({ status: 'NOT_STARTED' as never })).toBe(false);
-    expect(hasRecordedActivity({ status: 'SCHEDULED' as never })).toBe(false);
-    expect(hasRecordedActivity({ status: 'SCHEDULED' as never, notes: '  ' })).toBe(false);
-    expect(hasRecordedActivity({ status: 'NOT_STARTED' as never, notes: 'Called, left a message' })).toBe(true);
-    expect(hasRecordedActivity({ status: 'IN_PROGRESS' as never })).toBe(true);
-    expect(hasRecordedActivity({ status: 'NOT_APPLICABLE' as never })).toBe(true);
-    expect(summarizeDeliverables([{ status: 'NOT_STARTED' as never }, { status: 'SCHEDULED' as never }]).withActivity).toBe(0);
+    expect(hasRecordedActivity({ status: 'NOT_STARTED' })).toBe(false);
+    expect(hasRecordedActivity({ status: 'SCHEDULED' })).toBe(false);
+    expect(hasRecordedActivity({ status: 'SCHEDULED', notes: '  ' })).toBe(false);
+    expect(hasRecordedActivity({ status: 'NOT_STARTED', notes: 'Called, left a message' })).toBe(true);
+    expect(hasRecordedActivity({ status: 'IN_PROGRESS' })).toBe(true);
+    expect(hasRecordedActivity({ status: 'NOT_APPLICABLE' })).toBe(true);
+    expect(summarizeDeliverables([{ status: 'NOT_STARTED' }, { status: 'SCHEDULED' }]).withActivity).toBe(0);
   });
 });
