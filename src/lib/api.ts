@@ -46,7 +46,10 @@ import {
   cfGetExecutedContractDownload,
   acfSendContractCopy,
   cfCreateCommunication,
-  cfCreateFinalReport,
+  cfCreateFinalReportDraft,
+  cfFinalizeFinalReport,
+  cfUpdateFinalReportDraft,
+  type FinalReportNarrative,
   cfUpdateFormAssignment,
   cfCreateActivity,
   cfSendFormAssignment,
@@ -62,7 +65,6 @@ import type {
   FinalReport,
   FormAssignment,
   FormAssignmentStatus,
-  FinalReportDraft,
   FormEdit,
   FormTemplate,
   EnrollmentMonitoring,
@@ -727,20 +729,45 @@ export async function recordMonitoringResult(
 
 /* ------------------------------- Final reports ------------------------------ */
 
-export async function createFinalReport(clientId: string, data: FinalReportDraft) {
-  const backend = await cfCreateFinalReport(clientId, data as Record<string, unknown>);
-  const report: FinalReport = { ...data, id: backend.id, clientId };
-  setState((s) => ({ ...s, finalReports: [report, ...s.finalReports] }));
-  await log(clientId, "Final report completed", `Outcome recorded: ${data.clientOutcome}.`);
-  // The archive decision may have completed/withdrawn the enrollment or archived the client.
-  if (backend.outcome?.applied) {
-    try {
-      await refreshClientProfile(clientId);
-    } catch (error) {
-      console.warn("Final report saved, but the client could not be refreshed.", error);
-    }
+function upsertFinalReport(report: FinalReport) {
+  setState((s) => ({
+    ...s,
+    finalReports: s.finalReports.some((item) => item.id === report.id)
+      ? s.finalReports.map((item) => (item.id === report.id ? report : item))
+      : [report, ...s.finalReports],
+  }));
+}
+
+/** Saves a final report draft (new or existing). Changes nothing else about the client. */
+export async function saveFinalReportDraft(
+  clientId: string,
+  enrollmentId: string,
+  data: FinalReportNarrative,
+  existingId?: string | null,
+) {
+  const report = existingId
+    ? await cfUpdateFinalReportDraft(existingId, data)
+    : await cfCreateFinalReportDraft({ clientId, enrollmentId, ...data });
+  upsertFinalReport(report);
+  return report;
+}
+
+/**
+ * Finalizes a draft: the report becomes read-only with a snapshot, and the client's participation
+ * in its program is archived (their other programs and the client record stay as they are).
+ */
+export async function finalizeFinalReport(
+  report: Pick<FinalReport, "id" | "clientId">,
+  data: FinalReportNarrative & { outcome: string },
+) {
+  const finalized = await cfFinalizeFinalReport(report.id, data);
+  upsertFinalReport(finalized);
+  try {
+    await refreshClientProfile(report.clientId);
+  } catch (error) {
+    console.warn("Final report finalized, but the client could not be refreshed.", error);
   }
-  return delay(report);
+  return finalized;
 }
 
 export async function archiveAfterFinalReport(clientId: string, decision: string) {

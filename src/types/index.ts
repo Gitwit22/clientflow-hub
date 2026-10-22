@@ -655,7 +655,29 @@ export interface FinalReport {
   staffComments: string;
   clientOutcome: string;
   recommendedNextSteps: string;
+  /** The program outcome chosen at finalizing ("" on a draft). */
   archiveDecision: string;
+  /** DRAFT: editable, changes nothing else. FINALIZED: read-only. Older reports have no status. */
+  status?: "DRAFT" | "FINALIZED";
+  finalizedAt?: string | null;
+  finalizedByDisplayName?: string | null;
+  /** What the report showed when finalized; null on reports finalized before snapshots existed. */
+  snapshot?: FinalReportSnapshot | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Kept with a finalized report so later edits to records never change it. */
+export interface FinalReportSnapshot {
+  capturedAt: string;
+  clientName: string;
+  businessName: string;
+  programName: string;
+  history: import("@/lib/program-deliverables").ProgramHistory;
+  /** From the intake: what the client said they needed. */
+  statedFundingNeed: string | null;
+  /** As agreed in Terms. Not an amount awarded. */
+  termsAmount: string | null;
 }
 
 export interface ActivityLog {

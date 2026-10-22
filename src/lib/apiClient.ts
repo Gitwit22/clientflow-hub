@@ -1022,15 +1022,48 @@ export async function cfListAllCommunications() {
 export async function cfListFinalReports(clientId: string) {
   return apiRequest<FinalReport[]>(`${CF}/clients/${clientId}/final-reports`);
 }
-export async function cfCreateFinalReport(clientId: string, data: Record<string, unknown>) {
-  return apiRequest<{
-    id: string;
-    /** What the archive decision did: completed/withdrew the enrollment, archived the client, or nothing. */
-    outcome?: { applied: "completed" | "withdrawn" | "archived" | null; reason?: string };
-  }>(`${CF}/clients/${clientId}/final-reports`, {
+/** POST /final-reports — saves a draft; changes nothing else. */
+export async function cfCreateFinalReportDraft(
+  data: {
+    clientId: string;
+    enrollmentId: string;
+  } & FinalReportNarrative,
+) {
+  return apiRequest<FinalReport>(`/api/v1/final-reports`, {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+/** PATCH /final-reports/:id — edits a draft's written sections (409 once finalized). */
+export async function cfUpdateFinalReportDraft(reportId: string, data: FinalReportNarrative) {
+  return apiRequest<FinalReport>(`/api/v1/final-reports/${encodeURIComponent(reportId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * POST /final-reports/:id/finalize — keeps a snapshot and archives the client's participation in
+ * the report's program. Runs once; a second request is refused (409).
+ */
+export async function cfFinalizeFinalReport(
+  reportId: string,
+  data: FinalReportNarrative & { outcome: string },
+) {
+  return apiRequest<FinalReport>(`/api/v1/final-reports/${encodeURIComponent(reportId)}/finalize`, {
+    method: "POST",
+    body: JSON.stringify({ ...data, confirm: true }),
+  });
+}
+
+/** The parts of a final report staff write. */
+export interface FinalReportNarrative {
+  resultsAchieved?: string;
+  issuesEncountered?: string;
+  staffComments?: string;
+  clientOutcome?: string;
+  recommendedNextSteps?: string;
 }
 export async function cfListAllFinalReports() {
   return listAllPages<FinalReport>(`${CF}/final-reports`);

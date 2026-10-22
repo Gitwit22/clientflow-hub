@@ -20,7 +20,7 @@ const sendSignedAgreementCopy = vi.fn();
 const updateEnrollment = vi.fn();
 const cfGetCurrentDeliverables = vi.fn();
 const cfGetProgramHistory = vi.fn();
-const createFinalReport = vi.fn();
+const saveFinalReportDraft = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   addCommunication: vi.fn(),
@@ -28,7 +28,8 @@ vi.mock("@/lib/api", () => ({
   cancelFormAssignment: vi.fn(),
   createEnrollment: (...args: unknown[]) => createEnrollment(...args),
   createEnrollmentMonitoring: vi.fn(),
-  createFinalReport: (...args: unknown[]) => createFinalReport(...args),
+  saveFinalReportDraft: (...args: unknown[]) => saveFinalReportDraft(...args),
+  finalizeFinalReport: vi.fn(),
   downloadDocument: vi.fn(),
   downloadExecutedContract: (...args: unknown[]) => downloadExecutedContract(...args),
   sendSignedAgreementCopy: (...args: unknown[]) => sendSignedAgreementCopy(...args),
@@ -682,7 +683,11 @@ describe("one Send workflow in the client header", () => {
 
     it("Final Report shows the original request and every month from the deliverable records", async () => {
       seed({ enrollments: [enrollment("e1", "p1")] });
-      createFinalReport.mockResolvedValue({ id: "fr1" });
+      saveFinalReportDraft.mockResolvedValue({
+        id: "fr1",
+        status: "DRAFT",
+        updatedAt: "2026-10-22T10:00:00.000Z",
+      });
       const summary = (delivered: number, total: number) => ({
         total,
         deliveredOrCompleted: delivered,
@@ -752,7 +757,6 @@ describe("one Send workflow in the client header", () => {
 
       const history = await screen.findByLabelText("Program performance");
       expect(within(history).getByText("Equipment grant")).toBeTruthy();
-      expect(within(history).getByText("Stated funding need: $25,000")).toBeTruthy();
       expect(within(history).getByText(/October 2026 — 1 of 2 delivered/)).toBeTruthy();
       expect(
         within(history).getByText(
@@ -768,17 +772,21 @@ describe("one Send workflow in the client header", () => {
       expect(within(history).getByText("In progress")).toBeTruthy();
       expect(screen.queryByText("Original need / assistance requested")).toBeNull();
 
-      fireEvent.click(screen.getByRole("button", { name: "Save final report" }));
-      await waitFor(() => expect(createFinalReport).toHaveBeenCalled());
-      expect(createFinalReport.mock.calls[0][1]).toEqual(
-        expect.objectContaining({
-          enrollmentId: "e1",
-          startDate: "2026-09-02T00:00:00.000Z",
-          originalNeed: "Equipment grant",
-          milestonesCompleted:
-            "October 2026: 1 of 2 delivered; November 2026: no activity recorded; December 2026: No activity recorded · 2 deliverables",
-        }),
+      // Stated need and terms are labeled for what they are, never as funding awarded.
+      expect(screen.getByLabelText("Funding figures").textContent).toMatch(
+        /Stated funding need\$25,000.*Terms amount.*Not an amount awarded/,
       );
+      fireEvent.change(screen.getByLabelText("Results achieved"), {
+        target: { value: "Bought equipment" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+      await waitFor(() => expect(saveFinalReportDraft).toHaveBeenCalled());
+      expect(saveFinalReportDraft.mock.calls[0]).toEqual([
+        "c1",
+        "e1",
+        expect.objectContaining({ resultsAchieved: "Bought equipment" }),
+        undefined,
+      ]);
     });
 
     it("Program tab shows the empty state when the program has no deliverables", async () => {
