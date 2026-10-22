@@ -854,26 +854,36 @@ model CfCommunication {
 }
 
 model CfFinalReport {
-  id                   String   @id @default(cuid())
-  organizationId       String
-  clientId             String
-  enrollmentId         String?
-  programId            String
-  startDate            String
-  endDate              String
-  originalNeed         String
-  supportProvided      String
-  fundingProvided      String
-  milestonesCompleted  String
-  resultsAchieved      String
-  issuesEncountered    String
-  staffComments        String
-  clientOutcome        String
-  recommendedNextSteps String
-  archiveDecision      String
-  isDemo               Boolean  @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                     String    @id @default(cuid())
+  organizationId         String
+  clientId               String
+  enrollmentId           String?
+  programId              String
+  startDate              String
+  endDate                String
+  originalNeed           String
+  supportProvided        String
+  fundingProvided        String
+  milestonesCompleted    String
+  resultsAchieved        String
+  issuesEncountered      String
+  staffComments          String
+  clientOutcome          String
+  recommendedNextSteps   String
+  /// The program outcome chosen when the report was finalized ("" while a draft).
+  archiveDecision        String
+  /// DRAFT: editable, changes nothing else. FINALIZED: read-only; the program participation is archived.
+  /// Reports saved before drafts existed are FINALIZED.
+  status                 String    @default("DRAFT")
+  finalizedAt            DateTime?
+  finalizedByUserId      String?
+  finalizedByDisplayName String?
+  /// What the report showed when finalized (program history, original request, funding figures),
+  /// so later edits to deliverables or terms never change a finalized report. Null on older reports.
+  snapshot               Json?
+  isDemo                 Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   @@index([organizationId, isDemo])
   @@index([organizationId, clientId])

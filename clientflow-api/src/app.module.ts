@@ -30,6 +30,7 @@ import { EnrollmentsModule } from './modules/enrollments/enrollments.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { DeliverablesModule } from './modules/deliverables/deliverables.module';
 import { ProgramEmailsModule } from './modules/program-emails/program-emails.module';
+import { FinalReportsModule } from './modules/final-reports/final-reports.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { HealthController } from './modules/health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
@@ -57,6 +58,7 @@ import { PrismaModule } from './prisma/prisma.module';
     BillingModule,
     DeliverablesModule,
     ProgramEmailsModule,
+    FinalReportsModule,
     MaintenanceModule,
     FormsModule,
     ContractsModule,

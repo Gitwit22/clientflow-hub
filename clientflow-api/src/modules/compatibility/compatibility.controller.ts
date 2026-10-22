@@ -39,7 +39,6 @@ import { answerFields, labelledAnswers } from '../forms/answer-list';
 import { isLegacyContract } from '../contracts/legacy-contract';
 import { assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
-import { applyFinalReportDecision } from '../lifecycle/final-report';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
   assertCanGrantRole,
@@ -61,6 +60,7 @@ import {
   ensureExecutedContractPdf,
 } from '../contracts/executed-contract-file';
 import { FormDeliveryService } from '../forms/form-delivery.service';
+import { FinalReportsService } from '../final-reports/final-reports.service';
 import { FormProfileService } from '../forms/form-profile.service';
 import { IntakeWorkflowService } from '../forms/intake-workflow.service';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
@@ -248,6 +248,7 @@ export class ClientflowCompatibilityController {
     private readonly enrollments?: EnrollmentsService,
     private readonly formProfile?: FormProfileService,
     private readonly formDelivery?: FormDeliveryService,
+    private readonly finalReports?: FinalReportsService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -1756,30 +1757,14 @@ export class ClientflowCompatibilityController {
     const { orgId } = await this.requireOrgFromRequest(request);
     return this.requirePrisma().cfFinalReport.findMany({ where: { organizationId: orgId, clientId }, orderBy: { createdAt: 'desc' } });
   }
+  /**
+   * Saves a final report as a DRAFT (older screens post here). It changes nothing else; finalizing
+   * and archiving the participation is POST /final-reports/:id/finalize.
+   */
   @Post('clients/:clientId/final-reports') async createFinalReport(@Req() request: Request, @Param('clientId') clientId: string, @Body() body: Record<string, unknown>) {
-    const { orgId, admin } = await this.requireOrgFromRequest(request);
-    const prisma = this.requirePrisma();
-    const client = await findClientForOrg(prisma, orgId, clientId, { includeArchived: true });
-    // The report belongs to an enrollment when one is given (its program is the report's program).
-    const enrollment = typeof body.enrollmentId === 'string' && body.enrollmentId
-      ? await findEnrollmentForOrg(prisma, orgId, body.enrollmentId, { clientId: client.id })
-      : null;
-    const programId = enrollment?.programId
-      ?? (typeof body.programId === 'string' && body.programId ? (await findProgramForOrg(prisma, orgId, body.programId)).id : '');
-    const decision = String(body.archiveDecision ?? '');
-    const actorName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
-    return prisma.$transaction(async (transaction) => {
-      const report = await transaction.cfFinalReport.create({ data: { organizationId: orgId, clientId: client.id, enrollmentId: enrollment?.id ?? null, programId, startDate: String(body.startDate ?? ''), endDate: String(body.endDate ?? ''), originalNeed: String(body.originalNeed ?? ''), supportProvided: String(body.supportProvided ?? ''), fundingProvided: String(body.fundingProvided ?? ''), milestonesCompleted: String(body.milestonesCompleted ?? ''), resultsAchieved: String(body.resultsAchieved ?? ''), issuesEncountered: String(body.issuesEncountered ?? ''), staffComments: String(body.staffComments ?? ''), clientOutcome: String(body.clientOutcome ?? ''), recommendedNextSteps: String(body.recommendedNextSteps ?? ''), archiveDecision: decision, isDemo: client.isDemo } });
-      // The archive decision takes effect with the report (complete / withdraw / archive).
-      const outcome = await applyFinalReportDecision(transaction, {
-        organizationId: orgId,
-        clientId: client.id,
-        enrollmentId: enrollment?.id ?? null,
-        decision,
-        actor: { id: admin.id, name: actorName },
-      });
-      return { ...report, outcome };
-    });
+    const { orgId } = await this.requireOrgFromRequest(request);
+    if (!this.finalReports) throw this.scaffold.notImplemented('Final reports');
+    return this.finalReports.createDraft(orgId, clientId, body);
   }
   @Get('activity') async listActivity(@Req() request: Request) {
     const { orgId } = await this.requireOrgFromRequest(request);
