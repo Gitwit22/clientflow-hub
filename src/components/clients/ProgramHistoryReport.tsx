@@ -3,7 +3,9 @@ import { Badge } from "@/components/ui/badge";
 import { cfGetProgramHistory } from "@/lib/apiClient";
 import {
   DELIVERABLE_STATUS_LABELS,
+  completedLabel,
   formatDeliverableDate,
+  isDoneStatus,
   progressLabel,
   type ProgramHistory,
 } from "@/lib/program-deliverables";
@@ -70,25 +72,34 @@ export function ProgramHistoryReport({
         ) : (
           <ol className="mt-2 space-y-3">
             {history.months.map((month) => (
-              <li key={month.cycleId} aria-label={month.label}>
+              <li key={month.cycleId ?? month.periodStart} aria-label={month.label}>
                 <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                  {month.label} — {progressLabel(month.summary)}
+                  {month.label} —{" "}
+                  {month.recorded === false
+                    ? "No checklist opened · no activity recorded"
+                    : progressLabel(month.summary)}
                   {month.status === "OPEN" && (
                     <Badge variant="outline" className="font-normal">
                       In progress
                     </Badge>
                   )}
                 </p>
-                <ul className="mt-1 space-y-0.5 text-sm">
-                  {month.items.map((item) => (
-                    <li key={item.id} className="text-muted-foreground">
-                      <span className="text-foreground">{item.title}</span> —{" "}
-                      {DELIVERABLE_STATUS_LABELS[item.status]}
-                      {item.scheduledFor ? ` · ${formatDeliverableDate(item.scheduledFor)}` : ""}
-                      {item.outcome ? ` · ${item.outcome}` : ""}
-                    </li>
-                  ))}
-                </ul>
+                {month.items.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 text-sm">
+                    {month.items.map((item) => (
+                      <li key={item.id} className="text-muted-foreground">
+                        <span className="text-foreground">{item.title}</span> —{" "}
+                        {DELIVERABLE_STATUS_LABELS[item.status]}
+                        {item.scheduledFor ? ` · ${formatDeliverableDate(item.scheduledFor)}` : ""}
+                        {isDoneStatus(item.status) && item.completedAt
+                          ? ` · ${completedLabel(item.completedAt)}`
+                          : ""}
+                        {item.outcome ? ` · ${item.outcome}` : ""}
+                        {item.notes ? ` · ${item.notes}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ol>

@@ -16,9 +16,24 @@ export interface DeliverableSummary {
   notApplicable: number;
   /** Everything not yet resolved (including AVAILABLE). */
   open: number;
+  /**
+   * Items staff recorded something on: any status past "not started"/"scheduled", or a note or
+   * outcome. 0 means nothing was recorded that period, which is not the same as work falling short.
+   */
+  withActivity: number;
 }
 
-export function summarizeDeliverables(items: readonly { status: CfDeliverableStatus }[]): DeliverableSummary {
+/** Statuses that only describe a plan (a date may come from the program), not work recorded. */
+const PLANNED_ONLY: readonly CfDeliverableStatus[] = ['NOT_STARTED', 'SCHEDULED'];
+
+/** Whether staff recorded anything on this item. */
+export function hasRecordedActivity(item: { status: CfDeliverableStatus; notes?: string | null; outcome?: string | null }): boolean {
+  return !PLANNED_ONLY.includes(item.status) || Boolean(item.notes?.trim()) || Boolean(item.outcome?.trim());
+}
+
+export function summarizeDeliverables(
+  items: readonly { status: CfDeliverableStatus; notes?: string | null; outcome?: string | null }[],
+): DeliverableSummary {
   const count = (predicate: (status: CfDeliverableStatus) => boolean) =>
     items.filter((item) => predicate(item.status)).length;
   return {
@@ -27,6 +42,7 @@ export function summarizeDeliverables(items: readonly { status: CfDeliverableSta
     available: count((status) => status === 'AVAILABLE'),
     notApplicable: count((status) => status === 'NOT_APPLICABLE'),
     open: count((status) => !isResolved(status)),
+    withActivity: items.filter(hasRecordedActivity).length,
   };
 }
 

@@ -711,8 +711,9 @@ describe("one Send workflow in the client header", () => {
                 title: "Brand Exposure & Visibility",
                 status: "DELIVERED",
                 scheduledFor: null,
-                completedAt: null,
+                completedAt: "2026-10-09T15:00:00.000Z",
                 outcome: "2 features",
+                notes: "Instagram and newsletter",
               },
               {
                 id: "i2",
@@ -725,13 +726,24 @@ describe("one Send workflow in the client header", () => {
             ],
           },
           {
-            cycleId: "cy2",
+            cycleId: null,
+            recorded: false,
             label: "November 2026",
             periodStart: "2026-11-01T04:00:00.000Z",
-            periodEnd: "2026-12-01T05:00:00.000Z",
+            periodEnd: "2026-12-01T04:59:59.999Z",
+            status: null,
+            finalizedAt: null,
+            summary: { ...summary(0, 0), withActivity: 0 },
+            items: [],
+          },
+          {
+            cycleId: "cy2",
+            label: "December 2026",
+            periodStart: "2026-12-01T05:00:00.000Z",
+            periodEnd: "2027-01-01T05:00:00.000Z",
             status: "OPEN",
             finalizedAt: null,
-            summary: summary(0, 2),
+            summary: { ...summary(0, 2), withActivity: 0 },
             items: [],
           },
         ],
@@ -742,7 +754,17 @@ describe("one Send workflow in the client header", () => {
       expect(within(history).getByText("Equipment grant")).toBeTruthy();
       expect(within(history).getByText("Stated funding need: $25,000")).toBeTruthy();
       expect(within(history).getByText(/October 2026 — 1 of 2 delivered/)).toBeTruthy();
-      expect(within(history).getByText(/Delivered · 2 features/)).toBeTruthy();
+      expect(
+        within(history).getByText(
+          /Delivered · completed Oct 9 · 2 features · Instagram and newsletter/,
+        ),
+      ).toBeTruthy();
+      expect(
+        within(history).getByText(/November 2026 — No checklist opened · no activity recorded/),
+      ).toBeTruthy();
+      expect(
+        within(history).getByText(/December 2026 — No activity recorded · 2 deliverables/),
+      ).toBeTruthy();
       expect(within(history).getByText("In progress")).toBeTruthy();
       expect(screen.queryByText("Original need / assistance requested")).toBeNull();
 
@@ -753,7 +775,8 @@ describe("one Send workflow in the client header", () => {
           enrollmentId: "e1",
           startDate: "2026-09-02T00:00:00.000Z",
           originalNeed: "Equipment grant",
-          milestonesCompleted: "October 2026: 1 of 2 delivered; November 2026: 0 of 2 delivered",
+          milestonesCompleted:
+            "October 2026: 1 of 2 delivered; November 2026: no activity recorded; December 2026: No activity recorded · 2 deliverables",
         }),
       );
     });

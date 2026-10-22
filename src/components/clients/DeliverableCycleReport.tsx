@@ -4,6 +4,7 @@ import {
   type DeliverableCycle,
   type DeliverableSummary,
   type EnrollmentDeliverable,
+  completedLabel,
   deliverableStatusLine,
 } from "@/lib/program-deliverables";
 
@@ -64,7 +65,8 @@ function detail(item: EnrollmentDeliverable, done: boolean): string {
   // The section heading already says delivered / available / not applicable.
   const settled = done || item.status === "NOT_APPLICABLE" || item.status === "AVAILABLE";
   const lead = settled ? item.outcome : deliverableStatusLine(item);
-  return [lead, item.notes].filter(Boolean).join(" · ");
+  const completed = done && item.completedAt ? completedLabel(item.completedAt) : null;
+  return [completed, lead, item.notes].filter(Boolean).join(" · ");
 }
 
 function ReportSection({
