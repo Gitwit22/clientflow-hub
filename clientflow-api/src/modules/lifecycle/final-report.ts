@@ -1,79 +1,84 @@
+import { NotFoundException } from '@nestjs/common';
 import type { TenantDb } from '../../common/tenancy/org-scoped.repository';
 import { applyEnrollmentClosure } from './enrollment-closure';
-import { canTransitionEnrollment, transitionEnrollment, type EnrollmentStatus } from './enrollment-state';
+import { canTransitionEnrollment, isClosedEnrollment, transitionEnrollment, type EnrollmentStatus } from './enrollment-state';
 
 /**
- * What a final report's archive decision does. Completion outcomes complete the enrollment, early
- * endings withdraw it, "Archived" archives the client (and their enrollments), and "Pre-Archive"
- * only records the report. Enrollment changes go through the state machine, so a decision never
- * forces an illegal transition (for example, completing an enrollment that never became active).
+ * How a client's participation in a program ended, chosen when a final report is finalized.
+ * Finishing outcomes close the enrollment as completed; early endings close it as withdrawn.
  */
-const COMPLETES_ENROLLMENT = new Set([
-  'Contract Complete',
+export const FINISHED_OUTCOMES = [
   'Program Complete',
+  'Contract Complete',
   'Paid in Full',
   'Grant Requirements Complete',
   'Sponsorship Fulfilled',
-]);
-const WITHDRAWS_ENROLLMENT = new Set(['Closed Early', 'Defaulted']);
+] as const;
+export const EARLY_OUTCOMES = ['Closed Early', 'Defaulted'] as const;
+export const PROGRAM_OUTCOMES: readonly string[] = [...FINISHED_OUTCOMES, ...EARLY_OUTCOMES];
 
-export type FinalReportOutcome =
-  | { applied: 'completed' | 'withdrawn'; enrollmentId: string }
-  | { applied: 'archived' }
-  | { applied: null; reason: 'recorded_only' | 'no_enrollment' | 'transition_not_allowed' };
-
-export function enrollmentTargetForDecision(decision: string): Extract<EnrollmentStatus, 'completed' | 'withdrawn'> | null {
-  if (COMPLETES_ENROLLMENT.has(decision)) return 'completed';
-  if (WITHDRAWS_ENROLLMENT.has(decision)) return 'withdrawn';
-  return null;
+export function isProgramOutcome(value: unknown): value is string {
+  return typeof value === 'string' && PROGRAM_OUTCOMES.includes(value);
 }
 
-export async function applyFinalReportDecision(
+export interface ParticipationArchive {
+  enrollmentId: string;
+  previousStatus: string;
+  status: string;
+}
+
+/**
+ * Archives one client's participation in one program when its final report is finalized.
+ *
+ * Only that enrollment changes: it closes (completed or withdrawn, through the state machine), so
+ * its open contracts, unfinished forms and billing agreement end and no new monthly checklist
+ * starts, and it is marked archived. The client record and their other enrollments are untouched;
+ * archiving the whole client is a separate action.
+ */
+export async function archiveProgramParticipation(
   db: TenantDb,
   input: {
     organizationId: string;
     clientId: string;
-    enrollmentId: string | null;
-    decision: string;
+    enrollmentId: string;
+    outcome: string;
     actor: { id: string | null; name: string };
   },
   now = new Date(),
-): Promise<FinalReportOutcome> {
-  if (input.decision === 'Archived') {
-    await db.cfClient.updateMany({
-      where: { id: input.clientId, organizationId: input.organizationId, isArchived: false },
-      data: { isArchived: true, archivedAt: now, archiveReason: 'Final report completed', finalStatus: 'Archived' },
-    });
-    await db.cfProgramEnrollment.updateMany({
-      where: { organizationId: input.organizationId, clientId: input.clientId, isArchived: false },
-      data: { isArchived: true, archivedAt: now },
-    });
-    return { applied: 'archived' };
-  }
-
-  const target = enrollmentTargetForDecision(input.decision);
-  if (!target) return { applied: null, reason: 'recorded_only' };
-  if (!input.enrollmentId) return { applied: null, reason: 'no_enrollment' };
-
+): Promise<ParticipationArchive> {
   const enrollment = await db.cfProgramEnrollment.findFirst({
     where: { id: input.enrollmentId, organizationId: input.organizationId, clientId: input.clientId },
   });
-  if (!enrollment || !canTransitionEnrollment(enrollment.status, target, { byStaff: true })) {
-    return { applied: null, reason: 'transition_not_allowed' };
+  if (!enrollment) throw new NotFoundException('Enrollment not found.');
+
+  const previousStatus: string = enrollment.status;
+  let status: string = previousStatus;
+  if (!isClosedEnrollment(status)) {
+    const wanted: Extract<EnrollmentStatus, 'completed' | 'withdrawn'> =
+      (FINISHED_OUTCOMES as readonly string[]).includes(input.outcome) ? 'completed' : 'withdrawn';
+    // An enrollment that never became active cannot be "completed"; it still ends, as withdrawn.
+    const target = canTransitionEnrollment(status, wanted, { byStaff: true }) ? wanted : 'withdrawn';
+    if (canTransitionEnrollment(status, target, { byStaff: true })) {
+      await transitionEnrollment(db, {
+        organizationId: input.organizationId,
+        enrollmentId: enrollment.id,
+        from: previousStatus,
+        to: target,
+        byStaff: true,
+        data: target === 'completed' ? { completedAt: now } : { withdrawnAt: now },
+        history: {
+          changedByUserId: input.actor.id,
+          changedByDisplayName: input.actor.name,
+          reason: `Final report finalized: ${input.outcome}.`,
+        },
+      });
+      status = target;
+    }
   }
-  await transitionEnrollment(db, {
-    organizationId: input.organizationId,
-    enrollmentId: enrollment.id,
-    from: enrollment.status,
-    to: target,
-    byStaff: true,
-    data: target === 'completed' ? { completedAt: now } : { withdrawnAt: now },
-    history: {
-      changedByUserId: input.actor.id,
-      changedByDisplayName: input.actor.name,
-      reason: `Final report: ${input.decision}.`,
-    },
+  await applyEnrollmentClosure(db, { ...enrollment, status }, now);
+  await db.cfProgramEnrollment.updateMany({
+    where: { id: enrollment.id, organizationId: input.organizationId, isArchived: false },
+    data: { isArchived: true, archivedAt: now },
   });
-  await applyEnrollmentClosure(db, { ...enrollment, status: target }, now);
-  return { applied: target, enrollmentId: enrollment.id };
+  return { enrollmentId: enrollment.id, previousStatus, status };
 }

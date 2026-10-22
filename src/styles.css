@@ -206,3 +206,24 @@
     color: var(--color-foreground);
   }
 }
+
+/* Print one element (a final report): see printElement in src/lib/final-reports.ts. */
+@media print {
+  body.printing-one * {
+    visibility: hidden;
+  }
+  body.printing-one [data-print-target="true"],
+  body.printing-one [data-print-target="true"] * {
+    visibility: visible;
+  }
+  body.printing-one [data-print-target="true"] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    box-shadow: none;
+    border: none;
+  }
+  body.printing-one .no-print {
+    display: none !important;
+  }
+}

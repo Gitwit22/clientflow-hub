@@ -16,22 +16,27 @@ import {
  */
 export function ProgramHistoryReport({
   enrollmentId,
+  history: snapshot,
   onLoaded,
 }: {
-  enrollmentId: string;
+  /** Reads the live records for this enrollment… */
+  enrollmentId?: string;
+  /** …or shows a finalized report's saved copy instead (nothing is loaded). */
+  history?: ProgramHistory;
   onLoaded?: (history: ProgramHistory) => void;
 }) {
-  const [history, setHistory] = useState<ProgramHistory | null>(null);
+  const [loaded, setLoaded] = useState<ProgramHistory | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (snapshot || !enrollmentId) return;
     let cancelled = false;
-    setHistory(null);
+    setLoaded(null);
     setFailed(false);
     cfGetProgramHistory(enrollmentId)
       .then((result) => {
         if (cancelled) return;
-        setHistory(result);
+        setLoaded(result);
         onLoaded?.(result);
       })
       .catch(() => !cancelled && setFailed(true));
@@ -40,8 +45,9 @@ export function ProgramHistoryReport({
     };
     // onLoaded is a callback from the parent; reloading only when the enrollment changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enrollmentId]);
+  }, [enrollmentId, snapshot]);
 
+  const history = snapshot ?? loaded;
   if (failed) {
     return <p className="text-sm text-muted-foreground">Program history couldn't be loaded.</p>;
   }
@@ -57,11 +63,6 @@ export function ProgramHistoryReport({
         <p className="mt-0.5 whitespace-pre-wrap text-sm">
           {request.assistanceRequested ?? "Not provided on the intake"}
         </p>
-        {request.budgetNeed && (
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Stated funding need: {request.budgetNeed}
-          </p>
-        )}
       </div>
       <div>
         <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">

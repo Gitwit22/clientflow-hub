@@ -7,8 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSendMenu";
 import { JoinedDateEditor } from "@/components/clients/JoinedDateEditor";
 import { NextProgramAction } from "@/components/clients/NextProgramAction";
-import { ProgramHistoryReport } from "@/components/clients/ProgramHistoryReport";
-import { programHistorySummary, type ProgramHistory } from "@/lib/program-deliverables";
+import { FinalReportsTab } from "@/components/clients/FinalReportsTab";
 import { ProgramDeliverablesCard } from "@/components/clients/ProgramDeliverablesCard";
 import {
   enrollmentDatesLabel,
@@ -77,7 +76,6 @@ import {
   cancelFormAssignment,
   createEnrollment,
   createEnrollmentMonitoring,
-  createFinalReport,
   downloadDocument,
   downloadExecutedContract,
   sendSignedAgreementCopy,
@@ -91,7 +89,6 @@ import {
 } from "@/lib/api";
 import { cfGetEnrollmentBillingSummary, cfGetProgramBillingConfig } from "@/lib/apiClient";
 import {
-  ARCHIVE_DECISIONS,
   type EnrollmentBillingSummary,
   type FormAssignment,
   type IntakeDetails,
@@ -230,16 +227,6 @@ function ClientProfile() {
   const [ledgerOpen, setLedgerOpen] = useState(false);
 
   const [note, setNote] = useState("");
-  // The selected enrollment's program history, shown at the top of the Final Report form.
-  const [reportHistory, setReportHistory] = useState<ProgramHistory | null>(null);
-  const [report, setReport] = useState({
-    resultsAchieved: "",
-    issuesEncountered: "",
-    recommendedNextSteps: "",
-    staffComments: "",
-    clientOutcome: "Program Complete",
-    archiveDecision: ARCHIVE_DECISIONS[0],
-  });
 
   // Archive dialog
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -1793,126 +1780,13 @@ function ClientProfile() {
         </TabsContent>
 
         <TabsContent value="final" className="mt-4 space-y-3">
-          {finals.map((f) => (
-            <Card key={f.id} className="shadow-card">
-              <CardContent className="grid gap-x-8 p-6 sm:grid-cols-2">
-                <dl>
-                  <Row
-                    label="Program term"
-                    value={`${f.startDate.slice(0, 10)} → ${f.endDate.slice(0, 10)}`}
-                  />
-                  <Row label="Original need" value={f.originalNeed} />
-                  <Row label="Support provided" value={f.supportProvided} />
-                  <Row label="Funding provided" value={f.fundingProvided} />
-                </dl>
-                <dl>
-                  <Row label="Results achieved" value={f.resultsAchieved} />
-                  <Row label="Issues encountered" value={f.issuesEncountered} />
-                  <Row label="Staff comments" value={f.staffComments} />
-                  <Row label="Client outcome" value={f.clientOutcome} />
-                  <Row label="Recommended next steps" value={f.recommendedNextSteps} />
-                  <Row label="Archive decision" value={f.archiveDecision} />
-                </dl>
-                {f.enrollmentId && (
-                  <div className="border-t border-border pt-4 sm:col-span-2">
-                    <ProgramHistoryReport enrollmentId={f.enrollmentId} />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-          <Card className="shadow-card">
-            <CardContent className="space-y-3 p-5">
-              <CardTitle className="font-display text-base">Complete final report</CardTitle>
-              {selectedEnrollment ? (
-                <div className="rounded-md border border-border p-4">
-                  <ProgramHistoryReport
-                    enrollmentId={selectedEnrollment.id}
-                    onLoaded={setReportHistory}
-                  />
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Select a program enrollment to include its program history.
-                </p>
-              )}
-              <div className="space-y-1.5">
-                <Label>Results achieved</Label>
-                <Textarea
-                  rows={2}
-                  value={report.resultsAchieved}
-                  onChange={(e) => setReport({ ...report, resultsAchieved: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Issues encountered</Label>
-                <Textarea
-                  rows={2}
-                  value={report.issuesEncountered}
-                  onChange={(e) => setReport({ ...report, issuesEncountered: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Staff comments</Label>
-                <Textarea
-                  rows={2}
-                  value={report.staffComments}
-                  onChange={(e) => setReport({ ...report, staffComments: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Client outcome</Label>
-                <Input
-                  value={report.clientOutcome}
-                  onChange={(e) => setReport({ ...report, clientOutcome: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Recommended next steps</Label>
-                <Textarea
-                  rows={2}
-                  value={report.recommendedNextSteps}
-                  onChange={(e) => setReport({ ...report, recommendedNextSteps: e.target.value })}
-                />
-              </div>
-              <Button
-                disabled={action.busy === "final-report"}
-                onClick={async () => {
-                  await action.run(
-                    "final-report",
-                    () =>
-                      createFinalReport(client.id, {
-                        programId: selectedEnrollment?.programId ?? "",
-                        enrollmentId: selectedEnrollment?.id ?? null,
-                        startDate: reportHistory?.joinedAt ?? client.createdAt,
-                        endDate: reportHistory?.endedAt ?? new Date().toISOString(),
-                        // Kept with the report for exports; the screen reads the live history.
-                        originalNeed:
-                          reportHistory?.originalRequest.assistanceRequested ??
-                          client.intake?.assistanceRequested ??
-                          "",
-                        supportProvided: selectedProgram?.name ?? "",
-                        fundingProvided: terms[0] ? formatMoney(terms[0].fundingAmount) : "—",
-                        milestonesCompleted:
-                          reportHistory && reportHistory.enrollmentId === selectedEnrollment?.id
-                            ? programHistorySummary(reportHistory) || "—"
-                            : (terms[0]?.milestones ?? "—"),
-                        resultsAchieved: report.resultsAchieved,
-                        issuesEncountered: report.issuesEncountered || "None recorded",
-                        staffComments: report.staffComments,
-                        clientOutcome: report.clientOutcome,
-                        recommendedNextSteps:
-                          report.recommendedNextSteps || "Review for future programs",
-                        archiveDecision: report.archiveDecision,
-                      }),
-                    { success: "Final report saved", error: "Unable to save the final report." },
-                  );
-                }}
-              >
-                {action.busy === "final-report" ? "Saving…" : "Save final report"}
-              </Button>
-            </CardContent>
-          </Card>
+          <FinalReportsTab
+            client={client}
+            enrollment={selectedEnrollment ?? null}
+            programName={selectedProgram?.name ?? "this program"}
+            terms={terms}
+            reports={finals}
+          />
         </TabsContent>
 
         <TabsContent value="activity" className="mt-4 space-y-2">
