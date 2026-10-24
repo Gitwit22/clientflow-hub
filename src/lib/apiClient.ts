@@ -1660,6 +1660,26 @@ export async function cfPreviewProgramEmailRecipients(programId: string) {
   );
 }
 
+export interface ProgramEmailPreview {
+  programName: string;
+  fromName: string;
+  subject: string;
+  /** The whole email (logo header, message, sign-off) exactly as the send builds it. */
+  html: string;
+  text: string;
+}
+
+/** POST /programs/:programId/emails/preview — the email as members will get it; sends nothing. */
+export async function cfPreviewProgramEmail(
+  programId: string,
+  data: { subject: string; body: string },
+) {
+  return apiRequest<ProgramEmailPreview>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/emails/preview`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
 /** GET /programs/:programId/emails — the program's sent emails, newest first. */
 export async function cfListProgramEmails(programId: string) {
   return apiRequest<ProgramEmailSummary[]>(
@@ -1673,7 +1693,8 @@ export async function cfListProgramEmails(programId: string) {
  */
 export async function cfSendProgramEmail(
   programId: string,
-  data: { subject: string; body: string },
+  /** Without clientIds the email goes to every member of the program. */
+  data: { subject: string; body: string; clientIds?: string[] },
   idempotencyKey: string,
 ) {
   return apiRequest<ProgramEmailDetail>(

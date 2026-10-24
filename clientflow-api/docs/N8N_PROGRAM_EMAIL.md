@@ -1,8 +1,8 @@
 # Program-wide email (`program.email`)
 
-Programs › a program › **Send program email** sends one message to every member of the program.
-ClientFlow sends **one webhook per recipient** (so addresses stay private), from the server, in the
-background. Each recipient is a `CfCommunication` row (`type: program_email`, `programEmailId`), so
+Programs › a program card or the program's Emails tab › **Send email blast** sends one message to
+every member of the program (the default) or to the members staff choose. ClientFlow sends **one
+webhook per recipient** (so addresses stay private), from the server, in the background. Each recipient is a `CfCommunication` row (`type: program_email`, `programEmailId`), so
 it also shows on the client's Communications tab.
 
 ## Payload
@@ -20,13 +20,17 @@ it also shows on the client's Communications tab.
   "programName": "The Inspired Detroit Initiative",
   "programEmailId": "<programEmailId>",
   "subject": "Grant day this Saturday",
-  "body": "Hello everyone,\n\n…",
+  "body": "Hello everyone,\n\n• Bring your plan …",
   "bodyHtml": "<p style=\"margin:0 0 16px 0;\">Hello everyone,</p>…",
   "headerImageUrl": "https://… (the organization's Settings logo, when set)"
 }
 ```
 
-The copy is ClientFlow's, exactly as staff wrote it, like `welcome.send`: n8n adds only the shared
+Staff can format the message (**bold**, _italic_, bulleted and numbered lists, links). `bodyHtml`
+is the formatted version (all text escaped; only p, br, strong, em, ul, ol, li and http/mailto links);
+`body` is the plain-text version with the formatting markers removed.
+
+The copy is ClientFlow's, as staff wrote it, like `welcome.send`: n8n adds only the shared
 header image and the "Thank you, EA Management LLC" sign-off. Each recipient's `eventId` never
 changes, so a retry (or a resend after a server restart) of a copy n8n already sent hits the
 workflow's "Check Duplicate" step and returns `ALREADY_SENT` instead of emailing again.

@@ -5,6 +5,7 @@ import { ProgramEmailsPanel } from "./ProgramEmailsPanel";
 
 const cfPreviewProgramEmailRecipients = vi.fn();
 const cfSendProgramEmail = vi.fn();
+const cfPreviewProgramEmail = vi.fn();
 const cfListProgramEmails = vi.fn();
 const cfGetProgramEmail = vi.fn();
 const cfRetryProgramEmail = vi.fn();
@@ -13,6 +14,7 @@ vi.mock("@/lib/apiClient", () => ({
   ApiError: class ApiError extends Error {},
   cfPreviewProgramEmailRecipients: (...a: unknown[]) => cfPreviewProgramEmailRecipients(...a),
   cfSendProgramEmail: (...a: unknown[]) => cfSendProgramEmail(...a),
+  cfPreviewProgramEmail: (...a: unknown[]) => cfPreviewProgramEmail(...a),
   cfListProgramEmails: (...a: unknown[]) => cfListProgramEmails(...a),
   cfGetProgramEmail: (...a: unknown[]) => cfGetProgramEmail(...a),
   cfRetryProgramEmail: (...a: unknown[]) => cfRetryProgramEmail(...a),
@@ -103,25 +105,39 @@ describe("program emails", () => {
     cfListProgramEmails.mockResolvedValue([]);
     cfPreviewProgramEmailRecipients.mockResolvedValue(preview);
     cfGetProgramEmail.mockResolvedValue(detail());
+    cfPreviewProgramEmail.mockImplementation((_programId: string, data: { subject: string }) =>
+      Promise.resolve({
+        programName: "IDI",
+        fromName: "EA Management LLC",
+        subject: data.subject,
+        html: "<!DOCTYPE html><html><body><p>RENDERED</p><p>Thank you,<br/>EA Management LLC</p></body></html>",
+        text: "RENDERED",
+      }),
+    );
   });
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
   });
 
-  async function compose() {
+  async function open() {
     render(<ProgramEmailsPanel programId="p1" programName="IDI" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Send program email" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Send email blast" }));
+    await screen.findByLabelText("Recipient summary");
     fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Grant day Saturday" } });
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hello all" } });
-    fireEvent.click(screen.getByRole("button", { name: "Review recipients" }));
+  }
+
+  async function compose() {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Preview email" }));
     await screen.findByLabelText("Recipients");
   }
 
   it("shows every recipient and the count, plus who is skipped and why, before sending", async () => {
     await compose();
     expect(cfPreviewProgramEmailRecipients).toHaveBeenCalledWith("p1");
-    expect(screen.getByLabelText("Recipient count").textContent).toBe("2 members");
+    expect(screen.getByLabelText("Recipient count").textContent).toBe("all 2 members");
     const list = screen.getByLabelText("Recipients");
     expect(within(list).getByText("tamika@example.com")).toBeTruthy();
     expect(within(list).getByText("pat@moonlight.test")).toBeTruthy();
@@ -152,6 +168,88 @@ describe("program emails", () => {
     expect(programId).toBe("p1");
     expect(data).toEqual({ subject: "Grant day Saturday", body: "Hello all" });
     expect(key).toMatch(/.{8,}/);
+  });
+
+  it("everyone is chosen by default; unchecking narrows the email to the chosen members", async () => {
+    cfSendProgramEmail.mockResolvedValue(detail({ recipientCount: 1 }));
+    await open();
+    expect(screen.getByLabelText("Recipient summary").textContent).toBe("All members (3)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose members" }));
+    const members = screen.getByLabelText("Members");
+    // The member sharing an address can be chosen on their own; the one without an address can't.
+    expect(within(members).getAllByRole("checkbox")).toHaveLength(3);
+    expect(
+      within(screen.getByLabelText("Members without a usable email")).getByText(/No Email LLC/),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "All members" }));
+    expect(screen.getByLabelText("Recipient summary").textContent).toBe("Nobody chosen yet");
+    expect(
+      (screen.getByRole("button", { name: "Preview email" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText("Search members"), { target: { value: "moon" } });
+    fireEvent.click(within(members).getByRole("checkbox", { name: "Moonlight Minerals" }));
+    expect(screen.getByLabelText("Recipient summary").textContent).toBe("1 of 3 chosen");
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview email" }));
+    expect((await screen.findByLabelText("Recipient count")).textContent).toBe(
+      "1 member you chose",
+    );
+    expect(screen.queryByLabelText("Skipped members")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send to 1 member" }));
+    await waitFor(() => expect(cfSendProgramEmail).toHaveBeenCalledTimes(1));
+    expect(cfSendProgramEmail.mock.calls[0][1]).toEqual({
+      subject: "Grant day Saturday",
+      body: "Hello all",
+      clientIds: ["c2"],
+    });
+  });
+
+  it("formats the message from the toolbar, and Preview email shows the whole email without sending", async () => {
+    await open();
+    const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(message, { target: { value: "Hello all\nBring ID\nBring a pen" } });
+    message.setSelectionRange(0, 5);
+    fireEvent.click(screen.getByRole("button", { name: "Bold" }));
+    expect(message.value).toBe("**Hello** all\nBring ID\nBring a pen");
+    message.setSelectionRange(14, message.value.length);
+    fireEvent.click(screen.getByRole("button", { name: "Bulleted list" }));
+    expect(message.value).toBe("**Hello** all\n- Bring ID\n- Bring a pen");
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview email" }));
+    const frame = (await screen.findByTitle("Email as members will see it")) as HTMLIFrameElement;
+    expect(cfPreviewProgramEmail).toHaveBeenCalledWith("p1", {
+      subject: "Grant day Saturday",
+      body: "**Hello** all\n- Bring ID\n- Bring a pen",
+    });
+    expect(frame.getAttribute("srcdoc")).toContain("<p>RENDERED</p>");
+    expect(frame.getAttribute("sandbox")).not.toMatch(/allow-scripts/);
+    const header = screen.getByLabelText("Email preview");
+    expect(header.textContent).toMatch(/FromEA Management LLC/);
+    expect(header.textContent).toMatch(
+      /ToTamika <tamika@example.com> and 1 more, each their own copy/,
+    );
+    expect(header.textContent).toMatch(/SubjectGrant day Saturday/);
+    expect(cfSendProgramEmail).not.toHaveBeenCalled();
+
+    // Back to editing keeps the message.
+    fireEvent.click(screen.getByRole("button", { name: "Back to editing" }));
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe(
+      "**Hello** all\n- Bring ID\n- Bring a pen",
+    );
+  });
+
+  it("can send straight from the compose screen without previewing", async () => {
+    cfSendProgramEmail.mockResolvedValue(detail());
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Send to 2 members" }));
+    await waitFor(() => expect(cfSendProgramEmail).toHaveBeenCalledTimes(1));
+    expect(cfPreviewProgramEmail).not.toHaveBeenCalled();
+    expect(cfSendProgramEmail.mock.calls[0][1]).toEqual({
+      subject: "Grant day Saturday",
+      body: "Hello all",
+    });
   });
 
   it("history shows partial failures clearly, never claims delivery, and retries only the failed", async () => {

@@ -25,23 +25,35 @@ export class ProgramEmailController {
     return this.emails.previewRecipients(request.adminUser!.organizationId, programId);
   }
 
+  /** The email as a member would receive it, before sending. Records and sends nothing. */
+  @Post('programs/:programId/emails/preview')
+  @HttpCode(200)
+  preview(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Body() body: { subject?: unknown; body?: unknown },
+  ) {
+    return this.emails.preview(request.adminUser!.organizationId, programId, { subject: body?.subject, body: body?.body });
+  }
+
   @Get('programs/:programId/emails')
   list(@Req() request: AuthenticatedRequest, @Param('programId') programId: string) {
     return this.emails.list(request.adminUser!.organizationId, programId);
   }
 
-  /** Records the email and starts sending; answers before sending finishes. */
+  /** Records the email and starts sending; answers before sending finishes. Without clientIds it goes to every member. */
   @Post('programs/:programId/emails')
   @HttpCode(202)
   create(
     @Req() request: AuthenticatedRequest,
     @Param('programId') programId: string,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body() body: { subject?: unknown; body?: unknown },
+    @Body() body: { subject?: unknown; body?: unknown; clientIds?: unknown },
   ) {
     return this.emails.create(request.adminUser!.organizationId, actorFrom(request), programId, {
       subject: body?.subject,
       body: body?.body,
+      clientIds: body?.clientIds,
       idempotencyKey: parseIdempotencyKey(idempotencyKey),
     });
   }

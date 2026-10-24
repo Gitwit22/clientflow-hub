@@ -146,6 +146,57 @@ describe('sending a program email', () => {
     expect(sendProgramEmail).toHaveBeenCalledTimes(3);
   });
 
+  it('sends only to the chosen members, even one who shares an address with someone left out', async () => {
+    const { service, sendProgramEmail, rows } = setup();
+    const created = await service.create(ORG, staff, 'p-idi', {
+      subject: 'Just you two',
+      body: 'Hi',
+      clientIds: ['c2', 'c5', 'c3'],
+      idempotencyKey: 'chosen-key-1',
+    });
+    await service.whenIdle(created.id);
+
+    expect(created.recipientCount).toBe(2);
+    expect(rows.cfCommunication.map((row) => [row.clientId, row.recipientEmail])).toEqual([
+      ['c2', 'pat@moonlight.test'],
+      ['c5', 'tamika@example.com'], // c1 has the same address but wasn't chosen
+    ]);
+    expect(created.skipped).toEqual([{ clientId: 'c3', businessName: 'No Email LLC', email: null, reason: 'missing_email' }]);
+    expect(sendProgramEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a choice with nobody in it, a member from outside the program, or nobody reachable', async () => {
+    const { service, rows } = setup();
+    const send = (clientIds: unknown, key: string) => service.create(ORG, staff, 'p-idi', { subject: 'S', body: 'B', clientIds, idempotencyKey: key });
+    await expect(send([], 'pick-0000001')).rejects.toThrow(/at least one member/);
+    await expect(send(['c1', 'cx'], 'pick-0000002')).rejects.toThrow(/not in this program/);
+    await expect(send(['c1', 7], 'pick-0000003')).rejects.toThrow(/list of client ids/);
+    await expect(send(['c3', 'c4'], 'pick-0000004')).rejects.toThrow('None of the chosen members has a usable email address.');
+    expect(rows.cfProgramEmail).toHaveLength(0);
+    expect(rows.cfCommunication).toHaveLength(0);
+  });
+
+  it('previews the whole email a member would get, without recording or sending anything', async () => {
+    const { rows, sendProgramEmail } = setup();
+    // The real formatter and layout, with the mocked delivery; no logo is set up, so the text header shows.
+    const { N8nService: RealN8n } = jest.requireActual<typeof import('../../integrations/n8n/n8n.service')>('../../integrations/n8n/n8n.service');
+    const n8n = Object.assign(Object.create(RealN8n.prototype) as N8nService, { sendProgramEmail });
+    const service = new ProgramEmailService(inMemoryDb(rows) as unknown as PrismaService, n8n);
+    const preview = await service.preview(ORG, 'p-idi', { subject: ' Grant day ', body: 'Hi **all**\n- bring ID' });
+
+    expect(preview).toEqual(expect.objectContaining({ programName: 'The Inspired Detroit Initiative', fromName: 'EA Management LLC', subject: 'Grant day' }));
+    expect(preview.html).toContain('EA MANAGEMENT');
+    expect(preview.html).toContain('<strong>all</strong>');
+    expect(preview.html).toContain('<li style="margin:0 0 4px 0;">bring ID</li>');
+    expect(preview.html).toContain('Thank you,<br/>EA Management LLC');
+    expect(preview.text).toBe('Hi all\n• bring ID');
+    expect(rows.cfProgramEmail).toHaveLength(0);
+    expect(rows.cfCommunication).toHaveLength(0);
+    expect(sendProgramEmail).not.toHaveBeenCalled();
+    await expect(service.preview(ORG, 'p-idi', { subject: '', body: 'x' })).rejects.toThrow('Enter a subject.');
+    await expect(service.preview(ORG, 'p-foreign', { subject: 'S', body: 'x' })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('requires a key, a subject, a message and someone to send to', async () => {
     const { service } = setup();
     await expect(service.create(ORG, staff, 'p-idi', { subject: 'S', body: 'B', idempotencyKey: null })).rejects.toBeInstanceOf(BadRequestException);

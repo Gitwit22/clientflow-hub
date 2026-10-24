@@ -79,12 +79,18 @@ const BILLING_FREQUENCIES: BillingFrequency[] = [
   "custom",
 ];
 
+const PROGRAM_TABS = ["overview", "members", "questions", "deliverables", "emails"] as const;
+type ProgramTab = (typeof PROGRAM_TABS)[number];
+
 export const Route = createFileRoute("/programs/$programId")({
   head: () => ({
     meta: [
       { title: "Program details - ClientFlow" },
       { name: "description", content: "Review program setup, members, and progress." },
     ],
+  }),
+  validateSearch: (search: Record<string, unknown>): { tab?: ProgramTab } => ({
+    tab: PROGRAM_TABS.includes(search.tab as ProgramTab) ? (search.tab as ProgramTab) : undefined,
   }),
   component: ProgramDetailPage,
 });
@@ -93,6 +99,8 @@ const PAST_STATUSES = new Set(["completed", "declined", "withdrawn"]);
 
 function ProgramDetailPage() {
   const { programId } = Route.useParams();
+  const { tab = "overview" } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const state = useAppState();
   const { members } = useOrganizationMembers();
   const [detail, setDetail] = useState<ProgramDetailResponse | null>(null);
@@ -462,7 +470,15 @@ function ProgramDetailPage() {
         </span>
       </div>
 
-      <Tabs defaultValue="overview">
+      <Tabs
+        value={tab}
+        onValueChange={(value) =>
+          void navigate({
+            search: { tab: value === "overview" ? undefined : (value as ProgramTab) },
+            replace: true,
+          })
+        }
+      >
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="members">Members ({summary.current})</TabsTrigger>
