@@ -163,39 +163,40 @@ export class ProgramEmailService implements OnApplicationBootstrap {
    * out still gets the email.
    */
   private async recipientsFor(organizationId: string, programId: string, onlyClientIds?: ReadonlySet<string>) {
-    // Every enrollment counts, whatever its status. Demo records are sample data, never emailed.
-    const all = await this.prisma.cfProgramEnrollment.findMany({
-      where: { organizationId, programId, isDemo: false },
+    // Every enrollment counts, whatever its status, except archived ones: an archived client, or a
+    // participation archived when its final report was finalized, is out of the program's working
+    // list. Demo records are sample data, never emailed.
+    const enrollments = await this.prisma.cfProgramEnrollment.findMany({
+      where: { organizationId, programId, isDemo: false, isArchived: false },
       select: { id: true, clientId: true },
       orderBy: { createdAt: 'asc' },
     });
+    const clients = enrollments.length
+      ? await this.prisma.cfClient.findMany({
+          where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isDemo: false, isArchived: false },
+          select: { id: true, businessName: true, primaryContactName: true, email: true },
+        })
+      : [];
+    const byId = new Map(clients.map((client) => [client.id, client]));
+    const members = enrollments.flatMap((enrollment) => {
+      const client = byId.get(enrollment.clientId);
+      return client
+        ? [{
+            clientId: client.id,
+            enrollmentId: enrollment.id,
+            businessName: client.businessName,
+            contactName: client.primaryContactName,
+            email: client.email,
+          }]
+        : [];
+    });
     if (onlyClientIds) {
-      const members = new Set(all.map((enrollment) => enrollment.clientId));
-      if ([...onlyClientIds].some((clientId) => !members.has(clientId))) {
+      const memberIds = new Set(members.map((member) => member.clientId));
+      if ([...onlyClientIds].some((clientId) => !memberIds.has(clientId))) {
         throw new BadRequestException('Some of the chosen members are not in this program. Reload and choose again.');
       }
     }
-    const enrollments = onlyClientIds ? all.filter((enrollment) => onlyClientIds.has(enrollment.clientId)) : all;
-    if (!enrollments.length) return buildRecipientList([]);
-    const clients = await this.prisma.cfClient.findMany({
-      where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isDemo: false },
-      select: { id: true, businessName: true, primaryContactName: true, email: true },
-    });
-    const byId = new Map(clients.map((client) => [client.id, client]));
-    return buildRecipientList(
-      enrollments.flatMap((enrollment) => {
-        const client = byId.get(enrollment.clientId);
-        return client
-          ? [{
-              clientId: client.id,
-              enrollmentId: enrollment.id,
-              businessName: client.businessName,
-              contactName: client.primaryContactName,
-              email: client.email,
-            }]
-          : [];
-      }),
-    );
+    return buildRecipientList(onlyClientIds ? members.filter((member) => onlyClientIds.has(member.clientId)) : members);
   }
 
   /**

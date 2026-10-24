@@ -44,6 +44,20 @@ describe('INVARIANT: the archive is reachable and archive/restore cascade on the
     );
   });
 
+  it("the old screens' delete archives the client together with its enrollments", async () => {
+    const { rows, controller } = setup();
+    await controller.deleteClient({} as never, 'c-active');
+    const client = rows.cfClient.find((c) => c.id === 'c-active');
+    expect(client).toEqual(expect.objectContaining({ isArchived: true, archiveReason: 'Deleted via compatibility route' }));
+    expect(client?.archivedAt).toBeInstanceOf(Date);
+    expect(rows.cfProgramEnrollment.find((e) => e.id === 'e-active')).toEqual(
+      expect.objectContaining({ isArchived: true, archivedAt: client?.archivedAt }),
+    );
+    // Restoring brings them back together.
+    await controller.updateClient({} as never, 'c-active', { isArchived: false, status: 'Active' });
+    expect(rows.cfProgramEnrollment.find((e) => e.id === 'e-active')?.isArchived).toBe(false);
+  });
+
   it('restoring clears the archive details and brings back only the enrollments archived with it', async () => {
     const { rows, controller } = setup();
     await controller.updateClient({} as never, 'c-archived', { isArchived: false, status: 'Active' });
