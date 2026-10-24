@@ -1,7 +1,10 @@
 import { ChevronDown, Mail } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { SendProgramEmailDialog } from "@/components/programs/SendProgramEmailDialog";
+import {
+  FormattedEmailBody,
+  SendProgramEmailDialog,
+} from "@/components/programs/SendProgramEmailDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,7 +67,7 @@ export function ProgramEmailsPanel({
           <Mail className="h-4 w-4" /> Program emails
         </CardTitle>
         <Button size="sm" onClick={() => setComposing(true)}>
-          Send program email
+          Send email blast
         </Button>
       </CardHeader>
       <CardContent>
@@ -74,7 +77,8 @@ export function ProgramEmailsPanel({
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : emails.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No program emails yet. Use “Send program email” to write to every member at once.
+            No program emails yet. Use “Send email blast” to write to every member, or the ones you
+            choose.
           </p>
         ) : (
           <ul className="divide-y divide-border" aria-label="Program email history">
@@ -183,7 +187,9 @@ function EmailRow({
       </div>
       {open && (
         <div className="mt-3 space-y-3 pl-5">
-          <p className="whitespace-pre-wrap rounded-md bg-muted/40 p-3 text-sm">{email.body}</p>
+          <div className="rounded-md bg-muted/40 p-3">
+            <FormattedEmailBody body={email.body} />
+          </div>
           <p className="text-xs text-muted-foreground">
             “Accepted” means the email provider took the message for delivery; it doesn't confirm it
             reached the inbox.

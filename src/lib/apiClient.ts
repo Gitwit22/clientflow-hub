@@ -1673,7 +1673,8 @@ export async function cfListProgramEmails(programId: string) {
  */
 export async function cfSendProgramEmail(
   programId: string,
-  data: { subject: string; body: string },
+  /** Without clientIds the email goes to every member of the program. */
+  data: { subject: string; body: string; clientIds?: string[] },
   idempotencyKey: string,
 ) {
   return apiRequest<ProgramEmailDetail>(

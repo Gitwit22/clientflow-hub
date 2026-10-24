@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
-import { Pencil, Plus } from "lucide-react";
+import { Mail, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppState } from "@/lib/store";
 import { updateProgram } from "@/lib/api";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
+import { SendProgramEmailDialog } from "@/components/programs/SendProgramEmailDialog";
 import { journeyLabel, programJourney } from "@/lib/program-journey";
 
 export const Route = createFileRoute("/programs")({
@@ -42,6 +43,7 @@ export function ProgramsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
   const [updatingProgramId, setUpdatingProgramId] = useState<string | null>(null);
+  const [emailProgramId, setEmailProgramId] = useState<string | null>(null);
 
   function openAdd() {
     setEditingProgramId(null);
@@ -65,6 +67,7 @@ export function ProgramsPage() {
   }
 
   const editingProgram = programs.find((program) => program.id === editingProgramId);
+  const emailProgram = programs.find((program) => program.id === emailProgramId);
   const activePrograms = programs.filter((program) => program.isActive);
   const inactivePrograms = programs.filter((program) => !program.isActive);
 
@@ -196,14 +199,22 @@ export function ProgramsPage() {
             </p>
           );
         })()}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void navigate({ to: "/programs/$programId", params: { programId: p.id } })}
-        >
-          View program
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              void navigate({ to: "/programs/$programId", params: { programId: p.id } })
+            }
+          >
+            View program
+          </Button>
+          <Button type="button" size="sm" onClick={() => setEmailProgramId(p.id)}>
+            <Mail className="mr-1.5 h-4 w-4" />
+            Send email blast
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -238,6 +249,21 @@ export function ProgramsPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
       />
+      {emailProgram && (
+        <SendProgramEmailDialog
+          programId={emailProgram.id}
+          programName={emailProgram.name}
+          open
+          onOpenChange={(open) => !open && setEmailProgramId(null)}
+          onSent={() =>
+            void navigate({
+              to: "/programs/$programId",
+              params: { programId: emailProgram.id },
+              search: { tab: "emails" },
+            })
+          }
+        />
+      )}
     </div>
   );
 }
