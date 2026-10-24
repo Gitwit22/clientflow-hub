@@ -82,7 +82,7 @@ describe('staff invite and password reset emails', () => {
 describe('program email', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('sends program.email with the message as written plus its HTML paragraphs', async () => {
+  it('sends program.email as formatted HTML plus a plain-text version without the markers', async () => {
     const eventId = 'program.email:pe-1:comm-1';
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true, status: 'SENT', eventId, sentAt })));
     await expect(service().sendProgramEmail(eventId, {
@@ -94,7 +94,7 @@ describe('program email', () => {
       programName: 'The Inspired Detroit Initiative',
       programEmailId: 'pe-1',
       subject: 'Grant day Saturday',
-      body: 'Hello all,\n\nSee you <Saturday>.',
+      body: 'Hello all,\n\nSee you **<Saturday>**.\n- bring ID',
     })).resolves.toEqual({ status: 'sent', sentAt });
 
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ headers: expect.objectContaining({ 'Idempotency-Key': eventId }) });
@@ -110,8 +110,8 @@ describe('program email', () => {
       programName: 'The Inspired Detroit Initiative',
       programEmailId: 'pe-1',
       subject: 'Grant day Saturday',
-      body: 'Hello all,\n\nSee you <Saturday>.',
-      bodyHtml: expect.stringContaining('See you &lt;Saturday&gt;.'),
+      body: 'Hello all,\n\nSee you <Saturday>.\n• bring ID',
+      bodyHtml: expect.stringContaining('See you <strong>&lt;Saturday&gt;</strong>.</p><ul'),
     });
   });
 });

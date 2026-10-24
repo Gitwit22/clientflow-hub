@@ -146,6 +146,36 @@ describe('sending a program email', () => {
     expect(sendProgramEmail).toHaveBeenCalledTimes(3);
   });
 
+  it('sends only to the chosen members, even one who shares an address with someone left out', async () => {
+    const { service, sendProgramEmail, rows } = setup();
+    const created = await service.create(ORG, staff, 'p-idi', {
+      subject: 'Just you two',
+      body: 'Hi',
+      clientIds: ['c2', 'c5', 'c3'],
+      idempotencyKey: 'chosen-key-1',
+    });
+    await service.whenIdle(created.id);
+
+    expect(created.recipientCount).toBe(2);
+    expect(rows.cfCommunication.map((row) => [row.clientId, row.recipientEmail])).toEqual([
+      ['c2', 'pat@moonlight.test'],
+      ['c5', 'tamika@example.com'], // c1 has the same address but wasn't chosen
+    ]);
+    expect(created.skipped).toEqual([{ clientId: 'c3', businessName: 'No Email LLC', email: null, reason: 'missing_email' }]);
+    expect(sendProgramEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a choice with nobody in it, a member from outside the program, or nobody reachable', async () => {
+    const { service, rows } = setup();
+    const send = (clientIds: unknown, key: string) => service.create(ORG, staff, 'p-idi', { subject: 'S', body: 'B', clientIds, idempotencyKey: key });
+    await expect(send([], 'pick-0000001')).rejects.toThrow(/at least one member/);
+    await expect(send(['c1', 'cx'], 'pick-0000002')).rejects.toThrow(/not in this program/);
+    await expect(send(['c1', 7], 'pick-0000003')).rejects.toThrow(/list of client ids/);
+    await expect(send(['c3', 'c4'], 'pick-0000004')).rejects.toThrow('None of the chosen members has a usable email address.');
+    expect(rows.cfProgramEmail).toHaveLength(0);
+    expect(rows.cfCommunication).toHaveLength(0);
+  });
+
   it('requires a key, a subject, a message and someone to send to', async () => {
     const { service } = setup();
     await expect(service.create(ORG, staff, 'p-idi', { subject: 'S', body: 'B', idempotencyKey: null })).rejects.toBeInstanceOf(BadRequestException);

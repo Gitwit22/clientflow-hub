@@ -85,6 +85,19 @@ function contextOf(communication: Pick<CfCommunication, 'templateContext'>): Rec
   };
 }
 
+const MAX_CHOSEN = 5_000;
+
+/** The members chosen to receive the email, or undefined for everyone in the program. */
+function chosenMembers(value: unknown): Set<string> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.some((id) => typeof id !== 'string' || !id)) {
+    throw new BadRequestException('clientIds must be a list of client ids.');
+  }
+  if (!value.length) throw new BadRequestException('Choose at least one member, or send to everyone.');
+  if (value.length > MAX_CHOSEN) throw new BadRequestException('Too many members chosen.');
+  return new Set(value as string[]);
+}
+
 function skippedOf(email: Pick<CfProgramEmail, 'skipped'>): SkippedMember[] {
   return Array.isArray(email.skipped) ? (email.skipped as unknown as SkippedMember[]) : [];
 }
@@ -133,13 +146,25 @@ export class ProgramEmailService implements OnApplicationBootstrap {
     };
   }
 
-  private async recipientsFor(organizationId: string, programId: string) {
+  /**
+   * Everyone enrolled, or only the chosen members when `onlyClientIds` is given. Members are chosen
+   * before addresses are de-duplicated, so a chosen member who shares an address with someone left
+   * out still gets the email.
+   */
+  private async recipientsFor(organizationId: string, programId: string, onlyClientIds?: ReadonlySet<string>) {
     // Every enrollment counts, whatever its status. Demo records are sample data, never emailed.
-    const enrollments = await this.prisma.cfProgramEnrollment.findMany({
+    const all = await this.prisma.cfProgramEnrollment.findMany({
       where: { organizationId, programId, isDemo: false },
       select: { id: true, clientId: true },
       orderBy: { createdAt: 'asc' },
     });
+    if (onlyClientIds) {
+      const members = new Set(all.map((enrollment) => enrollment.clientId));
+      if ([...onlyClientIds].some((clientId) => !members.has(clientId))) {
+        throw new BadRequestException('Some of the chosen members are not in this program. Reload and choose again.');
+      }
+    }
+    const enrollments = onlyClientIds ? all.filter((enrollment) => onlyClientIds.has(enrollment.clientId)) : all;
     if (!enrollments.length) return buildRecipientList([]);
     const clients = await this.prisma.cfClient.findMany({
       where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isDemo: false },
@@ -174,7 +199,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
     organizationId: string,
     actor: ProgramEmailActor,
     programId: string,
-    input: { subject?: unknown; body?: unknown; idempotencyKey: string | null },
+    input: { subject?: unknown; body?: unknown; clientIds?: unknown; idempotencyKey: string | null },
   ): Promise<ProgramEmailDetail> {
     if (!input.idempotencyKey) throw new BadRequestException('An Idempotency-Key header is required to send a program email.');
     const prior = await this.prisma.cfProgramEmail.findFirst({ where: { organizationId, idempotencyKey: input.idempotencyKey } });
@@ -190,10 +215,14 @@ export class ProgramEmailService implements OnApplicationBootstrap {
     if (!body) throw new BadRequestException('Enter a message.');
     if (body.length > BODY_MAX) throw new BadRequestException(`Keep the message under ${BODY_MAX.toLocaleString('en-US')} characters.`);
 
+    const chosen = chosenMembers(input.clientIds);
+
     const program = await findProgramForOrg(this.prisma, organizationId, programId);
-    const list = await this.recipientsFor(organizationId, program.id);
+    const list = await this.recipientsFor(organizationId, program.id, chosen);
     if (!list.recipients.length) {
-      throw new BadRequestException('Nobody in this program has a usable email address.');
+      throw new BadRequestException(
+        chosen ? 'None of the chosen members has a usable email address.' : 'Nobody in this program has a usable email address.',
+      );
     }
 
     const emailId = randomUUID();

@@ -30,7 +30,7 @@ import type {
   WelcomeEmailPayload,
   WelcomeSendLifecyclePayload,
 } from './n8n.types';
-import { plainTextToEmailHtml } from './email-body';
+import { formattedTextToEmail, plainTextToEmailHtml } from './email-body';
 
 const HEADER_IMAGE_CACHE_MS = 5 * 60 * 1000;
 
@@ -295,6 +295,8 @@ export class N8nService {
 
   /** One recipient's copy of a program-wide email (eventType program.email). */
   async sendProgramEmail(eventId: string, payload: ProgramEmailPayload): Promise<ProgramEmailDeliveryResult> {
+    // Staff may format the message (bold, lists, links); the text version drops the markers.
+    const formatted = formattedTextToEmail(payload.body);
     return this.sendViaDeliver<ProgramEmailLifecyclePayload>(this.getIntakeAvailability(), eventId, {
       eventType: 'program.email',
       organizationId: payload.organizationId,
@@ -305,8 +307,8 @@ export class N8nService {
       programName: payload.programName,
       programEmailId: payload.programEmailId,
       subject: payload.subject,
-      body: payload.body,
-      bodyHtml: plainTextToEmailHtml(payload.body),
+      body: formatted.text,
+      bodyHtml: formatted.html,
     });
   }
 
