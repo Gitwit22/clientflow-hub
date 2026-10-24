@@ -12,11 +12,11 @@ const OTHER_ORG = 'org-b';
 const staff = { id: 'admin-1', displayName: 'Jordan Lee' };
 
 function client(id: string, businessName: string, email: string | null, extra: Row = {}): Row {
-  return { id, organizationId: ORG, businessName, primaryContactName: `${businessName} Owner`, email, isDemo: false, ...extra };
+  return { id, organizationId: ORG, businessName, primaryContactName: `${businessName} Owner`, email, isDemo: false, isArchived: false, ...extra };
 }
 
 function enrollment(id: string, clientId: string, status = 'active', extra: Row = {}): Row {
-  return { id, organizationId: ORG, programId: 'p-idi', clientId, status, isDemo: false, ...extra };
+  return { id, organizationId: ORG, programId: 'p-idi', clientId, status, isDemo: false, isArchived: false, ...extra };
 }
 
 function setup(send?: jest.Mock) {
@@ -34,6 +34,8 @@ function setup(send?: jest.Mock) {
       client('c5', 'Shared Inbox Inc', 'tamika@example.com'),
       client('c6', 'Withdrawn Bakery', 'baker@example.com'),
       client('c7', 'Demo Shop', 'demo@example.com', { isDemo: true }),
+      client('c8', 'Archived Test Co', 'archived@example.com', { isArchived: true }),
+      client('c9', 'Finished Program LLC', 'finished@example.com'),
       { ...client('cx', 'Their Client', 'theirs@example.com'), organizationId: OTHER_ORG },
     ],
     cfProgramEnrollment: [
@@ -44,6 +46,8 @@ function setup(send?: jest.Mock) {
       enrollment('e5', 'c5'),
       enrollment('e6', 'c6', 'withdrawn'),
       enrollment('e7', 'c7', 'active', { isDemo: true }),
+      enrollment('e8', 'c8', 'interested'), // the client was archived, the enrollment left open
+      enrollment('e9', 'c9', 'completed', { isArchived: true }), // participation archived
       { ...enrollment('ex', 'cx'), organizationId: OTHER_ORG, programId: 'p-foreign' },
     ],
     cfProgramEmail: [],
@@ -75,6 +79,8 @@ describe('program email recipients', () => {
       ['Moonlight Minerals', 'pat@moonlight.test'], // onboarding counts
       ['Withdrawn Bakery', 'baker@example.com'], // withdrawn counts too: no "active only" filter
     ]);
+    // Archived clients and archived participations are left out entirely (not even listed as skipped).
+    expect(JSON.stringify(preview)).not.toMatch(/Archived Test Co|Finished Program LLC/);
     expect(preview.skipped).toEqual([
       { clientId: 'c3', businessName: 'No Email LLC', email: null, reason: 'missing_email' },
       { clientId: 'c5', businessName: 'Shared Inbox Inc', email: 'tamika@example.com', reason: 'duplicate_email' },
@@ -172,6 +178,7 @@ describe('sending a program email', () => {
     await expect(send(['c1', 'cx'], 'pick-0000002')).rejects.toThrow(/not in this program/);
     await expect(send(['c1', 7], 'pick-0000003')).rejects.toThrow(/list of client ids/);
     await expect(send(['c3', 'c4'], 'pick-0000004')).rejects.toThrow('None of the chosen members has a usable email address.');
+    await expect(send(['c8'], 'pick-0000005')).rejects.toThrow(/not in this program/); // archived
     expect(rows.cfProgramEmail).toHaveLength(0);
     expect(rows.cfCommunication).toHaveLength(0);
   });

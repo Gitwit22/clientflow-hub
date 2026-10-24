@@ -528,9 +528,24 @@ export class ClientflowCompatibilityController {
       body?.fields,
     );
   }
+  /** Old screens' "delete": archives the client, and with it their enrollments, like Move to archive. */
   @Delete('clients/:id') async deleteClient(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
-    await this.requirePrisma().cfClient.update({ where: { id, organizationId: orgId }, data: { isArchived: true, archiveReason: 'Deleted via compatibility route' } });
+    const prisma = this.requirePrisma();
+    const client = await findClientForOrg(prisma, orgId, id, { includeArchived: true });
+    if (!client.isArchived) {
+      const archivedAt = new Date();
+      await prisma.$transaction(async (transaction) => {
+        await transaction.cfClient.update({
+          where: { id: client.id, organizationId: orgId },
+          data: { isArchived: true, archivedAt, archiveReason: 'Deleted via compatibility route' },
+        });
+        await transaction.cfProgramEnrollment.updateMany({
+          where: { organizationId: orgId, clientId: client.id, isArchived: false },
+          data: { isArchived: true, archivedAt },
+        });
+      });
+    }
     return { id, deleted: true };
   }
 
