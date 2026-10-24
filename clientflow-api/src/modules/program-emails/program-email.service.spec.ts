@@ -176,6 +176,27 @@ describe('sending a program email', () => {
     expect(rows.cfCommunication).toHaveLength(0);
   });
 
+  it('previews the whole email a member would get, without recording or sending anything', async () => {
+    const { rows, sendProgramEmail } = setup();
+    // The real formatter and layout, with the mocked delivery; no logo is set up, so the text header shows.
+    const { N8nService: RealN8n } = jest.requireActual<typeof import('../../integrations/n8n/n8n.service')>('../../integrations/n8n/n8n.service');
+    const n8n = Object.assign(Object.create(RealN8n.prototype) as N8nService, { sendProgramEmail });
+    const service = new ProgramEmailService(inMemoryDb(rows) as unknown as PrismaService, n8n);
+    const preview = await service.preview(ORG, 'p-idi', { subject: ' Grant day ', body: 'Hi **all**\n- bring ID' });
+
+    expect(preview).toEqual(expect.objectContaining({ programName: 'The Inspired Detroit Initiative', fromName: 'EA Management LLC', subject: 'Grant day' }));
+    expect(preview.html).toContain('EA MANAGEMENT');
+    expect(preview.html).toContain('<strong>all</strong>');
+    expect(preview.html).toContain('<li style="margin:0 0 4px 0;">bring ID</li>');
+    expect(preview.html).toContain('Thank you,<br/>EA Management LLC');
+    expect(preview.text).toBe('Hi all\n• bring ID');
+    expect(rows.cfProgramEmail).toHaveLength(0);
+    expect(rows.cfCommunication).toHaveLength(0);
+    expect(sendProgramEmail).not.toHaveBeenCalled();
+    await expect(service.preview(ORG, 'p-idi', { subject: '', body: 'x' })).rejects.toThrow('Enter a subject.');
+    await expect(service.preview(ORG, 'p-foreign', { subject: 'S', body: 'x' })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('requires a key, a subject, a message and someone to send to', async () => {
     const { service } = setup();
     await expect(service.create(ORG, staff, 'p-idi', { subject: 'S', body: 'B', idempotencyKey: null })).rejects.toBeInstanceOf(BadRequestException);

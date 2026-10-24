@@ -25,6 +25,17 @@ export class ProgramEmailController {
     return this.emails.previewRecipients(request.adminUser!.organizationId, programId);
   }
 
+  /** The email as a member would receive it, before sending. Records and sends nothing. */
+  @Post('programs/:programId/emails/preview')
+  @HttpCode(200)
+  preview(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Body() body: { subject?: unknown; body?: unknown },
+  ) {
+    return this.emails.preview(request.adminUser!.organizationId, programId, { subject: body?.subject, body: body?.body });
+  }
+
   @Get('programs/:programId/emails')
   list(@Req() request: AuthenticatedRequest, @Param('programId') programId: string) {
     return this.emails.list(request.adminUser!.organizationId, programId);

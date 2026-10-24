@@ -9,6 +9,7 @@ import {
 import { randomUUID } from 'crypto';
 import type { CfCommunication, CfProgramEmail, Prisma } from '../../generated/clientflow';
 import { findProgramForOrg } from '../../common/tenancy/org-scoped.repository';
+import { EMAIL_SENDER_NAME, emailDocumentHtml, formattedTextToEmail } from '../../integrations/n8n/email-body';
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { COMMUNICATION_STATUS, DELIVERY_SOURCE, attemptEventId, isUniqueViolation } from '../communications/communication-attempts';
@@ -83,6 +84,16 @@ function contextOf(communication: Pick<CfCommunication, 'templateContext'>): Rec
     name: typeof record.recipientName === 'string' ? record.recipientName : '',
     businessName: typeof record.businessName === 'string' ? record.businessName : '',
   };
+}
+
+function messageFrom(input: { subject?: unknown; body?: unknown }) {
+  const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
+  const body = typeof input.body === 'string' ? input.body.trim() : '';
+  if (!subject) throw new BadRequestException('Enter a subject.');
+  if (subject.length > SUBJECT_MAX) throw new BadRequestException(`Keep the subject under ${SUBJECT_MAX} characters.`);
+  if (!body) throw new BadRequestException('Enter a message.');
+  if (body.length > BODY_MAX) throw new BadRequestException(`Keep the message under ${BODY_MAX.toLocaleString('en-US')} characters.`);
+  return { subject, body };
 }
 
 const MAX_CHOSEN = 5_000;
@@ -187,6 +198,23 @@ export class ProgramEmailService implements OnApplicationBootstrap {
     );
   }
 
+  /**
+   * The email exactly as a member would receive it (sender, subject, logo header, formatted message,
+   * sign-off), built the same way the send builds it. Nothing is recorded or sent.
+   */
+  async preview(organizationId: string, programId: string, input: { subject?: unknown; body?: unknown }) {
+    const { subject, body } = messageFrom(input);
+    const program = await findProgramForOrg(this.prisma, organizationId, programId);
+    let rendered: { html: string; text: string };
+    if (this.n8n) {
+      rendered = await this.n8n.previewProgramEmail(organizationId, body);
+    } else {
+      const formatted = formattedTextToEmail(body);
+      rendered = { html: emailDocumentHtml(formatted.html), text: formatted.text };
+    }
+    return { programName: program.name, fromName: EMAIL_SENDER_NAME, subject, html: rendered.html, text: rendered.text };
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Sending
   // ---------------------------------------------------------------------------------------------
@@ -208,13 +236,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
       return this.detailOf(prior);
     }
 
-    const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
-    const body = typeof input.body === 'string' ? input.body.trim() : '';
-    if (!subject) throw new BadRequestException('Enter a subject.');
-    if (subject.length > SUBJECT_MAX) throw new BadRequestException(`Keep the subject under ${SUBJECT_MAX} characters.`);
-    if (!body) throw new BadRequestException('Enter a message.');
-    if (body.length > BODY_MAX) throw new BadRequestException(`Keep the message under ${BODY_MAX.toLocaleString('en-US')} characters.`);
-
+    const { subject, body } = messageFrom(input);
     const chosen = chosenMembers(input.clientIds);
 
     const program = await findProgramForOrg(this.prisma, organizationId, programId);

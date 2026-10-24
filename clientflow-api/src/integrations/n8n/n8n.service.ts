@@ -30,7 +30,7 @@ import type {
   WelcomeEmailPayload,
   WelcomeSendLifecyclePayload,
 } from './n8n.types';
-import { formattedTextToEmail, plainTextToEmailHtml } from './email-body';
+import { emailDocumentHtml, formattedTextToEmail, plainTextToEmailHtml } from './email-body';
 
 const HEADER_IMAGE_CACHE_MS = 5 * 60 * 1000;
 
@@ -291,6 +291,15 @@ export class N8nService {
       organizationName: payload.organizationName,
       expiresInMinutes: payload.expiresInMinutes,
     });
+  }
+
+  /** The whole email one member would receive, for a preview before sending. Nothing is sent. */
+  async previewProgramEmail(organizationId: string, body: string): Promise<{ html: string; text: string }> {
+    const formatted = formattedTextToEmail(body);
+    return {
+      html: emailDocumentHtml(formatted.html, await this.resolveHeaderImageUrl(organizationId)),
+      text: formatted.text,
+    };
   }
 
   /** One recipient's copy of a program-wide email (eventType program.email). */

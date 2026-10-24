@@ -1,4 +1,4 @@
-import { Bold, Italic, Link2, List, ListOrdered } from "lucide-react";
+import { Bold, Eye, Italic, Link2, List, ListOrdered } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useSendAttempt } from "@/hooks/use-send-attempt";
-import { ApiError, cfPreviewProgramEmailRecipients, cfSendProgramEmail } from "@/lib/apiClient";
+import {
+  ApiError,
+  cfPreviewProgramEmail,
+  cfPreviewProgramEmailRecipients,
+  cfSendProgramEmail,
+  type ProgramEmailPreview,
+} from "@/lib/apiClient";
 import {
   formattedEmailHtml,
   insertLink,
@@ -90,8 +96,8 @@ function deliveryList(chosen: Candidate[]) {
 const plural = (count: number) => `${count} ${count === 1 ? "member" : "members"}`;
 
 /**
- * Write a message (with light formatting), choose who gets it (everyone by default), review, then
- * send. Each member gets their own copy from the server; this dialog never waits for the list to go out.
+ * Write a message (with light formatting), choose who gets it (everyone by default), then send,
+ * optionally after previewing the email exactly as members will receive it. Each member gets their own copy from the server; this dialog never waits for the list to go out.
  */
 export function SendProgramEmailDialog({
   programId,
@@ -106,7 +112,9 @@ export function SendProgramEmailDialog({
   onOpenChange: (open: boolean) => void;
   onSent: (email: ProgramEmailDetail) => void;
 }) {
-  const [step, setStep] = useState<"compose" | "review">("compose");
+  const [step, setStep] = useState<"compose" | "preview">("compose");
+  const [rendered, setRendered] = useState<ProgramEmailPreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [preview, setPreview] = useState<ProgramEmailRecipientsPreview | null>(null);
@@ -142,6 +150,22 @@ export function SendProgramEmailDialog({
   const chosen = candidates.filter((candidate) => selected.has(candidate.clientId));
   const delivery = deliveryList(chosen);
 
+  async function showPreview() {
+    setLoadingPreview(true);
+    try {
+      setRendered(
+        await cfPreviewProgramEmail(programId, { subject: subject.trim(), body: body.trim() }),
+      );
+      setStep("preview");
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError ? error.message : "The preview couldn't be loaded. Try again.",
+      );
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
   async function send() {
     try {
       const email = await attempt.run((idempotencyKey) =>
@@ -171,8 +195,9 @@ export function SendProgramEmailDialog({
     }
   }
 
-  const canReview =
+  const ready =
     subject.trim().length > 0 && body.trim().length > 0 && delivery.recipients.length > 0;
+  const sendLabel = attempt.sending ? "Sending…" : `Send to ${plural(delivery.recipients.length)}`;
 
   return (
     <Dialog open={open} onOpenChange={(value) => !attempt.sending && onOpenChange(value)}>
@@ -209,24 +234,37 @@ export function SendProgramEmailDialog({
             <MessageEditor value={body} onChange={setBody} />
           </div>
         ) : (
-          <ReviewStep
-            subject={subject.trim()}
-            body={body.trim()}
-            everyone={everyone}
-            recipients={delivery.recipients}
-            sharing={delivery.sharing}
-            unreachable={everyone ? unreachable : []}
-          />
+          rendered && (
+            <EmailPreview
+              email={rendered}
+              everyone={everyone}
+              recipients={delivery.recipients}
+              sharing={delivery.sharing}
+              unreachable={everyone ? unreachable : []}
+            />
+          )
         )}
 
         <DialogFooter>
           {step === "compose" ? (
             <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <Button
+                variant="ghost"
+                disabled={attempt.sending}
+                onClick={() => onOpenChange(false)}
+              >
                 Cancel
               </Button>
-              <Button disabled={!canReview} onClick={() => setStep("review")}>
-                Review &amp; send
+              <Button
+                variant="outline"
+                disabled={!ready || loadingPreview || attempt.sending}
+                onClick={() => void showPreview()}
+              >
+                <Eye className="mr-1.5 h-4 w-4" />
+                {loadingPreview ? "Loading preview…" : "Preview email"}
+              </Button>
+              <Button disabled={!ready || attempt.sending} onClick={() => void send()}>
+                {sendLabel}
               </Button>
             </>
           ) : (
@@ -236,13 +274,13 @@ export function SendProgramEmailDialog({
                 disabled={attempt.sending}
                 onClick={() => setStep("compose")}
               >
-                Back
+                Back to editing
               </Button>
               <Button
                 disabled={attempt.sending || delivery.recipients.length === 0}
                 onClick={() => void send()}
               >
-                {attempt.sending ? "Sending…" : `Send to ${plural(delivery.recipients.length)}`}
+                {sendLabel}
               </Button>
             </>
           )}
@@ -394,7 +432,6 @@ function RecipientPicker({
 
 function MessageEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
-  const [mode, setMode] = useState<"write" | "preview">("write");
   const [linking, setLinking] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   // Where the cursor was when "Link" was clicked (the link field takes the focus).
@@ -456,101 +493,77 @@ function MessageEditor({ value, onChange }: { value: string; onChange: (value: s
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <Label htmlFor="program-email-body">Message</Label>
-        <div className="flex rounded-md border border-border p-0.5 text-xs" role="group">
-          {(["write", "preview"] as const).map((option) => (
-            <button
-              key={option}
+      <Label htmlFor="program-email-body">Message</Label>
+      <div className="rounded-md border border-input">
+        <div
+          role="toolbar"
+          aria-label="Formatting"
+          className="flex flex-wrap items-center gap-0.5 border-b border-input px-1 py-1"
+        >
+          {tools.map((tool) => (
+            <Button
+              key={tool.label}
               type="button"
-              aria-pressed={mode === option}
-              onClick={() => setMode(option)}
-              className={`rounded px-2 py-0.5 ${mode === option ? "bg-muted font-medium" : "text-muted-foreground"}`}
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              aria-label={tool.label}
+              title={tool.label}
+              // Keep the text selection when the button is pressed.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={tool.run}
             >
-              {option === "write" ? "Write" : "Preview"}
-            </button>
+              <tool.icon className="h-4 w-4" />
+            </Button>
           ))}
         </div>
-      </div>
-      {mode === "write" ? (
-        <div className="rounded-md border border-input">
-          <div
-            role="toolbar"
-            aria-label="Formatting"
-            className="flex flex-wrap items-center gap-0.5 border-b border-input px-1 py-1"
-          >
-            {tools.map((tool) => (
-              <Button
-                key={tool.label}
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                aria-label={tool.label}
-                title={tool.label}
-                // Keep the text selection when the button is pressed.
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={tool.run}
-              >
-                <tool.icon className="h-4 w-4" />
-              </Button>
-            ))}
+        {linking && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-input px-2 py-1.5">
+            <Input
+              autoFocus
+              aria-label="Link address"
+              placeholder="ea.example.com/signup or name@example.com"
+              className="h-8 min-w-0 flex-1"
+              value={linkUrl}
+              onChange={(event) => setLinkUrl(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addLink();
+                }
+              }}
+            />
+            <Button type="button" size="sm" onClick={addLink}>
+              Add link
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setLinking(false);
+                setLinkUrl("");
+              }}
+            >
+              Cancel
+            </Button>
           </div>
-          {linking && (
-            <div className="flex flex-wrap items-center gap-2 border-b border-input px-2 py-1.5">
-              <Input
-                autoFocus
-                aria-label="Link address"
-                placeholder="ea.example.com/signup or name@example.com"
-                className="h-8 min-w-0 flex-1"
-                value={linkUrl}
-                onChange={(event) => setLinkUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addLink();
-                  }
-                }}
-              />
-              <Button type="button" size="sm" onClick={addLink}>
-                Add link
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setLinking(false);
-                  setLinkUrl("");
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          )}
-          <Textarea
-            ref={textarea}
-            id="program-email-body"
-            rows={9}
-            className="rounded-none border-0 shadow-none focus-visible:ring-0"
-            value={value}
-            maxLength={BODY_MAX}
-            onChange={(event) => onChange(event.target.value)}
-            placeholder={"Hello everyone,\n\n…"}
-          />
-        </div>
-      ) : (
-        <div className="min-h-[13rem] rounded-md border border-input p-3">
-          {value.trim() ? (
-            <FormattedEmailBody body={value} />
-          ) : (
-            <p className="text-sm text-muted-foreground">Nothing written yet.</p>
-          )}
-        </div>
-      )}
+        )}
+        <Textarea
+          ref={textarea}
+          id="program-email-body"
+          rows={9}
+          className="rounded-none border-0 shadow-none focus-visible:ring-0"
+          value={value}
+          maxLength={BODY_MAX}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={"Hello everyone,\n\n…"}
+        />
+      </div>
       <p className="text-xs text-muted-foreground">
         Select text and use the buttons, or type **bold**, _italic_, “- ” for a bullet, “1. ” for a
-        numbered list. A blank line starts a new paragraph.
+        numbered list. A blank line starts a new paragraph. Use “Preview email” to see it as members
+        will.
       </p>
     </div>
   );
@@ -567,33 +580,59 @@ export function FormattedEmailBody({ body }: { body: string }) {
   );
 }
 
-function ReviewStep({
-  subject,
-  body,
+/**
+ * The email as one member will receive it, rendered from the same HTML the send uses (logo header,
+ * message, sign-off), in a sandboxed frame that can't run scripts. Below it, who gets a copy.
+ */
+function EmailPreview({
+  email,
   everyone,
   recipients,
   sharing,
   unreachable,
 }: {
-  subject: string;
-  body: string;
+  email: ProgramEmailPreview;
   everyone: boolean;
   recipients: Candidate[];
   sharing: Candidate[];
   unreachable: Unreachable[];
 }) {
+  const first = recipients[0];
+  // Links in the preview open in a new tab instead of inside the frame.
+  const html = email.html.replace(/<html>/i, '<html><head><base target="_blank"></head>');
   return (
     <div className="space-y-4">
+      <div aria-label="Email preview" className="overflow-hidden rounded-md border border-border">
+        <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-4 py-3 text-sm">
+          <dt className="text-muted-foreground">From</dt>
+          <dd>{email.fromName}</dd>
+          <dt className="text-muted-foreground">To</dt>
+          <dd>
+            {first ? `${first.name} <${first.email}>` : "—"}
+            {recipients.length > 1 && (
+              <span className="text-muted-foreground">
+                {" "}
+                and {recipients.length - 1} more, each their own copy
+              </span>
+            )}
+          </dd>
+          <dt className="text-muted-foreground">Subject</dt>
+          <dd className="font-medium">{email.subject}</dd>
+        </dl>
+        <iframe
+          title="Email as members will see it"
+          srcDoc={html}
+          sandbox="allow-popups allow-popups-to-escape-sandbox"
+          className="h-[26rem] w-full bg-white"
+        />
+      </div>
       <p className="text-sm">
-        <span className="font-medium">“{subject}”</span> will go to{" "}
+        Goes to{" "}
         <span className="font-medium" aria-label="Recipient count">
           {everyone ? `all ${plural(recipients.length)}` : `${plural(recipients.length)} you chose`}
         </span>
-        .
+        :
       </p>
-      <div className="rounded-md border border-border bg-muted/30 p-3">
-        <FormattedEmailBody body={body} />
-      </div>
       <ul
         aria-label="Recipients"
         className="max-h-48 divide-y divide-border overflow-y-auto rounded-md border border-border text-sm"

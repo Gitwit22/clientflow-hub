@@ -105,3 +105,22 @@ export function formattedTextToEmail(body: string): { html: string; text: string
   }
   return { html: html.join(''), text: text.join('\n\n') };
 }
+
+/** The sender name n8n's Gmail nodes use for every ClientFlow email. */
+export const EMAIL_SENDER_NAME = 'EA Management LLC';
+
+/**
+ * The whole email as n8n's welcome branch ("WELCOME - Prepare Email", also used for program
+ * emails) builds it: the Settings logo (or a text header when there is none), the message, then
+ * the sign-off. Used to preview an email exactly as members will receive it; keep it in step with
+ * that n8n node.
+ */
+export function emailDocumentHtml(bodyHtml: string, headerImageUrl?: string | null): string {
+  const header = headerImageUrl
+    ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;"><tr><td align="center" style="padding-bottom:24px;">'
+      + `<img src="${escapeHtml(headerImageUrl)}" alt="EA Management" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;">`
+      + '</td></tr></table>'
+    : '<div style="text-align:center;margin-bottom:24px;font-weight:bold;font-size:20px;letter-spacing:1px;color:#1a202c;">EA MANAGEMENT</div>';
+  return '<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333333;line-height:1.6;font-size:15px;">'
+    + `${header}${bodyHtml}<p>Thank you,<br/>${EMAIL_SENDER_NAME}</p></body></html>`;
+}

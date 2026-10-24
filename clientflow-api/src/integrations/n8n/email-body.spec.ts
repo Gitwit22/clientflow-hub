@@ -1,4 +1,4 @@
-import { formattedTextToEmail, plainTextToEmailHtml } from './email-body';
+import { emailDocumentHtml, formattedTextToEmail, plainTextToEmailHtml } from './email-body';
 
 const P = '<p style="margin:0 0 16px 0;">';
 
@@ -64,5 +64,14 @@ describe('formattedTextToEmail', () => {
       html: `${P}Hello all,</p>${P}See you Saturday.</p>`,
       text: 'Hello all,\n\nSee you Saturday.',
     });
+  });
+});
+
+describe('emailDocumentHtml', () => {
+  it('lays out the logo header, the message and the sign-off as n8n does', () => {
+    const html = emailDocumentHtml('<p>Hi</p>', 'https://cdn.example.com/logo.png?a=1&b="2"');
+    expect(html).toContain('<img src="https://cdn.example.com/logo.png?a=1&amp;b=&quot;2&quot;" alt="EA Management"');
+    expect(html).toMatch(/<\/table><p>Hi<\/p><p>Thank you,<br\/>EA Management LLC<\/p><\/body><\/html>$/);
+    expect(emailDocumentHtml('<p>Hi</p>')).toContain('>EA MANAGEMENT</div><p>Hi</p>');
   });
 });
