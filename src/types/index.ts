@@ -211,9 +211,15 @@ export interface ProgramWorkflowContractTemplate {
   name: string;
   signatureRequired: boolean;
   isActive: boolean;
+  /** "enrollment" (signed to join the program) or "award" (generated per funding award). */
+  purpose?: AgreementPurpose;
+  /** The version new agreements from this template use. */
+  activeVersionId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type AgreementPurpose = "enrollment" | "award";
 
 export interface ProgramWorkflowContractVersion {
   id: string;
@@ -598,6 +604,10 @@ export interface Contract {
   executedStoredFileId?: string | null;
   /** An old placeholder draft from before program contract templates; it can't be sent. */
   legacy?: boolean;
+  /** "enrollment" (the program's joining agreement) or "award" (one funding award's agreement). */
+  purpose?: AgreementPurpose;
+  /** The funding award an award agreement belongs to. */
+  awardId?: string | null;
 }
 
 export interface ClientDocument {

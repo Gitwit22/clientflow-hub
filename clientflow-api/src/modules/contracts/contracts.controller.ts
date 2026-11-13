@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiForbiddenResponse,
@@ -15,7 +15,7 @@ import {
 } from '../../common/guards/clientflow-auth.guard';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { ContractsService, type StaffSigner } from './contracts.service';
-import { GenerateContractDto } from './dto/generate-contract.dto';
+import { GenerateContractDto, PreviewContractDto } from './dto/generate-contract.dto';
 import { SendContractDto } from './dto/send-contract.dto';
 import { SendWelcomeDto } from './dto/send-welcome.dto';
 
@@ -53,7 +53,28 @@ export class ContractsController {
   @ApiNotFoundResponse({ description: 'Client or selected program was not found.' })
   @ApiBadRequestResponse({ description: 'The selected program has no usable contract template.' })
   generate(@Req() request: AuthenticatedRequest, @Param('id') clientId: string, @Body() dto: GenerateContractDto) {
+    if (Boolean(dto.reviewedVersionId) !== Boolean(dto.reviewedContentHash)) {
+      throw new BadRequestException('Send both reviewedVersionId and reviewedContentHash, or neither.');
+    }
     return this.contracts.generateForStaff(requireAdmin(request).organizationId, clientId, staffActor(request), {
+      enrollmentId: dto.enrollmentId ?? null,
+      ...(dto.reviewedVersionId && dto.reviewedContentHash
+        ? { review: { versionId: dto.reviewedVersionId, contentHash: dto.reviewedContentHash } }
+        : {}),
+    });
+  }
+
+  @Post('preview')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Show the enrollment agreement exactly as the client will read it' })
+  @ApiOkResponse({
+    description:
+      'The agreement text (stored text for one already in progress, otherwise the active version filled in), merge fields still missing a value, and a contentHash to send back when generating.',
+  })
+  @ApiNotFoundResponse({ description: 'Client or enrollment was not found.' })
+  @ApiBadRequestResponse({ description: 'The program has no active agreement version.' })
+  preview(@Req() request: AuthenticatedRequest, @Param('id') clientId: string, @Body() dto: PreviewContractDto) {
+    return this.contracts.previewForStaff(requireAdmin(request).organizationId, clientId, {
       enrollmentId: dto.enrollmentId ?? null,
     });
   }

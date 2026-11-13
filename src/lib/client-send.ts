@@ -43,7 +43,10 @@ export type ContractSendState =
   | { kind: "signed"; contract: Contract }
   | { kind: "closed"; contract: Contract };
 
-/** The contract a client is currently working through for an enrollment (newest first). */
+/**
+ * The enrollment agreement a client is currently working through for an enrollment (newest first).
+ * Award agreements belong to a funding award and never stand in for it.
+ */
 export function currentContract(
   contracts: readonly Contract[],
   enrollmentId: string | undefined,
@@ -51,6 +54,7 @@ export function currentContract(
   return [...contracts]
     .filter(
       (contract) =>
+        contract.purpose !== "award" &&
         !(contract.legacy && contract.status !== "COMPLETED") &&
         (!contract.enrollmentId || !enrollmentId || contract.enrollmentId === enrollmentId),
     )

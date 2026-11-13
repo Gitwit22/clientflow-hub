@@ -59,6 +59,26 @@ describe("sendAvailability", () => {
 });
 
 describe("currentContract / contractSendState", () => {
+  it("never treats an award agreement as the enrollment agreement", () => {
+    const list = [
+      contract({
+        id: "award",
+        enrollmentId: "e1",
+        purpose: "award",
+        status: "SENT",
+        createdAt: "2030-02-01T00:00:00.000Z",
+      }),
+      contract({
+        id: "joined",
+        enrollmentId: "e1",
+        status: "COMPLETED",
+        createdAt: "2030-01-01T00:00:00.000Z",
+      }),
+    ];
+    expect(currentContract(list, "e1")?.id).toBe("joined");
+    expect(currentContract([list[0]], "e1")).toBeUndefined();
+  });
+
   it("ignores old placeholder drafts, but not a legacy contract that was signed", () => {
     const list = [
       contract({

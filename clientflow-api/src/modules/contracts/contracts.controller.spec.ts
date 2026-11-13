@@ -215,4 +215,18 @@ describe('contract controllers', () => {
     await expect(validate(invalid)).resolves.toHaveLength(3);
     await expect(validate(valid)).resolves.toHaveLength(0);
   });
+
+  it('passes the reviewed version and hash through, and refuses half a review', async () => {
+    const service = { generateForStaff: jest.fn().mockResolvedValue({}) };
+    const controller = new ContractsController(service as never);
+    const signedIn = { adminUser: { id: 'admin-1', organizationId: 'org-1', displayName: 'Jordan Real' } } as never;
+    const hash = 'b'.repeat(64);
+    await controller.generate(signedIn, 'client-1', { enrollmentId: 'enroll-1', reviewedVersionId: 'v1', reviewedContentHash: hash });
+    expect(service.generateForStaff).toHaveBeenCalledWith('org-1', 'client-1', { id: 'admin-1', name: 'Jordan Real' }, {
+      enrollmentId: 'enroll-1',
+      review: { versionId: 'v1', contentHash: hash },
+    });
+    expect(() => controller.generate(signedIn, 'client-1', { enrollmentId: 'enroll-1', reviewedVersionId: 'v1' }))
+      .toThrow('reviewedVersionId and reviewedContentHash');
+  });
 });

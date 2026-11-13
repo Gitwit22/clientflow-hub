@@ -10,6 +10,7 @@ const downloadExecutedContract = vi.fn();
 const acfGenerateContract = vi.fn();
 const acfSendContract = vi.fn();
 const acfSendContractCopy = vi.fn();
+const acfPreviewContract = vi.fn();
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
 
@@ -20,6 +21,16 @@ vi.mock("@/lib/api", () => ({
   downloadExecutedContract: (...a: unknown[]) => downloadExecutedContract(...a),
 }));
 vi.mock("@/lib/apiClient", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(
+      public readonly status: number,
+      public readonly code: string,
+      message: string,
+    ) {
+      super(message);
+    }
+  },
+  acfPreviewContract: (...a: unknown[]) => acfPreviewContract(...a),
   acfGenerateContract: (...a: unknown[]) => acfGenerateContract(...a),
   acfSendContract: (...a: unknown[]) => acfSendContract(...a),
   acfSendContractCopy: (...a: unknown[]) => acfSendContractCopy(...a),
@@ -79,7 +90,28 @@ function renderDialog(contracts: Contract[], onOpenChange = vi.fn()) {
 
 const button = (name: RegExp | string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
+const preview = (overrides: Record<string, unknown> = {}) => ({
+  purpose: "enrollment",
+  existingContractId: null,
+  templateId: "pt-1",
+  versionId: "v1",
+  title: "Inspired Detroit Agreement",
+  content: "Agreement for Rivers Bakery LLC.",
+  missing: [],
+  contentHash: "a".repeat(64),
+  ...overrides,
+});
+
+/** Opens the review, waits for the agreement text, then sends. */
+async function reviewThenSend() {
+  fireEvent.click(button("Review agreement"));
+  await screen.findByLabelText("Agreement text");
+  fireEvent.click(button("Send contract"));
+}
+
 beforeEach(() => {
+  vi.clearAllMocks();
+  acfPreviewContract.mockResolvedValue(preview());
   getProgramWorkflow.mockResolvedValue({ contract: { activeVersion: { id: "v1" } } });
   refreshClientContracts.mockResolvedValue([]);
   refreshClientCommunications.mockResolvedValue([]);
@@ -112,7 +144,7 @@ describe("SendContractDialog: recipient", () => {
     );
     expect(screen.getByText(/"client@example" is not a valid email address/)).toBeTruthy();
     await waitFor(() => expect(getProgramWorkflow).toHaveBeenCalled());
-    expect(button(/^send contract$/i).disabled).toBe(true);
+    expect(button("Review agreement").disabled).toBe(true);
   });
 });
 
@@ -121,13 +153,17 @@ describe("SendContractDialog: not yet drafted", () => {
     const onOpenChange = renderDialog([]);
     await waitFor(() => expect(getProgramWorkflow).toHaveBeenCalledWith("p1"));
 
-    fireEvent.click(button("Send contract"));
+    await reviewThenSend();
 
     await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(1));
+    expect(acfPreviewContract).toHaveBeenCalledWith("c1", { enrollmentId: "e1" });
+    // The new agreement is pinned to exactly the reviewed version and text.
     expect(acfGenerateContract).toHaveBeenCalledWith("c1", {
       staffSignerName: "Jordan Lee",
       staffSignerId: "admin-1",
       enrollmentId: "e1",
+      reviewedVersionId: "v1",
+      reviewedContentHash: "a".repeat(64),
     });
     expect(acfSendContract).toHaveBeenCalledWith("c1", "k-new", {
       enrollmentId: "e1",
@@ -147,15 +183,16 @@ describe("SendContractDialog: not yet drafted", () => {
       "No active contract is configured for this program.",
     );
     expect(screen.getByText("Go to Program Contract Settings")).toBeTruthy();
-    expect(button("Send contract").disabled).toBe(true);
+    expect(button("Review agreement").disabled).toBe(true);
     expect(acfGenerateContract).not.toHaveBeenCalled();
   });
 });
 
 describe("SendContractDialog: an existing contract is never duplicated", () => {
   it("DRAFT: sends the existing draft without generating another", async () => {
+    acfPreviewContract.mockResolvedValue(preview({ existingContractId: "k1" }));
     renderDialog([contract({ status: "DRAFT" })]);
-    fireEvent.click(button("Send contract"));
+    await reviewThenSend();
     await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(1));
     expect(acfSendContract).toHaveBeenCalledWith(
       "c1",
@@ -242,9 +279,10 @@ describe("SendContractDialog: failures stay on the page", () => {
       ...sentOk,
       emailDelivery: { status: "failed", reason: "timeout" },
     });
+    acfPreviewContract.mockResolvedValue(preview({ existingContractId: "k1" }));
     const onOpenChange = renderDialog([contract({ status: "DRAFT" })]);
 
-    fireEvent.click(button("Send contract"));
+    await reviewThenSend();
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith("The email was not sent (timeout)."),
     );
@@ -265,9 +303,10 @@ describe("SendContractDialog: failures stay on the page", () => {
         status: 400,
       }),
     );
+    acfPreviewContract.mockResolvedValue(preview({ existingContractId: "k1" }));
     const onOpenChange = renderDialog([contract({ status: "DRAFT" })]);
 
-    fireEvent.click(button("Send contract"));
+    await reviewThenSend();
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith("The contract cannot be sent in its current status."),
@@ -278,9 +317,10 @@ describe("SendContractDialog: failures stay on the page", () => {
 
   it("after a lost response, retrying reuses the SAME key so the client is not emailed twice", async () => {
     acfSendContract.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    acfPreviewContract.mockResolvedValue(preview({ existingContractId: "k1" }));
     renderDialog([contract({ status: "DRAFT" })]);
 
-    fireEvent.click(button("Send contract"));
+    await reviewThenSend();
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     fireEvent.click(button("Send contract"));
     await waitFor(() => expect(acfSendContract).toHaveBeenCalledTimes(2));
@@ -289,5 +329,42 @@ describe("SendContractDialog: failures stay on the page", () => {
       (call) => (call[2] as { idempotencyKey: string }).idempotencyKey,
     );
     expect(keys[0]).toBe(keys[1]);
+  });
+});
+
+describe("SendContractDialog: review before sending", () => {
+  it("shows the agreement exactly as the client will read it", async () => {
+    renderDialog([]);
+    fireEvent.click(button("Review agreement"));
+    expect((await screen.findByLabelText("Agreement text")).textContent).toBe(
+      "Agreement for Rivers Bakery LLC.",
+    );
+    expect(acfGenerateContract).not.toHaveBeenCalled();
+  });
+
+  it("blocks sending while details are missing and says which", async () => {
+    acfPreviewContract.mockResolvedValue(
+      preview({ missing: [{ key: "enrollment.startDate", label: "Program start date" }] }),
+    );
+    renderDialog([]);
+    fireEvent.click(button("Review agreement"));
+    expect((await screen.findByRole("alert")).textContent).toContain("Program start date");
+    expect(button("Send contract").disabled).toBe(true);
+  });
+
+  it("shows the current text again when the agreement changed after review (409)", async () => {
+    const { ApiError } = (await import("@/lib/apiClient")) as unknown as {
+      ApiError: new (status: number, code: string, message: string) => Error;
+    };
+    acfGenerateContract.mockRejectedValueOnce(
+      new ApiError(409, "CONFLICT", "The agreement changed since you reviewed it."),
+    );
+    renderDialog([]);
+    await reviewThenSend();
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("The agreement changed since you reviewed it."),
+    );
+    await waitFor(() => expect(acfPreviewContract).toHaveBeenCalledTimes(2));
+    expect(acfSendContract).not.toHaveBeenCalled();
   });
 });

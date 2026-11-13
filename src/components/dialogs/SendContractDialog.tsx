@@ -17,7 +17,14 @@ import {
   refreshClientCommunications,
   refreshClientContracts,
 } from "@/lib/api";
-import { acfGenerateContract, acfSendContract, acfSendContractCopy } from "@/lib/apiClient";
+import {
+  acfGenerateContract,
+  acfPreviewContract,
+  acfSendContract,
+  acfSendContractCopy,
+  ApiError,
+  type AgreementPreview,
+} from "@/lib/apiClient";
 import {
   contractSendState,
   currentContract,
@@ -55,7 +62,26 @@ export function SendContractDialog({
   const problem = recipientProblem(client);
   const state = contractSendState(currentContract(contracts, enrollment.id));
   const needsTemplate = state.kind === "none" || state.kind === "closed";
+  // A new agreement or an unsent draft is reviewed, exactly as the client will read it, before sending.
+  const needsReview = needsTemplate || state.kind === "draft";
   const [templateReady, setTemplateReady] = useState<boolean | null>(null);
+  const [review, setReview] = useState<AgreementPreview | null>(null);
+  const [loadingReview, setLoadingReview] = useState(false);
+
+  useEffect(() => {
+    if (!open) setReview(null);
+  }, [open]);
+
+  async function loadReview() {
+    setLoadingReview(true);
+    try {
+      setReview(await acfPreviewContract(client.id, { enrollmentId: enrollment.id }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to prepare the agreement.");
+    } finally {
+      setLoadingReview(false);
+    }
+  }
 
   // Only a brand-new contract needs the program's active template; check it up front.
   useEffect(() => {
@@ -97,6 +123,10 @@ export function SendContractDialog({
               staffSignerName: staffSigner.name,
               ...(staffSigner.id ? { staffSignerId: staffSigner.id } : {}),
               enrollmentId: enrollment.id,
+              // Pin the new agreement to exactly the text staff reviewed.
+              ...(review && !review.existingContractId
+                ? { reviewedVersionId: review.versionId, reviewedContentHash: review.contentHash }
+                : {}),
             })
           ).contract.id;
         return acfSendContract(client.id, contractId, {
@@ -121,6 +151,8 @@ export function SendContractDialog({
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to send this contract.");
+      // The agreement changed after it was reviewed: show the current text instead.
+      if (error instanceof ApiError && error.status === 409 && review) void loadReview();
     }
   }
 
@@ -129,7 +161,7 @@ export function SendContractDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={review ? "sm:max-w-2xl" : "sm:max-w-lg"}>
         <DialogHeader>
           <DialogTitle className="font-display">Contract</DialogTitle>
           <DialogDescription>
@@ -138,7 +170,9 @@ export function SendContractDialog({
         </DialogHeader>
 
         <div className="space-y-3 text-sm">
-          {state.kind === "signed" ? (
+          {review && needsReview ? (
+            <AgreementReviewPanel review={review} />
+          ) : state.kind === "signed" ? (
             <>
               <p>
                 <span className="font-medium">Signed {dateLabel(state.contract.signedAt)}.</span>{" "}
@@ -228,11 +262,24 @@ export function SendContractDialog({
                 {busy ? "Sending…" : "Send copy"}
               </Button>
             </>
+          ) : needsReview && !review ? (
+            <Button
+              type="button"
+              onClick={() => void loadReview()}
+              disabled={loadingReview || (needsTemplate && templateReady === false) || !!problem}
+            >
+              {loadingReview ? "Preparing…" : "Review agreement"}
+            </Button>
           ) : (
             <Button
               type="button"
               onClick={() => run("send")}
-              disabled={busy || (needsTemplate && templateReady === false) || !!problem}
+              disabled={
+                busy ||
+                (needsTemplate && templateReady === false) ||
+                !!problem ||
+                (review?.missing.length ?? 0) > 0
+              }
             >
               {busy
                 ? "Sending…"
@@ -244,5 +291,34 @@ export function SendContractDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The agreement exactly as the client will read it, with any details still missing. */
+function AgreementReviewPanel({ review }: { review: AgreementPreview }) {
+  return (
+    <div className="space-y-3">
+      <p className="font-medium">{review.title}</p>
+      <pre
+        aria-label="Agreement text"
+        className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-3 font-sans text-sm"
+      >
+        {review.content}
+      </pre>
+      {review.missing.length > 0 ? (
+        <div role="alert" className="space-y-1 text-destructive">
+          <p className="font-medium">Fill in these details before sending:</p>
+          <ul className="list-disc pl-5">
+            {review.missing.map((field) => (
+              <li key={field.key}>{field.label}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-muted-foreground">
+          This is the text the client will sign. Sending emails them the signing link.
+        </p>
+      )}
+    </div>
   );
 }

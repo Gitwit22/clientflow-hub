@@ -354,6 +354,12 @@ model CfProgramContractTemplate {
   name              String
   signatureRequired Boolean  @default(true)
   isActive          Boolean  @default(true)
+  /// What the agreement is for: 'enrollment' (signed to join the program) or 'award' (generated per
+  /// funding award). The program's enrollment agreement is the one CfProgramWorkflowConfig names.
+  purpose           String   @default("enrollment")
+  /// The version new agreements from this template use. Kept in step with
+  /// CfProgramWorkflowConfig.activeContractVersionId for the enrollment agreement.
+  activeVersionId   String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -672,40 +678,48 @@ model CfContractTemplate {
 }
 
 model CfContract {
-  id                   String    @id @default(cuid())
-  organizationId       String
-  clientId             String
-  enrollmentId         String?
-  programId            String
-  termsId              String?
-  contractTemplateId   String
-  contractType         String
-  status               String    @default("DRAFT")
-  secureTokenHash      String?   @unique
-  secureTokenExpiresAt DateTime?
-  generatedContent     String    @map("content") @db.Text
-  staffSignedByUserId  String?
-  staffSignedByName    String?
-  staffSignedAt        DateTime?
-  sentAt               DateTime?
-  signedAt             DateTime?
-  signedName           String?
-  signedEmail          String?
-  agreedToTerms        Boolean?
-  signatureNote        String?
-  signerIp             String?
-  signerUserAgent      String?
-  completedAt          DateTime?
-  executedStoredFileId String?
-  isDemo               Boolean   @default(false)
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  organizationId        String
+  clientId              String
+  enrollmentId          String?
+  programId             String
+  termsId               String?
+  contractTemplateId    String
+  contractType          String
+  /// 'enrollment' (the program's joining agreement; drives onboarding) or 'award' (a funding award's
+  /// agreement; never changes client or enrollment status).
+  purpose               String    @default("enrollment")
+  /// The CfProgramContractTemplate this was generated from (contractTemplateId holds the version id).
+  programTemplateId     String?
+  /// The template version the staff-reviewed text was rendered from.
+  renderedFromVersionId String?
+  status                String    @default("DRAFT")
+  secureTokenHash       String?   @unique
+  secureTokenExpiresAt  DateTime?
+  generatedContent      String    @map("content") @db.Text
+  staffSignedByUserId   String?
+  staffSignedByName     String?
+  staffSignedAt         DateTime?
+  sentAt                DateTime?
+  signedAt              DateTime?
+  signedName            String?
+  signedEmail           String?
+  agreedToTerms         Boolean?
+  signatureNote         String?
+  signerIp              String?
+  signerUserAgent       String?
+  completedAt           DateTime?
+  executedStoredFileId  String?
+  isDemo                Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   executedStoredFile CfStoredFile? @relation("ExecutedContractStoredFile", fields: [executedStoredFileId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([organizationId, isDemo])
   @@index([organizationId, clientId])
+  @@index([organizationId, clientId, purpose])
   @@index([organizationId, programId])
   @@index([organizationId, contractTemplateId])
   @@index([organizationId, status])

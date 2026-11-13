@@ -26,6 +26,7 @@ import {
   cfUpdateProgramWorkflow,
   cfCreateProgramWorkflowContractTemplate,
   cfCreateProgramWorkflowContractVersion,
+  cfUpdateProgramWorkflowContractTemplate,
   cfCreateProgramWorkflowWelcomeTemplate,
   cfCreateProgramWorkflowWelcomeVersion,
   cfCreateEnrollment,
@@ -270,6 +271,11 @@ export const createProgramWorkflowContractTemplate = (
   programId: string,
   data: Record<string, unknown>,
 ) => cfCreateProgramWorkflowContractTemplate(programId, data);
+export const updateProgramWorkflowContractTemplate = (
+  programId: string,
+  templateId: string,
+  data: Parameters<typeof cfUpdateProgramWorkflowContractTemplate>[2],
+) => cfUpdateProgramWorkflowContractTemplate(programId, templateId, data);
 export const createProgramWorkflowContractVersion = (
   programId: string,
   templateId: string,

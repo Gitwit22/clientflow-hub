@@ -37,7 +37,8 @@ import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } 
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { answerFields, labelledAnswers } from '../forms/answer-list';
 import { isLegacyContract } from '../contracts/legacy-contract';
-import { assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
+import { assertAgreementMergeFields, assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
+import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
@@ -376,9 +377,11 @@ export class ClientflowCompatibilityController {
           })
         : Promise.resolve([]),
     ]);
+    // The enrollment agreement. Award agreement templates never stand in for it.
+    const enrollmentTemplates = contractTemplates.filter((template) => template.purpose !== 'award');
     const activeContractTemplate = config?.activeContractTemplateId
-      ? contractTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
-      : contractTemplates[0] ?? null;
+      ? enrollmentTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
+      : enrollmentTemplates[0] ?? null;
     const activeWelcomeTemplate = config?.activeWelcomeEmailTemplateId
       ? welcomeTemplates.find((template) => template.id === config.activeWelcomeEmailTemplateId) ?? null
       : welcomeTemplates[0] ?? null;
@@ -386,7 +389,7 @@ export class ClientflowCompatibilityController {
       ? contractVersions.find((version) => version.id === config.activeContractVersionId) ?? null
       : activeContractTemplate
         ? contractVersions.find((version) => version.templateId === activeContractTemplate.id) ?? null
-        : contractVersions[0] ?? null;
+        : null;
     const activeWelcomeVersion = config?.activeWelcomeEmailVersionId
       ? welcomeVersions.find((version) => version.id === config.activeWelcomeEmailVersionId) ?? null
       : activeWelcomeTemplate
@@ -760,9 +763,12 @@ export class ClientflowCompatibilityController {
           programId: id,
           isActive: true,
         },
-        select: { id: true },
+        select: { id: true, purpose: true },
       });
       if (!contractTemplate) throw new BadRequestException('Invalid active contract template for this program.');
+      if (contractTemplate.purpose === 'award') {
+        throw new BadRequestException('An award agreement template cannot be the enrollment agreement.');
+      }
     }
     if (data.activeContractVersionId) {
       const contractVersion = await this.requirePrisma().cfProgramContractVersion.findFirst({
@@ -785,6 +791,9 @@ export class ClientflowCompatibilityController {
         : null;
       if (!contractVersion || !owningTemplate) {
         throw new BadRequestException('Invalid active contract version for this program.');
+      }
+      if (data.activeContractTemplateId && contractVersion.templateId !== data.activeContractTemplateId) {
+        throw new BadRequestException('The active contract version must belong to the active contract template.');
       }
     }
     if (data.activeWelcomeEmailTemplateId) {
@@ -823,12 +832,78 @@ export class ClientflowCompatibilityController {
       }
     }
     await this.requireWorkflowConfig().applyUpdate(orgId, id, data);
+    if (data.activeContractTemplateId && data.activeContractVersionId) {
+      // Keep the template's own active version in step with the enrollment agreement designation.
+      await this.requirePrisma().cfProgramContractTemplate.updateMany({
+        where: { id: data.activeContractTemplateId, organizationId: orgId, programId: id },
+        data: { activeVersionId: data.activeContractVersionId },
+      });
+    }
     return this.getProgramWorkflow(orgId, id);
+  }
+  @Patch('programs/:programId/workflow/contracts/templates/:templateId') async updateProgramWorkflowContractTemplate(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
+    const prisma = this.requirePrisma();
+    const template = await prisma.cfProgramContractTemplate.findFirst({
+      where: { id: templateId, organizationId: orgId, programId },
+    });
+    if (!template) throw new NotFoundException('Program workflow contract template not found.');
+    const config = await prisma.cfProgramWorkflowConfig.findFirst({ where: { organizationId: orgId, programId } });
+    const isEnrollmentAgreement = config?.activeContractTemplateId === template.id;
+    const data: { name?: string; purpose?: AgreementPurpose; activeVersionId?: string; isActive?: boolean } = {};
+    if (body.name !== undefined) {
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) throw new BadRequestException('Give the agreement template a name.');
+      data.name = name;
+    }
+    if (body.purpose !== undefined) {
+      const purpose = parseAgreementPurpose(body.purpose);
+      if (!purpose) throw new BadRequestException('Agreement purpose must be enrollment or award.');
+      if (purpose === 'award' && isEnrollmentAgreement) {
+        throw new BadRequestException("This template is the program's enrollment agreement. Choose another enrollment agreement first.");
+      }
+      data.purpose = purpose;
+    }
+    if (body.isActive === false) {
+      if (isEnrollmentAgreement) {
+        throw new BadRequestException("This template is the program's enrollment agreement. Choose another enrollment agreement first.");
+      }
+      data.isActive = false;
+    }
+    if (body.activeVersionId !== undefined) {
+      const versionId = typeof body.activeVersionId === 'string' ? body.activeVersionId : '';
+      const version = versionId
+        ? await prisma.cfProgramContractVersion.findFirst({ where: { id: versionId, organizationId: orgId, templateId } })
+        : null;
+      if (!version) throw new BadRequestException('That version does not belong to this agreement template.');
+      const problem = templateFieldProblemMessage(`${version.title ?? ''}\n${version.content}`, data.purpose ?? parseAgreementPurpose(template.purpose) ?? 'enrollment');
+      if (problem) throw new BadRequestException(problem);
+      data.activeVersionId = version.id;
+      if (isEnrollmentAgreement) {
+        await this.requireWorkflowConfig().applyUpdate(orgId, programId, { activeContractVersionId: version.id });
+      }
+    }
+    if (data.purpose && !body.activeVersionId && template.activeVersionId) {
+      // Changing what a template is for re-checks its active version's fields against the new purpose.
+      const active = await prisma.cfProgramContractVersion.findFirst({ where: { id: template.activeVersionId, organizationId: orgId, templateId } });
+      const problem = active ? templateFieldProblemMessage(`${active.title ?? ''}\n${active.content}`, data.purpose) : null;
+      if (problem) throw new BadRequestException(problem);
+    }
+    await prisma.cfProgramContractTemplate.update({ where: { id: template.id }, data });
+    return this.getProgramWorkflow(orgId, programId);
   }
   @Post('programs/:id/workflow/contracts/templates') async createProgramWorkflowContractTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
     await findProgramForOrg(this.requirePrisma(), orgId, id);
-    if (body.content || body.fileUrl || body.fileName) assertContractVersionContent(body);
+    const purpose: AgreementPurpose = body.purpose === undefined ? 'enrollment' : parseAgreementPurpose(body.purpose) ?? (() => {
+      throw new BadRequestException('Agreement purpose must be enrollment or award.');
+    })();
+    const hasVersion = Boolean(body.content || body.fileUrl || body.fileName);
+    if (hasVersion) {
+      assertContractVersionContent(body);
+      assertAgreementMergeFields(body, purpose);
+    }
     const template = await this.requirePrisma().cfProgramContractTemplate.create({
       data: {
         organizationId: orgId,
@@ -836,10 +911,11 @@ export class ClientflowCompatibilityController {
         name: String(body.name ?? 'Program Contract'),
         signatureRequired: body.signatureRequired !== false,
         isActive: body.isActive !== false,
+        purpose,
       },
     });
-    if (body.content || body.fileUrl || body.fileName) {
-      await this.requirePrisma().cfProgramContractVersion.create({
+    if (hasVersion) {
+      const firstVersion = await this.requirePrisma().cfProgramContractVersion.create({
         data: {
           organizationId: orgId,
           templateId: template.id,
@@ -853,6 +929,24 @@ export class ClientflowCompatibilityController {
           createdBy: admin.email,
         },
       });
+      if (body.makeActive !== false) {
+        await this.requirePrisma().cfProgramContractTemplate.update({
+          where: { id: template.id },
+          data: { activeVersionId: firstVersion.id },
+        });
+        // The program's first enrollment agreement becomes its enrollment agreement, so contracts can
+        // be sent right away (before, staff also had to find and click Activate).
+        const config = await this.requirePrisma().cfProgramWorkflowConfig.findFirst({
+          where: { organizationId: orgId, programId: id },
+          select: { activeContractTemplateId: true },
+        });
+        if (purpose === 'enrollment' && template.isActive && !config?.activeContractTemplateId) {
+          await this.requireWorkflowConfig().applyUpdate(orgId, id, {
+            activeContractTemplateId: template.id,
+            activeContractVersionId: firstVersion.id,
+          });
+        }
+      }
     }
     return this.getProgramWorkflow(orgId, id);
   }
@@ -861,10 +955,11 @@ export class ClientflowCompatibilityController {
     await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const template = await this.requirePrisma().cfProgramContractTemplate.findFirst({
       where: { id: templateId, organizationId: orgId, programId },
-      select: { id: true },
+      select: { id: true, purpose: true },
     });
     if (!template) throw new NotFoundException('Program workflow contract template not found.');
     assertContractVersionContent(body);
+    assertAgreementMergeFields(body, parseAgreementPurpose(template.purpose) ?? 'enrollment');
     const latest = await this.requirePrisma().cfProgramContractVersion.findFirst({
       where: { organizationId: orgId, templateId },
       orderBy: { version: 'desc' },
@@ -885,7 +980,14 @@ export class ClientflowCompatibilityController {
       },
     });
     if (body.makeActive !== false) {
-      await this.requireWorkflowConfig().applyUpdate(orgId, programId, { activeContractVersionId: version.id, activeContractTemplateId: templateId });
+      await this.requirePrisma().cfProgramContractTemplate.update({
+        where: { id: template.id },
+        data: { activeVersionId: version.id },
+      });
+      // Only an enrollment template's version can become the enrollment agreement.
+      if (template.purpose !== 'award') {
+        await this.requireWorkflowConfig().applyUpdate(orgId, programId, { activeContractVersionId: version.id, activeContractTemplateId: templateId });
+      }
     }
     return this.getProgramWorkflow(orgId, programId);
   }

@@ -705,6 +705,22 @@ export async function cfCreateProgramWorkflowContractTemplate(
     },
   );
 }
+/** PATCH a program agreement template: name, purpose, which version is active, or hide it. */
+export async function cfUpdateProgramWorkflowContractTemplate(
+  programId: string,
+  templateId: string,
+  data: {
+    name?: string;
+    purpose?: "enrollment" | "award";
+    activeVersionId?: string;
+    isActive?: false;
+  },
+) {
+  return apiRequest<ProgramWorkflow>(
+    `${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates/${encodeURIComponent(templateId)}`,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
 export async function cfCreateProgramWorkflowContractVersion(
   programId: string,
   templateId: string,
@@ -1339,9 +1355,42 @@ export interface AutomatedContractSummary {
  * was already emailed for it, that contract is returned as-is (publicContractUrl is null) and its link
  * is not rotated.
  */
+/** The agreement exactly as the client will read it, from POST /clients/:id/contracts/preview. */
+export interface AgreementPreview {
+  purpose: "enrollment" | "award";
+  /** Set when an agreement is already in progress; its stored text is what is shown. */
+  existingContractId: string | null;
+  templateId: string | null;
+  versionId: string;
+  title: string;
+  content: string;
+  /** Merge fields with no value yet. Sending is blocked until these are filled in. */
+  missing: Array<{ key: string; label: string }>;
+  /** Sent back when generating, so the agreement is created from exactly this text. */
+  contentHash: string;
+}
+
+/** POST /clients/:id/contracts/preview — the enrollment agreement as the client will read it. */
+export async function acfPreviewContract(
+  clientId: string,
+  options: { enrollmentId?: string } = {},
+) {
+  return apiRequest<AgreementPreview>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/contracts/preview`,
+    { method: "POST", body: JSON.stringify(options) },
+  );
+}
+
 export async function acfGenerateContract(
   clientId: string,
-  staffSigner: { staffSignerName?: string; staffSignerId?: string; enrollmentId?: string } = {},
+  staffSigner: {
+    staffSignerName?: string;
+    staffSignerId?: string;
+    enrollmentId?: string;
+    /** From the preview staff reviewed: the server refuses (409) if the text changed since. */
+    reviewedVersionId?: string;
+    reviewedContentHash?: string;
+  } = {},
 ) {
   return apiRequest<{ contract: AutomatedContractSummary; publicContractUrl: string | null }>(
     `/api/v1/clients/${encodeURIComponent(clientId)}/contracts/generate`,

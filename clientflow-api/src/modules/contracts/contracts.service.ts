@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -26,8 +27,10 @@ import {
 } from '../communications/communication-attempts';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import {
+  AGREEMENT_PURPOSE,
   CONTRACT_CLIENT_STATUS,
   CONTRACT_STATUS,
+  ENROLLMENT_AGREEMENT_WHERE,
   INITIAL_FOLLOW_UP_TYPE,
   contractTokenExpiry,
   generateContractToken,
@@ -38,6 +41,13 @@ import {
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
+import {
+  agreementContentHash,
+  fieldsUsed,
+  formatAgreementDate,
+  renderMergeFields,
+  type MergeValues,
+} from './merge-fields';
 import { isLegacyContract, NOT_LEGACY_CONTRACT, NOT_UNSIGNED_LEGACY_CONTRACT } from './legacy-contract';
 import { findClientForOrg, findEnrollmentForOrg } from '../../common/tenancy/org-scoped.repository';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
@@ -61,6 +71,33 @@ import {
   renderExecutedContract,
 } from './executed-contract-file';
 import { assertSendableRecipient } from '../communications/recipient';
+
+/** An agreement version ready to render: `id` is the version id (stored as CfContract.contractTemplateId). */
+interface ResolvedAgreementTemplate {
+  id: string;
+  organizationId: string;
+  name: string;
+  content: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  programTemplateId: string | null;
+}
+
+/** What staff reviewed before generating: the template version and a fingerprint of its text. */
+export interface AgreementReview {
+  versionId: string;
+  contentHash: string;
+}
+
+export const AGREEMENT_CHANGED_MESSAGE = 'The agreement changed since you reviewed it. Review it again before sending.';
+
+/** A new agreement is only created from the exact version and text staff reviewed. */
+function assertReviewedAgreement(review: AgreementReview, versionId: string, contentHash: string): void {
+  if (review.versionId !== versionId || review.contentHash !== contentHash) {
+    throw new ConflictException(AGREEMENT_CHANGED_MESSAGE);
+  }
+}
 
 const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract processing.';
 const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contract template.';
@@ -280,14 +317,21 @@ export class ContractsService {
     organizationId: string,
     clientId: string,
     staffSigner: StaffSigner,
-    options?: { enrollmentId?: string | null },
+    options?: { enrollmentId?: string | null; review?: AgreementReview | null },
   ) {
     // Program context always comes from an enrollment: the one given, or the client's only open one.
     const { client, program, enrollmentId } = options?.enrollmentId
       ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId, OPEN_ENROLLMENT_STATUSES)
       : await this.resolveSingleEnrollment(organizationId, clientId, OPEN_ENROLLMENT_STATUSES, 'generate a contract for');
     const template = await this.resolveTemplate(program);
-    const generated = await this.generateInternal(client, program, template, staffSigner, enrollmentId);
+    const generated = await this.generateInternal(
+      client,
+      program,
+      template,
+      staffSigner,
+      enrollmentId,
+      options?.review ?? undefined,
+    );
     return {
       contract: this.safeContract(generated.contract, template.name),
       // Null when a contract was already emailed: its link is left untouched rather than rotated.
@@ -431,6 +475,8 @@ export class ContractsService {
         clientId: client.id,
         OR: [{ enrollmentId }, { enrollmentId: null, programId: program.id }],
         ...NOT_UNSIGNED_LEGACY_CONTRACT,
+        // An award agreement signed later must not stand in for (or block) the enrollment agreement.
+        ...ENROLLMENT_AGREEMENT_WHERE,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1247,12 +1293,117 @@ export class ContractsService {
     return { contract, client, program };
   }
 
+  /**
+   * The enrollment agreement staff are about to send, exactly as the client will read it: an
+   * agreement already in progress shows its stored text; otherwise the program's active version is
+   * filled in for this client. `missing` lists merge fields with no value (sending is blocked until
+   * they are filled), and `contentHash` pins generation to this exact text and version.
+   */
+  async previewForStaff(organizationId: string, clientId: string, options: { enrollmentId?: string | null }) {
+    const { client, program, enrollmentId } = options.enrollmentId
+      ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId, OPEN_ENROLLMENT_STATUSES)
+      : await this.resolveSingleEnrollment(organizationId, clientId, OPEN_ENROLLMENT_STATUSES, 'preview a contract for');
+    const existing = await this.prisma.cfContract.findFirst({
+      where: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        programId: program.id,
+        status: { in: [CONTRACT_STATUS.draft, CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] },
+        ...NOT_LEGACY_CONTRACT,
+        ...ENROLLMENT_AGREEMENT_WHERE,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+      return {
+        purpose: AGREEMENT_PURPOSE.enrollment,
+        existingContractId: existing.id,
+        templateId: existing.programTemplateId ?? null,
+        versionId: existing.renderedFromVersionId ?? existing.contractTemplateId,
+        title: existing.contractType,
+        content: existing.generatedContent,
+        missing: [] as Array<{ key: string; label: string }>,
+        contentHash: agreementContentHash(existing.contractType, existing.generatedContent),
+      };
+    }
+    const template = await this.resolveTemplate(program);
+    const rendered = await this.renderAgreement(client, program, enrollmentId, template, { allowMissing: true });
+    return {
+      purpose: AGREEMENT_PURPOSE.enrollment,
+      existingContractId: null,
+      templateId: template.programTemplateId ?? null,
+      versionId: template.id,
+      title: template.name,
+      content: rendered.text,
+      missing: rendered.missing,
+      contentHash: rendered.contentHash,
+    };
+  }
+
+  /** Values for an agreement's merge fields. Award fields are added by the award flow. */
+  private async agreementMergeValues(
+    client: { businessName: string; primaryContactName: string; email: string; organizationId: string },
+    program: { name: string },
+    enrollmentId: string | null,
+    used: ReadonlySet<string>,
+  ): Promise<MergeValues> {
+    // Only what the template uses is loaded: a template without fields (every older one) costs
+    // no extra queries.
+    const needsOrganization = used.has('organization.name') || used.has('today');
+    const [organization, enrollment] = await Promise.all([
+      needsOrganization
+        ? this.prisma.organization.findUnique({ where: { id: client.organizationId }, select: { name: true, settings: true } })
+        : Promise.resolve(null),
+      enrollmentId && used.has('enrollment.startDate')
+        ? this.prisma.cfProgramEnrollment.findFirst({
+            where: { id: enrollmentId, organizationId: client.organizationId },
+            select: { startDate: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const settings = organization?.settings && typeof organization.settings === 'object'
+      ? (organization.settings as Record<string, unknown>)
+      : {};
+    const timeZone = typeof settings.timezone === 'string' ? settings.timezone : undefined;
+    return {
+      'client.contactName': client.primaryContactName,
+      'client.businessName': client.businessName,
+      'client.email': client.email,
+      'program.name': program.name,
+      'organization.name': organization?.name ?? null,
+      'enrollment.startDate': formatAgreementDate(enrollment?.startDate ?? null),
+      today: formatAgreementDate(new Date(), timeZone),
+    };
+  }
+
+  /**
+   * Fills an agreement version for one client. Missing values block generation (a client is never
+   * sent a blank where their details belong) unless the caller is only previewing.
+   */
+  private async renderAgreement(
+    client: { businessName: string; primaryContactName: string; email: string; organizationId: string },
+    program: { name: string },
+    enrollmentId: string | null,
+    template: { name: string; content: string },
+    options: { allowMissing?: boolean; extraValues?: MergeValues } = {},
+  ) {
+    const used = new Set(fieldsUsed(template.content));
+    const values = { ...(await this.agreementMergeValues(client, program, enrollmentId, used)), ...options.extraValues };
+    const rendered = renderMergeFields(template.content, values);
+    if (rendered.missing.length && !options.allowMissing) {
+      throw new BadRequestException(
+        `The agreement can't be generated until these details are filled in: ${rendered.missing.map((field) => field.label).join(', ')}.`,
+      );
+    }
+    return { ...rendered, contentHash: agreementContentHash(template.name, rendered.text) };
+  }
+
   private async resolveTemplate(program: {
     id: string;
     organizationId: string;
     name: string;
     defaultContractTemplateId: string;
-  }) {
+  }): Promise<ResolvedAgreementTemplate> {
     const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
     const programContractTemplateModel = (this.prisma as unknown as {
       cfProgramContractTemplate?: {
@@ -1294,6 +1445,7 @@ export class ContractsService {
         isActive: true,
         createdAt: version.createdAt,
         updatedAt: version.createdAt,
+        programTemplateId: activeProgramTemplate?.id ?? null,
       };
     }
     throw new BadRequestException(SAFE_TEMPLATE_ERROR);
@@ -1302,10 +1454,12 @@ export class ContractsService {
   private async generateInternal(
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
-    template: { id: string; name: string; content: string },
+    template: { id: string; name: string; content: string; programTemplateId?: string | null },
     staffSigner: StaffSigner,
     // Required: a contract never exists without the enrollment it belongs to.
     enrollmentId: string,
+    /** What staff reviewed. When given, a new agreement is only created from exactly that text. */
+    review?: AgreementReview,
   ) {
     const now = new Date();
     const rawToken = generateContractToken();
@@ -1319,6 +1473,7 @@ export class ContractsService {
         status: { in: [CONTRACT_STATUS.draft, CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] },
         // An old placeholder draft is never reused: a fresh one is rendered from the template.
         ...NOT_LEGACY_CONTRACT,
+        ...ENROLLMENT_AGREEMENT_WHERE,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1347,6 +1502,9 @@ export class ContractsService {
       return { contract, rawToken: rawToken as string | null };
     }
 
+    const rendered = await this.renderAgreement(client, program, enrollmentId, template);
+    if (review) assertReviewedAgreement(review, template.id, rendered.contentHash);
+
     const contract = await this.prisma.cfContract.create({
       data: {
         organizationId: client.organizationId,
@@ -1355,6 +1513,9 @@ export class ContractsService {
         enrollmentId,
         contractTemplateId: template.id,
         contractType: template.name,
+        purpose: AGREEMENT_PURPOSE.enrollment,
+        programTemplateId: template.programTemplateId ?? null,
+        renderedFromVersionId: template.id,
         status: CONTRACT_STATUS.draft,
         secureTokenHash,
         secureTokenExpiresAt,
@@ -1363,7 +1524,7 @@ export class ContractsService {
         staffSignedAt: now,
         generatedContent: renderContractSnapshot({
           templateName: template.name,
-          templateContent: template.content,
+          templateContent: rendered.text,
           clientId: client.id,
           clientName: client.primaryContactName,
           programId: program.id,

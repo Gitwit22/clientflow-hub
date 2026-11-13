@@ -29,6 +29,37 @@ The additive migration creates seven organization-scoped templates. Every placeh
 
 > Template draft only. Final legal language must be reviewed by the organization before use.
 
+That sentence is **no longer appended** to generated agreements; it only remains inside starter
+template text, and the program page warns staff while an active version still contains it.
+
+### Agreement purposes
+
+A program can have several named agreement templates (`CfProgramContractTemplate.purpose`):
+
+- `enrollment`: what a client signs to join. The program's enrollment agreement is the one
+  `CfProgramWorkflowConfig.activeContractTemplateId/VersionId` names. Only it drives onboarding,
+  the welcome email gate and automation. The first enrollment template saved for a program becomes
+  its enrollment agreement automatically.
+- `award`: generated per funding award. Each template keeps its own `activeVersionId`. An award
+  template can never be the enrollment agreement, and every "current contract" lookup on the
+  enrollment path filters award agreements out (`ENROLLMENT_AGREEMENT_WHERE`).
+
+### Merge fields and review
+
+Templates may use merge fields (`contracts/merge-fields.ts`): `{{client.contactName}}`,
+`{{client.businessName}}`, `{{client.email}}`, `{{program.name}}`, `{{organization.name}}`,
+`{{enrollment.startDate}}`, `{{today}}`, and in award agreements only `{{award.title}}`,
+`{{award.source}}`, `{{award.amount}}`, `{{award.date}}`.
+
+- Saving a version rejects unknown fields and award fields in an enrollment agreement.
+- Generating an agreement fills the fields; a field with no value blocks generation (400).
+- `POST /clients/:id/contracts/preview` returns the agreement exactly as the client will read it,
+  the fields still missing, and a `contentHash`. Staff generate with `reviewedVersionId` +
+  `reviewedContentHash`; if the active version or the filled-in text changed since, generation is
+  refused with 409. Automation (no review fields) is unchanged.
+- An agreement already in progress previews its stored text. Sent and signed agreements always keep
+  the text they were generated with.
+
 Existing contract content is preserved. Existing contract rows are linked to their matching template name or the General Services Agreement fallback. Recognized legacy statuses are normalized to `DRAFT`, `SENT`, `OPENED`, `COMPLETED`, `CANCELLED`, or `EXPIRED`; unknown historical values are preserved.
 
 ## Secure links

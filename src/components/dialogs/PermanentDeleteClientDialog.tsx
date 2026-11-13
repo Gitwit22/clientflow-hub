@@ -42,12 +42,13 @@ export function PermanentDeleteClientDialog({
   const blocked = eligibility?.canDelete === false;
   const confirmed = client && !blocked ? sameName(typed, client.businessName) : false;
 
+  const clientId = client?.id;
   useEffect(() => {
-    if (!client) return;
+    if (!clientId) return;
     let cancelled = false;
     setEligibility(null);
     setChecking(true);
-    getClientDeletionEligibility(client.id)
+    getClientDeletionEligibility(clientId)
       .then((result) => {
         if (!cancelled) setEligibility(result);
       })
@@ -58,7 +59,7 @@ export function PermanentDeleteClientDialog({
     return () => {
       cancelled = true;
     };
-  }, [client?.id]);
+  }, [clientId]);
 
   const close = (open: boolean) => {
     if (open || deleting) return;

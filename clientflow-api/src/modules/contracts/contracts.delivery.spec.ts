@@ -954,3 +954,84 @@ describe('ContractsService: ClientFlow owns the welcome wording', () => {
     expect(transaction.cfCommunication.create.mock.calls[0][0].data.templateContext.welcome.versionId).toBe('wv-3');
   });
 });
+
+describe('ContractsService: agreement review and merge fields', () => {
+  const versionWith = (content: string) => ({
+    cfProgramContractVersion: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'pv-1', organizationId: 'org-1', title: 'Member Agreement', content, createdAt: now,
+      }),
+    },
+  });
+  const withBusiness = { cfClient: { findFirst: jest.fn().mockResolvedValue({ ...client, businessName: 'Rivers Bakery LLC' }) } };
+
+  it('previews the active version filled in for this client, with a hash to pin generation', async () => {
+    const { service } = build({ ...withBusiness, ...versionWith('Business: {{client.businessName}}') }, readyN8n());
+    const preview = await service.previewForStaff('org-1', 'client-1', { enrollmentId: 'enroll-1' });
+    expect(preview).toEqual(expect.objectContaining({
+      purpose: 'enrollment',
+      existingContractId: null,
+      templateId: 'pt-1',
+      versionId: 'pv-1',
+      title: 'Member Agreement',
+      content: 'Business: Rivers Bakery LLC',
+      missing: [],
+      contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
+  });
+
+  it('previews an agreement already in progress as its stored text', async () => {
+    const { service } = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(sent), create: jest.fn(), update: jest.fn() } }, readyN8n());
+    const preview = await service.previewForStaff('org-1', 'client-1', { enrollmentId: 'enroll-1' });
+    expect(preview.existingContractId).toBe('contract-1');
+    expect(preview.content).toBe(sent.generatedContent);
+  });
+
+  it('lists merge fields with no value in the preview, and refuses to generate until they are filled', async () => {
+    const { service, prisma } = build({ ...versionWith('Joined: {{enrollment.startDate}}') }, readyN8n());
+    const preview = await service.previewForStaff('org-1', 'client-1', { enrollmentId: 'enroll-1' });
+    expect(preview.missing).toEqual([{ key: 'enrollment.startDate', label: 'Program start date' }]);
+    await expect(service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'enroll-1' }))
+      .rejects.toThrow('Program start date');
+    expect(prisma.cfContract.create).not.toHaveBeenCalled();
+  });
+
+  it('generates from exactly the reviewed text, and stores the filled-in text with its version', async () => {
+    const { service, prisma } = build({ ...withBusiness, ...versionWith('Business: {{client.businessName}}') }, readyN8n());
+    const preview = await service.previewForStaff('org-1', 'client-1', { enrollmentId: 'enroll-1' });
+    await service.generateForStaff('org-1', 'client-1', staff, {
+      enrollmentId: 'enroll-1',
+      review: { versionId: preview.versionId, contentHash: preview.contentHash },
+    });
+    const data = prisma.cfContract.create.mock.calls[0][0].data;
+    expect(data).toEqual(expect.objectContaining({ purpose: 'enrollment', programTemplateId: 'pt-1', renderedFromVersionId: 'pv-1' }));
+    expect(data.generatedContent).toContain('Business: Rivers Bakery LLC');
+    expect(data.generatedContent).not.toContain('{{');
+  });
+
+  it('refuses (409) when the agreement changed after it was reviewed', async () => {
+    const { service, prisma } = build({ ...withBusiness, ...versionWith('Business: {{client.businessName}}') }, readyN8n());
+    await expect(service.generateForStaff('org-1', 'client-1', staff, {
+      enrollmentId: 'enroll-1',
+      review: { versionId: 'pv-1', contentHash: 'f'.repeat(64) },
+    })).rejects.toThrow('changed since you reviewed');
+    await expect(service.generateForStaff('org-1', 'client-1', staff, {
+      enrollmentId: 'enroll-1',
+      review: { versionId: 'pv-older', contentHash: 'f'.repeat(64) },
+    })).rejects.toThrow('changed since you reviewed');
+    expect(prisma.cfContract.create).not.toHaveBeenCalled();
+  });
+
+  it('only ever looks at enrollment agreements when finding "the" contract to reuse', async () => {
+    const { service, prisma } = build({}, readyN8n());
+    await service.generateForStaff('org-1', 'client-1', staff, { enrollmentId: 'enroll-1' });
+    expect(prisma.cfContract.findFirst.mock.calls[0][0].where).toEqual(expect.objectContaining({ purpose: { not: 'award' } }));
+  });
+
+  it('gates the welcome email on the enrollment agreement only, never an award agreement', async () => {
+    const { service, prisma } = build({}, readyN8n());
+    await service.sendWelcomeForEnrollment('org-1', 'client-1', { enrollmentId: 'enroll-1', actor: staff }).catch(() => undefined);
+    const welcomeLookup = prisma.cfContract.findFirst.mock.calls.find(([args]: [{ where: Record<string, unknown> }]) => 'OR' in args.where);
+    expect(welcomeLookup?.[0].where).toEqual(expect.objectContaining({ purpose: { not: 'award' } }));
+  });
+});
