@@ -62,6 +62,23 @@ Templates may use merge fields (`contracts/merge-fields.ts`): `{{client.contactN
 
 Existing contract content is preserved. Existing contract rows are linked to their matching template name or the General Services Agreement fallback. Recognized legacy statuses are normalized to `DRAFT`, `SENT`, `OPENED`, `COMPLETED`, `CANCELLED`, or `EXPIRED`; unknown historical values are preserved.
 
+### Award agreements
+
+An award agreement belongs to one funding award (`CfContract.awardId`, `purpose = 'award'`).
+
+- Prepared only for an **approved** award: `POST /awards/:awardId/agreement/preview`, then
+  `/generate` with the reviewed version and hash. The award's row is locked while it is created, and
+  a partial unique index allows only one open (DRAFT/SENT/OPENED/EXPIRED) agreement per award.
+- Sent through the normal `POST /clients/:id/contracts/send`; the award moves to `agreement_sent`.
+  Sending, opening and signing it never change the client status or the enrollment.
+- Signing records the signature, files and emails the signed copy, and moves the award to
+  `agreement_signed`. It does **not** move the client to onboarding, create monitoring, set the
+  enrollment start date, send the welcome email, or run `contract.signed` automation.
+- Cancelling the award cancels an unsigned agreement (its link stops working). Changing an award's
+  title, source, amount or date after an agreement exists requires replacing it: an unsigned one is
+  cancelled, a signed one is kept as history, and the award returns to `approved`.
+- A link for an agreement that was replaced or whose award was cancelled can no longer be signed.
+
 ## Secure links
 
 Contract tokens use 32 random bytes encoded as base64url. Only a SHA-256 hash is persisted. Generate returns a one-time public URL. Send and resend rotate the token, invalidating the prior URL because a stored hash cannot reconstruct the original token.

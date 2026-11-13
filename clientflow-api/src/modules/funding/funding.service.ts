@@ -4,6 +4,8 @@ import { isPrismaUniqueViolation } from '../../common/prisma-errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BillingService } from '../billing/billing.service';
 import { parseOrgDate } from '../billing/billing-schedule.util';
+import { OPEN_CONTRACT_STATUSES } from '../lifecycle/contract-state';
+import { lockAward } from './award-lock';
 import {
   assertCanApprove,
   assertCanCancel,
@@ -422,13 +424,8 @@ export class FundingService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  /**
-   * Locks the award row for the rest of the transaction (SELECT … FOR UPDATE) and returns it.
-   * Everything that reads or changes an award's balance takes this lock first.
-   */
-  private async lockAward(tx: Tx, organizationId: string, awardId: string): Promise<CfEnrollmentAward> {
-    await tx.$queryRaw`SELECT "id" FROM "CfEnrollmentAward" WHERE "id" = ${awardId} AND "organizationId" = ${organizationId} FOR UPDATE`;
-    return this.requireAward(tx, organizationId, awardId);
+  private lockAward(tx: Tx, organizationId: string, awardId: string): Promise<CfEnrollmentAward> {
+    return lockAward(tx, organizationId, awardId);
   }
 
   private async requireAward(db: Tx | PrismaService, organizationId: string, awardId: string) {
@@ -460,7 +457,7 @@ export class FundingService {
       where: {
         organizationId: award.organizationId,
         awardId: award.id,
-        status: { in: ['DRAFT', 'SENT', 'OPENED', 'EXPIRED'] },
+        status: { in: [...OPEN_CONTRACT_STATUSES] },
       },
       data: { status: 'CANCELLED', secureTokenHash: null, secureTokenExpiresAt: null },
     });

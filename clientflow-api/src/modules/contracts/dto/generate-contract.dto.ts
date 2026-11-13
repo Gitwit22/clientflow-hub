@@ -48,3 +48,22 @@ export class PreviewContractDto {
   @MinLength(1)
   enrollmentId?: string;
 }
+
+export class AwardAgreementDto {
+  @ApiPropertyOptional({ description: "Which of the program's award agreement templates to use (when it has several)." })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  templateId?: string;
+
+  @ApiPropertyOptional({ description: 'The template version shown in the review (from the preview).' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  reviewedVersionId?: string;
+
+  @ApiPropertyOptional({ description: 'The contentHash from the preview; a change since then is refused with 409.' })
+  @IsOptional()
+  @Matches(/^[a-f0-9]{64}$/)
+  reviewedContentHash?: string;
+}

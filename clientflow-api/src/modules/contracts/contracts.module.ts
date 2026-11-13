@@ -3,13 +3,13 @@ import { AutomationModule } from '../automation/automation.module';
 import { IntegrationsModule } from '../../integrations/integrations.module';
 import { EnrollmentsModule } from '../enrollments/enrollments.module';
 import { ProgramsModule } from '../programs/programs.module';
-import { ContractsController, WelcomeController } from './contracts.controller';
+import { AwardAgreementsController, ContractsController, WelcomeController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
 import { PublicContractsController } from './public-contracts.controller';
 
 @Module({
   imports: [IntegrationsModule, EnrollmentsModule, ProgramsModule, forwardRef(() => AutomationModule)],
-  controllers: [ContractsController, WelcomeController, PublicContractsController],
+  controllers: [ContractsController, WelcomeController, PublicContractsController, AwardAgreementsController],
   providers: [ContractsService],
   exports: [ContractsService],
 })

@@ -110,7 +110,9 @@ function PublicContractPage() {
         <div className="max-w-md space-y-4 text-center">
           <h1 className="font-display text-2xl font-semibold">Agreement signed!</h1>
           <p className="text-muted-foreground">
-            Thank you. Your onboarding has started and a welcome email is on its way.
+            {data?.contract.purpose === "award"
+              ? "Thank you. A signed copy will be emailed to you."
+              : "Thank you. Your onboarding has started and a welcome email is on its way."}
           </p>
         </div>
       </div>

@@ -15,7 +15,7 @@ import {
 } from '../../common/guards/clientflow-auth.guard';
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { ContractsService, type StaffSigner } from './contracts.service';
-import { GenerateContractDto, PreviewContractDto } from './dto/generate-contract.dto';
+import { AwardAgreementDto, GenerateContractDto, PreviewContractDto } from './dto/generate-contract.dto';
 import { SendContractDto } from './dto/send-contract.dto';
 import { SendWelcomeDto } from './dto/send-welcome.dto';
 
@@ -158,6 +158,40 @@ export class WelcomeController {
       enrollmentId: dto.enrollmentId,
       actor: staffActor(request),
       idempotencyKey: parseIdempotencyKey(idempotencyKey),
+    });
+  }
+}
+
+/**
+ * A funding award's agreement: preview it exactly as the client will read it, then prepare it.
+ * Sending uses the same send endpoint as any contract (POST clients/:id/contracts/send).
+ */
+@ApiTags('contracts')
+@Controller('awards/:awardId/agreement')
+@UseGuards(ClientflowAuthGuard, ClientflowAdminOnlyGuard)
+export class AwardAgreementsController {
+  constructor(private readonly contracts: ContractsService) {}
+
+  @Post('preview')
+  @HttpCode(200)
+  @ApiOperation({ summary: "Show an award's agreement exactly as the client will read it" })
+  preview(@Req() request: AuthenticatedRequest, @Param('awardId') awardId: string, @Body() dto: AwardAgreementDto) {
+    return this.contracts.previewAwardAgreement(requireAdmin(request).organizationId, awardId, {
+      templateId: dto.templateId ?? null,
+    });
+  }
+
+  @Post('generate')
+  @ApiOperation({ summary: "Prepare an award's agreement from the reviewed text (one open agreement per award)" })
+  generate(@Req() request: AuthenticatedRequest, @Param('awardId') awardId: string, @Body() dto: AwardAgreementDto) {
+    if (Boolean(dto.reviewedVersionId) !== Boolean(dto.reviewedContentHash)) {
+      throw new BadRequestException('Send both reviewedVersionId and reviewedContentHash, or neither.');
+    }
+    return this.contracts.generateAwardAgreement(requireAdmin(request).organizationId, awardId, staffActor(request), {
+      templateId: dto.templateId ?? null,
+      ...(dto.reviewedVersionId && dto.reviewedContentHash
+        ? { review: { versionId: dto.reviewedVersionId, contentHash: dto.reviewedContentHash } }
+        : {}),
     });
   }
 }

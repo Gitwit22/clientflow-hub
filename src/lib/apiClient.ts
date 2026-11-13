@@ -1312,6 +1312,8 @@ export interface AutomatedPublicContractData {
     contractName: string;
     content: string;
     expiresAt: string | null;
+    /** "award" agreements don't start onboarding; older API versions omit it (enrollment). */
+    purpose?: "enrollment" | "award";
   };
   client: { name: string };
   program: { id: string; name: string };
@@ -1927,4 +1929,26 @@ export async function cfVoidAwardPayment(paymentId: string, reason: string) {
 /** Every award with money still owed, including archived program participations. */
 export async function cfListOutstandingAwards() {
   return apiRequest<OutstandingAward[]>(`/api/v1/funding/outstanding`);
+}
+
+/** POST /awards/:awardId/agreement/preview — the award's agreement exactly as the client will read it. */
+export async function acfPreviewAwardAgreement(
+  awardId: string,
+  options: { templateId?: string } = {},
+) {
+  return apiRequest<AgreementPreview & { awardId: string }>(
+    `/api/v1/awards/${encodeURIComponent(awardId)}/agreement/preview`,
+    { method: "POST", body: JSON.stringify(options) },
+  );
+}
+
+/** POST /awards/:awardId/agreement/generate — prepares the award's agreement (one open per award). */
+export async function acfGenerateAwardAgreement(
+  awardId: string,
+  options: { templateId?: string; reviewedVersionId?: string; reviewedContentHash?: string } = {},
+) {
+  return apiRequest<{ contract: AutomatedContractSummary; awardId: string }>(
+    `/api/v1/awards/${encodeURIComponent(awardId)}/agreement/generate`,
+    { method: "POST", body: JSON.stringify(options) },
+  );
 }

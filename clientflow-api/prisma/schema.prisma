@@ -693,7 +693,8 @@ model CfContract {
   programTemplateId     String?
   /// The template version the staff-reviewed text was rendered from.
   renderedFromVersionId String?
-  /// The funding award (CfEnrollmentAward) an award agreement belongs to.
+  /// The funding award (CfEnrollmentAward) an award agreement belongs to. A hand-written partial
+  /// unique index (see migration SQL) allows at most one open agreement per award.
   awardId               String?
   status                String    @default("DRAFT")
   secureTokenHash       String?   @unique

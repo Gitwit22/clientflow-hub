@@ -22,7 +22,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { downloadDocument, uploadDocument } from "@/lib/api";
+import { downloadDocument, downloadExecutedContract, uploadDocument } from "@/lib/api";
+import { AwardAgreementDialog } from "@/components/clients/AwardAgreementDialog";
 import {
   cfApproveAward,
   cfCancelAward,
@@ -172,7 +173,7 @@ export function FundingTab({
           <AwardCard
             key={award.id}
             award={award}
-            clientId={client.id}
+            client={client}
             onChanged={replace}
             onEdit={() => setEditing(award)}
             onPay={() => setPaying(award)}
@@ -231,7 +232,7 @@ function Figure({ label, value }: { label: string; value: number }) {
 
 function AwardCard({
   award,
-  clientId,
+  client,
   onChanged,
   onEdit,
   onPay,
@@ -239,14 +240,16 @@ function AwardCard({
   onReload,
 }: {
   award: Award;
-  clientId: string;
+  client: Client;
   onChanged: (award: Award) => void;
   onEdit: () => void;
   onPay: () => void;
   onCancel: () => void;
   onReload: () => void;
 }) {
+  const clientId = client.id;
   const [busy, setBusy] = useState(false);
+  const [agreementOpen, setAgreementOpen] = useState(false);
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const cancelled = award.status === "cancelled";
@@ -327,6 +330,40 @@ function AwardCard({
           {award.status === "pending" && (
             <Button size="sm" disabled={busy} onClick={() => void approve()}>
               Approve
+            </Button>
+          )}
+          {award.status === "approved" && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setAgreementOpen(true)}
+            >
+              Prepare agreement
+            </Button>
+          )}
+          {award.status === "agreement_sent" && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setAgreementOpen(true)}
+            >
+              Resend agreement
+            </Button>
+          )}
+          {award.status === "agreement_signed" && award.currentAgreementId && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void downloadExecutedContract(clientId, award.currentAgreementId!).catch(
+                  (error: unknown) =>
+                    toast.error(error instanceof Error ? error.message : "Unable to open."),
+                )
+              }
+            >
+              View signed agreement
             </Button>
           )}
           {canPay && (
@@ -443,6 +480,15 @@ function AwardCard({
           />
         </div>
       </CardContent>
+      {agreementOpen && (
+        <AwardAgreementDialog
+          award={award}
+          client={client}
+          open={agreementOpen}
+          onOpenChange={setAgreementOpen}
+          onSent={onReload}
+        />
+      )}
     </Card>
   );
 }
