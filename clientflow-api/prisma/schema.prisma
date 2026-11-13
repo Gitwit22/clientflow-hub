@@ -770,6 +770,9 @@ model CfStoredFile {
   sizeBytes        Int
   status           String    @default("REQUESTED")
   uploadedByUserId String?
+  /// 'public' for files emails show inline (header logo, email images); null or 'private' otherwise.
+  /// A logical name only: the API maps it to a configured bucket and never trusts a raw bucket name.
+  storageBucket    String?
   createdAt        DateTime  @default(now())
   completedAt      DateTime?
 

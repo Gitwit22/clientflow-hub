@@ -1117,7 +1117,8 @@ export class ContractsService {
             clientId: client.id,
             name: `${contract.contractType} — Executed`,
             type: 'contract',
-            url: uploaded.url,
+            // Never a public link: contracts are private and only served through signed links.
+            url: '',
             storedFileId: storedFile.id,
             objectKey: uploaded.objectKey,
             bucket: uploaded.bucket,

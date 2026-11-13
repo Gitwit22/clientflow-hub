@@ -14,6 +14,7 @@ import {
   cfUpdateFormTemplate,
   cfCreateClient,
   cfPermanentlyDeleteClient,
+  cfGetClientDeletionEligibility,
   cfListArchivedClients,
   cfGetClient,
   cfListFormAssignments,
@@ -224,6 +225,11 @@ export async function archiveClient(
  * Permanently erases a client and everything recorded for them, payments included, so their money
  * leaves Payments and Reports. Archive instead to keep the record and its financial history.
  */
+/** Whether permanent deletion is allowed (clients with recorded payments can only be archived). */
+export async function getClientDeletionEligibility(id: string) {
+  return cfGetClientDeletionEligibility(id);
+}
+
 export async function deleteClient(id: string, confirmation: string) {
   await cfPermanentlyDeleteClient(id, confirmation);
   setState((current) => ({

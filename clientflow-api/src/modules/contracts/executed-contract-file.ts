@@ -120,7 +120,8 @@ export async function ensureExecutedContractPdf(
       data: {
         storedFileId: pdfFile.id,
         objectKey: uploaded.objectKey,
-        url: uploaded.url,
+        // Never a public link: contracts are private and only served through signed links.
+        url: '',
         bucket: uploaded.bucket,
         byteSize: uploaded.byteSize,
       },

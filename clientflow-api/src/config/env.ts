@@ -21,6 +21,10 @@ const environmentObjectSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET_NAME: z.string().optional(),
   R2_PUBLIC_URL: z.string().url().optional(),
+  // Separate, publicly readable bucket for files emails show inline (header logo, email images).
+  // Contracts and client documents never go here.
+  R2_PUBLIC_ASSETS_BUCKET: z.string().optional(),
+  R2_PUBLIC_ASSETS_URL: z.string().url().optional(),
   STORAGE_ENABLED: booleanFlag,
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM_NAME: z.string().default('EA Management LLC'),

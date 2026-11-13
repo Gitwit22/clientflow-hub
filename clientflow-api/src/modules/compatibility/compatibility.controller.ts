@@ -26,7 +26,7 @@ import { CfProgramAction, CfProgramTrigger } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
-import { StorageService } from '../../integrations/storage/storage.service';
+import { StorageService, storageBucketOf } from '../../integrations/storage/storage.service';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
@@ -67,7 +67,15 @@ import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { Throttle } from '@nestjs/throttler';
 import { resolveAppUrl } from '../../config/env';
 import { assertSessionActive } from '../../common/guards/session-state';
-import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storage/upload-rules';
+import {
+  assertUploadAllowed,
+  matchesImageSignature,
+  MAX_UPLOAD_BYTES,
+  SIGNATURE_BYTES,
+  uploadFolderOfKey,
+  uploadLimitFor,
+  uploadLimitMessage,
+} from '../../integrations/storage/upload-rules';
 import { socialLinksOf } from '../forms/form-profile-mapper';
 import { normalizeFormFields } from '../forms/form-field-mapping';
 import { buildIntakePrefill, buildProgramPrefill, type PrefillValue } from '../forms/intake-prefill';
@@ -1483,14 +1491,15 @@ export class ClientflowCompatibilityController {
     const storage = this.requireStorage();
     storage.assertEnabled();
     const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
-    const { folder: storageKeyPrefix, type: mimeType, size: sizeBytes } = assertUploadAllowed({
+    const { folder: storageKeyPrefix, type: mimeType, size: sizeBytes, bucket } = assertUploadAllowed({
       folder: body.storageKeyPrefix,
       type: body.type,
       size: body.byteSize,
     });
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `${storageKeyPrefix}/${orgId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
-    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
+    // Only the logo and email images go to the public bucket; it fails clearly when not configured.
+    const upload = await storage.createPresignedUploadUrlIn(bucket, storageKey, mimeType);
     const storedFile = await this.requirePrisma().cfStoredFile.create({
       data: {
         organizationId: orgId,
@@ -1500,6 +1509,7 @@ export class ClientflowCompatibilityController {
         sizeBytes,
         status: 'REQUESTED',
         uploadedByUserId: admin.id,
+        ...(bucket === 'public' ? { storageBucket: 'public' } : {}),
       },
     });
     return { storedFile, uploadUrl: upload.url, expiresInSeconds: upload.expiresInSeconds };
@@ -1510,7 +1520,7 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    await assertStoredUploadWithinLimit(storage, storedFile.storageKey);
+    await assertStoredUploadAcceptable(storage, storedFile);
     return this.requirePrisma().cfStoredFile.update({
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
@@ -1714,7 +1724,8 @@ export class ClientflowCompatibilityController {
     const completed = await this.requirePrisma().cfDocument.update({
       where: { id: document.id },
       data: {
-        url: storage.getObjectPublicUrl(storedFile.storageKey) ?? '',
+        // Never a public link: client documents are private and only served through signed links.
+        url: '',
         objectKey: storedFile.storageKey,
         byteSize: storedFile.sizeBytes,
         uploadStatus: 'ready',
@@ -2593,6 +2604,33 @@ async function assertStoredUploadWithinLimit(storage: StorageService, storageKey
   if (size > MAX_UPLOAD_BYTES) {
     await storage.deleteObject(storageKey).catch(() => undefined);
     throw new BadRequestException('Files can be at most 25 MB.');
+  }
+}
+
+/**
+ * Checks a finished stored-file upload in the bucket it was issued for: the real size against its
+ * folder's limit and, for public images, that the bytes really are the declared image type. A
+ * presigned upload fixes only the declared Content-Type, so anything else is removed and rejected
+ * before it can be linked from an email.
+ */
+export async function assertStoredUploadAcceptable(
+  storage: StorageService,
+  storedFile: { storageKey: string; mimeType: string; storageBucket?: string | null },
+): Promise<void> {
+  const bucket = storageBucketOf(storedFile);
+  if (bucket === 'private') return assertStoredUploadWithinLimit(storage, storedFile.storageKey);
+  const folder = uploadFolderOfKey(storedFile.storageKey);
+  const maxBytes = folder ? uploadLimitFor(folder) : MAX_UPLOAD_BYTES;
+  const reject = async (message: string) => {
+    await storage.deleteObjectIn(bucket, storedFile.storageKey).catch(() => undefined);
+    throw new BadRequestException(message);
+  };
+  const size = await storage.objectSizeIn(bucket, storedFile.storageKey);
+  if (size === null) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+  if (size > maxBytes) await reject(uploadLimitMessage(maxBytes));
+  const firstBytes = await storage.readObjectStart(bucket, storedFile.storageKey, SIGNATURE_BYTES);
+  if (!firstBytes || !matchesImageSignature(storedFile.mimeType, firstBytes)) {
+    await reject("The file isn't a valid image of the type it claims to be.");
   }
 }
 

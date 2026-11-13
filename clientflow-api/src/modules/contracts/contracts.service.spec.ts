@@ -254,9 +254,12 @@ describe('ContractsService', () => {
       data: expect.objectContaining({
         status: 'DRAFT',
         secureTokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-        generatedContent: expect.stringContaining('Template draft only.'),
+        generatedContent: expect.stringContaining('Draft agreement content.'),
       }),
     }));
+    // Generated agreements no longer carry the starter templates' draft disclaimer.
+    const [[createArgs]] = (prisma.cfContract.create as jest.Mock<unknown, [{ data: { generatedContent: string } }]>).mock.calls;
+    expect(createArgs.data.generatedContent).not.toContain('Template draft only.');
     // Issued through the contract state machine: a conditional update from an issuable state.
     expect(transaction.cfContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: expect.any(String), status: { in: ['DRAFT', 'SENT', 'OPENED', 'EXPIRED'] } }),
@@ -1260,7 +1263,8 @@ describe('ContractsService', () => {
         organizationId: 'org-1',
         clientId: 'client-1',
         type: 'contract',
-        url: 'https://pub-account.r2.dev/contracts/org-1/client-1/contract-1-executed.pdf',
+        // Private file: no permanent public link is stored.
+        url: '',
         storedFileId: 'stored-file-1',
         objectKey: 'contracts/org-1/client-1/contract-1-executed.pdf',
         bucket: 'eamanagement',

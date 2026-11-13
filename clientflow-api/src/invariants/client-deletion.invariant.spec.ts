@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { StorageService } from '../integrations/storage/storage.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { BillingDashboardService } from '../modules/billing/billing-dashboard.service';
@@ -11,8 +11,10 @@ import {
 import { inMemoryDb } from './in-memory-db';
 
 /**
- * INVARIANT 9: permanent deletion leaves zero rows owned by the client, money included.
+ * INVARIANT 9: permanent deletion leaves zero rows owned by the client (only voided payment rows,
+ * since a client with any real payment can't be deleted at all).
  * INVARIANT 10: it leaves exactly one organizational audit event, with no personal details.
+ * INVARIANT 11: a client with any recorded (not voided) payment can never be permanently deleted.
  * Plus the archive rule: an archived client's payments stay in the financial records.
  */
 const ORG = 'org-a';
@@ -21,7 +23,7 @@ const manager = { id: 'admin-1', role: 'org_admin' };
 const PII = { businessName: 'Test Erase LLC', primaryContactName: 'Pat Private', email: 'pat@private.example' };
 
 /** One row in every manifest table for a client, keyed by that client's ids. */
-function ownedRows(organizationId: string, suffix: string) {
+function ownedRows(organizationId: string, suffix: string, options: { activePayment?: boolean } = {}) {
   const ids: Record<ClientDataKey, string> = {
     clientId: `client-${suffix}`,
     enrollmentId: `enr-${suffix}`,
@@ -50,6 +52,10 @@ function ownedRows(organizationId: string, suffix: string) {
   rows.cfPaymentRecord.push({
     id: `pay-${suffix}`, organizationId, enrollmentId: ids.enrollmentId, billingAgreementId: ids.billingAgreementId, amount: 250,
   });
+  // Payments are voided unless a test asks for a real one: only voided rows may be erased.
+  for (const payment of rows.cfPaymentRecord) {
+    payment.voidedAt = options.activePayment && payment.id === `pay-${suffix}` ? null : new Date('2026-01-01');
+  }
   const files = [
     { id: `file-contract-${suffix}`, organizationId, storageKey: `contracts/${suffix}-executed.pdf` },
     { id: `file-doc-${suffix}`, organizationId, storageKey: `client-documents/${suffix}.pdf` },
@@ -57,8 +63,8 @@ function ownedRows(organizationId: string, suffix: string) {
   return { ids, rows, files };
 }
 
-function setup(storage: Partial<StorageService> = {}) {
-  const target = ownedRows(ORG, 'a');
+function setup(storage: Partial<StorageService> = {}, options: { targetHasPayment?: boolean } = {}) {
+  const target = ownedRows(ORG, 'a', { activePayment: options.targetHasPayment });
   const bystander = ownedRows(ORG, 'b');
   const otherOrg = ownedRows(OTHER_ORG, 'z');
   const tables: Record<string, Array<Record<string, unknown>>> = {};
@@ -97,7 +103,7 @@ function ownedBy(tables: Record<string, Array<Record<string, unknown>>>, ids: Re
   return left;
 }
 
-describe('INVARIANT: permanent deletion erases every client-owned row, money included', () => {
+describe('INVARIANT: permanent deletion erases every client-owned row', () => {
   it('leaves nothing of the client, and touches no other client or organization', async () => {
     const { tables, service, storage, target } = setup();
     const before = Object.fromEntries(Object.entries(tables).map(([model, rows]) => [model, rows.length]));
@@ -161,6 +167,52 @@ describe('INVARIANT: permanent deletion erases every client-owned row, money inc
     expect(ownedBy(tables, target.ids)).toEqual([]);
     expect(result.filesFailed).toBe(2);
     expect(tables.auditLog.map((entry) => entry.targetType)).toEqual([CLIENT_PERMANENTLY_DELETED, STORAGE_CLEANUP]);
+  });
+});
+
+describe('INVARIANT: a client with recorded payments can only be archived', () => {
+  it('refuses permanent deletion while any payment is not voided, and deletes nothing', async () => {
+    const { tables, service, target, storage } = setup({}, { targetHasPayment: true });
+    await expect(service.permanentlyDelete({
+      organizationId: ORG, clientId: 'client-a', actor: manager, confirmation: PII.businessName,
+    })).rejects.toThrow(ConflictException);
+    expect(ownedBy(tables, target.ids).length).toBeGreaterThan(0);
+    expect(tables.cfClient.map((client) => client.id)).toContain('client-a');
+    expect(tables.cfPaymentRecord.map((payment) => payment.id)).toContain('pay-a');
+    expect(tables.auditLog).toHaveLength(0);
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('tells staff up front, before they type the name', async () => {
+    const blocked = setup({}, { targetHasPayment: true });
+    await expect(blocked.service.eligibility(ORG, 'client-a', manager)).resolves.toEqual({
+      canDelete: false, reason: 'has_payments', message: expect.stringContaining('can only be archived'), recordedPayments: 1,
+    });
+    const allowed = setup();
+    await expect(allowed.service.eligibility(ORG, 'client-a', manager)).resolves.toEqual({
+      canDelete: true, reason: null, message: null, recordedPayments: 0,
+    });
+    await expect(allowed.service.eligibility(ORG, 'client-a', { id: 'rev-1', role: 'reviewer' }))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    await expect(allowed.service.eligibility(OTHER_ORG, 'client-a', manager)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('does not erase a payment recorded at the same moment as the deletion', async () => {
+    const { db, service } = setup();
+    // A payment commits after the up-front checks but before the rows are deleted.
+    const payments = (db as unknown as { cfPaymentRecord: { deleteMany: (args: unknown) => Promise<{ count: number }>; create: (args: unknown) => Promise<unknown> } }).cfPaymentRecord;
+    const realDeleteMany = payments.deleteMany.bind(payments);
+    let injected = false;
+    payments.deleteMany = async (args: unknown) => {
+      if (!injected) {
+        injected = true;
+        await payments.create({ data: { id: 'pay-late', organizationId: ORG, enrollmentId: 'enr-a', amount: 99, voidedAt: null } });
+      }
+      return realDeleteMany(args);
+    };
+    await expect(service.permanentlyDelete({
+      organizationId: ORG, clientId: 'client-a', actor: manager, confirmation: PII.businessName,
+    })).rejects.toThrow(ConflictException);
   });
 });
 

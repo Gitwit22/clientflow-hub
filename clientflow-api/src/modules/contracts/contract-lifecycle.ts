@@ -28,6 +28,10 @@ export const INITIAL_FOLLOW_UP_TYPE = 'Initial Follow-Up';
 export const WELCOME_NEXT_STEP =
   'Your onboarding has started. A team member will follow up with you soon.';
 
+/**
+ * Placeholder wording in the seeded starter templates. It is no longer added to generated
+ * agreements; staff screens use it to warn that a template still has draft language in it.
+ */
 export const LEGAL_TEMPLATE_DISCLAIMER =
   'Template draft only. Final legal language must be reviewed by the organization before use.';
 
@@ -164,7 +168,5 @@ export function renderContractSnapshot(input: {
     'SIGNED FOR THE ORGANIZATION',
     `Signed by: ${input.staffSignerName}`,
     `Signed at: ${input.staffSignedAt.toISOString()}`,
-    '',
-    LEGAL_TEMPLATE_DISCLAIMER,
   ].join('\n');
 }

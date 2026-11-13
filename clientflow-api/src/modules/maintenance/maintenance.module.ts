@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
+import { IntegrationsModule } from '../../integrations/integrations.module';
 import { LegacyDataService } from './legacy-data.service';
-import { MaintenanceController } from './maintenance.controller';
+import { LogoStorageController, MaintenanceController } from './maintenance.controller';
+import { LogoStorageService } from './logo-storage.service';
 
 @Module({
-  controllers: [MaintenanceController],
-  providers: [LegacyDataService],
+  imports: [IntegrationsModule],
+  controllers: [MaintenanceController, LogoStorageController],
+  providers: [LegacyDataService, LogoStorageService],
 })
 export class MaintenanceModule {}
