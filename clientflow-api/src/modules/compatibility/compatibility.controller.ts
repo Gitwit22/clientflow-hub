@@ -1770,6 +1770,19 @@ export class ClientflowCompatibilityController {
     if (!client) throw new NotFoundException('Client not found.');
     const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
     const { type: mimeType, size: sizeBytes } = assertUploadAllowed({ folder: 'client-documents', type: body.type, size: body.byteSize });
+    const requestedEnrollmentId = typeof body.enrollmentId === 'string' && body.enrollmentId ? body.enrollmentId : null;
+    const requestedAwardId = typeof body.awardId === 'string' && body.awardId ? body.awardId : null;
+    // A supporting document for a funding award belongs to that award's client and enrollment.
+    const award = requestedAwardId
+      ? await this.requirePrisma().cfEnrollmentAward.findFirst({
+          where: { id: requestedAwardId, organizationId: orgId, clientId },
+          select: { id: true, enrollmentId: true },
+        })
+      : null;
+    if (requestedAwardId && !award) throw new NotFoundException('Award not found for this client.');
+    if (award && requestedEnrollmentId && requestedEnrollmentId !== award.enrollmentId) {
+      throw new BadRequestException('The award belongs to a different program enrollment.');
+    }
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `client-documents/${orgId}/${clientId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
@@ -1791,9 +1804,10 @@ export class ClientflowCompatibilityController {
         enrollmentId: await assertEnrollmentForClient(
           this.requirePrisma(),
           orgId,
-          body.enrollmentId ? String(body.enrollmentId) : null,
+          award ? award.enrollmentId : requestedEnrollmentId,
           clientId,
         ),
+        ...(award ? { awardId: award.id } : {}),
         name: originalFileName,
         type: mimeType,
         url: '',

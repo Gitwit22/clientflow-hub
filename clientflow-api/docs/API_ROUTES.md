@@ -120,6 +120,22 @@ Base path: `/admin/cf`
 - Activity: `GET|POST /activity`, `GET /clients/:clientId/activity`
 - Demo/live mode: `GET /demo-status`, `POST /seed-demo`, `POST /remove-demo`
 
+### Funding awards
+
+Base path: `/api/v1` (admin only). Money paid out to a client; separate from billing.
+
+- `GET|POST /clients/:clientId/enrollments/:enrollmentId/awards` (POST takes `Idempotency-Key`)
+- `GET|PATCH /awards/:awardId` (PATCH: changing title, source, amount or date once an agreement
+  exists needs `replaceAgreement: true`)
+- `POST /awards/:awardId/approve`, `POST /awards/:awardId/cancel` (`reason`; only with nothing paid)
+- `POST /awards/:awardId/payments` (`Idempotency-Key`; never more than what is still owed)
+- `PATCH /award-payments/:paymentId/void` (`reason`)
+- `GET /funding/outstanding`: awards with money still owed, archived participations included
+- Supporting documents: `POST /admin/cf/clients/:clientId/documents/upload-intent` with `awardId`
+
+Every change to an award runs under a row lock on that award, so simultaneous payments can never
+take "received" above "awarded".
+
 ### Compatibility public forms (not implemented)
 
 - `GET /public/form/:token`

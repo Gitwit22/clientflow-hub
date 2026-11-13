@@ -847,3 +847,68 @@ export interface ProgramRevenueRow {
   received: number;
   payingClients: number;
 }
+
+// ─── Funding awards (money paid out to a client; separate from billing) ───────────────────────
+
+export type AwardStatus =
+  "pending" | "approved" | "agreement_sent" | "agreement_signed" | "cancelled";
+export type AwardPaymentState = "unpaid" | "partially_paid" | "paid";
+export type AwardPaymentMethod = "cash" | "check" | "ach" | "card" | "other";
+
+export interface AwardPayment {
+  id: string;
+  awardId: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: AwardPaymentMethod;
+  note: string | null;
+  recordedByDisplayName: string;
+  voidedAt: string | null;
+  voidedByDisplayName: string | null;
+  voidReason: string | null;
+  createdAt: string;
+}
+
+export interface Award {
+  id: string;
+  clientId: string;
+  enrollmentId: string;
+  programId: string;
+  title: string;
+  source: string;
+  amountAwarded: number;
+  /** Sum of payments that were not voided. */
+  received: number;
+  outstanding: number;
+  paymentState: AwardPaymentState;
+  awardDate: string;
+  expectedPaymentDate: string | null;
+  notes: string;
+  status: AwardStatus;
+  agreementTemplateId: string | null;
+  currentAgreementId: string | null;
+  approvedAt: string | null;
+  approvedByDisplayName: string | null;
+  cancelledAt: string | null;
+  cancelledByDisplayName: string | null;
+  cancelReason: string | null;
+  createdByDisplayName: string;
+  createdAt: string;
+  payments: AwardPayment[];
+  documents: Array<{
+    id: string;
+    name: string;
+    type: string;
+    uploadedAt: string;
+    uploadStatus: string;
+  }>;
+}
+
+/** An award with money still owed, from the organization-wide follow-up list. */
+export interface OutstandingAward extends Omit<Award, "payments" | "documents"> {
+  businessName: string;
+  clientArchived: boolean;
+  programName: string;
+  enrollmentArchived: boolean;
+  enrollmentStatus: string | null;
+}

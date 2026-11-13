@@ -53,7 +53,7 @@ function ownedRows(organizationId: string, suffix: string, options: { activePaym
     id: `pay-${suffix}`, organizationId, enrollmentId: ids.enrollmentId, billingAgreementId: ids.billingAgreementId, amount: 250,
   });
   // Payments are voided unless a test asks for a real one: only voided rows may be erased.
-  for (const payment of rows.cfPaymentRecord) {
+  for (const payment of [...rows.cfPaymentRecord, ...rows.cfAwardPayment]) {
     payment.voidedAt = options.activePayment && payment.id === `pay-${suffix}` ? null : new Date('2026-01-01');
   }
   const files = [
@@ -181,6 +181,18 @@ describe('INVARIANT: a client with recorded payments can only be archived', () =
     expect(tables.cfPaymentRecord.map((payment) => payment.id)).toContain('pay-a');
     expect(tables.auditLog).toHaveLength(0);
     expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('counts a payment made on a funding award the same as a billing payment', async () => {
+    const { tables, service } = setup();
+    tables.cfAwardPayment.push({
+      id: 'award-pay-real', organizationId: ORG, clientId: 'client-a', awardId: 'award-a', enrollmentId: 'enr-a', amount: 500, voidedAt: null,
+    });
+    await expect(service.permanentlyDelete({
+      organizationId: ORG, clientId: 'client-a', actor: manager, confirmation: PII.businessName,
+    })).rejects.toThrow(ConflictException);
+    expect(tables.cfAwardPayment.map((payment) => payment.id)).toContain('award-pay-real');
+    await expect(service.eligibility(ORG, 'client-a', manager)).resolves.toMatchObject({ canDelete: false, recordedPayments: 1 });
   });
 
   it('tells staff up front, before they type the name', async () => {

@@ -43,6 +43,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/lib/apiClient", () => ({
+  cfListOutstandingAwards: vi.fn().mockResolvedValue([]),
   acfGenerateContract: vi.fn(),
   acfSendContract: vi.fn(),
   acfSendIntakeNow: vi.fn(),
@@ -91,6 +92,7 @@ const TAB_LABELS = [
   "Overview",
   "Program",
   "Billing",
+  "Funding",
   "Forms",
   "Documents",
   "Communications",
@@ -252,7 +254,7 @@ describe("canonical client profile: client with exactly one enrollment", () => {
     expect(router.state.location.pathname).toBe("/clients/c1");
   });
 
-  it("shows the nine canonical tabs including Billing", async () => {
+  it("shows the ten canonical tabs including Billing and Funding", async () => {
     mountRouter("/clients/c1");
     await screen.findByRole("tab", { name: "Billing" });
     expect(tabNames()).toEqual(TAB_LABELS);
@@ -402,7 +404,7 @@ describe("canonical client profile: client with several enrollments", () => {
 describe("canonical client profile: client with no enrollments", () => {
   beforeEach(() => seed({ enrollments: [] }));
 
-  it("shows the enrollment prompt (and only here), keeps all nine tabs, and explains program tabs", async () => {
+  it("shows the enrollment prompt (and only here), keeps all ten tabs, and explains program tabs", async () => {
     const router = mountRouter("/clients/c1?tab=billing");
     expect(await screen.findByText("No program enrollment")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Enroll client" })).toBeTruthy();

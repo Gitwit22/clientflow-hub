@@ -8,6 +8,8 @@ import {
 } from "./idle-session";
 import type {
   ActivityLog,
+  Award,
+  AwardPayment,
   BackfillPreview,
   BillingFrequency,
   Client,
@@ -26,6 +28,7 @@ import type {
   OrgBillingDashboard,
   OrgMember,
   OrgSettings,
+  OutstandingAward,
   PaymentMethod,
   PaymentRecord,
   Program,
@@ -963,7 +966,7 @@ export async function cfListDocuments(clientId: string) {
 }
 export async function cfCreateDocumentUpload(
   clientId: string,
-  data: { name: string; type: string; byteSize: number; enrollmentId?: string },
+  data: { name: string; type: string; byteSize: number; enrollmentId?: string; awardId?: string },
 ) {
   return apiRequest<{
     document: ClientDocument;
@@ -1838,4 +1841,90 @@ export async function cfFinalizeDeliverableCycle(enrollmentId: string, cycleId: 
     `${enrollmentDeliverablesPath(enrollmentId)}/cycles/${encodeURIComponent(cycleId)}/finalize`,
     { method: "POST" },
   );
+}
+
+// ─── Funding awards ───────────────────────────────────────────────────────────
+
+export interface AwardInput {
+  title: string;
+  source: string;
+  amountAwarded: number;
+  awardDate: string;
+  expectedPaymentDate?: string;
+  notes?: string;
+  agreementTemplateId?: string;
+  approve?: boolean;
+}
+
+export async function cfListAwards(clientId: string, enrollmentId: string) {
+  return apiRequest<Award[]>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/enrollments/${encodeURIComponent(enrollmentId)}/awards`,
+  );
+}
+
+export async function cfCreateAward(
+  clientId: string,
+  enrollmentId: string,
+  input: AwardInput,
+  idempotencyKey: string,
+) {
+  return apiRequest<Award>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/enrollments/${encodeURIComponent(enrollmentId)}/awards`,
+    { method: "POST", body: JSON.stringify(input), headers: idempotencyHeaders(idempotencyKey) },
+  );
+}
+
+export async function cfUpdateAward(
+  awardId: string,
+  input: Partial<Omit<AwardInput, "expectedPaymentDate">> & {
+    expectedPaymentDate?: string | null;
+    replaceAgreement?: boolean;
+  },
+) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function cfApproveAward(awardId: string) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}/approve`, {
+    method: "POST",
+  });
+}
+
+export async function cfCancelAward(awardId: string, reason: string) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function cfRecordAwardPayment(
+  awardId: string,
+  input: {
+    amount: number;
+    paymentDate: string;
+    paymentMethod: AwardPayment["paymentMethod"];
+    note?: string;
+  },
+  idempotencyKey: string,
+) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}/payments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+    headers: idempotencyHeaders(idempotencyKey),
+  });
+}
+
+export async function cfVoidAwardPayment(paymentId: string, reason: string) {
+  return apiRequest<Award>(`/api/v1/award-payments/${encodeURIComponent(paymentId)}/void`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** Every award with money still owed, including archived program participations. */
+export async function cfListOutstandingAwards() {
+  return apiRequest<OutstandingAward[]>(`/api/v1/funding/outstanding`);
 }

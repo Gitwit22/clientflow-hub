@@ -693,6 +693,8 @@ model CfContract {
   programTemplateId     String?
   /// The template version the staff-reviewed text was rendered from.
   renderedFromVersionId String?
+  /// The funding award (CfEnrollmentAward) an award agreement belongs to.
+  awardId               String?
   status                String    @default("DRAFT")
   secureTokenHash       String?   @unique
   secureTokenExpiresAt  DateTime?
@@ -725,6 +727,7 @@ model CfContract {
   @@index([organizationId, status])
   @@index([enrollmentId])
   @@index([executedStoredFileId])
+  @@index([organizationId, awardId])
 }
 
 model CfMonitoringTask {
@@ -762,6 +765,8 @@ model CfDocument {
   uploadStatus   String   @default("ready")
   uploadedAt     DateTime @default(now())
   uploadedBy     String
+  /// A supporting document for one funding award (CfEnrollmentAward).
+  awardId        String?
   isDemo         Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -773,6 +778,7 @@ model CfDocument {
   @@index([enrollmentId])
   @@index([organizationId, uploadStatus])
   @@index([storedFileId])
+  @@index([organizationId, awardId])
 }
 
 model CfStoredFile {
@@ -1526,4 +1532,74 @@ model CfProgramEmail {
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, programId, createdAt])
   @@index([status])
+}
+
+/// A funding award given to a client within one program enrollment (money paid OUT to the client,
+/// unlike billing, which records money the client pays). "Received" is the sum of the award's
+/// non-voided payments; it is never stored, so it can't drift from the ledger.
+model CfEnrollmentAward {
+  id                     String    @id @default(cuid())
+  organizationId         String
+  clientId               String
+  enrollmentId           String
+  programId              String
+  title                  String
+  /// Where the money comes from, e.g. "IDI Member Fund".
+  source                 String
+  amountAwarded          Decimal   @db.Decimal(10, 2)
+  awardDate              DateTime
+  expectedPaymentDate    DateTime?
+  notes                  String    @default("")
+  /// pending → approved → agreement_sent → agreement_signed; any → cancelled. See award-rules.ts.
+  status                 String    @default("pending")
+  /// The program agreement template the award's agreement is generated from.
+  agreementTemplateId    String?
+  /// The award's current agreement (CfContract with purpose 'award'). Replaced ones stay as history.
+  currentAgreementId     String?
+  approvedAt             DateTime?
+  approvedByUserId       String?
+  approvedByDisplayName  String?
+  cancelledAt            DateTime?
+  cancelledByUserId      String?
+  cancelledByDisplayName String?
+  cancelReason           String?
+  createdByUserId        String?
+  createdByDisplayName   String
+  /// Set by the browser so a retried create can't add the award twice.
+  idempotencyKey         String?
+  isDemo                 Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, enrollmentId])
+  @@index([organizationId, clientId])
+  @@index([organizationId, status])
+}
+
+/// A payment made on a funding award. Never deleted: a mistake is voided with a reason.
+model CfAwardPayment {
+  id                    String          @id @default(cuid())
+  organizationId        String
+  awardId               String
+  enrollmentId          String
+  clientId              String
+  amount                Decimal         @db.Decimal(10, 2)
+  paymentDate           DateTime
+  paymentMethod         CfPaymentMethod
+  note                  String?
+  recordedByUserId      String?
+  recordedByDisplayName String
+  voidedAt              DateTime?
+  voidedByUserId        String?
+  voidedByDisplayName   String?
+  voidReason            String?
+  /// Set by the browser so a retried request can't record the payment twice.
+  idempotencyKey        String?
+  createdAt             DateTime        @default(now())
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, awardId])
+  @@index([organizationId, enrollmentId])
+  @@index([organizationId, clientId])
 }

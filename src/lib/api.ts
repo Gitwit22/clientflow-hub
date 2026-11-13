@@ -788,13 +788,20 @@ export async function archiveAfterFinalReport(clientId: string, decision: string
 
 /* --------------------------- Documents / comms / log ------------------------- */
 
-export async function uploadDocument(clientId: string, file: File, enrollmentId?: string) {
+export async function uploadDocument(
+  clientId: string,
+  file: File,
+  enrollmentId?: string,
+  /** Files the document as supporting evidence for one funding award. */
+  awardId?: string,
+) {
   const contentType = file.type || "application/octet-stream";
   const intent = await cfCreateDocumentUpload(clientId, {
     name: file.name,
     type: contentType,
     byteSize: file.size,
     ...(enrollmentId ? { enrollmentId } : {}),
+    ...(awardId ? { awardId } : {}),
   });
   const uploadResponse = await fetch(intent.uploadUrl, {
     method: "PUT",

@@ -28,6 +28,7 @@ import { FormsModule } from './modules/forms/forms.module';
 import { ProgramsModule } from './modules/programs/programs.module';
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { FundingModule } from './modules/funding/funding.module';
 import { DeliverablesModule } from './modules/deliverables/deliverables.module';
 import { ProgramEmailsModule } from './modules/program-emails/program-emails.module';
 import { FinalReportsModule } from './modules/final-reports/final-reports.module';
@@ -56,6 +57,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ProgramsModule,
     EnrollmentsModule,
     BillingModule,
+    FundingModule,
     DeliverablesModule,
     ProgramEmailsModule,
     FinalReportsModule,

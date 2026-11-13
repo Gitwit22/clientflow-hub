@@ -16,11 +16,12 @@ const enrollment = (id: string, programId: string, status = "active") => ({
 });
 
 describe("CLIENT_TABS", () => {
-  it("is the canonical nine-tab set, in order, with a label for each", () => {
+  it("is the canonical ten-tab set, in order, with a label for each", () => {
     expect(CLIENT_TABS).toEqual([
       "overview",
       "program",
       "billing",
+      "funding",
       "forms",
       "documents",
       "communications",
@@ -32,6 +33,7 @@ describe("CLIENT_TABS", () => {
       "Overview",
       "Program",
       "Billing",
+      "Funding",
       "Forms",
       "Documents",
       "Communications",

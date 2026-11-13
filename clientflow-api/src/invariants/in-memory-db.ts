@@ -61,8 +61,11 @@ function uniqueViolation() {
 function table(rows: Row[], uniques: string[][] = []) {
   const first = (where?: Row, orderBy?: OrderBy) =>
     Promise.resolve(sorted(rows.filter((row) => matches(row, where)), orderBy)[0] ?? null);
+  // Like Postgres, a unique key with a NULL column never clashes (e.g. rows without an idempotency key).
   const clashes = (row: Row) =>
-    uniques.some((columns) => rows.some((other) => columns.every((column) => sameValue(other[column], row[column]))));
+    uniques.some((columns) =>
+      columns.every((column) => row[column] !== null && row[column] !== undefined) &&
+      rows.some((other) => columns.every((column) => sameValue(other[column], row[column]))));
   return {
     findFirst: ({ where, orderBy }: { where?: Row; orderBy?: OrderBy } = {}) => first(where, orderBy),
     findUnique: ({ where }: { where?: Row } = {}) => first(where),

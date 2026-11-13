@@ -17,10 +17,13 @@ export const CLIENT_HAS_PAYMENTS_MESSAGE =
   'This client has recorded payments, so they can only be archived. Archiving keeps their payment history.';
 
 export interface ClientPaymentRecordCounts {
-  /** Payments that count: not voided. Any of these blocks permanent deletion. */
+  /** Payments that count (billing and award, not voided). Any of these blocks permanent deletion. */
   active: number;
   /** Every payment row, voided included. */
   total: number;
+  /** Rows per ledger, voided included, to check nothing appeared during the deletion. */
+  billingTotal: number;
+  awardTotal: number;
 }
 
 export interface DeletionEligibility {
@@ -36,10 +39,30 @@ export interface DeletionEligibility {
  * (not voided) payment can never be permanently deleted, only archived, so money records survive.
  */
 export async function clientPaymentRecordCounts(
-  db: Pick<TenantDb, 'cfProgramEnrollment' | 'cfPaymentRecord' | 'cfEnrollmentBillingAgreement'>,
+  db: Pick<TenantDb, 'cfProgramEnrollment' | 'cfPaymentRecord' | 'cfEnrollmentBillingAgreement' | 'cfAwardPayment'>,
   organizationId: string,
   clientId: string,
 ): Promise<ClientPaymentRecordCounts> {
+  const billing = await billingPaymentCounts(db, organizationId, clientId);
+  // Award payments are money paid out to the client; they count the same as billing payments.
+  const awardRows = await db.cfAwardPayment.findMany({
+    where: { organizationId, clientId },
+    select: { id: true, voidedAt: true },
+  });
+  const awardActive = awardRows.filter((row) => row.voidedAt === null || row.voidedAt === undefined).length;
+  return {
+    active: billing.active + awardActive,
+    total: billing.total + awardRows.length,
+    awardTotal: awardRows.length,
+    billingTotal: billing.total,
+  };
+}
+
+async function billingPaymentCounts(
+  db: Pick<TenantDb, 'cfProgramEnrollment' | 'cfPaymentRecord' | 'cfEnrollmentBillingAgreement'>,
+  organizationId: string,
+  clientId: string,
+): Promise<{ active: number; total: number }> {
   const enrollmentIds = (await db.cfProgramEnrollment.findMany({
     where: { organizationId, clientId },
     select: { id: true },
@@ -151,7 +174,9 @@ export class ClientDeletionService {
     const { counts, contracts, documents } = await deleteClientOwnedRows(db, organizationId, clientId);
     // Only voided payment rows may go. If more were removed than were checked, a payment was
     // recorded at the same moment: roll everything back rather than erase it.
-    if ((counts.cfPaymentRecord ?? 0) > payments.total) throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
+    if ((counts.cfPaymentRecord ?? 0) > payments.billingTotal || (counts.cfAwardPayment ?? 0) > payments.awardTotal) {
+      throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
+    }
 
     // Stored files that only this client's contracts and documents used (program templates and
     // welcome guides keep theirs).
