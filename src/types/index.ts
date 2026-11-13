@@ -688,6 +688,37 @@ export interface FinalReportSnapshot {
   statedFundingNeed: string | null;
   /** As agreed in Terms. Not an amount awarded. */
   termsAmount: string | null;
+  /** Funding awards as they stood when finalized. Absent on older reports. */
+  awards?: FinalReportAward[];
+  awardTotals?: { awarded: number; received: number; outstanding: number };
+  /** What was still open when the participation closed, and the reason recorded for closing. */
+  closureReview?: { items: ClosureReviewItem[]; note: string | null; reviewedAt: string };
+}
+
+export interface FinalReportAward {
+  id: string;
+  title: string;
+  source: string;
+  status: string;
+  awardDate: string;
+  amountAwarded: number;
+  received: number;
+  outstanding: number;
+  paymentState: string;
+  agreementStatus: string | null;
+}
+
+export interface ClosureReviewItem {
+  kind: "agreement" | "deliverable" | "award";
+  id: string;
+  label: string;
+  detail: string;
+}
+
+export interface ClosureReview {
+  items: ClosureReviewItem[];
+  reviewHash: string;
+  reviewedAt: string;
 }
 
 export interface ActivityLog {

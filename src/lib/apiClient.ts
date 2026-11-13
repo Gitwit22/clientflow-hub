@@ -12,6 +12,7 @@ import type {
   AwardPayment,
   BackfillPreview,
   BillingFrequency,
+  ClosureReview,
   Client,
   ClientDocument,
   Communication,
@@ -1081,9 +1082,16 @@ export async function cfUpdateFinalReportDraft(reportId: string, data: FinalRepo
  * POST /final-reports/:id/finalize — keeps a snapshot and archives the client's participation in
  * the report's program. Runs once; a second request is refused (409).
  */
+/** GET /final-reports/closure-review/:enrollmentId — what is still open before closing out. */
+export async function cfGetClosureReview(enrollmentId: string) {
+  return apiRequest<ClosureReview>(
+    `/api/v1/final-reports/closure-review/${encodeURIComponent(enrollmentId)}`,
+  );
+}
+
 export async function cfFinalizeFinalReport(
   reportId: string,
-  data: FinalReportNarrative & { outcome: string },
+  data: FinalReportNarrative & { outcome: string; closureNote?: string; reviewHash?: string },
 ) {
   return apiRequest<FinalReport>(`/api/v1/final-reports/${encodeURIComponent(reportId)}/finalize`, {
     method: "POST",

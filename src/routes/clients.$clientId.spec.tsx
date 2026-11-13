@@ -44,6 +44,8 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/lib/apiClient", () => ({
   cfListOutstandingAwards: vi.fn().mockResolvedValue([]),
+  cfListAwards: vi.fn().mockResolvedValue([]),
+  cfGetClosureReview: vi.fn().mockResolvedValue({ items: [], reviewHash: "", reviewedAt: "" }),
   acfGenerateContract: vi.fn(),
   acfSendContract: vi.fn(),
   acfSendIntakeNow: vi.fn(),

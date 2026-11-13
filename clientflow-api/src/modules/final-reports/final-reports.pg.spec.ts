@@ -1,7 +1,9 @@
 import { PrismaClient } from '../../generated/clientflow';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
-import { FinalReportsService } from './final-reports.service';
+import { BillingService } from '../billing/billing.service';
+import { FundingService } from '../funding/funding.service';
+import { FinalReportsService, type FinalReportSnapshot } from './final-reports.service';
 
 /** Final reports against a real, migrated Postgres. Set CLIENTFLOW_PG_TEST_URL to run it. */
 const url = process.env.CLIENTFLOW_PG_TEST_URL;
@@ -39,7 +41,10 @@ describePg('final reports (Postgres)', () => {
   it('finalizes once under simultaneous requests, archiving only that program', async () => {
     const draft = await service.createDraft(organizationId, clientId, { enrollmentId });
     const results = await Promise.allSettled(
-      [...Array(3)].map(() => service.finalize(organizationId, { id: null, displayName: 'Jordan' }, draft.id, { outcome: 'Program Complete', confirm: true })),
+      // The October checklist item is unfinished, so closing needs a recorded reason.
+      [...Array(3)].map(() => service.finalize(organizationId, { id: null, displayName: 'Jordan' }, draft.id, {
+        outcome: 'Program Complete', confirm: true, closureNote: 'Grant Giveaway handled outside the checklist.',
+      })),
     );
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
 
@@ -52,5 +57,43 @@ describePg('final reports (Postgres)', () => {
     expect(await prisma.cfProgramEnrollment.findUniqueOrThrow({ where: { id: otherEnrollmentId } }))
       .toEqual(expect.objectContaining({ status: 'active', isArchived: false }));
     expect((await prisma.cfClient.findUniqueOrThrow({ where: { id: clientId } })).isArchived).toBe(false);
+  });
+
+  it('a payment racing a finalize never leaves the report disagreeing with itself', async () => {
+    const db = prisma as unknown as PrismaService;
+    const funding = new FundingService(db, new BillingService(db));
+    const program = await prisma.cfProgram.create({
+      data: { organizationId, name: 'Race', description: '', defaultFormTemplateId: '', defaultMonitoringFrequency: '', defaultContractTemplateId: '' },
+    });
+    const raceEnrollment = (await prisma.cfProgramEnrollment.create({ data: { organizationId, clientId, programId: program.id, status: 'active' } })).id;
+    const actor = { actorUserId: null, actorDisplayName: 'Jordan' };
+    const today = new Date().toISOString().slice(0, 10);
+    const award = await funding.create(organizationId, clientId, raceEnrollment, {
+      title: 'Race Award', source: 'Fund', amountAwarded: 300, awardDate: today, approve: true,
+    }, actor, null);
+    const review = await service.closureReview(organizationId, raceEnrollment);
+    expect(review.items.map((item) => item.kind)).toEqual(['award']);
+    const draft = await service.createDraft(organizationId, clientId, { enrollmentId: raceEnrollment });
+
+    const [finalized] = await Promise.allSettled([
+      service.finalize(organizationId, { id: null, displayName: 'Jordan' }, draft.id, {
+        outcome: 'Program Complete', confirm: true, closureNote: 'Paying the rest after closing.', reviewHash: review.reviewHash,
+      }),
+      funding.recordPayment(organizationId, award.id, { amount: 300, paymentDate: today, paymentMethod: 'check' }, actor, null),
+    ]);
+
+    const report = await prisma.cfFinalReport.findUniqueOrThrow({ where: { id: draft.id } });
+    if (finalized.status === 'fulfilled') {
+      // Finalized first: what it recorded as open matches the award figures it recorded.
+      const snapshot = report.snapshot as unknown as FinalReportSnapshot;
+      const listedAsOpen = snapshot.closureReview!.items.some((item) => item.kind === 'award');
+      expect(listedAsOpen).toBe(snapshot.awards![0].outstanding > 0);
+    } else {
+      // The payment changed what was open: finalizing is refused so staff review again.
+      expect(String((finalized.reason as Error).message)).toMatch(/changed since you reviewed|could not serialize|P2034/i);
+      expect(report.status).toBe('DRAFT');
+    }
+    // Either way the payment is recorded exactly once.
+    expect(await prisma.cfAwardPayment.count({ where: { awardId: award.id, voidedAt: null } })).toBe(1);
   });
 });

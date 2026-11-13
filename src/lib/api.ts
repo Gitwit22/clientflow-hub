@@ -770,7 +770,7 @@ export async function saveFinalReportDraft(
  */
 export async function finalizeFinalReport(
   report: Pick<FinalReport, "id" | "clientId">,
-  data: FinalReportNarrative & { outcome: string },
+  data: FinalReportNarrative & { outcome: string; closureNote?: string; reviewHash?: string },
 ) {
   const finalized = await cfFinalizeFinalReport(report.id, data);
   upsertFinalReport(finalized);

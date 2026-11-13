@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { CfFinalReport, Prisma } from '../../generated/clientflow';
+import { Prisma, type CfFinalReport } from '../../generated/clientflow';
 import { findClientForOrg, findEnrollmentForOrg } from '../../common/tenancy/org-scoped.repository';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProgramDeliverablesService, type ProgramHistory } from '../deliverables/program-deliverables.service';
+import { outstandingOf, paymentStateOf, receivedOf, toAmount } from '../funding/award-rules';
 import { archiveProgramParticipation, isProgramOutcome, PROGRAM_OUTCOMES } from '../lifecycle/final-report';
+import { buildClosureReview, type ClosureReview, type ClosureReviewItem } from './closure-review';
 
 export const FINAL_REPORT_STATUS = { draft: 'DRAFT', finalized: 'FINALIZED' } as const;
 
@@ -40,7 +42,36 @@ export interface FinalReportSnapshot {
   statedFundingNeed: string | null;
   /** From the enrollment's terms record, as agreed in Terms. Not an award. */
   termsAmount: string | null;
+  /** Funding awards for this participation, as recorded when finalized. Absent on older reports. */
+  awards?: FinalReportAward[];
+  awardTotals?: { awarded: number; received: number; outstanding: number };
+  /** What was still open when the participation was closed, and why it closed anyway. */
+  closureReview?: { items: ClosureReviewItem[]; note: string | null; reviewedAt: string };
 }
+
+export interface FinalReportAward {
+  id: string;
+  title: string;
+  source: string;
+  status: string;
+  awardDate: string;
+  amountAwarded: number;
+  received: number;
+  outstanding: number;
+  paymentState: string;
+  /** Status of the award's current agreement (e.g. COMPLETED), or null when it has none. */
+  agreementStatus: string | null;
+}
+
+/** Shown when finalizing with open items and no reason recorded. */
+export const CLOSURE_NOTE_REQUIRED =
+  'Some items are still open (unsigned agreements, unfinished deliverables or unpaid awards). Resolve them or record why this participation is closing with them open.';
+export const CLOSURE_REVIEW_CHANGED =
+  'Something changed since you reviewed this participation. Review the open items again before finalizing.';
+
+const CLOSURE_NOTE_MAX = 2000;
+/** Serializable transactions can be refused under contention (P2034); finalizing then simply retries. */
+const FINALIZE_ATTEMPTS = 3;
 
 function money(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -123,7 +154,7 @@ export class FinalReportsService {
     organizationId: string,
     actor: ReportActor,
     reportId: string,
-    input: { outcome?: unknown; confirm?: unknown } & Record<string, unknown>,
+    input: { outcome?: unknown; confirm?: unknown; closureNote?: unknown; reviewHash?: unknown } & Record<string, unknown>,
     now: Date = new Date(),
   ): Promise<CfFinalReport> {
     if (input.confirm !== true) throw new BadRequestException('Confirm that this report should be finalized and the participation archived.');
@@ -137,14 +168,57 @@ export class FinalReportsService {
     }
     if (!report.enrollmentId) throw new BadRequestException('This report is not tied to a program enrollment.');
     const narrative = narrativeFrom(input);
+    const closureNote = typeof input.closureNote === 'string' && input.closureNote.trim() ? input.closureNote.trim() : null;
+    if (input.closureNote !== undefined && input.closureNote !== null && typeof input.closureNote !== 'string') {
+      throw new BadRequestException('closureNote must be text.');
+    }
+    if (closureNote && closureNote.length > CLOSURE_NOTE_MAX) throw new BadRequestException('The closure note is too long.');
+    const reviewHash = typeof input.reviewHash === 'string' && input.reviewHash ? input.reviewHash : null;
 
-    return this.prisma.$transaction(async (transaction) => {
+    // Serializable: the open items checked here are exactly the ones committed with the report,
+    // even if a payment, signature or deliverable changes at the same moment (that request or this
+    // one is retried or refused).
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          (transaction) => this.finalizeIn(transaction, organizationId, actor, report, { outcome, narrative, closureNote, reviewHash }, now),
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (error) {
+        const retryable = (error as { code?: string })?.code === 'P2034';
+        if (!retryable || attempt >= FINALIZE_ATTEMPTS) throw error;
+      }
+    }
+  }
+
+  /** The open items left on a participation, for the review shown before finalizing. */
+  async closureReview(organizationId: string, enrollmentId: string, now: Date = new Date()): Promise<ClosureReview> {
+    await findEnrollmentForOrg(this.prisma, organizationId, enrollmentId);
+    return buildClosureReview(this.prisma, organizationId, enrollmentId, now);
+  }
+
+  private async finalizeIn(
+    transaction: Prisma.TransactionClient,
+    organizationId: string,
+    actor: ReportActor,
+    report: CfFinalReport,
+    input: { outcome: string; narrative: FinalReportNarrative; closureNote: string | null; reviewHash: string | null },
+    now: Date,
+  ): Promise<CfFinalReport> {
+    const { outcome, narrative, closureNote } = input;
+    {
       // Claim the draft first so two finalize requests cannot both archive and snapshot.
       const claimed = await transaction.cfFinalReport.updateMany({
         where: { id: report.id, organizationId, status: FINAL_REPORT_STATUS.draft },
         data: { ...narrative, status: FINAL_REPORT_STATUS.finalized, finalizedAt: now, finalizedByUserId: actor.id, finalizedByDisplayName: actor.displayName, archiveDecision: outcome },
       });
       if (claimed.count !== 1) throw new ConflictException('This report is already finalized.');
+
+      // Checked before anything is archived (archiving cancels open agreements), with this
+      // transaction's own reads.
+      const review = await buildClosureReview(transaction, organizationId, report.enrollmentId!, now);
+      if (input.reviewHash && input.reviewHash !== review.reviewHash) throw new ConflictException(CLOSURE_REVIEW_CHANGED);
+      if (review.items.length && !closureNote) throw new BadRequestException(CLOSURE_NOTE_REQUIRED);
 
       const archive = await archiveProgramParticipation(
         transaction,
@@ -161,6 +235,9 @@ export class FinalReportsService {
         history: facts.history,
         statedFundingNeed: facts.history.originalRequest.budgetNeed,
         termsAmount: facts.termsAmount,
+        awards: facts.awards,
+        awardTotals: facts.awardTotals,
+        closureReview: { items: review.items, note: closureNote, reviewedAt: review.reviewedAt },
       };
       await transaction.cfActivityLog.create({
         data: {
@@ -169,7 +246,9 @@ export class FinalReportsService {
           enrollmentId: report.enrollmentId,
           actorUserId: actor.id,
           action: 'FINAL_REPORT_FINALIZED',
-          description: `Final report finalized (${outcome}); participation in ${facts.programName} archived (${archive.status}).`,
+          description: `Final report finalized (${outcome}); participation in ${facts.programName} archived (${archive.status}).${
+            review.items.length ? ` Closed with ${review.items.length} open item${review.items.length === 1 ? '' : 's'}: ${closureNote}` : ''
+          }`,
           user: actor.displayName,
           source: 'manual_staff_action',
           isDemo: report.isDemo,
@@ -189,7 +268,7 @@ export class FinalReportsService {
             .join('; '),
         },
       });
-    });
+    }
   }
 
   async get(organizationId: string, reportId: string): Promise<CfFinalReport> {
@@ -208,7 +287,7 @@ export class FinalReportsService {
     clientId: string,
     enrollmentId: string,
     now: Date = new Date(),
-    db: Pick<PrismaService, 'cfClient' | 'cfProgram' | 'cfProgramEnrollment' | 'cfTerms'> = this.prisma,
+    db: Pick<PrismaService, 'cfClient' | 'cfProgram' | 'cfProgramEnrollment' | 'cfTerms' | 'cfEnrollmentAward' | 'cfAwardPayment' | 'cfContract'> = this.prisma,
   ) {
     const [client, enrollment, terms] = await Promise.all([
       db.cfClient.findFirst({ where: { id: clientId, organizationId }, select: { businessName: true, primaryContactName: true } }),
@@ -228,6 +307,53 @@ export class FinalReportsService {
       endDate: ended?.toISOString() ?? '',
       originalNeed: history.originalRequest.assistanceRequested ?? '',
       termsAmount: terms && terms.fundingAmount > 0 ? money(terms.fundingAmount) : null,
+      ...(await this.awardFacts(db, organizationId, enrollment.id)),
+    };
+  }
+
+  /** Funding awards for the report: awarded, received and still owed, plus each agreement's status. */
+  private async awardFacts(
+    db: Pick<PrismaService, 'cfEnrollmentAward' | 'cfAwardPayment' | 'cfContract'>,
+    organizationId: string,
+    enrollmentId: string,
+  ): Promise<{ awards: FinalReportAward[]; awardTotals: { awarded: number; received: number; outstanding: number } }> {
+    const awards = await db.cfEnrollmentAward.findMany({
+      where: { organizationId, enrollmentId },
+      orderBy: [{ awardDate: 'asc' }, { createdAt: 'asc' }],
+    });
+    if (!awards.length) return { awards: [], awardTotals: { awarded: 0, received: 0, outstanding: 0 } };
+    const agreementIds = awards.map((award) => award.currentAgreementId).filter((id): id is string => Boolean(id));
+    const [payments, agreements] = await Promise.all([
+      db.cfAwardPayment.findMany({
+        where: { organizationId, awardId: { in: awards.map((award) => award.id) } },
+        select: { awardId: true, amount: true, voidedAt: true },
+      }),
+      agreementIds.length
+        ? db.cfContract.findMany({ where: { organizationId, id: { in: agreementIds } }, select: { id: true, status: true } })
+        : Promise.resolve([]),
+    ]);
+    const agreementStatus = new Map(agreements.map((agreement) => [agreement.id, agreement.status]));
+    const rows = awards.map((award): FinalReportAward => {
+      const received = receivedOf(payments.filter((payment) => payment.awardId === award.id));
+      return {
+        id: award.id,
+        title: award.title,
+        source: award.source,
+        status: award.status,
+        awardDate: award.awardDate.toISOString(),
+        amountAwarded: toAmount(award.amountAwarded),
+        received: toAmount(received),
+        outstanding: toAmount(outstandingOf(award, received)),
+        paymentState: paymentStateOf(award.amountAwarded, received),
+        agreementStatus: award.currentAgreementId ? agreementStatus.get(award.currentAgreementId) ?? null : null,
+      };
+    });
+    // Cancelled awards are listed, but not counted in the totals.
+    const counted = rows.filter((row) => row.status !== 'cancelled');
+    const total = (pick: (row: FinalReportAward) => number) => Math.round(counted.reduce((sum, row) => sum + pick(row) * 100, 0)) / 100;
+    return {
+      awards: rows,
+      awardTotals: { awarded: total((row) => row.amountAwarded), received: total((row) => row.received), outstanding: total((row) => row.outstanding) },
     };
   }
 }

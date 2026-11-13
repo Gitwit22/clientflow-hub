@@ -7,14 +7,26 @@ import { FinalReportsTab } from "./FinalReportsTab";
 const saveFinalReportDraft = vi.fn();
 const finalizeFinalReport = vi.fn();
 const cfGetProgramHistory = vi.fn();
+const cfListAwards = vi.fn();
+const cfGetClosureReview = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   saveFinalReportDraft: (...a: unknown[]) => saveFinalReportDraft(...a),
   finalizeFinalReport: (...a: unknown[]) => finalizeFinalReport(...a),
 }));
 vi.mock("@/lib/apiClient", () => ({
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    constructor(
+      public readonly status = 400,
+      public readonly code = "ERROR",
+      message = "",
+    ) {
+      super(message);
+    }
+  },
   cfGetProgramHistory: (...a: unknown[]) => cfGetProgramHistory(...a),
+  cfListAwards: (...a: unknown[]) => cfListAwards(...a),
+  cfGetClosureReview: (...a: unknown[]) => cfGetClosureReview(...a),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -98,6 +110,12 @@ describe("final report tab", () => {
     Element.prototype.scrollIntoView ??= () => {};
     Element.prototype.hasPointerCapture ??= () => false;
     cfGetProgramHistory.mockResolvedValue(history("DELIVERED"));
+    cfListAwards.mockResolvedValue([]);
+    cfGetClosureReview.mockResolvedValue({
+      items: [],
+      reviewHash: "h".repeat(64),
+      reviewedAt: "2026-11-13T00:00:00.000Z",
+    });
   });
   afterEach(() => {
     cleanup();
@@ -197,5 +215,127 @@ describe("final report tab", () => {
     expect(print).toHaveBeenCalledTimes(1);
     window.dispatchEvent(new Event("afterprint"));
     expect(document.body.classList.contains("printing-one")).toBe(false);
+  });
+
+  describe("closing out with open items", () => {
+    const openReview = {
+      items: [
+        {
+          kind: "agreement",
+          id: "k1",
+          label: "Award Agreement",
+          detail: "Award agreement sent, not signed",
+        },
+        {
+          kind: "award",
+          id: "a1",
+          label: "Growth Grant",
+          detail: "$2,500.00 still owed of $5,000.00 awarded",
+        },
+      ],
+      reviewHash: "r".repeat(64),
+      reviewedAt: "2026-11-13T00:00:00.000Z",
+    };
+
+    async function openFinalize() {
+      const draft = { ...baseReport, id: "r1", status: "DRAFT" } as FinalReport;
+      saveFinalReportDraft.mockResolvedValue(draft);
+      finalizeFinalReport.mockResolvedValue({ ...draft, status: "FINALIZED" });
+      renderTab([draft]);
+      await screen.findByLabelText("Results achieved");
+      fireEvent.click(screen.getByRole("button", { name: "Finalize report & archive…" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("combobox", { name: "Program outcome" }));
+      fireEvent.click(await screen.findByRole("option", { name: "Closed Early (ended early)" }));
+      return dialog;
+    }
+
+    it("lists what is still open and needs a reason before finalizing", async () => {
+      cfGetClosureReview.mockResolvedValue(openReview);
+      const dialog = await openFinalize();
+      expect(await within(dialog).findByText(/Agreements not signed/)).toBeTruthy();
+      expect(within(dialog).getByText(/\$2,500.00 still owed/)).toBeTruthy();
+      const confirm = within(dialog).getByRole("button", {
+        name: "Finalize & archive participation",
+      }) as HTMLButtonElement;
+      expect(confirm.disabled).toBe(true);
+      fireEvent.change(within(dialog).getByLabelText(/Why is it closing/), {
+        target: { value: "Business relocated." },
+      });
+      expect(confirm.disabled).toBe(false);
+      fireEvent.click(confirm);
+      await waitFor(() => expect(finalizeFinalReport).toHaveBeenCalled());
+      expect(finalizeFinalReport.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ closureNote: "Business relocated.", reviewHash: "r".repeat(64) }),
+      );
+      expect(cfGetClosureReview).toHaveBeenCalledWith("e1");
+    });
+
+    it("shows the awards on the draft, apart from requested funding and terms", async () => {
+      cfListAwards.mockResolvedValue([
+        {
+          id: "a1",
+          title: "Growth Grant",
+          source: "IDI Member Fund",
+          status: "approved",
+          amountAwarded: 5000,
+          received: 2500,
+          outstanding: 2500,
+        },
+      ]);
+      renderTab([{ ...baseReport, id: "r1", status: "DRAFT" } as FinalReport]);
+      const awards = await screen.findByLabelText("Funding awards");
+      await waitFor(() => expect(within(awards).getByText("Growth Grant")).toBeTruthy());
+      expect(awards.textContent).toContain(
+        "Total awarded $5,000.00 · received $2,500.00 · still owed $2,500.00",
+      );
+    });
+
+    it("a finalized report shows the awards and why it closed with items open", async () => {
+      renderTab(
+        [
+          {
+            ...baseReport,
+            id: "r5",
+            status: "FINALIZED",
+            snapshot: {
+              capturedAt: "2026-11-13T00:00:00.000Z",
+              clientName: "Pat",
+              businessName: "Moonlight Minerals",
+              programName: "IDI",
+              history: history("DELIVERED"),
+              statedFundingNeed: "$25,000",
+              termsAmount: "$5,000.00",
+              awards: [
+                {
+                  id: "a1",
+                  title: "Growth Grant",
+                  source: "IDI Member Fund",
+                  status: "agreement_signed",
+                  awardDate: "2026-10-01",
+                  amountAwarded: 5000,
+                  received: 2500,
+                  outstanding: 2500,
+                  paymentState: "partially_paid",
+                  agreementStatus: "COMPLETED",
+                },
+              ],
+              awardTotals: { awarded: 5000, received: 2500, outstanding: 2500 },
+              closureReview: {
+                items: openReview.items,
+                note: "Business relocated.",
+                reviewedAt: "2026-11-13T00:00:00.000Z",
+              },
+            },
+          } as unknown as FinalReport,
+        ],
+        null,
+      );
+      const card = await screen.findByLabelText("Finalized final report");
+      expect(within(card).getByLabelText("Funding awards").textContent).toContain("Growth Grant");
+      expect(within(card).getByLabelText("Open at closing").textContent).toContain(
+        "Business relocated.",
+      );
+    });
   });
 });

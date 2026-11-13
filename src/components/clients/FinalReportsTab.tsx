@@ -24,7 +24,12 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { finalizeFinalReport, saveFinalReportDraft } from "@/lib/api";
-import { ApiError, type FinalReportNarrative } from "@/lib/apiClient";
+import {
+  ApiError,
+  cfGetClosureReview,
+  cfListAwards,
+  type FinalReportNarrative,
+} from "@/lib/apiClient";
 import {
   FINISHED_OUTCOMES,
   PROGRAM_OUTCOMES,
@@ -33,7 +38,16 @@ import {
 } from "@/lib/final-reports";
 import { formatMoney } from "@/lib/money";
 import type { ProgramHistory } from "@/lib/program-deliverables";
-import type { Client, FinalReport, ProgramEnrollment, Terms } from "@/types";
+import type {
+  Award,
+  Client,
+  ClosureReview,
+  ClosureReviewItem,
+  FinalReport,
+  FinalReportAward,
+  ProgramEnrollment,
+  Terms,
+} from "@/types";
 
 const EMPTY: Required<FinalReportNarrative> = {
   resultsAchieved: "",
@@ -141,6 +155,114 @@ function FundingFigures({
   );
 }
 
+/** Funding awards: what was awarded, received and is still owed, kept apart from requests and terms. */
+function AwardFigures({
+  awards,
+  totals,
+}: {
+  awards: ReadonlyArray<
+    Pick<
+      FinalReportAward,
+      "id" | "title" | "source" | "status" | "amountAwarded" | "received" | "outstanding"
+    >
+  >;
+  totals: { awarded: number; received: number; outstanding: number };
+}) {
+  return (
+    <div className="space-y-2" aria-label="Funding awards">
+      <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        Funding awards
+      </p>
+      {awards.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No awards recorded for this program.</p>
+      ) : (
+        <>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground">
+                <th className="font-normal">Award</th>
+                <th className="font-normal">Awarded</th>
+                <th className="font-normal">Received</th>
+                <th className="font-normal">Still owed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {awards.map((award) => (
+                <tr
+                  key={award.id}
+                  className={
+                    award.status === "cancelled" ? "text-muted-foreground line-through" : ""
+                  }
+                >
+                  <td>
+                    {award.title}
+                    <span className="block text-xs text-muted-foreground">{award.source}</span>
+                  </td>
+                  <td>{formatMoney(award.amountAwarded)}</td>
+                  <td>{formatMoney(award.received)}</td>
+                  <td>{formatMoney(award.outstanding)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-xs text-muted-foreground">
+            Total awarded {formatMoney(totals.awarded)} · received {formatMoney(totals.received)} ·
+            still owed {formatMoney(totals.outstanding)}
+            {awards.some((award) => award.status === "cancelled")
+              ? " (cancelled awards not counted)"
+              : ""}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function totalsOf(
+  awards: ReadonlyArray<Pick<Award, "status" | "amountAwarded" | "received" | "outstanding">>,
+) {
+  return awards
+    .filter((award) => award.status !== "cancelled")
+    .reduce(
+      (sum, award) => ({
+        awarded: sum.awarded + award.amountAwarded,
+        received: sum.received + award.received,
+        outstanding: sum.outstanding + award.outstanding,
+      }),
+      { awarded: 0, received: 0, outstanding: 0 },
+    );
+}
+
+const CLOSURE_KIND_LABEL: Record<ClosureReviewItem["kind"], string> = {
+  agreement: "Agreements not signed",
+  deliverable: "Deliverables not finished",
+  award: "Awards with money still owed",
+};
+
+function ClosureItems({ items }: { items: readonly ClosureReviewItem[] }) {
+  const kinds = (["agreement", "deliverable", "award"] as const).filter((kind) =>
+    items.some((item) => item.kind === kind),
+  );
+  return (
+    <div className="space-y-2">
+      {kinds.map((kind) => (
+        <div key={kind}>
+          <p className="text-sm font-medium">{CLOSURE_KIND_LABEL[kind]}</p>
+          <ul className="list-disc pl-5 text-sm">
+            {items
+              .filter((item) => item.kind === kind)
+              .map((item) => (
+                <li key={`${item.kind}:${item.id}`}>
+                  {item.label} <span className="text-muted-foreground">({item.detail})</span>
+                </li>
+              ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DraftEditor({
   client,
   enrollment,
@@ -169,6 +291,16 @@ function DraftEditor({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(draft?.updatedAt ?? null);
   const [confirming, setConfirming] = useState(false);
+  const [awards, setAwards] = useState<Award[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    cfListAwards(client.id, enrollment.id)
+      .then((result) => !cancelled && setAwards(result))
+      .catch(() => !cancelled && setAwards([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [client.id, enrollment.id]);
   const latestTerms = terms[0];
   const termsAmount =
     latestTerms && latestTerms.fundingAmount > 0 ? formatMoney(latestTerms.fundingAmount) : null;
@@ -200,6 +332,7 @@ function DraftEditor({
           statedNeed={history?.originalRequest.budgetNeed ?? null}
           termsAmount={termsAmount}
         />
+        <AwardFigures awards={awards} totals={totalsOf(awards)} />
         {NARRATIVE_LABELS.map(([key, label]) => (
           <div key={key} className="space-y-1.5">
             <Label htmlFor={`final-${key}`}>{label}</Label>
@@ -242,10 +375,11 @@ function DraftEditor({
         onOpenChange={setConfirming}
         clientName={client.businessName}
         programName={programName}
-        onConfirm={async (outcome) => {
+        enrollmentId={enrollment.id}
+        onConfirm={async (outcome, closure) => {
           // Save the latest edits as the draft first, then finalize that draft.
           const saved = await saveFinalReportDraft(client.id, enrollment.id, fields, draft?.id);
-          await finalizeFinalReport(saved, { ...fields, outcome });
+          await finalizeFinalReport(saved, { ...fields, outcome, ...closure });
           toast.success(
             `Final report finalized. ${client.businessName}'s ${programName} participation is archived.`,
           );
@@ -260,27 +394,59 @@ function FinalizeDialog({
   onOpenChange,
   clientName,
   programName,
+  enrollmentId,
   onConfirm,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   clientName: string;
   programName: string;
-  onConfirm: (outcome: string) => Promise<void>;
+  enrollmentId: string;
+  onConfirm: (
+    outcome: string,
+    closure: { closureNote?: string; reviewHash?: string },
+  ) => Promise<void>;
 }) {
   const [outcome, setOutcome] = useState("");
   const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState<ClosureReview | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+
+  async function loadReview() {
+    setReviewError(null);
+    try {
+      setReview(await cfGetClosureReview(enrollmentId));
+    } catch (error) {
+      setReview(null);
+      setReviewError(error instanceof Error ? error.message : "Couldn't check what is still open.");
+    }
+  }
+
   useEffect(() => {
-    if (open) setOutcome("");
-  }, [open]);
+    if (!open) return;
+    setOutcome("");
+    setNote("");
+    setReview(null);
+    void loadReview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, enrollmentId]);
+
+  const openItems = review?.items ?? [];
+  const needsNote = openItems.length > 0;
 
   async function confirm() {
     setBusy(true);
     try {
-      await onConfirm(outcome);
+      await onConfirm(outcome, {
+        ...(review ? { reviewHash: review.reviewHash } : {}),
+        ...(note.trim() ? { closureNote: note.trim() } : {}),
+      });
       onOpenChange(false);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Couldn't finalize the report.");
+      // Something changed since the review was shown: show the current open items instead.
+      if (error instanceof ApiError && error.status === 409) void loadReview();
     } finally {
       setBusy(false);
     }
@@ -305,6 +471,45 @@ function FinalizeDialog({
           </li>
           <li>{clientName}’s other programs and client record stay active.</li>
         </ul>
+        <div className="space-y-2 rounded-md border border-border p-3" aria-label="Closure review">
+          {reviewError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {reviewError}
+            </p>
+          ) : !review ? (
+            <p className="text-sm text-muted-foreground">Checking what is still open…</p>
+          ) : needsNote ? (
+            <>
+              <p className="text-sm">
+                These are still open. Resolve them first, or record why this participation is
+                closing with them open.
+              </p>
+              <ClosureItems items={openItems} />
+              {openItems.some((item) => item.kind === "agreement") && (
+                <p className="text-xs text-muted-foreground">
+                  Agreements still waiting for a signature are cancelled when the participation is
+                  archived.
+                </p>
+              )}
+              {openItems.some((item) => item.kind === "award") && (
+                <p className="text-xs text-muted-foreground">
+                  Unpaid awards stay in Award follow-up on the Payments page after archiving.
+                </p>
+              )}
+              <Label htmlFor="closure-note">Why is it closing with these open?</Label>
+              <Textarea
+                id="closure-note"
+                rows={3}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+              />
+            </>
+          ) : (
+            <p className="text-sm">
+              Nothing is left open: agreements, deliverables and awards are settled.
+            </p>
+          )}
+        </div>
         <div className="space-y-1.5">
           <Label>Program outcome</Label>
           <Select value={outcome} onValueChange={setOutcome}>
@@ -325,7 +530,10 @@ function FinalizeDialog({
           <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={!outcome || busy} onClick={() => void confirm()}>
+          <Button
+            disabled={!outcome || busy || (!review && !reviewError) || (needsNote && !note.trim())}
+            onClick={() => void confirm()}
+          >
             {busy ? "Finalizing…" : "Finalize & archive participation"}
           </Button>
         </DialogFooter>
@@ -374,6 +582,29 @@ function FinalizedReportCard({ report, client }: { report: FinalReport; client: 
           statedNeed={snapshot ? snapshot.statedFundingNeed : undefined}
           termsAmount={snapshot ? snapshot.termsAmount : report.fundingProvided || null}
         />
+        {snapshot?.awards && (
+          <AwardFigures
+            awards={snapshot.awards}
+            totals={snapshot.awardTotals ?? { awarded: 0, received: 0, outstanding: 0 }}
+          />
+        )}
+        {snapshot?.closureReview && snapshot.closureReview.items.length > 0 && (
+          <div
+            className="space-y-2 rounded-md border border-border p-3"
+            aria-label="Open at closing"
+          >
+            <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Open when the participation closed
+            </p>
+            <ClosureItems items={snapshot.closureReview.items} />
+            {snapshot.closureReview.note && (
+              <p className="whitespace-pre-wrap text-sm">
+                <span className="text-muted-foreground">Reason: </span>
+                {snapshot.closureReview.note}
+              </p>
+            )}
+          </div>
+        )}
         <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
           {NARRATIVE_LABELS.map(([key, label]) => (
             <div key={key}>

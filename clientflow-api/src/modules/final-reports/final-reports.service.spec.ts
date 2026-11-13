@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import type { PrismaService } from '../../prisma/prisma.service';
 import { inMemoryDb } from '../../invariants/in-memory-db';
 import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
-import { FinalReportsService, type FinalReportSnapshot } from './final-reports.service';
+import { CLOSURE_NOTE_REQUIRED, FinalReportsService, type FinalReportSnapshot } from './final-reports.service';
+import { Prisma } from '../../generated/clientflow';
 
 type Row = Record<string, unknown>;
 const ORG = 'org-a';
@@ -112,5 +113,79 @@ describe('final reports', () => {
     await expect(service.finalize(OTHER, staff, draft.id, { outcome: 'Program Complete', confirm: true })).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.createDraft(OTHER, 'c1', { enrollmentId: 'e-idi' })).rejects.toBeInstanceOf(NotFoundException);
     expect(rows.cfProgramEnrollment.every((row) => row.isArchived === false)).toBe(true);
+  });
+
+  describe('closure review', () => {
+    /** An unfinished deliverable, an unsigned award agreement and a half-paid award on e-idi. */
+    async function withOpenItems() {
+      const ctx = setup();
+      const october = await ctx.deliverables.getCurrent(ORG, 'e-idi', OCT);
+      ctx.rows.cfEnrollmentAward = [{
+        id: 'aw1', organizationId: ORG, clientId: 'c1', enrollmentId: 'e-idi', programId: 'p-idi', title: 'Growth Grant',
+        source: 'IDI Member Fund', amountAwarded: new Prisma.Decimal(5000), awardDate: new Date('2026-10-01T04:00:00Z'),
+        status: 'agreement_signed', currentAgreementId: 'k-award', createdAt: OCT,
+      }];
+      ctx.rows.cfAwardPayment = [
+        { id: 'pay1', organizationId: ORG, awardId: 'aw1', amount: new Prisma.Decimal(2500), voidedAt: null },
+        { id: 'pay-void', organizationId: ORG, awardId: 'aw1', amount: new Prisma.Decimal(999), voidedAt: OCT },
+      ];
+      ctx.rows.cfContract.push(
+        { id: 'k-award', organizationId: ORG, clientId: 'c1', enrollmentId: 'e-idi', status: 'COMPLETED', contractType: 'Award Agreement', purpose: 'award', staffSignedAt: OCT, createdAt: OCT },
+        { id: 'k-open', organizationId: ORG, clientId: 'c1', enrollmentId: 'e-idi', status: 'SENT', contractType: 'Second Award Agreement', purpose: 'award', staffSignedAt: OCT, createdAt: OCT },
+      );
+      return { ...ctx, deliverableId: october.items[0].id };
+    }
+
+    it('lists unsigned agreements, unfinished deliverables and unpaid awards', async () => {
+      const { service } = await withOpenItems();
+      const review = await service.closureReview(ORG, 'e-idi', OCT);
+      expect(review.items).toEqual([
+        expect.objectContaining({ kind: 'agreement', id: 'k-open', detail: 'Award agreement sent, not signed' }),
+        expect.objectContaining({ kind: 'deliverable', label: 'Grant Giveaway' }),
+        expect.objectContaining({ kind: 'award', id: 'aw1', detail: '$2,500.00 still owed of $5,000.00 awarded' }),
+      ]);
+      expect(review.reviewHash).toMatch(/^[a-f0-9]{64}$/);
+      await expect(service.closureReview(OTHER, 'e-idi')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('will not close with open items unless staff record why, and archives nothing when refused', async () => {
+      const { rows, service } = await withOpenItems();
+      const draft = await service.createDraft(ORG, 'c1', { enrollmentId: 'e-idi' });
+      await expect(service.finalize(ORG, staff, draft.id, { outcome: 'Closed Early', confirm: true }, OCT))
+        .rejects.toThrow(CLOSURE_NOTE_REQUIRED);
+      expect(rows.cfProgramEnrollment.find((row) => row.id === 'e-idi')).toEqual(expect.objectContaining({ isArchived: false }));
+    });
+
+    it('refuses when the open items changed since staff reviewed them', async () => {
+      const { rows, service, deliverableId } = await withOpenItems();
+      const review = await service.closureReview(ORG, 'e-idi', OCT);
+      // The deliverable gets resolved after the review was shown.
+      rows.cfEnrollmentDeliverable.find((row) => row.id === deliverableId)!.status = 'DELIVERED';
+      const draft = await service.createDraft(ORG, 'c1', { enrollmentId: 'e-idi' });
+      await expect(service.finalize(ORG, staff, draft.id, {
+        outcome: 'Closed Early', confirm: true, closureNote: 'Business closed', reviewHash: review.reviewHash,
+      }, OCT)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('finalizes with a reason, keeping what was open and the awards in the report', async () => {
+      const { rows, service } = await withOpenItems();
+      const review = await service.closureReview(ORG, 'e-idi', OCT);
+      const draft = await service.createDraft(ORG, 'c1', { enrollmentId: 'e-idi' });
+      const finalized = await service.finalize(ORG, staff, draft.id, {
+        outcome: 'Closed Early', confirm: true, closureNote: 'Business relocated out of state.', reviewHash: review.reviewHash,
+      }, OCT);
+      const snapshot = finalized.snapshot as unknown as FinalReportSnapshot;
+      expect(snapshot.closureReview).toEqual({ items: review.items, note: 'Business relocated out of state.', reviewedAt: OCT.toISOString() });
+      expect(snapshot.awards).toEqual([expect.objectContaining({
+        title: 'Growth Grant', amountAwarded: 5000, received: 2500, outstanding: 2500, paymentState: 'partially_paid', agreementStatus: 'COMPLETED',
+      })]);
+      expect(snapshot.awardTotals).toEqual({ awarded: 5000, received: 2500, outstanding: 2500 });
+      // Requested funding and proposed terms stay separate from what was awarded.
+      expect(snapshot).toEqual(expect.objectContaining({ statedFundingNeed: '$25,000', termsAmount: '$5,000.00' }));
+      expect(rows.cfActivityLog.find((row) => row.action === 'FINAL_REPORT_FINALIZED')?.description)
+        .toContain('Business relocated out of state.');
+      // The unpaid award is untouched by closing the participation.
+      expect(rows.cfEnrollmentAward[0]).toEqual(expect.objectContaining({ status: 'agreement_signed' }));
+    });
   });
 });
