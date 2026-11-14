@@ -38,6 +38,7 @@ import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { answerFields, labelledAnswers } from '../forms/answer-list';
 import { isLegacyContract } from '../contracts/legacy-contract';
 import { assertAgreementMergeFields, assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
+import { assertReadyToActivate, programSetup } from '../programs/program-setup';
 import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
@@ -701,6 +702,19 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs') async createProgram(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    // A program created active must already meet its own setup requirements. A brand-new program
+    // has no agreement yet, so one whose journey uses contracts is created inactive and activated
+    // once its checklist is complete.
+    if (body.isActive !== false) {
+      assertReadyToActivate(await programSetup(this.requirePrisma(), {
+        id: '__new_program__',
+        organizationId: orgId,
+        isActive: false,
+        defaultFormTemplateId: typeof body.defaultFormTemplateId === 'string' ? body.defaultFormTemplateId : '',
+        statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline : [],
+        defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow : [],
+      }));
+    }
     const program = await this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [], ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}) } });
     // Only treat this as an explicit staff choice when the request actually carries workflow
     // settings - otherwise this would fake an "administrator configured this" update.
@@ -725,7 +739,29 @@ export class ClientflowCompatibilityController {
     if (typeof data.defaultFormTemplateId === 'string' && data.defaultFormTemplateId) {
       await findFormTemplateForOrg(this.requirePrisma(), orgId, data.defaultFormTemplateId);
     }
+    // Only a real inactive-to-active change is checked; ordinary edits to an active program never are.
+    if (existing.isActive === false && data.isActive === true) {
+      assertReadyToActivate(await programSetup(this.requirePrisma(), { ...existing, ...data, isActive: false }));
+    }
     return this.requirePrisma().cfProgram.update({ where: { id, organizationId: orgId }, data });
+  }
+  /** What the program needs before it can take clients, and what is done. */
+  @Get('programs/:id/setup') async getProgramSetup(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const program = await findProgramForOrg(this.requirePrisma(), orgId, id);
+    return programSetup(this.requirePrisma(), program);
+  }
+  /** Setup readiness for every program, for the program list badges. */
+  @Get('programs-setup') async listProgramSetup(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const programs = await this.requirePrisma().cfProgram.findMany({ where: { organizationId: orgId } });
+    const results = await Promise.all(programs.map((program) => programSetup(this.requirePrisma(), program)));
+    return results.map(({ programId, isActive, ready, missingRequired }) => ({
+      programId,
+      isActive,
+      ready,
+      missingRequired: missingRequired.map((item) => item.label),
+    }));
   }
   @Get('programs/:id/workflow') async getProgramWorkflowConfig(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);

@@ -6,6 +6,7 @@ import { ProgramDeliverablesConfig } from "@/components/programs/ProgramDelivera
 import { ProgramEmailsPanel } from "@/components/programs/ProgramEmailsPanel";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ProgramAgreementTemplates } from "@/components/programs/ProgramAgreementTemplates";
+import { ProgramSetupChecklist } from "@/components/programs/ProgramSetupChecklist";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
 import { ProgramParticipantRow } from "@/components/programs/ProgramParticipantRow";
@@ -478,6 +479,11 @@ function ProgramDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
+          <ProgramSetupChecklist
+            programId={program.id}
+            refreshKey={refreshVersion}
+            onActivated={() => setRefreshVersion((value) => value + 1)}
+          />
           <Card className="shadow-card">
             <CardHeader>
               <CardTitle className="font-display text-base">Program setup</CardTitle>

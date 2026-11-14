@@ -943,3 +943,34 @@ export interface OutstandingAward extends Omit<Award, "payments" | "documents"> 
   enrollmentArchived: boolean;
   enrollmentStatus: string | null;
 }
+
+// ─── Program setup checklist ──────────────────────────────────────────────────
+
+export interface ProgramSetupItem {
+  key:
+    | "intake_form"
+    | "enrollment_agreement"
+    | "welcome_email"
+    | "deliverables"
+    | "billing"
+    | "award_agreement";
+  label: string;
+  required: boolean;
+  done: boolean;
+  detail: string;
+}
+
+export interface ProgramSetup {
+  programId: string;
+  isActive: boolean;
+  ready: boolean;
+  items: ProgramSetupItem[];
+  missingRequired: ProgramSetupItem[];
+}
+
+export interface ProgramSetupSummary {
+  programId: string;
+  isActive: boolean;
+  ready: boolean;
+  missingRequired: string[];
+}

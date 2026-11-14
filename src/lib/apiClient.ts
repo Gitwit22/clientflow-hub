@@ -35,6 +35,8 @@ import type {
   Program,
   ProgramBillingConfig,
   ProgramDetailResponse,
+  ProgramSetup,
+  ProgramSetupSummary,
   ProgramWorkflow,
   ProgramEnrollment,
   PublicFormResponseValue,
@@ -1973,4 +1975,14 @@ export async function cfSendProgramEmailTest(
     `/api/v1/programs/${encodeURIComponent(programId)}/emails/test`,
     { method: "POST", body: JSON.stringify(data) },
   );
+}
+
+/** What a program needs before it can take clients, and what is done. */
+export async function cfGetProgramSetup(programId: string) {
+  return apiRequest<ProgramSetup>(`${CF}/programs/${encodeURIComponent(programId)}/setup`);
+}
+
+/** Setup readiness of every program (program list badges). */
+export async function cfListProgramSetup() {
+  return apiRequest<ProgramSetupSummary[]>(`${CF}/programs-setup`);
 }

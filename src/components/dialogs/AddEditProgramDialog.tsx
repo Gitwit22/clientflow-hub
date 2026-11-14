@@ -66,7 +66,8 @@ export function AddEditProgramDialog({
 
   const [name, setName] = useState(program?.name ?? "");
   const [description, setDescription] = useState(program?.description ?? "");
-  const [isActive, setIsActive] = useState(program?.isActive ?? true);
+  // New programs start inactive: they are activated from the setup checklist once ready.
+  const [isActive, setIsActive] = useState(program?.isActive ?? false);
   const [defaultFormTemplateId, setDefaultFormTemplateId] = useState(
     program?.defaultFormTemplateId ?? "",
   );
@@ -83,7 +84,7 @@ export function AddEditProgramDialog({
     if (open) {
       setName(program?.name ?? "");
       setDescription(program?.description ?? "");
-      setIsActive(program?.isActive ?? true);
+      setIsActive(program?.isActive ?? false);
       setDefaultFormTemplateId(program?.defaultFormTemplateId ?? "");
       setDefaultMonitoringFrequency(program?.defaultMonitoringFrequency ?? "Monthly");
       setDefaultContractTemplateId(program?.defaultContractTemplateId ?? "Service Agreement");
@@ -246,6 +247,12 @@ export function AddEditProgramDialog({
                 <Switch id="prog-active" checked={isActive} onCheckedChange={setIsActive} />
                 <span className="text-sm">{isActive ? "Active" : "Inactive"}</span>
               </div>
+              {!isEdit && (
+                <p className="text-xs text-muted-foreground">
+                  Leave it inactive, finish the setup checklist on the program page, then activate
+                  it there.
+                </p>
+              )}
             </div>
           </div>
         </form>

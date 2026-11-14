@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Mail, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppState } from "@/lib/store";
 import { updateProgram } from "@/lib/api";
+import { cfListProgramSetup } from "@/lib/apiClient";
+import { Badge } from "@/components/ui/badge";
+import type { ProgramSetupSummary } from "@/types";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
 import { SendProgramEmailDialog } from "@/components/programs/SendProgramEmailDialog";
 import { journeyLabel, programJourney } from "@/lib/program-journey";
@@ -44,6 +47,21 @@ export function ProgramsPage() {
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
   const [updatingProgramId, setUpdatingProgramId] = useState<string | null>(null);
   const [emailProgramId, setEmailProgramId] = useState<string | null>(null);
+  // Which programs still miss required setup (shown as a badge; activation is checked on the server).
+  const [setupByProgram, setSetupByProgram] = useState<Record<string, ProgramSetupSummary>>({});
+  const [setupVersion, setSetupVersion] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    cfListProgramSetup()
+      .then((rows) => {
+        if (!cancelled)
+          setSetupByProgram(Object.fromEntries(rows.map((row) => [row.programId, row])));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [setupVersion]);
 
   function openAdd() {
     setEditingProgramId(null);
@@ -63,6 +81,7 @@ export function ProgramsPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update program status.");
     } finally {
       setUpdatingProgramId(null);
+      setSetupVersion((value) => value + 1);
     }
   }
 
@@ -101,6 +120,15 @@ export function ProgramsPage() {
               </Link>
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>
+            {setupByProgram[p.id] && !setupByProgram[p.id].ready && (
+              <Badge
+                variant="outline"
+                className="mt-2"
+                title={`Missing: ${setupByProgram[p.id].missingRequired.join(", ")}`}
+              >
+                Needs setup: {setupByProgram[p.id].missingRequired.join(", ")}
+              </Badge>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button
