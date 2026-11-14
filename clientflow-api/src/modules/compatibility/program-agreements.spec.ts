@@ -101,4 +101,16 @@ describe('program agreement templates', () => {
     expect(updated.config.activeContractTemplateId).toBe(enrollment.config.activeContractTemplateId);
     expect(updated.config.activeContractVersionId).toBe(enrollment.config.activeContractVersionId);
   });
+
+  it("makes a program's first welcome email its active one, and leaves an existing choice alone", async () => {
+    const { controller, db } = setup();
+    const created = db.cfProgramWelcomeEmailTemplate.create.bind(db.cfProgramWelcomeEmailTemplate);
+    db.cfProgramWelcomeEmailTemplate.create = ({ data }: any) => created({ data: { id: `wt-${Math.random().toString(36).slice(2, 8)}`, createdAt: new Date(), ...data } });
+    const createdVersion = db.cfProgramWelcomeEmailVersion.create.bind(db.cfProgramWelcomeEmailVersion);
+    db.cfProgramWelcomeEmailVersion.create = ({ data }: any) => createdVersion({ data: { id: `wv-${Math.random().toString(36).slice(2, 8)}`, createdAt: new Date(), ...data } });
+    const first = await controller.createProgramWorkflowWelcomeTemplate(req, 'program-1', { subject: 'Welcome', body: 'Welcome aboard' });
+    expect(first.config.activeWelcomeEmailVersionId).toEqual(expect.any(String));
+    const second = await controller.createProgramWorkflowWelcomeTemplate(req, 'program-1', { name: 'Alt welcome', subject: 'Hi', body: 'Other' });
+    expect(second.config.activeWelcomeEmailVersionId).toBe(first.config.activeWelcomeEmailVersionId);
+  });
 });

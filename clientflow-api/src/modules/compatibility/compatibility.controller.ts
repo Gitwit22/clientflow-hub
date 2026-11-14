@@ -1040,7 +1040,7 @@ export class ClientflowCompatibilityController {
       },
     });
     if (content) {
-      await this.requirePrisma().cfProgramWelcomeEmailVersion.create({
+      const firstVersion = await this.requirePrisma().cfProgramWelcomeEmailVersion.create({
         data: {
           organizationId: orgId,
           templateId: template.id,
@@ -1052,6 +1052,18 @@ export class ClientflowCompatibilityController {
           allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],
         },
       });
+      // The program's first welcome email becomes its active one, so it is used right away
+      // (before, staff also had to find and click Activate). An existing choice is left alone.
+      const config = await this.requirePrisma().cfProgramWorkflowConfig.findFirst({
+        where: { organizationId: orgId, programId: id },
+        select: { activeWelcomeEmailVersionId: true },
+      });
+      if (body.makeActive !== false && template.isActive && !config?.activeWelcomeEmailVersionId) {
+        await this.requireWorkflowConfig().applyUpdate(orgId, id, {
+          activeWelcomeEmailTemplateId: template.id,
+          activeWelcomeEmailVersionId: firstVersion.id,
+        });
+      }
     }
     return this.getProgramWorkflow(orgId, id);
   }
