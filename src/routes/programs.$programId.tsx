@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
+import { ArrowLeft, Copy, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
 import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
+import { CopyProgramSetupDialog } from "@/components/programs/CopyProgramSetupDialog";
 import { ProgramDeliverablesConfig } from "@/components/programs/ProgramDeliverablesConfig";
 import { ProgramEmailsPanel } from "@/components/programs/ProgramEmailsPanel";
 import { VersionHistory } from "@/components/programs/VersionHistory";
@@ -120,6 +121,7 @@ function ProgramDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   // The program questions form being written: a new one (no template) or an existing one.
   const [questionsForm, setQuestionsForm] = useState<{ template?: FormTemplate } | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
   const [nextActions, setNextActions] = useState<Record<string, MemberNextAction>>({});
@@ -474,6 +476,12 @@ function ProgramDetailPage() {
               <Plus className="mr-2 h-4 w-4" />
               Add members
             </Button>
+            {!program.isActive && (
+              <Button variant="outline" onClick={() => setCopyOpen(true)}>
+                <Copy className="mr-2 h-4 w-4" />
+                Copy setup from another program
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setEditOpen(true)}>
               <Pencil className="mr-2 h-4 w-4" />
               Edit program
@@ -1016,6 +1024,13 @@ function ProgramDetailPage() {
       </Tabs>
 
       <AddEditProgramDialog program={program} open={editOpen} onOpenChange={setEditOpen} />
+      <CopyProgramSetupDialog
+        program={program}
+        programs={state.programs}
+        open={copyOpen}
+        onOpenChange={setCopyOpen}
+        onCopied={() => setRefreshVersion((value) => value + 1)}
+      />
       <AddEditFormTemplateDialog
         template={questionsForm?.template}
         open={questionsForm !== null}

@@ -19,7 +19,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createProgram, updateProgram } from "@/lib/api";
+import { createProgram, createProgramFromSetup, updateProgram } from "@/lib/api";
+import { newIdempotencyKey } from "@/lib/client-send";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { CopySetupPicker } from "@/components/programs/CopySetupPicker";
+import { defaultCopySource, SETUP_COPY_PARTS, type SetupCopyChoice } from "@/lib/setup-copy";
 import { useAppState } from "@/lib/store";
 import { DEFAULT_JOURNEY, journeyToProgramFields } from "@/lib/program-journey";
 import type { ContractType, MonitoringFrequency, Program } from "@/types";
@@ -58,7 +62,7 @@ export function AddEditProgramDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
-  const { formTemplates } = useAppState();
+  const { formTemplates, programs } = useAppState();
   const isEdit = !!program;
   // A program's intake is the general intake alone, or questions that belong to it (the public intake
   // never shows a form that belongs to another program or to none). A new program owns no questions
@@ -86,6 +90,11 @@ export function AddEditProgramDialog({
     program?.defaultContractTemplateId ?? "Service Agreement",
   );
   const [saving, setSaving] = useState(false);
+  // New programs can start blank or from another program's setup (chosen parts copied).
+  const [startFrom, setStartFrom] = useState<"blank" | "copy">("blank");
+  const [copyChoice, setCopyChoice] = useState<SetupCopyChoice>({ sourceProgramId: "", parts: [] });
+  // One key per opening of the dialog: a double click or retry creates the program once.
+  const [createKey, setCreateKey] = useState(newIdempotencyKey);
 
   // Re-sync state whenever the dialog opens (or opens with a different program)
   useEffect(() => {
@@ -96,13 +105,26 @@ export function AddEditProgramDialog({
       setDefaultFormTemplateId(program?.defaultFormTemplateId || GENERAL_INTAKE);
       setDefaultMonitoringFrequency(program?.defaultMonitoringFrequency ?? "Monthly");
       setDefaultContractTemplateId(program?.defaultContractTemplateId ?? "Service Agreement");
+      setStartFrom("blank");
+      setCopyChoice({
+        sourceProgramId: defaultCopySource(programs),
+        parts: SETUP_COPY_PARTS.map((item) => item.part),
+      });
+      setCreateKey(newIdempotencyKey());
     }
+    // `programs` only seeds the default choice when the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, program]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
       toast.error("Program name is required.");
+      return;
+    }
+    const copying = !isEdit && startFrom === "copy";
+    if (copying && (!copyChoice.sourceProgramId || copyChoice.parts.length === 0)) {
+      toast.error("Choose the program to copy from and at least one part of its setup.");
       return;
     }
     setSaving(true);
@@ -131,6 +153,23 @@ export function AddEditProgramDialog({
           }),
         );
         toast.success("Program updated.");
+      } else if (copying) {
+        const source = programs.find((item) => item.id === copyChoice.sourceProgramId);
+        const result = await createProgramFromSetup(
+          {
+            name: data.name,
+            description: data.description,
+            defaultMonitoringFrequency,
+            defaultContractTemplateId,
+            ...journeyToProgramFields(DEFAULT_JOURNEY),
+            ...copyChoice,
+          },
+          createKey,
+        );
+        const skipped = result.parts.filter((part) => part.outcome === "skip").length;
+        toast.success(
+          `Program created from ${source?.name ?? "the chosen program"}'s setup. It is inactive: review it, then activate it from its setup checklist.${skipped ? ` ${skipped} part(s) were kept as they were.` : ""}`,
+        );
       } else {
         await createProgram({
           ...data,
@@ -183,29 +222,59 @@ export function AddEditProgramDialog({
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {/* Intake questions */}
-            <div className="space-y-1.5">
-              <Label>Intake questions</Label>
-              <Select value={defaultFormTemplateId} onValueChange={setDefaultFormTemplateId}>
-                <SelectTrigger aria-label="Intake questions">
-                  <SelectValue placeholder="Choose the intake questions" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={GENERAL_INTAKE}>General intake only</SelectItem>
-                  {ownQuestionForms.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!isEdit && (
-                <p className="text-xs text-muted-foreground">
-                  Add this program's own questions from its Program questions tab after creating it.
-                </p>
+          {!isEdit && (
+            <div className="space-y-2">
+              <Label>Start from</Label>
+              <RadioGroup
+                value={startFrom}
+                onValueChange={(value) => setStartFrom(value === "copy" ? "copy" : "blank")}
+                className="grid gap-2 sm:grid-cols-2"
+              >
+                <Label className="flex items-center gap-2 rounded-md border border-border p-2 font-normal">
+                  <RadioGroupItem value="blank" aria-label="Blank program" /> A blank program
+                </Label>
+                <Label className="flex items-center gap-2 rounded-md border border-border p-2 font-normal">
+                  <RadioGroupItem value="copy" aria-label="Copy another program's setup" /> Copy
+                  another program's setup
+                </Label>
+              </RadioGroup>
+              {startFrom === "copy" && (
+                <CopySetupPicker
+                  programs={programs}
+                  targetProgramId={null}
+                  value={copyChoice}
+                  onChange={setCopyChoice}
+                />
               )}
             </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {/* Intake questions */}
+            {(isEdit || startFrom === "blank") && (
+              <div className="space-y-1.5">
+                <Label>Intake questions</Label>
+                <Select value={defaultFormTemplateId} onValueChange={setDefaultFormTemplateId}>
+                  <SelectTrigger aria-label="Intake questions">
+                    <SelectValue placeholder="Choose the intake questions" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={GENERAL_INTAKE}>General intake only</SelectItem>
+                    {ownQuestionForms.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!isEdit && (
+                  <p className="text-xs text-muted-foreground">
+                    Add this program's own questions from its Program questions tab after creating
+                    it.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Contract */}
             <div className="space-y-1.5">
@@ -247,20 +316,22 @@ export function AddEditProgramDialog({
               </Select>
             </div>
 
-            {/* Program status */}
-            <div className="space-y-1.5">
-              <Label htmlFor="prog-active">Status</Label>
-              <div className="flex h-10 items-center gap-3">
-                <Switch id="prog-active" checked={isActive} onCheckedChange={setIsActive} />
-                <span className="text-sm">{isActive ? "Active" : "Inactive"}</span>
+            {/* Program status: a copied program always starts inactive, to be reviewed first. */}
+            {(isEdit || startFrom === "blank") && (
+              <div className="space-y-1.5">
+                <Label htmlFor="prog-active">Status</Label>
+                <div className="flex h-10 items-center gap-3">
+                  <Switch id="prog-active" checked={isActive} onCheckedChange={setIsActive} />
+                  <span className="text-sm">{isActive ? "Active" : "Inactive"}</span>
+                </div>
+                {!isEdit && (
+                  <p className="text-xs text-muted-foreground">
+                    Leave it inactive, finish the setup checklist on the program page, then activate
+                    it there.
+                  </p>
+                )}
               </div>
-              {!isEdit && (
-                <p className="text-xs text-muted-foreground">
-                  Leave it inactive, finish the setup checklist on the program page, then activate
-                  it there.
-                </p>
-              )}
-            </div>
+            )}
           </div>
         </form>
 

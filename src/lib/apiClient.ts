@@ -684,6 +684,78 @@ export async function cfGetProgramDetail(id: string) {
 export async function cfCreateProgram(data: Record<string, unknown>) {
   return apiRequest<Program>(`${CF}/programs`, { method: "POST", body: JSON.stringify(data) });
 }
+/** A part of a program's setup that can be copied into another program. */
+export type SetupCopyPart =
+  | "journey"
+  | "intakeQuestions"
+  | "agreements"
+  | "welcomeEmail"
+  | "deliverables"
+  | "billing"
+  | "automation";
+
+export interface SetupCopyPartResult {
+  part: SetupCopyPart;
+  label: string;
+  outcome: "copy" | "replace" | "skip" | "nothing";
+  detail: string;
+}
+
+export interface SetupCopyResult {
+  programId: string;
+  sourceProgramId: string;
+  parts: SetupCopyPartResult[];
+  replayed: boolean;
+}
+
+/** What copying a program's setup would do (into a new program, or into `targetProgramId`). */
+export async function cfPreviewSetupCopy(
+  targetProgramId: string | null,
+  input: { sourceProgramId: string; parts: SetupCopyPart[] },
+) {
+  const path = targetProgramId
+    ? `/api/v1/programs/${encodeURIComponent(targetProgramId)}/setup-copy/preview`
+    : "/api/v1/programs/setup-copy/preview";
+  return apiRequest<{
+    sourceProgramId: string;
+    targetProgramId: string | null;
+    parts: SetupCopyPartResult[];
+  }>(path, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Creates a new, inactive program from another program's setup. */
+export async function cfCreateProgramFromSetup(
+  input: {
+    name: string;
+    description: string;
+    defaultMonitoringFrequency?: string;
+    defaultContractTemplateId?: string;
+    statusPipeline?: string[];
+    defaultWorkflow?: string[];
+    sourceProgramId: string;
+    parts: SetupCopyPart[];
+  },
+  idempotencyKey: string,
+) {
+  return apiRequest<SetupCopyResult>("/api/v1/programs/from-setup", {
+    method: "POST",
+    body: JSON.stringify(input),
+    headers: idempotencyHeaders(idempotencyKey),
+  });
+}
+
+/** Copies the chosen parts of another program's setup into an inactive program. */
+export async function cfCopyProgramSetup(
+  targetProgramId: string,
+  input: { sourceProgramId: string; parts: SetupCopyPart[] },
+  idempotencyKey: string,
+) {
+  return apiRequest<SetupCopyResult>(
+    `/api/v1/programs/${encodeURIComponent(targetProgramId)}/setup-copy`,
+    { method: "POST", body: JSON.stringify(input), headers: idempotencyHeaders(idempotencyKey) },
+  );
+}
+
 export async function cfUpdateProgram(id: string, data: Record<string, unknown>) {
   return apiRequest<Program>(`${CF}/programs/${id}`, {
     method: "PATCH",

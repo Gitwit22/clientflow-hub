@@ -4,14 +4,21 @@ import type { FormTemplate, Program } from "@/types";
 import { AddEditProgramDialog } from "./AddEditProgramDialog";
 
 const createProgram = vi.fn();
+const createProgramFromSetup = vi.fn();
 const updateProgram = vi.fn();
+const previewSetupCopy = vi.fn();
 let formTemplates: Partial<FormTemplate>[] = [];
+let programs: Partial<Program>[] = [];
 
 vi.mock("@/lib/api", () => ({
   createProgram: (...a: unknown[]) => createProgram(...a),
+  createProgramFromSetup: (...a: unknown[]) => createProgramFromSetup(...a),
   updateProgram: (...a: unknown[]) => updateProgram(...a),
 }));
-vi.mock("@/lib/store", () => ({ useAppState: () => ({ formTemplates }) }));
+vi.mock("@/lib/apiClient", () => ({
+  cfPreviewSetupCopy: (...a: unknown[]) => previewSetupCopy(...a),
+}));
+vi.mock("@/lib/store", () => ({ useAppState: () => ({ formTemplates, programs }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 // jsdom lacks ResizeObserver, which Radix's switch measures with.
@@ -25,6 +32,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   formTemplates = [];
+  programs = [];
 });
 
 describe("AddEditProgramDialog intake questions", () => {
@@ -80,5 +88,69 @@ describe("AddEditProgramDialog intake questions", () => {
     } as unknown as Program;
     render(<AddEditProgramDialog program={program} open onOpenChange={vi.fn()} />);
     expect(screen.getByLabelText("Intake questions").textContent).toContain("Grant questions");
+  });
+
+  it("creates a program from another program's setup with the chosen parts, once per opening", async () => {
+    programs = [
+      { id: "p-old", name: "Grant", isActive: false },
+      { id: "p-idi", name: "IDI", isActive: true },
+    ];
+    previewSetupCopy.mockResolvedValue({
+      sourceProgramId: "p-idi",
+      targetProgramId: null,
+      parts: [
+        {
+          part: "agreements",
+          label: "Agreements",
+          outcome: "copy",
+          detail: '"IDI Agreement" becomes the enrollment agreement.',
+        },
+      ],
+    });
+    createProgramFromSetup.mockResolvedValue({
+      programId: "p-new",
+      sourceProgramId: "p-idi",
+      parts: [],
+      replayed: false,
+    });
+    render(<AddEditProgramDialog open onOpenChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Copy another program's setup"));
+    // The active program is offered first, with every part ticked and previewed.
+    expect(screen.getByLabelText("Copy setup from").textContent).toContain("IDI");
+    await screen.findByText(/becomes the enrollment agreement/);
+    expect(previewSetupCopy).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({ sourceProgramId: "p-idi" }),
+    );
+    // Untick billing.
+    fireEvent.click(screen.getByLabelText("Billing defaults"));
+    // A copied program always starts inactive, and its intake comes from the copy.
+    expect(screen.queryByRole("combobox", { name: "Intake questions" })).toBeNull();
+    expect(screen.queryByText("Status")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Program name *"), {
+      target: { value: "Second Program" },
+    });
+    fireEvent.submit(document.getElementById("program-form")!);
+    await waitFor(() => expect(createProgramFromSetup).toHaveBeenCalledTimes(1));
+    const [input, key] = createProgramFromSetup.mock.calls[0];
+    expect(input).toEqual(
+      expect.objectContaining({ name: "Second Program", sourceProgramId: "p-idi" }),
+    );
+    expect(input.parts).toEqual([
+      "journey",
+      "intakeQuestions",
+      "agreements",
+      "welcomeEmail",
+      "deliverables",
+      "automation",
+    ]);
+    expect(createProgram).not.toHaveBeenCalled();
+
+    // Submitting again (a double click or a retry) reuses the same key, so the program is created once.
+    fireEvent.submit(document.getElementById("program-form")!);
+    await waitFor(() => expect(createProgramFromSetup).toHaveBeenCalledTimes(2));
+    expect(createProgramFromSetup.mock.calls[1][1]).toBe(key);
   });
 });
