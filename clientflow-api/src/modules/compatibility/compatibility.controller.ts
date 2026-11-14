@@ -38,7 +38,7 @@ import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { answerFields, labelledAnswers } from '../forms/answer-list';
 import { isLegacyContract } from '../contracts/legacy-contract';
 import { assertAgreementMergeFields, assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
-import { assertReadyToActivate, programSetup } from '../programs/program-setup';
+import { assertIntakeChoice, assertReadyToActivate, GENERAL_INTAKE_CHOICE, programSetup } from '../programs/program-setup';
 import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
@@ -705,17 +705,23 @@ export class ClientflowCompatibilityController {
     // A program created active must already meet its own setup requirements. A brand-new program
     // has no agreement yet, so one whose journey uses contracts is created inactive and activated
     // once its checklist is complete.
+    // A new program starts with the general intake: questions of its own can only be added once it
+    // exists (from its Program questions tab), so nothing else would ever be shown for it.
+    const intakeChoice = typeof body.defaultFormTemplateId === 'string' && body.defaultFormTemplateId
+      ? body.defaultFormTemplateId
+      : GENERAL_INTAKE_CHOICE;
+    await assertIntakeChoice(this.requirePrisma(), orgId, null, intakeChoice);
     if (body.isActive !== false) {
       assertReadyToActivate(await programSetup(this.requirePrisma(), {
         id: '__new_program__',
         organizationId: orgId,
         isActive: false,
-        defaultFormTemplateId: typeof body.defaultFormTemplateId === 'string' ? body.defaultFormTemplateId : '',
+        defaultFormTemplateId: intakeChoice,
         statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline : [],
         defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow : [],
       }));
     }
-    const program = await this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [], ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}) } });
+    const program = await this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: intakeChoice, defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [], ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}) } });
     // Only treat this as an explicit staff choice when the request actually carries workflow
     // settings - otherwise this would fake an "administrator configured this" update.
     if (body.sendContractAfterIntake !== undefined || body.sendWelcomeAfterContractSigned !== undefined) {
@@ -737,7 +743,7 @@ export class ClientflowCompatibilityController {
     // gone (seeded programs point at 'general-intake'); only a newly chosen template is checked.
     if (data.defaultFormTemplateId === existing.defaultFormTemplateId) delete data.defaultFormTemplateId;
     if (typeof data.defaultFormTemplateId === 'string' && data.defaultFormTemplateId) {
-      await findFormTemplateForOrg(this.requirePrisma(), orgId, data.defaultFormTemplateId);
+      await assertIntakeChoice(this.requirePrisma(), orgId, existing.id, data.defaultFormTemplateId);
     }
     // Only a real inactive-to-active change is checked; ordinary edits to an active program never are.
     if (existing.isActive === false && data.isActive === true) {

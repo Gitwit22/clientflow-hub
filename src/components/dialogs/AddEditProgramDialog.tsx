@@ -46,6 +46,9 @@ const CONTRACT_TYPES: ContractType[] = [
   "Partnership Agreement",
 ];
 
+/** The intake choice that means "general intake only, no extra questions". */
+const GENERAL_INTAKE = "general-intake";
+
 export function AddEditProgramDialog({
   program,
   open,
@@ -57,19 +60,24 @@ export function AddEditProgramDialog({
 }) {
   const { formTemplates } = useAppState();
   const isEdit = !!program;
-  const eligibleFormTemplates = formTemplates.filter(
-    (template) =>
-      template.isActive &&
-      template.scope !== "master_core" &&
-      (template.programId === null || template.programId === program?.id),
-  );
+  // A program's intake is the general intake alone, or questions that belong to it (the public intake
+  // never shows a form that belongs to another program or to none). A new program owns no questions
+  // yet: they are added from its Program questions tab.
+  const ownQuestionForms = program
+    ? formTemplates.filter(
+        (template) =>
+          template.isActive &&
+          template.scope !== "master_core" &&
+          template.programId === program.id,
+      )
+    : [];
 
   const [name, setName] = useState(program?.name ?? "");
   const [description, setDescription] = useState(program?.description ?? "");
   // New programs start inactive: they are activated from the setup checklist once ready.
   const [isActive, setIsActive] = useState(program?.isActive ?? false);
   const [defaultFormTemplateId, setDefaultFormTemplateId] = useState(
-    program?.defaultFormTemplateId ?? "",
+    program?.defaultFormTemplateId || GENERAL_INTAKE,
   );
   const [defaultMonitoringFrequency, setDefaultMonitoringFrequency] = useState<MonitoringFrequency>(
     program?.defaultMonitoringFrequency ?? "Monthly",
@@ -85,7 +93,7 @@ export function AddEditProgramDialog({
       setName(program?.name ?? "");
       setDescription(program?.description ?? "");
       setIsActive(program?.isActive ?? false);
-      setDefaultFormTemplateId(program?.defaultFormTemplateId ?? "");
+      setDefaultFormTemplateId(program?.defaultFormTemplateId || GENERAL_INTAKE);
       setDefaultMonitoringFrequency(program?.defaultMonitoringFrequency ?? "Monthly");
       setDefaultContractTemplateId(program?.defaultContractTemplateId ?? "Service Agreement");
     }
@@ -95,13 +103,6 @@ export function AddEditProgramDialog({
     e.preventDefault();
     if (!name.trim()) {
       toast.error("Program name is required.");
-      return;
-    }
-    const formTemplateChanged = defaultFormTemplateId !== (program?.defaultFormTemplateId ?? "");
-    // A saved program may point at a template that no longer exists; that only blocks a save when
-    // staff are actually choosing the template.
-    if (!defaultFormTemplateId && (!isEdit || formTemplateChanged)) {
-      toast.error("Choose a default form template.");
       return;
     }
     setSaving(true);
@@ -124,7 +125,7 @@ export function AddEditProgramDialog({
             name: program.name,
             description: program.description ?? "",
             isActive: program.isActive,
-            defaultFormTemplateId: program.defaultFormTemplateId ?? "",
+            defaultFormTemplateId: program.defaultFormTemplateId || GENERAL_INTAKE,
             defaultMonitoringFrequency: program.defaultMonitoringFrequency,
             defaultContractTemplateId: program.defaultContractTemplateId,
           }),
@@ -183,21 +184,27 @@ export function AddEditProgramDialog({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {/* Default Form Template */}
+            {/* Intake questions */}
             <div className="space-y-1.5">
-              <Label>Default form</Label>
+              <Label>Intake questions</Label>
               <Select value={defaultFormTemplateId} onValueChange={setDefaultFormTemplateId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a form" />
+                <SelectTrigger aria-label="Intake questions">
+                  <SelectValue placeholder="Choose the intake questions" />
                 </SelectTrigger>
                 <SelectContent>
-                  {eligibleFormTemplates.map((t) => (
+                  <SelectItem value={GENERAL_INTAKE}>General intake only</SelectItem>
+                  {ownQuestionForms.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {!isEdit && (
+                <p className="text-xs text-muted-foreground">
+                  Add this program's own questions from its Program questions tab after creating it.
+                </p>
+              )}
             </div>
 
             {/* Contract */}

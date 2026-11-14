@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
+import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
 import { ProgramDeliverablesConfig } from "@/components/programs/ProgramDeliverablesConfig";
 import { ProgramEmailsPanel } from "@/components/programs/ProgramEmailsPanel";
 import { VersionHistory } from "@/components/programs/VersionHistory";
@@ -36,6 +37,7 @@ import {
   getProgramDetail,
   refreshClientCommunications,
   refreshClientContracts,
+  updateProgram,
   updateProgramWorkflow,
   uploadStoredFile,
   withdrawEnrollment,
@@ -63,6 +65,7 @@ import { toast } from "sonner";
 import type {
   BillingFrequency,
   Client,
+  FormTemplate,
   ProgramBillingConfig,
   ProgramDetailResponse,
   ProgramEnrollment,
@@ -115,6 +118,8 @@ function ProgramDetailPage() {
   } | null>(null);
   const [stepLoadingId, setStepLoadingId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  // The program questions form being written: a new one (no template) or an existing one.
+  const [questionsForm, setQuestionsForm] = useState<{ template?: FormTemplate } | null>(null);
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
   const [nextActions, setNextActions] = useState<Record<string, MemberNextAction>>({});
@@ -278,6 +283,33 @@ function ProgramDetailPage() {
     (template) => template.programId === program.id,
   );
   const workflow = detail?.workflow;
+
+  /**
+   * New questions become the program's intake questions when it has none of its own yet (it used
+   * the general intake alone), so staff don't have to point the program at them separately.
+   */
+  async function adoptAsIntakeIfNone(saved: FormTemplate) {
+    const current = program;
+    if (!current) return;
+    const ownsCurrent = programTemplates.some(
+      (template) => template.id === current.defaultFormTemplateId && template.isActive,
+    );
+    if (saved.programId !== current.id || !saved.isActive || ownsCurrent) {
+      setRefreshVersion((value) => value + 1);
+      return;
+    }
+    try {
+      await updateProgram(current.id, { defaultFormTemplateId: saved.id });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Saved, but couldn't use these as the intake questions.",
+      );
+    } finally {
+      setRefreshVersion((value) => value + 1);
+    }
+  }
 
   const MemberList = ({ past = false }: { past?: boolean }) => {
     const normalizedQuery = memberQuery.trim().toLowerCase();
@@ -925,17 +957,40 @@ function ProgramDetailPage() {
         </TabsContent>
 
         <TabsContent value="questions" className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Questions clients answer for this program on the intake form, after the general
+              intake.
+            </p>
+            <Button size="sm" onClick={() => setQuestionsForm({})}>
+              <Plus className="h-4 w-4" /> Add program questions
+            </Button>
+          </div>
           {programTemplates.length === 0 ? (
             <Card className="shadow-card">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                No program-specific forms are configured.
+                No program questions yet. Clients answer only the general intake.
               </CardContent>
             </Card>
           ) : (
             programTemplates.map((template) => (
               <Card key={template.id} className="shadow-card">
-                <CardHeader>
-                  <CardTitle className="font-display text-base">{template.name}</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+                  <CardTitle className="font-display text-base">
+                    {template.name}
+                    {!template.isActive && (
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        (inactive)
+                      </span>
+                    )}
+                  </CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setQuestionsForm({ template })}
+                  >
+                    <Pencil className="h-4 w-4" /> Edit questions
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">{template.description}</p>
@@ -961,6 +1016,13 @@ function ProgramDetailPage() {
       </Tabs>
 
       <AddEditProgramDialog program={program} open={editOpen} onOpenChange={setEditOpen} />
+      <AddEditFormTemplateDialog
+        template={questionsForm?.template}
+        open={questionsForm !== null}
+        onOpenChange={(open) => !open && setQuestionsForm(null)}
+        defaultProgramId={program.id}
+        onSaved={(saved) => void adoptAsIntakeIfNone(saved)}
+      />
       {stepTarget && stepClient && (
         <>
           <SendContractDialog
