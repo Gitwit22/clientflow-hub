@@ -184,7 +184,7 @@ export function FundingTab({
       )}
 
       <AwardDialog
-        key={editing === "new" ? "new" : (editing?.id ?? "closed")}
+        key={`award-${editing === "new" ? "new" : (editing?.id ?? "closed")}`}
         award={editing === "new" ? null : editing}
         open={editing !== null}
         clientId={client.id}
@@ -200,7 +200,7 @@ export function FundingTab({
         }}
       />
       <RecordAwardPaymentDialog
-        key={paying?.id ?? "closed"}
+        key={`payment-${paying?.id ?? "closed"}`}
         award={paying}
         onOpenChange={(open) => !open && setPaying(null)}
         onSaved={(saved) => {
@@ -209,7 +209,7 @@ export function FundingTab({
         }}
       />
       <CancelAwardDialog
-        key={cancelling?.id ?? "closed-cancel"}
+        key={`cancel-${cancelling?.id ?? "closed"}`}
         award={cancelling}
         onOpenChange={(open) => !open && setCancelling(null)}
         onSaved={(saved) => {
