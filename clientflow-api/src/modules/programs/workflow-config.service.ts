@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { contractRuleFor } from '../contracts/contract-lifecycle';
 
@@ -19,13 +20,23 @@ export class WorkflowConfigService {
    * CfProgramWorkflowConfig row has been verified to exist and be explicit (Phase 2 audit).
    */
   async getOrCreate(organizationId: string, programId: string, programName?: string) {
-    const existing = await this.prisma.cfProgramWorkflowConfig.findFirst({
+    return this.getOrCreateIn(this.prisma, organizationId, programId, programName);
+  }
+
+  /** getOrCreate with the given database client, so it can run inside a caller's transaction. */
+  async getOrCreateIn(
+    db: Pick<Prisma.TransactionClient, 'cfProgramWorkflowConfig'>,
+    organizationId: string,
+    programId: string,
+    programName?: string,
+  ) {
+    const existing = await db.cfProgramWorkflowConfig.findFirst({
       where: { organizationId, programId },
     });
     if (existing) return existing;
 
     const legacyRule = programName ? contractRuleFor(programName) : null;
-    return this.prisma.cfProgramWorkflowConfig.create({
+    return db.cfProgramWorkflowConfig.create({
       data: {
         organizationId,
         programId,

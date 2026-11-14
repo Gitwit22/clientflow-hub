@@ -388,6 +388,26 @@ model CfProgramContractVersion {
   @@index([storedFileId])
 }
 
+/// One copy of a program's setup into another program: the audit trail, and the idempotency record
+/// that makes a repeated request (same key) return the first copy instead of copying twice.
+model CfProgramSetupCopy {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  targetProgramId      String
+  sourceProgramId      String
+  /// The parts staff chose (journey, intakeQuestions, agreements, ...).
+  parts                Json     @default("[]")
+  /// What was copied, replaced or skipped for each part.
+  summary              Json     @default("[]")
+  idempotencyKey       String
+  createdByUserId      String?
+  createdByDisplayName String?
+  createdAt            DateTime @default(now())
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, targetProgramId])
+}
+
 model CfProgramWelcomeEmailTemplate {
   id             String   @id @default(cuid())
   organizationId String
