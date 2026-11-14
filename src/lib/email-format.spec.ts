@@ -43,3 +43,28 @@ describe("email formatting", () => {
     expect(insertLink({ value: "", selectionStart: 0, selectionEnd: 0 }, "  ")).toBeNull();
   });
 });
+
+describe("email images", () => {
+  const url = "https://images.example.org/email-images/org-a/1-abc-flyer.png";
+
+  it("shows an image line as an image, escaping the alt text", async () => {
+    const { formattedEmailHtml } = await import("./email-format");
+    expect(formattedEmailHtml(`Hi\n\n![Fall "Expo" <2026>](${url})`)).toBe(
+      `<p>Hi</p><p><img src="${url}" alt="Fall &quot;Expo&quot; &lt;2026&gt;" style="display:block;max-width:100%;height:auto;"></p>`,
+    );
+  });
+
+  it("inserts an image on its own line at the cursor", async () => {
+    const { insertImage } = await import("./email-format");
+    expect(
+      insertImage(
+        { value: "Hello\nSee below", selectionStart: 5, selectionEnd: 5 },
+        url,
+        "Flyer [2026]",
+      ).value,
+    ).toBe(`Hello\n\n![Flyer  2026](${url})\n\nSee below`);
+    expect(insertImage({ value: "", selectionStart: 0, selectionEnd: 0 }, url, "Flyer").value).toBe(
+      `![Flyer](${url})`,
+    );
+  });
+});

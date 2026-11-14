@@ -5,12 +5,16 @@ import {
   NotFoundException,
   OnApplicationBootstrap,
   Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { CfCommunication, CfProgramEmail, Prisma } from '../../generated/clientflow';
 import { findProgramForOrg } from '../../common/tenancy/org-scoped.repository';
 import { EMAIL_SENDER_NAME, emailDocumentHtml, formattedTextToEmail } from '../../integrations/n8n/email-body';
+import { emailImageKeyFor, emailImagesIn } from '../../integrations/n8n/email-images';
 import { N8nService } from '../../integrations/n8n/n8n.service';
+import { StorageService } from '../../integrations/storage/storage.service';
+import { isSendableEmail } from '../communications/recipient';
 import { PrismaService } from '../../prisma/prisma.service';
 import { COMMUNICATION_STATUS, DELIVERY_SOURCE, attemptEventId, isUniqueViolation } from '../communications/communication-attempts';
 import { buildRecipientList, type SkippedMember } from './program-email-recipients';
@@ -131,7 +135,63 @@ export class ProgramEmailService implements OnApplicationBootstrap {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly n8n?: N8nService,
+    @Optional() private readonly storage?: StorageService,
   ) {}
+
+  /**
+   * Every image in a message must be one this organization uploaded for emails (a finished upload in
+   * its email-images folder of the public bucket). Anything else is refused, so an email can't
+   * carry a tracking pixel, another organization's image or a link that might later change.
+   */
+  private async assertEmailImages(organizationId: string, body: string): Promise<void> {
+    const images = emailImagesIn(body);
+    if (!images.length) return;
+    if (!this.storage?.isPublicAssetsConfigured()) {
+      throw new BadRequestException("Images can't be added yet: public image storage isn't configured.");
+    }
+    for (const image of images) {
+      const key = emailImageKeyFor(this.storage, organizationId, image.url);
+      const stored = key
+        ? await this.prisma.cfStoredFile.findFirst({
+            where: { organizationId, storageKey: key, storageBucket: 'public', status: 'READY' },
+            select: { id: true },
+          })
+        : null;
+      if (!stored) {
+        throw new BadRequestException('Add images with the Image button. One of the images in this message was not uploaded for these emails.');
+      }
+    }
+  }
+
+  /**
+   * Sends one copy of the message to the signed-in staff member, marked [Test]. Nothing is recorded
+   * against members or the program's email history.
+   */
+  async sendTest(
+    organizationId: string,
+    actor: ProgramEmailActor & { email: string },
+    programId: string,
+    input: { subject?: unknown; body?: unknown },
+  ) {
+    const { subject, body } = messageFrom(input);
+    await this.assertEmailImages(organizationId, body);
+    const program = await findProgramForOrg(this.prisma, organizationId, programId);
+    if (!isSendableEmail(actor.email)) throw new BadRequestException('Your account has no email address a test can be sent to.');
+    if (!this.n8n) throw new ServiceUnavailableException('Email delivery is not set up.');
+    const delivery = await this.n8n.sendProgramEmail(`program.email.test:${randomUUID()}`, {
+      organizationId,
+      // The test goes to the staff member themself; no client is involved.
+      clientId: actor.id ?? 'staff',
+      sentByUserId: actor.id ?? 'staff',
+      recipientEmail: actor.email,
+      clientName: actor.displayName,
+      programName: program.name,
+      programEmailId: 'test',
+      subject: `[Test] ${subject}`,
+      body,
+    });
+    return { recipientEmail: actor.email, delivery };
+  }
 
   /** Picks up any email still sending when the server last stopped. */
   onApplicationBootstrap() {
@@ -205,6 +265,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
    */
   async preview(organizationId: string, programId: string, input: { subject?: unknown; body?: unknown }) {
     const { subject, body } = messageFrom(input);
+    await this.assertEmailImages(organizationId, body);
     const program = await findProgramForOrg(this.prisma, organizationId, programId);
     let rendered: { html: string; text: string };
     if (this.n8n) {
@@ -238,6 +299,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
     }
 
     const { subject, body } = messageFrom(input);
+    await this.assertEmailImages(organizationId, body);
     const chosen = chosenMembers(input.clientIds);
 
     const program = await findProgramForOrg(this.prisma, organizationId, programId);

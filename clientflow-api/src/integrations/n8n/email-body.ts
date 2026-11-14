@@ -1,3 +1,4 @@
+import { EMAIL_IMAGE_LINE, type EmailImagePolicy } from './email-images';
 const HTML_TAG = /<\/?(p|br|div|table|ul|ol|li|h[1-6]|strong|em|b|i|a|span)\b[^>]*>/i;
 
 function escapeHtml(text: string): string {
@@ -52,9 +53,9 @@ function inlineText(text: string): string {
     .replace(ITALIC, '$1$2');
 }
 
-type Line = { kind: 'text' | 'bullet' | 'numbered'; text: string };
+type Line = { kind: 'text' | 'bullet' | 'numbered' | 'image'; text: string; url?: string };
 
-function blocksOf(body: string): Line[][] {
+function blocksOf(body: string, allowImage?: EmailImagePolicy): Line[][] {
   return body
     .replace(/\r\n?/g, '\n')
     .split(/\n[ \t]*\n+/)
@@ -63,6 +64,8 @@ function blocksOf(body: string): Line[][] {
         .split('\n')
         .filter((line) => line.trim())
         .map((line): Line => {
+          const image = EMAIL_IMAGE_LINE.exec(line.trim());
+          if (image && allowImage?.(image[2])) return { kind: 'image', text: image[1].trim(), url: image[2] };
           const bullet = BULLET.exec(line);
           if (bullet) return { kind: 'bullet', text: bullet[1] };
           const numbered = NUMBERED.exec(line);
@@ -76,19 +79,27 @@ function blocksOf(body: string): Line[][] {
 /**
  * A staff-written email with light formatting, as the email's HTML and plain-text versions:
  * **bold**, _italic_, [link text](https://…), lines starting "- " (bulleted list) or "1. "
- * (numbered list), a blank line between paragraphs. Everything else is escaped, so the text can
- * never inject markup.
+ * (numbered list), a blank line between paragraphs, and `![alt](https://…)` on its own line for an
+ * image that `allowImage` accepts (only the organization's uploaded email images; anything else
+ * stays text). Everything else is escaped, so the text can never inject markup.
  */
-export function formattedTextToEmail(body: string): { html: string; text: string } {
+export function formattedTextToEmail(body: string, options: { allowImage?: EmailImagePolicy } = {}): { html: string; text: string } {
   const html: string[] = [];
   const text: string[] = [];
-  for (const lines of blocksOf(body)) {
+  for (const lines of blocksOf(body, options.allowImage)) {
     const blockText: string[] = [];
     for (let index = 0; index < lines.length; ) {
       const kind = lines[index].kind;
       const run: Line[] = [];
       while (index < lines.length && lines[index].kind === kind) run.push(lines[index++]);
-      if (kind === 'text') {
+      if (kind === 'image') {
+        for (const line of run) {
+          html.push(
+            `<p style="margin:0 0 16px 0;"><img src="${escapeHtml(line.url!)}" alt="${escapeHtml(line.text)}" style="display:block;max-width:100%;height:auto;border:0;"></p>`,
+          );
+        }
+        blockText.push(...run.map((line) => `[Image${line.text ? `: ${line.text}` : ''}]`));
+      } else if (kind === 'text') {
         html.push(`<p style="margin:0 0 16px 0;">${run.map((line) => inlineHtml(line.text)).join('<br>')}</p>`);
         blockText.push(...run.map((line) => inlineText(line.text)));
       } else {

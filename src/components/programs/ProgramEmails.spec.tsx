@@ -9,6 +9,8 @@ const cfPreviewProgramEmail = vi.fn();
 const cfListProgramEmails = vi.fn();
 const cfGetProgramEmail = vi.fn();
 const cfRetryProgramEmail = vi.fn();
+const cfSendProgramEmailTest = vi.fn();
+const uploadStoredFile = vi.fn();
 
 vi.mock("@/lib/apiClient", () => ({
   ApiError: class ApiError extends Error {},
@@ -18,7 +20,9 @@ vi.mock("@/lib/apiClient", () => ({
   cfListProgramEmails: (...a: unknown[]) => cfListProgramEmails(...a),
   cfGetProgramEmail: (...a: unknown[]) => cfGetProgramEmail(...a),
   cfRetryProgramEmail: (...a: unknown[]) => cfRetryProgramEmail(...a),
+  cfSendProgramEmailTest: (...a: unknown[]) => cfSendProgramEmailTest(...a),
 }));
+vi.mock("@/lib/api", () => ({ uploadStoredFile: (...a: unknown[]) => uploadStoredFile(...a) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const preview = {
@@ -271,5 +275,50 @@ describe("program emails", () => {
 
     fireEvent.click(within(row).getByRole("button", { name: "Retry failed (1)" }));
     await waitFor(() => expect(cfRetryProgramEmail).toHaveBeenCalledWith("pe1"));
+  });
+
+  it("adds an uploaded image on its own line, and refuses files that are not email images", async () => {
+    uploadStoredFile.mockResolvedValue({
+      id: "f1",
+      status: "READY",
+      publicUrl: "https://images.example.org/email-images/org-a/1-abc-fall-expo.png",
+    });
+    await open();
+    const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    message.setSelectionRange(message.value.length, message.value.length);
+    const picker = screen.getByLabelText("Image file") as HTMLInputElement;
+
+    fireEvent.change(picker, {
+      target: { files: [new File(["<svg/>"], "x.svg", { type: "image/svg+xml" })] },
+    });
+    expect(uploadStoredFile).not.toHaveBeenCalled();
+
+    fireEvent.change(picker, {
+      target: { files: [new File(["png"], "fall-expo.png", { type: "image/png" })] },
+    });
+    await waitFor(() =>
+      expect(uploadStoredFile).toHaveBeenCalledWith(expect.any(File), "email-images"),
+    );
+    await waitFor(() =>
+      expect(message.value).toBe(
+        "Hello all\n\n![fall expo](https://images.example.org/email-images/org-a/1-abc-fall-expo.png)",
+      ),
+    );
+  });
+
+  it("sends a test to the signed-in staff member from the preview, without sending to members", async () => {
+    cfSendProgramEmailTest.mockResolvedValue({
+      recipientEmail: "jordan@ea.example",
+      delivery: { status: "sent", sentAt: "2026-11-13T00:00:00.000Z" },
+    });
+    await compose();
+    fireEvent.click(screen.getByRole("button", { name: "Send test to me" }));
+    await waitFor(() =>
+      expect(cfSendProgramEmailTest).toHaveBeenCalledWith("p1", {
+        subject: "Grant day Saturday",
+        body: "Hello all",
+      }),
+    );
+    expect(cfSendProgramEmail).not.toHaveBeenCalled();
   });
 });

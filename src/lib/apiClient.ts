@@ -1020,10 +1020,13 @@ export async function cfCreateStoredFileUpload(data: {
   });
 }
 export async function cfCompleteStoredFileUpload(fileId: string) {
-  return apiRequest<{ id: string; status: string; completedAt?: string | null }>(
-    `${CF}/files/${fileId}/complete`,
-    { method: "POST" },
-  );
+  /** `publicUrl` is set for public files (email images, logo): their permanent link. */
+  return apiRequest<{
+    id: string;
+    status: string;
+    completedAt?: string | null;
+    publicUrl?: string;
+  }>(`${CF}/files/${fileId}/complete`, { method: "POST" });
 }
 export async function cfGetStoredFileDownload(fileId: string) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(`${CF}/files/${fileId}/download`);
@@ -1958,5 +1961,16 @@ export async function acfGenerateAwardAgreement(
   return apiRequest<{ contract: AutomatedContractSummary; awardId: string }>(
     `/api/v1/awards/${encodeURIComponent(awardId)}/agreement/generate`,
     { method: "POST", body: JSON.stringify(options) },
+  );
+}
+
+/** POST /programs/:programId/emails/test — one [Test] copy to the signed-in staff member. */
+export async function cfSendProgramEmailTest(
+  programId: string,
+  data: { subject: string; body: string },
+) {
+  return apiRequest<{ recipientEmail: string; delivery: SendDeliveryResult }>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/emails/test`,
+    { method: "POST", body: JSON.stringify(data) },
   );
 }

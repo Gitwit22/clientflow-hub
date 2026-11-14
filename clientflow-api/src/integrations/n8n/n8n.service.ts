@@ -31,6 +31,7 @@ import type {
   WelcomeSendLifecyclePayload,
 } from './n8n.types';
 import { emailDocumentHtml, formattedTextToEmail, plainTextToEmailHtml } from './email-body';
+import { emailImagePolicyFor, type EmailImagePolicy } from './email-images';
 
 const HEADER_IMAGE_CACHE_MS = 5 * 60 * 1000;
 
@@ -59,6 +60,12 @@ export class N8nService {
     // Not registered as a provider by default: falls back to the process-wide reporter.
     @Optional() @Inject(SUPPORT_HUB_TELEMETRY) private readonly telemetry?: TelemetryReporter,
   ) {}
+
+  /** Only the organization's own uploaded email images are shown; without storage, none are. */
+  private emailImagePolicy(organizationId: string): EmailImagePolicy {
+    const storage = this.storage;
+    return storage ? emailImagePolicyFor(storage, organizationId) : () => false;
+  }
 
   /**
    * The Settings header logo goes on every email. Purely cosmetic: a failed lookup logs and the
@@ -295,7 +302,7 @@ export class N8nService {
 
   /** The whole email one member would receive, for a preview before sending. Nothing is sent. */
   async previewProgramEmail(organizationId: string, body: string): Promise<{ html: string; text: string }> {
-    const formatted = formattedTextToEmail(body);
+    const formatted = formattedTextToEmail(body, { allowImage: this.emailImagePolicy(organizationId) });
     return {
       html: emailDocumentHtml(formatted.html, await this.resolveHeaderImageUrl(organizationId)),
       text: formatted.text,
@@ -304,8 +311,9 @@ export class N8nService {
 
   /** One recipient's copy of a program-wide email (eventType program.email). */
   async sendProgramEmail(eventId: string, payload: ProgramEmailPayload): Promise<ProgramEmailDeliveryResult> {
-    // Staff may format the message (bold, lists, links); the text version drops the markers.
-    const formatted = formattedTextToEmail(payload.body);
+    // Staff may format the message (bold, lists, links, the organization's own images); the text
+    // version drops the markers.
+    const formatted = formattedTextToEmail(payload.body, { allowImage: this.emailImagePolicy(payload.organizationId) });
     return this.sendViaDeliver<ProgramEmailLifecyclePayload>(this.getIntakeAvailability(), eventId, {
       eventType: 'program.email',
       organizationId: payload.organizationId,

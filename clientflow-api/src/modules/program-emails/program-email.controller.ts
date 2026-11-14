@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags } from '@nestjs/swagger';
 import {
   type AuthenticatedRequest,
@@ -34,6 +35,23 @@ export class ProgramEmailController {
     @Body() body: { subject?: unknown; body?: unknown },
   ) {
     return this.emails.preview(request.adminUser!.organizationId, programId, { subject: body?.subject, body: body?.body });
+  }
+
+  /** Sends one [Test] copy to the signed-in staff member. Records nothing against members. */
+  @Post('programs/:programId/emails/test')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  sendTest(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Body() body: { subject?: unknown; body?: unknown },
+  ) {
+    return this.emails.sendTest(
+      request.adminUser!.organizationId,
+      { ...actorFrom(request), email: request.adminUser?.email ?? '' },
+      programId,
+      { subject: body?.subject, body: body?.body },
+    );
   }
 
   @Get('programs/:programId/emails')

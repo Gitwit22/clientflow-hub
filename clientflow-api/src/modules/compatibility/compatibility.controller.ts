@@ -1623,10 +1623,14 @@ export class ClientflowCompatibilityController {
     const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
     await assertStoredUploadAcceptable(storage, storedFile);
-    return this.requirePrisma().cfStoredFile.update({
+    const completed = await this.requirePrisma().cfStoredFile.update({
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
     });
+    // A public file (email image, logo) gets its permanent link, e.g. to insert into an email.
+    return storageBucketOf(completed) === 'public'
+      ? { ...completed, publicUrl: storage.publicAssetUrl(completed.storageKey) }
+      : completed;
   }
   @Get('files/:id/download') async downloadStoredFile(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
