@@ -8,6 +8,12 @@ import {
 import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { BillingDashboardService } from './billing-dashboard.service';
 import { parseOrgDate, parseOrgDateEnd, type CalendarPeriodKind } from './billing-schedule.util';
+import {
+  toAgreementResponse,
+  toBillingSummaryResponse,
+  toPaymentResponse,
+  toProgramConfigResponse,
+} from './billing-response';
 import { BillingService } from './billing.service';
 import { BackfillSelectionDto } from './dto/backfill-selection.dto';
 import { RecordPaymentDto } from './dto/record-payment.dto';
@@ -39,7 +45,7 @@ export class ProgramBillingController {
   async get(@Req() request: AuthenticatedRequest, @Param('programId') programId: string) {
     const organizationId = request.adminUser!.organizationId;
     await this.billing.requireProgramForOrg(organizationId, programId);
-    return this.billing.getOrCreateProgramConfig(organizationId, programId);
+    return toProgramConfigResponse(await this.billing.getOrCreateProgramConfig(organizationId, programId));
   }
 
   @Patch()
@@ -50,7 +56,7 @@ export class ProgramBillingController {
   ) {
     const organizationId = request.adminUser!.organizationId;
     await this.billing.requireProgramForOrg(organizationId, programId);
-    return this.billing.updateProgramConfig(organizationId, programId, dto);
+    return toProgramConfigResponse(await this.billing.updateProgramConfig(organizationId, programId, dto));
   }
 }
 
@@ -69,7 +75,7 @@ export class EnrollmentBillingController {
     const organizationId = request.adminUser!.organizationId;
     await this.billing.requireEnrollmentForClient(organizationId, clientId, enrollmentId);
     const timezone = await this.billing.resolveOrgTimezone(organizationId);
-    return this.billing.getEnrollmentBillingSummary(organizationId, enrollmentId, timezone);
+    return toBillingSummaryResponse(await this.billing.getEnrollmentBillingSummary(organizationId, enrollmentId, timezone));
   }
 
   @Get('periods')
@@ -100,7 +106,7 @@ export class EnrollmentBillingController {
     const organizationId = request.adminUser!.organizationId;
     await this.billing.requireEnrollmentForClient(organizationId, clientId, enrollmentId);
     const timezone = await this.billing.resolveOrgTimezone(organizationId);
-    return this.billing.replaceAgreement({
+    const agreement = await this.billing.replaceAgreement({
       organizationId,
       enrollmentId,
       amount: dto.amount,
@@ -111,6 +117,7 @@ export class EnrollmentBillingController {
       timezone,
       ...actorFrom(request),
     });
+    return toAgreementResponse(agreement);
   }
 
   @Post('payments')
@@ -124,7 +131,7 @@ export class EnrollmentBillingController {
     const organizationId = request.adminUser!.organizationId;
     await this.billing.requireEnrollmentForClient(organizationId, clientId, enrollmentId);
     const timezone = await this.billing.resolveOrgTimezone(organizationId);
-    return this.billing.recordPayment({
+    const payment = await this.billing.recordPayment({
       organizationId,
       enrollmentId,
       amount: dto.amount,
@@ -137,6 +144,7 @@ export class EnrollmentBillingController {
       idempotencyKey: parseIdempotencyKey(idempotencyKey),
       ...actorFrom(request),
     });
+    return toPaymentResponse(payment);
   }
 
   @Post('backfill/preview')
@@ -199,6 +207,8 @@ export class BillingDashboardController {
   ) {
     const organizationId = request.adminUser!.organizationId;
     const actor = actorFrom(request);
-    return this.billing.voidPayment(organizationId, paymentId, dto.reason, actor.actorUserId, actor.actorDisplayName);
+    return toPaymentResponse(
+      await this.billing.voidPayment(organizationId, paymentId, dto.reason, actor.actorUserId, actor.actorDisplayName),
+    );
   }
 }
