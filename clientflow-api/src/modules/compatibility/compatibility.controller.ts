@@ -38,6 +38,14 @@ import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { answerFields, labelledAnswers } from '../forms/answer-list';
 import { isLegacyContract } from '../contracts/legacy-contract';
 import { assertAgreementMergeFields, assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
+import {
+  AUTOMATION_EMAIL_FIELDS,
+  AUTOMATION_EMAIL_TRIGGERS,
+  renderAutomationText,
+  sampleAutomationValues,
+  validateAutomationEmail,
+} from '../automation/automation-email';
+import { isSendableEmail } from '../communications/recipient';
 import { assertIntakeChoice, assertReadyToActivate, GENERAL_INTAKE_CHOICE, programSetup } from '../programs/program-setup';
 import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
@@ -380,22 +388,20 @@ export class ClientflowCompatibilityController {
     ]);
     // The enrollment agreement. Award agreement templates never stand in for it.
     const enrollmentTemplates = contractTemplates.filter((template) => template.purpose !== 'award');
+    // Only what is designated counts as active: sending uses exactly the designated agreement and
+    // welcome email, so showing a first template as "active" would look ready when it isn't.
     const activeContractTemplate = config?.activeContractTemplateId
       ? enrollmentTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
-      : enrollmentTemplates[0] ?? null;
+      : null;
     const activeWelcomeTemplate = config?.activeWelcomeEmailTemplateId
       ? welcomeTemplates.find((template) => template.id === config.activeWelcomeEmailTemplateId) ?? null
-      : welcomeTemplates[0] ?? null;
+      : null;
     const activeContractVersion = config?.activeContractVersionId
       ? contractVersions.find((version) => version.id === config.activeContractVersionId) ?? null
-      : activeContractTemplate
-        ? contractVersions.find((version) => version.templateId === activeContractTemplate.id) ?? null
-        : null;
+      : null;
     const activeWelcomeVersion = config?.activeWelcomeEmailVersionId
       ? welcomeVersions.find((version) => version.id === config.activeWelcomeEmailVersionId) ?? null
-      : activeWelcomeTemplate
-        ? welcomeVersions.find((version) => version.templateId === activeWelcomeTemplate.id) ?? null
-        : welcomeVersions[0] ?? null;
+      : null;
     const resolvedConfig = config ?? {
       enabled: true,
       sendContractAfterIntake: false,
@@ -1123,7 +1129,14 @@ export class ClientflowCompatibilityController {
           where: { organizationId: orgId, templateId: { in: templates.map((template) => template.id) } },
           orderBy: [{ templateId: 'asc' }, { version: 'desc' }],
         });
-    return { rules, templates, versions };
+    return {
+      rules,
+      templates,
+      versions,
+      // What staff can use when writing a custom email, so the page lists exactly what the server accepts.
+      emailFields: AUTOMATION_EMAIL_FIELDS,
+      emailTriggers: Object.entries(AUTOMATION_EMAIL_TRIGGERS).map(([trigger, label]) => ({ trigger, label })),
+    };
   }
   @Post('programs/:id/automation/rules') async createProgramAutomationRule(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1134,6 +1147,7 @@ export class ClientflowCompatibilityController {
     const action = parseProgramAction(body.action);
     if (!trigger) throw new BadRequestException('Invalid automation trigger.');
     if (!action) throw new BadRequestException('Invalid automation action.');
+    const actionConfig = isRecord(body.actionConfig) ? body.actionConfig : {};
     return this.requirePrisma().cfProgramAutomationRule.create({
       data: {
         organizationId: orgId,
@@ -1141,7 +1155,10 @@ export class ClientflowCompatibilityController {
         trigger,
         conditions: isRecord(body.conditions) ? body.conditions as any : {},
         action,
-        actionConfig: isRecord(body.actionConfig) ? body.actionConfig as any : {},
+        // A custom email is checked before it is saved (subject, message, known merge fields).
+        actionConfig: (action === CfProgramAction.send_email
+          ? { ...actionConfig, ...validateAutomationEmail(actionConfig) }
+          : actionConfig) as any,
         enabled: body.enabled !== false,
         sortOrder: Number(body.sortOrder ?? 0),
       },
@@ -1152,7 +1169,7 @@ export class ClientflowCompatibilityController {
     await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const existing = await this.requirePrisma().cfProgramAutomationRule.findFirst({
       where: { id: ruleId, organizationId: orgId, programId },
-      select: { id: true },
+      select: { id: true, action: true, actionConfig: true },
     });
     if (!existing) throw new NotFoundException('Program automation rule not found.');
     const trigger = body.trigger !== undefined ? parseProgramTrigger(body.trigger) : undefined;
@@ -1165,17 +1182,69 @@ export class ClientflowCompatibilityController {
     if (body.actionConfig !== undefined && !isRecord(body.actionConfig)) {
       throw new BadRequestException('Automation actionConfig must be an object.');
     }
+    // A custom email's text is checked whenever it changes, or a rule becomes a custom email.
+    let actionConfig: Record<string, unknown> | undefined = isRecord(body.actionConfig) ? body.actionConfig : undefined;
+    if ((action ?? existing.action) === CfProgramAction.send_email && (actionConfig !== undefined || action !== undefined)) {
+      const config = actionConfig ?? (isRecord(existing.actionConfig) ? existing.actionConfig : {});
+      actionConfig = { ...config, ...validateAutomationEmail(config) };
+    }
     return this.requirePrisma().cfProgramAutomationRule.update({
       where: { id: ruleId },
       data: {
         ...(trigger ? { trigger } : {}),
         ...(action ? { action } : {}),
         ...(body.conditions !== undefined ? { conditions: body.conditions as any } : {}),
-        ...(body.actionConfig !== undefined ? { actionConfig: body.actionConfig as any } : {}),
+        ...(actionConfig !== undefined ? { actionConfig: actionConfig as any } : {}),
         ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
         ...(body.sortOrder !== undefined ? { sortOrder: Number(body.sortOrder) } : {}),
       },
     });
+  }
+  /** Removes one of the program's automation rules (for example a custom email no longer wanted). */
+  @Delete('programs/:programId/automation/rules/:ruleId') async deleteProgramAutomationRule(@Req() request: Request, @Param('programId') programId: string, @Param('ruleId') ruleId: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
+    const { count } = await this.requirePrisma().cfProgramAutomationRule.deleteMany({
+      where: { id: ruleId, organizationId: orgId, programId },
+    });
+    if (count !== 1) throw new NotFoundException('Program automation rule not found.');
+    return { deleted: true, id: ruleId };
+  }
+  /**
+   * Sends one copy of a custom email to the signed-in staff member, with sample client details, the
+   * same way the real one is sent. Nothing is recorded and no client gets anything.
+   */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('programs/:id/automation/emails/test') async sendProgramAutomationEmailTest(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const { orgId, admin } = await this.requireOrgFromRequest(request);
+    const program = await findProgramForOrg(this.requirePrisma(), orgId, id);
+    const { subject, message } = validateAutomationEmail(body);
+    if (!isSendableEmail(admin.email)) throw new BadRequestException('Your account has no email address a test can be sent to.');
+    if (!this.n8n) throw new ServiceUnavailableException('Email delivery is not set up.');
+    const organization = await this.requirePrisma().organization.findUnique({ where: { id: orgId }, select: { name: true } });
+    const staffName = [admin.firstName, admin.lastName].filter(Boolean).join(' ') || admin.email;
+    const values = sampleAutomationValues({
+      'program.name': program.name,
+      ...(organization?.name ? { 'organization.name': organization.name } : {}),
+      'staff.name': staffName,
+    });
+    const renderedSubject = `[Test] ${renderAutomationText(subject, values)}`;
+    const renderedMessage = renderAutomationText(message, values);
+    const delivery = await this.n8n.sendWelcome(`automation.email.test:${randomUUID()}`, {
+      organizationId: orgId,
+      // The test goes to the staff member themself; no client is involved.
+      clientId: admin.id,
+      recipientEmail: admin.email,
+      clientName: staffName,
+      programName: program.name,
+      subject: renderedSubject,
+      body: renderedMessage,
+      renderMode: 'verbatim',
+      welcome: { source: 'automation_rule', templateId: null, templateName: null, versionId: null, versionNumber: null, ruleId: 'test' },
+      nextStep: renderedMessage,
+      sentByUserId: admin.id,
+    });
+    return { recipientEmail: admin.email, delivery };
   }
   @Post('programs/:id/documents/templates') async createProgramDocumentTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);

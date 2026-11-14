@@ -2049,6 +2049,84 @@ export async function cfSendProgramEmailTest(
   );
 }
 
+/** A program's custom automatic email: an automation rule that sends an email when something happens. */
+export interface ProgramAutomationRule {
+  id: string;
+  programId: string;
+  trigger: string;
+  action: string;
+  actionConfig: { subject?: string; message?: string } & Record<string, unknown>;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface ProgramAutomation {
+  rules: ProgramAutomationRule[];
+  /** Merge fields a custom email may use, as the server accepts them. */
+  emailFields: { key: string; label: string; sample: string }[];
+  /** Events that can send a custom email, in staff wording. */
+  emailTriggers: { trigger: string; label: string }[];
+}
+
+export async function cfGetProgramAutomation(programId: string) {
+  return apiRequest<ProgramAutomation>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation`,
+  );
+}
+
+export async function cfCreateAutomationEmail(
+  programId: string,
+  data: { trigger: string; subject: string; message: string; enabled?: boolean },
+) {
+  return apiRequest<ProgramAutomationRule>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/rules`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        trigger: data.trigger,
+        action: "send_email",
+        actionConfig: { subject: data.subject, message: data.message },
+        enabled: data.enabled ?? true,
+      }),
+    },
+  );
+}
+
+export async function cfUpdateAutomationEmail(
+  programId: string,
+  ruleId: string,
+  data: { trigger?: string; subject?: string; message?: string; enabled?: boolean },
+) {
+  const body: Record<string, unknown> = {};
+  if (data.trigger !== undefined) body.trigger = data.trigger;
+  if (data.enabled !== undefined) body.enabled = data.enabled;
+  if (data.subject !== undefined || data.message !== undefined) {
+    body.actionConfig = { subject: data.subject ?? "", message: data.message ?? "" };
+  }
+  return apiRequest<ProgramAutomationRule>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/rules/${encodeURIComponent(ruleId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+}
+
+export async function cfDeleteAutomationEmail(programId: string, ruleId: string) {
+  return apiRequest<{ deleted: boolean; id: string }>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/rules/${encodeURIComponent(ruleId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** Sends one test copy of a custom email to the signed-in staff member, with sample details. */
+export async function cfSendAutomationEmailTest(
+  programId: string,
+  data: { subject: string; message: string },
+) {
+  return apiRequest<{ recipientEmail: string; delivery: SendDeliveryResult }>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/emails/test`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
 /** What a program needs before it can take clients, and what is done. */
 export async function cfGetProgramSetup(programId: string) {
   return apiRequest<ProgramSetup>(`${CF}/programs/${encodeURIComponent(programId)}/setup`);

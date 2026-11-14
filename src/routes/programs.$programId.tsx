@@ -8,6 +8,7 @@ import { ProgramDeliverablesConfig } from "@/components/programs/ProgramDelivera
 import { ProgramEmailsPanel } from "@/components/programs/ProgramEmailsPanel";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ProgramAgreementTemplates } from "@/components/programs/ProgramAgreementTemplates";
+import { ProgramAutomaticEmails } from "@/components/programs/ProgramAutomaticEmails";
 import { ProgramSetupChecklist } from "@/components/programs/ProgramSetupChecklist";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
@@ -743,51 +744,11 @@ function ProgramDetailPage() {
                     "Add a welcome email version to enable post-signature messaging."}
                 </p>
               </div>
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">
-                  4. Automation
-                </p>
-                <div className="flex items-center justify-between gap-2">
-                  <span>Send contract after intake submission</span>
-                  <Switch
-                    checked={workflow?.config.sendContractAfterIntake ?? false}
-                    disabled={savingWorkflow || !workflow}
-                    onCheckedChange={(checked) => {
-                      if (!workflow) return;
-                      setSavingWorkflow(true);
-                      void updateProgramWorkflow(program.id, { sendContractAfterIntake: checked })
-                        .then(() => setRefreshVersion((value) => value + 1))
-                        .catch((error: unknown) => {
-                          toast.error(
-                            error instanceof Error ? error.message : "Unable to update workflow.",
-                          );
-                        })
-                        .finally(() => setSavingWorkflow(false));
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span>Send welcome email after contract signing</span>
-                  <Switch
-                    checked={workflow?.config.sendWelcomeAfterContractSigned ?? false}
-                    disabled={savingWorkflow || !workflow}
-                    onCheckedChange={(checked) => {
-                      if (!workflow) return;
-                      setSavingWorkflow(true);
-                      void updateProgramWorkflow(program.id, {
-                        sendWelcomeAfterContractSigned: checked,
-                      })
-                        .then(() => setRefreshVersion((value) => value + 1))
-                        .catch((error: unknown) => {
-                          toast.error(
-                            error instanceof Error ? error.message : "Unable to update workflow.",
-                          );
-                        })
-                        .finally(() => setSavingWorkflow(false));
-                    }}
-                  />
-                </div>
-              </div>
+              <ProgramAutomaticEmails
+                program={program}
+                workflow={workflow}
+                onChanged={() => setRefreshVersion((value) => value + 1)}
+              />
               <div className="grid gap-4 lg:grid-cols-2">
                 <ProgramAgreementTemplates
                   program={program}

@@ -7,6 +7,7 @@ import { isPrismaUniqueViolation } from '../../common/prisma-errors';
 import {
   ENROLLMENT_AGREEMENT_WHERE, CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-lifecycle';
 import { ContractsService } from '../contracts/contracts.service';
+import { renderAutomationText } from './automation-email';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { DELIVERY_SOURCE } from '../communications/communication-attempts';
@@ -184,7 +185,12 @@ export class ProgramAutomationService {
       }
     }
 
-    for (const rule of rules) {
+    // The program's automation switch pauses its rules too, the same as the built-in sends.
+    const paused = rules.length > 0
+      && !(await this.workflowConfig.getOrCreate(context.organizationId, context.program.id, context.program.name)).enabled;
+    if (paused) executed.push('rules:paused');
+
+    for (const rule of paused ? [] : rules) {
       if (!this.conditionsMatch(rule.conditions, context)) continue;
       const idempotencyKey = `${context.idempotencySeed}:${context.program.id}:${rule.id}`;
       const claim = await this.claimExecution(context, rule.id, rule.action, idempotencyKey);
@@ -489,18 +495,22 @@ export class ProgramAutomationService {
     actionConfig: Record<string, unknown>,
     ruleId: string,
   ): Promise<Prisma.JsonObject> {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: context.organizationId },
+      select: { name: true },
+    });
     const variables = {
-      contactName: context.client.primaryContactName,
-      clientName: context.client.primaryContactName,
-      businessName: context.client.businessName,
-      programName: context.program.name,
-      staffName: context.client.assignedStaff,
+      'client.contactName': context.client.primaryContactName,
+      'client.businessName': context.client.businessName,
+      'program.name': context.program.name,
+      'organization.name': organization?.name ?? null,
+      'staff.name': context.client.assignedStaff,
     };
-    const subject = renderRuleText(
+    const subject = renderAutomationText(
       typeof actionConfig.subject === 'string' && actionConfig.subject.trim() ? actionConfig.subject.trim() : `${context.program.name} update`,
       variables,
     );
-    const message = renderRuleText(
+    const message = renderAutomationText(
       typeof actionConfig.message === 'string' && actionConfig.message.trim()
         ? actionConfig.message.trim()
         : 'A program update is available in ClientFlow.',
@@ -794,9 +804,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Fills `{{contactName}}`, `{{clientName}}`, `{{businessName}}`, `{{programName}}` and `{{staffName}}`
  * (every occurrence) in a rule's email subject and message. Unknown placeholders are left as written.
  */
-export function renderRuleText(text: string, variables: Record<string, string | null | undefined>): string {
-  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (placeholder, name: string) => {
-    const value = variables[name];
-    return typeof value === 'string' && value.trim() ? value : placeholder;
-  });
-}

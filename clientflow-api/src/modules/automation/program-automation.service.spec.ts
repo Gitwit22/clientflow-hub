@@ -4,7 +4,8 @@ import type { ContractsService } from '../contracts/contracts.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import type { FormDeliveryService } from '../forms/form-delivery.service';
-import { ProgramAutomationService, renderRuleText } from './program-automation.service';
+import { renderAutomationText } from './automation-email';
+import { ProgramAutomationService } from './program-automation.service';
 
 // Shared test context: builds real WorkflowConfigService/EnrollmentsService instances against
 // the same mocked `prisma` each test already configures, so existing prisma mocks/assertions
@@ -21,12 +22,13 @@ function programAutomationTestContext(
   withWorkflow.cfProgramWorkflowConfig ??= {
     findFirst: jest.fn().mockResolvedValue({ enabled: true, sendContractAfterIntake: false }),
   };
+  withWorkflow.organization ??= { findUnique: jest.fn().mockResolvedValue({ name: 'EA Management' }) };
   return new ProgramAutomationService(
-    prisma as unknown as PrismaService,
+    prisma as PrismaService,
     contracts as ContractsService,
-    n8n as unknown as N8nService,
-    new WorkflowConfigService(prisma as unknown as PrismaService),
-    new EnrollmentsService(prisma as unknown as PrismaService),
+    n8n as N8nService,
+    new WorkflowConfigService(prisma as PrismaService),
+    new EnrollmentsService(prisma as PrismaService),
     formDelivery as FormDeliveryService | undefined,
   );
 }
@@ -70,7 +72,7 @@ describe('ProgramAutomationService', () => {
 
     const service = programAutomationTestContext(
       prisma,
-      {} as ContractsService,
+      {},
       { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
@@ -122,7 +124,7 @@ describe('ProgramAutomationService', () => {
       getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
       sendWelcome: jest.fn().mockResolvedValue({ status: 'sent', sentAt: '2030-01-01T00:00:00.000Z' }),
     };
-    const service = programAutomationTestContext(prisma, {} as ContractsService, n8n);
+    const service = programAutomationTestContext(prisma, {}, n8n);
 
     await service.runTrigger({
       organizationId: 'org-1',
@@ -185,7 +187,7 @@ describe('ProgramAutomationService', () => {
 
     const service = programAutomationTestContext(
       prisma,
-      {} as ContractsService,
+      {},
       { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
@@ -242,7 +244,7 @@ describe('ProgramAutomationService', () => {
 
     const service = programAutomationTestContext(
       prisma,
-      {} as ContractsService,
+      {},
       { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
@@ -306,7 +308,7 @@ describe('ProgramAutomationService', () => {
       };
       const service = programAutomationTestContext(
         prisma,
-        {} as ContractsService,
+        {},
         { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
         formDelivery,
       );
@@ -361,7 +363,7 @@ describe('ProgramAutomationService', () => {
 
     const service = programAutomationTestContext(
       prisma,
-      {} as ContractsService,
+      {},
       { getWelcomeAvailability: jest.fn().mockReturnValue('disabled') },
     );
 
@@ -491,15 +493,75 @@ describe('ProgramAutomationService', () => {
   });
 });
 
-describe('renderRuleText', () => {
+describe('custom automatic emails', () => {
+  const baseClient = {
+    id: 'client-1', email: 'pat@example.com', primaryContactName: 'Pat', businessName: 'Rivers Bakery',
+    assignedUserId: null, assignedStaff: 'Jordan', isDemo: false,
+  };
+  const baseProgram = { id: 'program-1', name: 'Grant', defaultFormTemplateId: 'form-1' };
+  const emailRuleSetup = (workflow: Record<string, unknown>, actionConfig: Record<string, unknown>) => {
+    const prisma = {
+      cfClient: { findFirst: jest.fn().mockResolvedValue(baseClient) },
+      cfProgram: { findMany: jest.fn().mockResolvedValue([baseProgram]) },
+      cfProgramAutomationRule: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'rule-1', action: 'send_email', actionConfig, conditions: {} }]),
+      },
+      cfProgramWorkflowConfig: { findFirst: jest.fn().mockResolvedValue(workflow) },
+      cfProgramAutomationExecution: {
+        create: jest.fn().mockResolvedValue({ id: 'exec-1' }),
+        update: jest.fn().mockResolvedValue({ id: 'exec-1' }),
+      },
+      cfCommunication: { create: jest.fn().mockResolvedValue({ id: 'comm-1' }), update: jest.fn().mockResolvedValue({}) },
+    };
+    const n8n = {
+      getWelcomeAvailability: jest.fn().mockReturnValue('ready'),
+      sendWelcome: jest.fn().mockResolvedValue({ status: 'sent', sentAt: '2030-01-01T00:00:00.000Z' }),
+    };
+    const service = programAutomationTestContext(prisma, {}, n8n);
+    const run = () => service.runTrigger({
+      organizationId: 'org-1', clientId: 'client-1', trigger: 'intake.submitted', programIds: ['program-1'],
+      enrollmentIdsByProgramId: { 'program-1': 'enroll-1' }, idempotencySeed: 'seed-1',
+    });
+    return { n8n, prisma, run };
+  };
+
+  it('sends nothing while the program\'s automation is switched off', async () => {
+    const { n8n, prisma, run } = emailRuleSetup({ enabled: false, sendContractAfterIntake: false }, { subject: 'Hi', message: 'Hello' });
+    const result = await run();
+    expect(result.programs[0].actions).toEqual(['rules:paused']);
+    expect(n8n.sendWelcome).not.toHaveBeenCalled();
+    expect(prisma.cfProgramAutomationExecution.create).not.toHaveBeenCalled();
+  });
+
+  it('fills the merge fields, including the organization name', async () => {
+    const { n8n, run } = emailRuleSetup(
+      { enabled: true, sendContractAfterIntake: false },
+      { subject: 'Welcome, {{client.businessName}}', message: 'From {{organization.name}} about {{program.name}}' },
+    );
+    await run();
+    const payload = (n8n.sendWelcome.mock.calls[0] as [string, Record<string, unknown>])[1];
+    expect(payload.subject).toBe(`Welcome, ${baseClient.businessName}`);
+    expect(payload.body).toBe(`From EA Management about ${baseProgram.name}`);
+  });
+});
+
+describe('renderAutomationText', () => {
   it('fills every occurrence of known placeholders and leaves unknown ones', () => {
-    expect(renderRuleText('Hi {{contactName}} — {{ programName }} / {{programName}} {{unknown}}', {
-      contactName: 'Pat',
-      programName: 'Grant',
+    expect(renderAutomationText('Hi {{client.contactName}} — {{ program.name }} / {{program.name}} {{unknown}}', {
+      'client.contactName': 'Pat',
+      'program.name': 'Grant',
     })).toBe('Hi Pat — Grant / Grant {{unknown}}');
   });
 
+  it('still fills the older short names saved in existing rules', () => {
+    expect(renderAutomationText('Hi {{contactName}} of {{businessName}} — {{ programName }}', {
+      'client.contactName': 'Pat',
+      'client.businessName': 'Rivers Bakery',
+      'program.name': 'Grant',
+    })).toBe('Hi Pat of Rivers Bakery — Grant');
+  });
+
   it('keeps a placeholder whose value is empty rather than printing a blank', () => {
-    expect(renderRuleText('For {{businessName}}', { businessName: '  ' })).toBe('For {{businessName}}');
+    expect(renderAutomationText('For {{client.businessName}}', { 'client.businessName': '  ' })).toBe('For {{client.businessName}}');
   });
 });
