@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
+import { AwardFollowUpCard } from "@/components/funding/AwardFollowUpCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -241,6 +242,8 @@ function PaymentsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AwardFollowUpCard />
     </div>
   );
 }

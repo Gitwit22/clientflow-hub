@@ -29,7 +29,55 @@ The additive migration creates seven organization-scoped templates. Every placeh
 
 > Template draft only. Final legal language must be reviewed by the organization before use.
 
+That sentence is **no longer appended** to generated agreements; it only remains inside starter
+template text, and the program page warns staff while an active version still contains it.
+
+### Agreement purposes
+
+A program can have several named agreement templates (`CfProgramContractTemplate.purpose`):
+
+- `enrollment`: what a client signs to join. The program's enrollment agreement is the one
+  `CfProgramWorkflowConfig.activeContractTemplateId/VersionId` names. Only it drives onboarding,
+  the welcome email gate and automation. The first enrollment template saved for a program becomes
+  its enrollment agreement automatically.
+- `award`: generated per funding award. Each template keeps its own `activeVersionId`. An award
+  template can never be the enrollment agreement, and every "current contract" lookup on the
+  enrollment path filters award agreements out (`ENROLLMENT_AGREEMENT_WHERE`).
+
+### Merge fields and review
+
+Templates may use merge fields (`contracts/merge-fields.ts`): `{{client.contactName}}`,
+`{{client.businessName}}`, `{{client.email}}`, `{{program.name}}`, `{{organization.name}}`,
+`{{enrollment.startDate}}`, `{{today}}`, and in award agreements only `{{award.title}}`,
+`{{award.source}}`, `{{award.amount}}`, `{{award.date}}`.
+
+- Saving a version rejects unknown fields and award fields in an enrollment agreement.
+- Generating an agreement fills the fields; a field with no value blocks generation (400).
+- `POST /clients/:id/contracts/preview` returns the agreement exactly as the client will read it,
+  the fields still missing, and a `contentHash`. Staff generate with `reviewedVersionId` +
+  `reviewedContentHash`; if the active version or the filled-in text changed since, generation is
+  refused with 409. Automation (no review fields) is unchanged.
+- An agreement already in progress previews its stored text. Sent and signed agreements always keep
+  the text they were generated with.
+
 Existing contract content is preserved. Existing contract rows are linked to their matching template name or the General Services Agreement fallback. Recognized legacy statuses are normalized to `DRAFT`, `SENT`, `OPENED`, `COMPLETED`, `CANCELLED`, or `EXPIRED`; unknown historical values are preserved.
+
+### Award agreements
+
+An award agreement belongs to one funding award (`CfContract.awardId`, `purpose = 'award'`).
+
+- Prepared only for an **approved** award: `POST /awards/:awardId/agreement/preview`, then
+  `/generate` with the reviewed version and hash. The award's row is locked while it is created, and
+  a partial unique index allows only one open (DRAFT/SENT/OPENED/EXPIRED) agreement per award.
+- Sent through the normal `POST /clients/:id/contracts/send`; the award moves to `agreement_sent`.
+  Sending, opening and signing it never change the client status or the enrollment.
+- Signing records the signature, files and emails the signed copy, and moves the award to
+  `agreement_signed`. It does **not** move the client to onboarding, create monitoring, set the
+  enrollment start date, send the welcome email, or run `contract.signed` automation.
+- Cancelling the award cancels an unsigned agreement (its link stops working). Changing an award's
+  title, source, amount or date after an agreement exists requires replacing it: an unsigned one is
+  cancelled, a signed one is kept as history, and the award returns to `approved`.
+- A link for an agreement that was replaced or whose award was cancelled can no longer be signed.
 
 ## Secure links
 

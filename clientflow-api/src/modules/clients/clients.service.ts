@@ -1,3 +1,4 @@
+import { ENROLLMENT_AGREEMENT_WHERE } from '../contracts/contract-lifecycle';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
@@ -279,7 +280,12 @@ export class ClientsService {
     const [program, contract, monitoringTask, executedDocument] = await Promise.all([
       this.currentProgram(client.organizationId, client.id),
       this.prisma.cfContract.findFirst({
-        where: { clientId: client.id, organizationId: client.organizationId, ...NOT_UNSIGNED_LEGACY_CONTRACT },
+        where: {
+          clientId: client.id,
+          organizationId: client.organizationId,
+          ...NOT_UNSIGNED_LEGACY_CONTRACT,
+          ...ENROLLMENT_AGREEMENT_WHERE,
+        },
         orderBy: { createdAt: 'desc' },
       }),
       this.latestMonitoring(client.organizationId, client.id),

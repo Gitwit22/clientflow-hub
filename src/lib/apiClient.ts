@@ -8,8 +8,11 @@ import {
 } from "./idle-session";
 import type {
   ActivityLog,
+  Award,
+  AwardPayment,
   BackfillPreview,
   BillingFrequency,
+  ClosureReview,
   Client,
   ClientDocument,
   Communication,
@@ -26,11 +29,14 @@ import type {
   OrgBillingDashboard,
   OrgMember,
   OrgSettings,
+  OutstandingAward,
   PaymentMethod,
   PaymentRecord,
   Program,
   ProgramBillingConfig,
   ProgramDetailResponse,
+  ProgramSetup,
+  ProgramSetupSummary,
   ProgramWorkflow,
   ProgramEnrollment,
   PublicFormResponseValue,
@@ -637,9 +643,24 @@ export async function cfUpdateClient(id: string, data: Record<string, unknown>) 
 }
 
 /** One profile field a submitted form would change. Values are computed by the server. */
+/** Whether a client can be permanently deleted. Clients with recorded payments can only be archived. */
+export interface ClientDeletionEligibility {
+  canDelete: boolean;
+  reason: "has_payments" | null;
+  message: string | null;
+  recordedPayments: number;
+}
+
+/** GET /clients/:id/deletion-eligibility */
+export async function cfGetClientDeletionEligibility(id: string) {
+  return apiRequest<ClientDeletionEligibility>(
+    `/api/v1/clients/${encodeURIComponent(id)}/deletion-eligibility`,
+  );
+}
+
 /**
- * DELETE /clients/:id/permanent — erases the client and everything recorded for them, including
- * billing agreements and payments. `confirmation` must be the business name, typed by staff.
+ * DELETE /clients/:id/permanent — erases the client and everything recorded for them. Refused (409)
+ * when the client has any recorded payment. `confirmation` must be the business name, typed by staff.
  */
 export async function cfPermanentlyDeleteClient(id: string, confirmation: string) {
   return apiRequest<{
@@ -688,6 +709,22 @@ export async function cfCreateProgramWorkflowContractTemplate(
       method: "POST",
       body: JSON.stringify(data),
     },
+  );
+}
+/** PATCH a program agreement template: name, purpose, which version is active, or hide it. */
+export async function cfUpdateProgramWorkflowContractTemplate(
+  programId: string,
+  templateId: string,
+  data: {
+    name?: string;
+    purpose?: "enrollment" | "award";
+    activeVersionId?: string;
+    isActive?: false;
+  },
+) {
+  return apiRequest<ProgramWorkflow>(
+    `${CF}/programs/${encodeURIComponent(programId)}/workflow/contracts/templates/${encodeURIComponent(templateId)}`,
+    { method: "PATCH", body: JSON.stringify(data) },
   );
 }
 export async function cfCreateProgramWorkflowContractVersion(
@@ -932,7 +969,7 @@ export async function cfListDocuments(clientId: string) {
 }
 export async function cfCreateDocumentUpload(
   clientId: string,
-  data: { name: string; type: string; byteSize: number; enrollmentId?: string },
+  data: { name: string; type: string; byteSize: number; enrollmentId?: string; awardId?: string },
 ) {
   return apiRequest<{
     document: ClientDocument;
@@ -985,10 +1022,13 @@ export async function cfCreateStoredFileUpload(data: {
   });
 }
 export async function cfCompleteStoredFileUpload(fileId: string) {
-  return apiRequest<{ id: string; status: string; completedAt?: string | null }>(
-    `${CF}/files/${fileId}/complete`,
-    { method: "POST" },
-  );
+  /** `publicUrl` is set for public files (email images, logo): their permanent link. */
+  return apiRequest<{
+    id: string;
+    status: string;
+    completedAt?: string | null;
+    publicUrl?: string;
+  }>(`${CF}/files/${fileId}/complete`, { method: "POST" });
 }
 export async function cfGetStoredFileDownload(fileId: string) {
   return apiRequest<{ url: string; expiresInSeconds: number }>(`${CF}/files/${fileId}/download`);
@@ -1047,9 +1087,16 @@ export async function cfUpdateFinalReportDraft(reportId: string, data: FinalRepo
  * POST /final-reports/:id/finalize — keeps a snapshot and archives the client's participation in
  * the report's program. Runs once; a second request is refused (409).
  */
+/** GET /final-reports/closure-review/:enrollmentId — what is still open before closing out. */
+export async function cfGetClosureReview(enrollmentId: string) {
+  return apiRequest<ClosureReview>(
+    `/api/v1/final-reports/closure-review/${encodeURIComponent(enrollmentId)}`,
+  );
+}
+
 export async function cfFinalizeFinalReport(
   reportId: string,
-  data: FinalReportNarrative & { outcome: string },
+  data: FinalReportNarrative & { outcome: string; closureNote?: string; reviewHash?: string },
 ) {
   return apiRequest<FinalReport>(`/api/v1/final-reports/${encodeURIComponent(reportId)}/finalize`, {
     method: "POST",
@@ -1278,6 +1325,8 @@ export interface AutomatedPublicContractData {
     contractName: string;
     content: string;
     expiresAt: string | null;
+    /** "award" agreements don't start onboarding; older API versions omit it (enrollment). */
+    purpose?: "enrollment" | "award";
   };
   client: { name: string };
   program: { id: string; name: string };
@@ -1324,9 +1373,42 @@ export interface AutomatedContractSummary {
  * was already emailed for it, that contract is returned as-is (publicContractUrl is null) and its link
  * is not rotated.
  */
+/** The agreement exactly as the client will read it, from POST /clients/:id/contracts/preview. */
+export interface AgreementPreview {
+  purpose: "enrollment" | "award";
+  /** Set when an agreement is already in progress; its stored text is what is shown. */
+  existingContractId: string | null;
+  templateId: string | null;
+  versionId: string;
+  title: string;
+  content: string;
+  /** Merge fields with no value yet. Sending is blocked until these are filled in. */
+  missing: Array<{ key: string; label: string }>;
+  /** Sent back when generating, so the agreement is created from exactly this text. */
+  contentHash: string;
+}
+
+/** POST /clients/:id/contracts/preview — the enrollment agreement as the client will read it. */
+export async function acfPreviewContract(
+  clientId: string,
+  options: { enrollmentId?: string } = {},
+) {
+  return apiRequest<AgreementPreview>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/contracts/preview`,
+    { method: "POST", body: JSON.stringify(options) },
+  );
+}
+
 export async function acfGenerateContract(
   clientId: string,
-  staffSigner: { staffSignerName?: string; staffSignerId?: string; enrollmentId?: string } = {},
+  staffSigner: {
+    staffSignerName?: string;
+    staffSignerId?: string;
+    enrollmentId?: string;
+    /** From the preview staff reviewed: the server refuses (409) if the text changed since. */
+    reviewedVersionId?: string;
+    reviewedContentHash?: string;
+  } = {},
 ) {
   return apiRequest<{ contract: AutomatedContractSummary; publicContractUrl: string | null }>(
     `/api/v1/clients/${encodeURIComponent(clientId)}/contracts/generate`,
@@ -1774,4 +1856,133 @@ export async function cfFinalizeDeliverableCycle(enrollmentId: string, cycleId: 
     `${enrollmentDeliverablesPath(enrollmentId)}/cycles/${encodeURIComponent(cycleId)}/finalize`,
     { method: "POST" },
   );
+}
+
+// ─── Funding awards ───────────────────────────────────────────────────────────
+
+export interface AwardInput {
+  title: string;
+  source: string;
+  amountAwarded: number;
+  awardDate: string;
+  expectedPaymentDate?: string;
+  notes?: string;
+  agreementTemplateId?: string;
+  approve?: boolean;
+}
+
+export async function cfListAwards(clientId: string, enrollmentId: string) {
+  return apiRequest<Award[]>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/enrollments/${encodeURIComponent(enrollmentId)}/awards`,
+  );
+}
+
+export async function cfCreateAward(
+  clientId: string,
+  enrollmentId: string,
+  input: AwardInput,
+  idempotencyKey: string,
+) {
+  return apiRequest<Award>(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/enrollments/${encodeURIComponent(enrollmentId)}/awards`,
+    { method: "POST", body: JSON.stringify(input), headers: idempotencyHeaders(idempotencyKey) },
+  );
+}
+
+export async function cfUpdateAward(
+  awardId: string,
+  input: Partial<Omit<AwardInput, "expectedPaymentDate">> & {
+    expectedPaymentDate?: string | null;
+    replaceAgreement?: boolean;
+  },
+) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function cfApproveAward(awardId: string) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}/approve`, {
+    method: "POST",
+  });
+}
+
+export async function cfCancelAward(awardId: string, reason: string) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function cfRecordAwardPayment(
+  awardId: string,
+  input: {
+    amount: number;
+    paymentDate: string;
+    paymentMethod: AwardPayment["paymentMethod"];
+    note?: string;
+  },
+  idempotencyKey: string,
+) {
+  return apiRequest<Award>(`/api/v1/awards/${encodeURIComponent(awardId)}/payments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+    headers: idempotencyHeaders(idempotencyKey),
+  });
+}
+
+export async function cfVoidAwardPayment(paymentId: string, reason: string) {
+  return apiRequest<Award>(`/api/v1/award-payments/${encodeURIComponent(paymentId)}/void`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** Every award with money still owed, including archived program participations. */
+export async function cfListOutstandingAwards() {
+  return apiRequest<OutstandingAward[]>(`/api/v1/funding/outstanding`);
+}
+
+/** POST /awards/:awardId/agreement/preview — the award's agreement exactly as the client will read it. */
+export async function acfPreviewAwardAgreement(
+  awardId: string,
+  options: { templateId?: string } = {},
+) {
+  return apiRequest<AgreementPreview & { awardId: string }>(
+    `/api/v1/awards/${encodeURIComponent(awardId)}/agreement/preview`,
+    { method: "POST", body: JSON.stringify(options) },
+  );
+}
+
+/** POST /awards/:awardId/agreement/generate — prepares the award's agreement (one open per award). */
+export async function acfGenerateAwardAgreement(
+  awardId: string,
+  options: { templateId?: string; reviewedVersionId?: string; reviewedContentHash?: string } = {},
+) {
+  return apiRequest<{ contract: AutomatedContractSummary; awardId: string }>(
+    `/api/v1/awards/${encodeURIComponent(awardId)}/agreement/generate`,
+    { method: "POST", body: JSON.stringify(options) },
+  );
+}
+
+/** POST /programs/:programId/emails/test — one [Test] copy to the signed-in staff member. */
+export async function cfSendProgramEmailTest(
+  programId: string,
+  data: { subject: string; body: string },
+) {
+  return apiRequest<{ recipientEmail: string; delivery: SendDeliveryResult }>(
+    `/api/v1/programs/${encodeURIComponent(programId)}/emails/test`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+/** What a program needs before it can take clients, and what is done. */
+export async function cfGetProgramSetup(programId: string) {
+  return apiRequest<ProgramSetup>(`${CF}/programs/${encodeURIComponent(programId)}/setup`);
+}
+
+/** Setup readiness of every program (program list badges). */
+export async function cfListProgramSetup() {
+  return apiRequest<ProgramSetupSummary[]>(`${CF}/programs-setup`);
 }

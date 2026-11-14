@@ -211,9 +211,15 @@ export interface ProgramWorkflowContractTemplate {
   name: string;
   signatureRequired: boolean;
   isActive: boolean;
+  /** "enrollment" (signed to join the program) or "award" (generated per funding award). */
+  purpose?: AgreementPurpose;
+  /** The version new agreements from this template use. */
+  activeVersionId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type AgreementPurpose = "enrollment" | "award";
 
 export interface ProgramWorkflowContractVersion {
   id: string;
@@ -598,6 +604,10 @@ export interface Contract {
   executedStoredFileId?: string | null;
   /** An old placeholder draft from before program contract templates; it can't be sent. */
   legacy?: boolean;
+  /** "enrollment" (the program's joining agreement) or "award" (one funding award's agreement). */
+  purpose?: AgreementPurpose;
+  /** The funding award an award agreement belongs to. */
+  awardId?: string | null;
 }
 
 export interface ClientDocument {
@@ -678,6 +688,37 @@ export interface FinalReportSnapshot {
   statedFundingNeed: string | null;
   /** As agreed in Terms. Not an amount awarded. */
   termsAmount: string | null;
+  /** Funding awards as they stood when finalized. Absent on older reports. */
+  awards?: FinalReportAward[];
+  awardTotals?: { awarded: number; received: number; outstanding: number };
+  /** What was still open when the participation closed, and the reason recorded for closing. */
+  closureReview?: { items: ClosureReviewItem[]; note: string | null; reviewedAt: string };
+}
+
+export interface FinalReportAward {
+  id: string;
+  title: string;
+  source: string;
+  status: string;
+  awardDate: string;
+  amountAwarded: number;
+  received: number;
+  outstanding: number;
+  paymentState: string;
+  agreementStatus: string | null;
+}
+
+export interface ClosureReviewItem {
+  kind: "agreement" | "deliverable" | "award";
+  id: string;
+  label: string;
+  detail: string;
+}
+
+export interface ClosureReview {
+  items: ClosureReviewItem[];
+  reviewHash: string;
+  reviewedAt: string;
 }
 
 export interface ActivityLog {
@@ -836,4 +877,100 @@ export interface ProgramRevenueRow {
   programName: string;
   received: number;
   payingClients: number;
+}
+
+// ─── Funding awards (money paid out to a client; separate from billing) ───────────────────────
+
+export type AwardStatus =
+  "pending" | "approved" | "agreement_sent" | "agreement_signed" | "cancelled";
+export type AwardPaymentState = "unpaid" | "partially_paid" | "paid";
+export type AwardPaymentMethod = "cash" | "check" | "ach" | "card" | "other";
+
+export interface AwardPayment {
+  id: string;
+  awardId: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: AwardPaymentMethod;
+  note: string | null;
+  recordedByDisplayName: string;
+  voidedAt: string | null;
+  voidedByDisplayName: string | null;
+  voidReason: string | null;
+  createdAt: string;
+}
+
+export interface Award {
+  id: string;
+  clientId: string;
+  enrollmentId: string;
+  programId: string;
+  title: string;
+  source: string;
+  amountAwarded: number;
+  /** Sum of payments that were not voided. */
+  received: number;
+  outstanding: number;
+  paymentState: AwardPaymentState;
+  awardDate: string;
+  expectedPaymentDate: string | null;
+  notes: string;
+  status: AwardStatus;
+  agreementTemplateId: string | null;
+  currentAgreementId: string | null;
+  approvedAt: string | null;
+  approvedByDisplayName: string | null;
+  cancelledAt: string | null;
+  cancelledByDisplayName: string | null;
+  cancelReason: string | null;
+  createdByDisplayName: string;
+  createdAt: string;
+  payments: AwardPayment[];
+  documents: Array<{
+    id: string;
+    name: string;
+    type: string;
+    uploadedAt: string;
+    uploadStatus: string;
+  }>;
+}
+
+/** An award with money still owed, from the organization-wide follow-up list. */
+export interface OutstandingAward extends Omit<Award, "payments" | "documents"> {
+  businessName: string;
+  clientArchived: boolean;
+  programName: string;
+  enrollmentArchived: boolean;
+  enrollmentStatus: string | null;
+}
+
+// ─── Program setup checklist ──────────────────────────────────────────────────
+
+export interface ProgramSetupItem {
+  key:
+    | "intake_form"
+    | "enrollment_agreement"
+    | "welcome_email"
+    | "deliverables"
+    | "billing"
+    | "award_agreement";
+  label: string;
+  required: boolean;
+  done: boolean;
+  detail: string;
+}
+
+export interface ProgramSetup {
+  programId: string;
+  isActive: boolean;
+  ready: boolean;
+  items: ProgramSetupItem[];
+  missingRequired: ProgramSetupItem[];
+}
+
+export interface ProgramSetupSummary {
+  programId: string;
+  isActive: boolean;
+  ready: boolean;
+  missingRequired: string[];
 }

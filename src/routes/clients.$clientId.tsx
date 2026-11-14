@@ -8,6 +8,7 @@ import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSend
 import { JoinedDateEditor } from "@/components/clients/JoinedDateEditor";
 import { NextProgramAction } from "@/components/clients/NextProgramAction";
 import { FinalReportsTab } from "@/components/clients/FinalReportsTab";
+import { FundingTab } from "@/components/clients/FundingTab";
 import { ProgramDeliverablesCard } from "@/components/clients/ProgramDeliverablesCard";
 import {
   enrollmentDatesLabel,
@@ -1777,6 +1778,19 @@ function ClientProfile() {
             </Card>
           ))}
           <Button onClick={() => setMonitoringOpen(true)}>Add monitoring item</Button>
+        </TabsContent>
+
+        <TabsContent value="funding" className="mt-4 space-y-3">
+          {!selectedProgram || !selectedEnrollment ? (
+            noEnrollmentNotice
+          ) : (
+            <FundingTab
+              client={client}
+              enrollment={selectedEnrollment}
+              programName={selectedProgram.name}
+              terms={terms}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="final" className="mt-4 space-y-3">

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -26,8 +27,10 @@ import {
 } from '../communications/communication-attempts';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import {
+  AGREEMENT_PURPOSE,
   CONTRACT_CLIENT_STATUS,
   CONTRACT_STATUS,
+  ENROLLMENT_AGREEMENT_WHERE,
   INITIAL_FOLLOW_UP_TYPE,
   contractTokenExpiry,
   generateContractToken,
@@ -38,10 +41,19 @@ import {
   WELCOME_NEXT_STEP,
 } from './contract-lifecycle';
 import type { SubmitPublicContractDto } from './dto/submit-public-contract.dto';
+import { lockAward } from '../funding/award-lock';
+import {
+  agreementContentHash,
+  fieldsUsed,
+  formatAgreementAmount,
+  formatAgreementDate,
+  renderMergeFields,
+  type MergeValues,
+} from './merge-fields';
 import { isLegacyContract, NOT_LEGACY_CONTRACT, NOT_UNSIGNED_LEGACY_CONTRACT } from './legacy-contract';
 import { findClientForOrg, findEnrollmentForOrg } from '../../common/tenancy/org-scoped.repository';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
-import { transitionContract } from '../lifecycle/contract-state';
+import { OPEN_CONTRACT_STATUSES, transitionContract } from '../lifecycle/contract-state';
 import { applyEnrollmentClosure } from '../lifecycle/enrollment-closure';
 import { normalizeMonitoringFrequency } from '../lifecycle/monitoring';
 import {
@@ -61,6 +73,48 @@ import {
   renderExecutedContract,
 } from './executed-contract-file';
 import { assertSendableRecipient } from '../communications/recipient';
+
+/** An agreement version ready to render: `id` is the version id (stored as CfContract.contractTemplateId). */
+interface ResolvedAgreementTemplate {
+  id: string;
+  organizationId: string;
+  name: string;
+  content: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  programTemplateId: string | null;
+}
+
+/** What staff reviewed before generating: the template version and a fingerprint of its text. */
+export interface AgreementReview {
+  versionId: string;
+  contentHash: string;
+}
+
+/** Only an approved award without an agreement in progress can have one prepared. */
+function assertAwardCanHaveAgreement(status: string): void {
+  if (status === 'approved') return;
+  if (status === 'pending') throw new BadRequestException('Approve the award before preparing its agreement.');
+  if (status === 'cancelled') throw new BadRequestException('This award was cancelled.');
+  if (status === 'agreement_signed') {
+    throw new BadRequestException('This award already has a signed agreement. Edit the award and replace the agreement to prepare a new one.');
+  }
+  throw new BadRequestException('This award already has an agreement in progress.');
+}
+
+export const AWARD_AGREEMENT_RETIRED_MESSAGE = "This award's agreement was replaced or the award was cancelled. Prepare the agreement again.";
+
+type AgreementPurposeValue = (typeof AGREEMENT_PURPOSE)[keyof typeof AGREEMENT_PURPOSE];
+
+export const AGREEMENT_CHANGED_MESSAGE = 'The agreement changed since you reviewed it. Review it again before sending.';
+
+/** A new agreement is only created from the exact version and text staff reviewed. */
+function assertReviewedAgreement(review: AgreementReview, versionId: string, contentHash: string): void {
+  if (review.versionId !== versionId || review.contentHash !== contentHash) {
+    throw new ConflictException(AGREEMENT_CHANGED_MESSAGE);
+  }
+}
 
 const SAFE_PROGRAM_ERROR = 'The selected program is not configured for contract processing.';
 const SAFE_TEMPLATE_ERROR = 'The selected program does not have an active contract template.';
@@ -280,14 +334,21 @@ export class ContractsService {
     organizationId: string,
     clientId: string,
     staffSigner: StaffSigner,
-    options?: { enrollmentId?: string | null },
+    options?: { enrollmentId?: string | null; review?: AgreementReview | null },
   ) {
     // Program context always comes from an enrollment: the one given, or the client's only open one.
     const { client, program, enrollmentId } = options?.enrollmentId
       ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId, OPEN_ENROLLMENT_STATUSES)
       : await this.resolveSingleEnrollment(organizationId, clientId, OPEN_ENROLLMENT_STATUSES, 'generate a contract for');
     const template = await this.resolveTemplate(program);
-    const generated = await this.generateInternal(client, program, template, staffSigner, enrollmentId);
+    const generated = await this.generateInternal(
+      client,
+      program,
+      template,
+      staffSigner,
+      enrollmentId,
+      options?.review ?? undefined,
+    );
     return {
       contract: this.safeContract(generated.contract, template.name),
       // Null when a contract was already emailed: its link is left untouched rather than rotated.
@@ -327,6 +388,15 @@ export class ContractsService {
     }
     if (options?.enrollmentId && contract.enrollmentId && contract.enrollmentId !== options.enrollmentId) {
       throw new BadRequestException('This contract belongs to a different program enrollment.');
+    }
+    if (contract.purpose === AGREEMENT_PURPOSE.award) {
+      // Checked again under the award's lock when it is issued.
+      const award = contract.awardId
+        ? await this.prisma.cfEnrollmentAward.findFirst({ where: { id: contract.awardId, organizationId: client.organizationId } })
+        : null;
+      if (!award || award.status === 'cancelled' || award.currentAgreementId !== contract.id) {
+        throw new BadRequestException(AWARD_AGREEMENT_RETIRED_MESSAGE);
+      }
     }
 
     const program = await this.prisma.cfProgram.findFirst({
@@ -431,6 +501,8 @@ export class ContractsService {
         clientId: client.id,
         OR: [{ enrollmentId }, { enrollmentId: null, programId: program.id }],
         ...NOT_UNSIGNED_LEGACY_CONTRACT,
+        // An award agreement signed later must not stand in for (or block) the enrollment agreement.
+        ...ENROLLMENT_AGREEMENT_WHERE,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -838,17 +910,21 @@ export class ContractsService {
         data: { status: CONTRACT_STATUS.opened },
       });
       if (opened.count === 0) return;
-      await transaction.cfClient.update({
-        where: { id: client.id },
-        data: { status: CONTRACT_CLIENT_STATUS.contractOpened },
-      });
+      const isAwardAgreement = contract.purpose === AGREEMENT_PURPOSE.award;
+      // Only the enrollment agreement moves the client through the joining workflow.
+      if (!isAwardAgreement) {
+        await transaction.cfClient.update({
+          where: { id: client.id },
+          data: { status: CONTRACT_CLIENT_STATUS.contractOpened },
+        });
+      }
       await transaction.cfActivityLog.create({
         data: {
           organizationId: client.organizationId,
           clientId: client.id,
           actorUserId: null,
-          action: 'CONTRACT_OPENED',
-          description: 'Contract opened by client',
+          action: isAwardAgreement ? 'AWARD_AGREEMENT_OPENED' : 'CONTRACT_OPENED',
+          description: isAwardAgreement ? 'Award agreement opened by client' : 'Contract opened by client',
           user: 'public_contract',
         },
       });
@@ -861,6 +937,8 @@ export class ContractsService {
         contractName: contract.contractType,
         content: contract.generatedContent,
         expiresAt: contract.secureTokenExpiresAt,
+        /** 'award' agreements don't start onboarding; the signing page words its confirmation accordingly. */
+        purpose: contract.purpose === AGREEMENT_PURPOSE.award ? AGREEMENT_PURPOSE.award : AGREEMENT_PURPOSE.enrollment,
       },
       client: { name: client.primaryContactName },
       program: { id: program.id, name: program.name },
@@ -873,6 +951,11 @@ export class ContractsService {
     requestMetadata: { signerIp: string | null; userAgent: string | null },
   ) {
     const { contract, client, program } = await this.resolvePublicContract(rawToken);
+    // An award agreement records the award's signature and nothing else: no onboarding, no
+    // monitoring, no enrollment change, no welcome email, no automation.
+    if (contract.purpose === AGREEMENT_PURPOSE.award) {
+      return this.completeAwardAgreement(rawToken, contract, client, program, acceptance, requestMetadata);
+    }
     const now = new Date();
     const secureTokenHash = hashContractToken(rawToken);
     const dueDate = monitoringDueDate(now, program.defaultMonitoringFrequency);
@@ -1056,7 +1139,8 @@ export class ContractsService {
       programId: program.id,
       enrollmentId: contract.enrollmentId,
       contract: { id: contract.id, status: CONTRACT_STATUS.completed, completedAt: now },
-      client: { id: client.id, status: CONTRACT_CLIENT_STATUS.onboarding },
+      purpose: AGREEMENT_PURPOSE.enrollment as AgreementPurposeValue,
+      client: { id: client.id, status: CONTRACT_CLIENT_STATUS.onboarding as string },
       monitoringTask: completed.monitoringItem
         ? {
             id: completed.monitoringItem.id,
@@ -1067,6 +1151,87 @@ export class ContractsService {
           }
         : null,
       welcomeDelivery,
+    };
+  }
+
+  /** Signs an award agreement: records the signature, files and emails the signed copy, marks the award signed. */
+  private async completeAwardAgreement(
+    rawToken: string,
+    contract: Awaited<ReturnType<ContractsService['resolvePublicContract']>>['contract'],
+    client: Awaited<ReturnType<ContractsService['resolvePublicContract']>>['client'],
+    program: Awaited<ReturnType<ContractsService['resolvePublicContract']>>['program'],
+    acceptance: SubmitPublicContractDto,
+    requestMetadata: { signerIp: string | null; userAgent: string | null },
+  ) {
+    const now = new Date();
+    const secureTokenHash = hashContractToken(rawToken);
+    await this.prisma.$transaction(async (transaction) => {
+      // The award must still exist, not be cancelled, and still use this agreement.
+      const award = contract.awardId ? await lockAward(transaction, client.organizationId, contract.awardId).catch(() => null) : null;
+      if (!award || award.status === 'cancelled' || award.currentAgreementId !== contract.id) {
+        throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
+      }
+      const result = await transaction.cfContract.updateMany({
+        where: {
+          id: contract.id,
+          secureTokenHash,
+          status: { in: [CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] },
+          completedAt: null,
+          secureTokenExpiresAt: { gt: now },
+        },
+        data: {
+          status: CONTRACT_STATUS.completed,
+          signedAt: now,
+          signedName: acceptance.signedName.trim(),
+          signedEmail: acceptance.signedEmail.trim().toLowerCase(),
+          agreedToTerms: true,
+          signatureNote: acceptance.signatureNote?.trim() || null,
+          signerIp: requestMetadata.signerIp?.slice(0, 255) || null,
+          signerUserAgent: requestMetadata.userAgent,
+          completedAt: now,
+          secureTokenHash: null,
+          secureTokenExpiresAt: null,
+        },
+      });
+      if (result.count !== 1) throw new NotFoundException(SAFE_PUBLIC_CONTRACT_ERROR);
+      await transaction.cfEnrollmentAward.update({ where: { id: award.id }, data: { status: 'agreement_signed' } });
+      await transaction.cfActivityLog.create({
+        data: {
+          organizationId: client.organizationId,
+          clientId: client.id,
+          enrollmentId: contract.enrollmentId,
+          actorUserId: null,
+          action: 'AWARD_AGREEMENT_SIGNED',
+          description: `Award agreement signed by client (${award.title})`,
+          user: 'public_contract',
+        },
+      });
+    });
+
+    await this.archiveExecutedContract(client, contract, acceptance, now);
+    await this.sendExecutedCopyAfterSignature(client, contract, program);
+    await this.createAdminNotifications({
+      organizationId: client.organizationId,
+      clientId: client.id,
+      sourceType: 'contract',
+      sourceId: contract.id,
+      type: 'CONTRACT_SIGNED',
+      title: 'Award agreement signed',
+      message: `${client.primaryContactName} signed ${contract.contractType}.`,
+      actionUrl: `/clients/${client.id}?tab=funding`,
+      isDemo: client.isDemo,
+    });
+
+    return {
+      organizationId: client.organizationId,
+      programId: program.id,
+      enrollmentId: contract.enrollmentId,
+      contract: { id: contract.id, status: CONTRACT_STATUS.completed, completedAt: now },
+      purpose: AGREEMENT_PURPOSE.award as AgreementPurposeValue,
+      // The client's own status is untouched by an award agreement.
+      client: { id: client.id, status: client.status },
+      monitoringTask: null,
+      welcomeDelivery: { status: 'skipped', reason: 'disabled' } as WelcomeEmailDeliveryResult,
     };
   }
 
@@ -1117,7 +1282,8 @@ export class ContractsService {
             clientId: client.id,
             name: `${contract.contractType} — Executed`,
             type: 'contract',
-            url: uploaded.url,
+            // Never a public link: contracts are private and only served through signed links.
+            url: '',
             storedFileId: storedFile.id,
             objectKey: uploaded.objectKey,
             bucket: uploaded.bucket,
@@ -1246,12 +1412,339 @@ export class ContractsService {
     return { contract, client, program };
   }
 
+  /**
+   * The enrollment agreement staff are about to send, exactly as the client will read it: an
+   * agreement already in progress shows its stored text; otherwise the program's active version is
+   * filled in for this client. `missing` lists merge fields with no value (sending is blocked until
+   * they are filled), and `contentHash` pins generation to this exact text and version.
+   */
+  async previewForStaff(organizationId: string, clientId: string, options: { enrollmentId?: string | null }) {
+    const { client, program, enrollmentId } = options.enrollmentId
+      ? await this.resolveEnrollmentProgram(organizationId, clientId, options.enrollmentId, OPEN_ENROLLMENT_STATUSES)
+      : await this.resolveSingleEnrollment(organizationId, clientId, OPEN_ENROLLMENT_STATUSES, 'preview a contract for');
+    const existing = await this.prisma.cfContract.findFirst({
+      where: {
+        organizationId: client.organizationId,
+        clientId: client.id,
+        programId: program.id,
+        status: { in: [CONTRACT_STATUS.draft, CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] },
+        ...NOT_LEGACY_CONTRACT,
+        ...ENROLLMENT_AGREEMENT_WHERE,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+      return {
+        purpose: AGREEMENT_PURPOSE.enrollment,
+        existingContractId: existing.id,
+        templateId: existing.programTemplateId ?? null,
+        versionId: existing.renderedFromVersionId ?? existing.contractTemplateId,
+        title: existing.contractType,
+        content: existing.generatedContent,
+        missing: [] as Array<{ key: string; label: string }>,
+        contentHash: agreementContentHash(existing.contractType, existing.generatedContent),
+      };
+    }
+    const template = await this.resolveTemplate(program);
+    const rendered = await this.renderAgreement(client, program, enrollmentId, template, { allowMissing: true });
+    return {
+      purpose: AGREEMENT_PURPOSE.enrollment,
+      existingContractId: null,
+      templateId: template.programTemplateId ?? null,
+      versionId: template.id,
+      title: template.name,
+      content: rendered.text,
+      missing: rendered.missing,
+      contentHash: rendered.contentHash,
+    };
+  }
+
+  // ─── Award agreements ──────────────────────────────────────────────────────
+
+  /**
+   * An award's agreement exactly as the client will read it. An agreement already in progress shows
+   * its stored text; otherwise the award agreement template is filled in from the award.
+   */
+  async previewAwardAgreement(organizationId: string, awardId: string, options: { templateId?: string | null } = {}) {
+    const award = await this.prisma.cfEnrollmentAward.findFirst({ where: { id: awardId, organizationId } });
+    if (!award) throw new NotFoundException('Award not found.');
+    const open = await this.openAwardAgreement(this.prisma, award);
+    if (open) {
+      return {
+        purpose: AGREEMENT_PURPOSE.award,
+        awardId: award.id,
+        existingContractId: open.id,
+        templateId: open.programTemplateId ?? null,
+        versionId: open.renderedFromVersionId ?? open.contractTemplateId,
+        title: open.contractType,
+        content: open.generatedContent,
+        missing: [] as Array<{ key: string; label: string }>,
+        contentHash: agreementContentHash(open.contractType, open.generatedContent),
+      };
+    }
+    assertAwardCanHaveAgreement(award.status);
+    const { client, program, enrollmentId } = await this.resolveEnrollmentProgram(
+      organizationId,
+      award.clientId,
+      award.enrollmentId,
+      OPEN_ENROLLMENT_STATUSES,
+    );
+    const template = await this.resolveAwardTemplate(award, options.templateId ?? null);
+    const rendered = await this.renderAgreement(client, program, enrollmentId, template, {
+      allowMissing: true,
+      extraValues: await this.awardMergeValues(award),
+    });
+    return {
+      purpose: AGREEMENT_PURPOSE.award,
+      awardId: award.id,
+      existingContractId: null,
+      templateId: template.programTemplateId,
+      versionId: template.id,
+      title: template.name,
+      content: rendered.text,
+      missing: rendered.missing,
+      contentHash: rendered.contentHash,
+    };
+  }
+
+  /**
+   * Creates the award's agreement (a DRAFT, sent separately) from exactly the reviewed text. Runs
+   * under the award's row lock; a database index allows only one open agreement per award, so a
+   * repeated or simultaneous request returns the agreement already prepared.
+   */
+  async generateAwardAgreement(
+    organizationId: string,
+    awardId: string,
+    staffSigner: StaffSigner,
+    options: { templateId?: string | null; review?: AgreementReview | null } = {},
+  ) {
+    const found = await this.prisma.cfEnrollmentAward.findFirst({ where: { id: awardId, organizationId } });
+    if (!found) throw new NotFoundException('Award not found.');
+    const { client, program, enrollmentId } = await this.resolveEnrollmentProgram(
+      organizationId,
+      found.clientId,
+      found.enrollmentId,
+      OPEN_ENROLLMENT_STATUSES,
+    );
+    const template = await this.resolveAwardTemplate(found, options.templateId ?? null);
+    const now = new Date();
+    const rawToken = generateContractToken();
+    try {
+      const contract = await this.prisma.$transaction(async (transaction) => {
+        const award = await lockAward(transaction, organizationId, awardId);
+        const open = await this.openAwardAgreement(transaction, award);
+        if (open) return open;
+        assertAwardCanHaveAgreement(award.status);
+        // Rendered from the award as locked, so a concurrent edit can't slip in between.
+        const rendered = await this.renderAgreement(client, program, enrollmentId, template, {
+          extraValues: await this.awardMergeValues(award),
+        });
+        if (options.review) assertReviewedAgreement(options.review, template.id, rendered.contentHash);
+        const created = await transaction.cfContract.create({
+          data: {
+            organizationId,
+            clientId: client.id,
+            programId: program.id,
+            enrollmentId,
+            awardId: award.id,
+            contractTemplateId: template.id,
+            contractType: template.name,
+            purpose: AGREEMENT_PURPOSE.award,
+            programTemplateId: template.programTemplateId,
+            renderedFromVersionId: template.id,
+            status: CONTRACT_STATUS.draft,
+            secureTokenHash: hashContractToken(rawToken),
+            secureTokenExpiresAt: contractTokenExpiry(now),
+            staffSignedByUserId: staffSigner.id,
+            staffSignedByName: staffSigner.name,
+            staffSignedAt: now,
+            generatedContent: renderContractSnapshot({
+              templateName: template.name,
+              templateContent: rendered.text,
+              clientId: client.id,
+              clientName: client.primaryContactName,
+              programId: program.id,
+              programName: program.name,
+              generatedAt: now,
+              staffSignerName: staffSigner.name,
+              staffSignedAt: now,
+            }),
+            isDemo: client.isDemo,
+          },
+        });
+        await transaction.cfEnrollmentAward.update({
+          where: { id: award.id },
+          data: { currentAgreementId: created.id, agreementTemplateId: template.programTemplateId },
+        });
+        await transaction.cfActivityLog.create({
+          data: {
+            organizationId,
+            clientId: client.id,
+            enrollmentId,
+            actorUserId: staffSigner.id,
+            action: 'AWARD_AGREEMENT_PREPARED',
+            description: `Agreement prepared for award "${award.title}"`,
+            user: staffSigner.name,
+            source: DELIVERY_SOURCE.manual,
+            isDemo: client.isDemo,
+          },
+        });
+        return created;
+      });
+      return { contract: this.safeContract(contract, contract.contractType), awardId };
+    } catch (error) {
+      // A simultaneous request already created the award's open agreement (unique index).
+      if (isUniqueViolation(error)) {
+        const open = await this.openAwardAgreement(this.prisma, found);
+        if (open) return { contract: this.safeContract(open, open.contractType), awardId };
+      }
+      throw error;
+    }
+  }
+
+  /** The award's open (not yet signed, not cancelled) agreement, if any. */
+  private openAwardAgreement(
+    db: Pick<PrismaService, 'cfContract'>,
+    award: { id: string; organizationId: string },
+  ) {
+    return db.cfContract.findFirst({
+      where: { organizationId: award.organizationId, awardId: award.id, status: { in: [...OPEN_CONTRACT_STATUSES] } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** The award agreement template to use: the one chosen, the award's own, or the program's only one. */
+  private async resolveAwardTemplate(
+    award: { organizationId: string; programId: string; agreementTemplateId: string | null },
+    templateId: string | null,
+  ): Promise<ResolvedAgreementTemplate> {
+    const where = { organizationId: award.organizationId, programId: award.programId, purpose: AGREEMENT_PURPOSE.award, isActive: true };
+    const chosenId = templateId ?? award.agreementTemplateId;
+    let template: { id: string; name: string; activeVersionId: string | null } | null = null;
+    if (chosenId) {
+      template = await this.prisma.cfProgramContractTemplate.findFirst({
+        where: {
+          id: chosenId,
+          organizationId: award.organizationId,
+          programId: award.programId,
+          purpose: AGREEMENT_PURPOSE.award,
+          isActive: true,
+        },
+      });
+    } else {
+      const all = await this.prisma.cfProgramContractTemplate.findMany({ where, orderBy: { createdAt: 'asc' } });
+      if (all.length > 1) throw new BadRequestException('This program has more than one award agreement. Choose which one to use.');
+      template = all[0] ?? null;
+    }
+    if (!template) {
+      throw new BadRequestException('This program has no award agreement. Add one under Agreements on the program page.');
+    }
+    const version = template.activeVersionId
+      ? await this.prisma.cfProgramContractVersion.findFirst({
+          where: { id: template.activeVersionId, organizationId: award.organizationId, templateId: template.id },
+        })
+      : null;
+    if (!version) throw new BadRequestException(`"${template.name}" has no active version yet.`);
+    return {
+      id: version.id,
+      organizationId: version.organizationId,
+      name: version.title?.trim() || template.name,
+      content: version.content,
+      isActive: true,
+      createdAt: version.createdAt,
+      updatedAt: version.createdAt,
+      programTemplateId: template.id,
+    };
+  }
+
+  /** The award fields an award agreement can show. Dates are the award's calendar day for the organization. */
+  private async awardMergeValues(award: {
+    organizationId: string;
+    title: string;
+    source: string;
+    amountAwarded: { toString(): string };
+    awardDate: Date;
+  }): Promise<MergeValues> {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: award.organizationId },
+      select: { settings: true },
+    });
+    const settings = organization?.settings && typeof organization.settings === 'object'
+      ? (organization.settings as Record<string, unknown>)
+      : {};
+    const timeZone = typeof settings.timezone === 'string' ? settings.timezone : undefined;
+    return {
+      'award.title': award.title,
+      'award.source': award.source,
+      'award.amount': formatAgreementAmount(award.amountAwarded),
+      'award.date': formatAgreementDate(award.awardDate, timeZone),
+    };
+  }
+
+  /** Values for an agreement's merge fields. Award fields are added by the award flow. */
+  private async agreementMergeValues(
+    client: { businessName: string; primaryContactName: string; email: string; organizationId: string },
+    program: { name: string },
+    enrollmentId: string | null,
+    used: ReadonlySet<string>,
+  ): Promise<MergeValues> {
+    // Only what the template uses is loaded: a template without fields (every older one) costs
+    // no extra queries.
+    const needsOrganization = used.has('organization.name') || used.has('today');
+    const [organization, enrollment] = await Promise.all([
+      needsOrganization
+        ? this.prisma.organization.findUnique({ where: { id: client.organizationId }, select: { name: true, settings: true } })
+        : Promise.resolve(null),
+      enrollmentId && used.has('enrollment.startDate')
+        ? this.prisma.cfProgramEnrollment.findFirst({
+            where: { id: enrollmentId, organizationId: client.organizationId },
+            select: { startDate: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const settings = organization?.settings && typeof organization.settings === 'object'
+      ? (organization.settings as Record<string, unknown>)
+      : {};
+    const timeZone = typeof settings.timezone === 'string' ? settings.timezone : undefined;
+    return {
+      'client.contactName': client.primaryContactName,
+      'client.businessName': client.businessName,
+      'client.email': client.email,
+      'program.name': program.name,
+      'organization.name': organization?.name ?? null,
+      'enrollment.startDate': formatAgreementDate(enrollment?.startDate ?? null),
+      today: formatAgreementDate(new Date(), timeZone),
+    };
+  }
+
+  /**
+   * Fills an agreement version for one client. Missing values block generation (a client is never
+   * sent a blank where their details belong) unless the caller is only previewing.
+   */
+  private async renderAgreement(
+    client: { businessName: string; primaryContactName: string; email: string; organizationId: string },
+    program: { name: string },
+    enrollmentId: string | null,
+    template: { name: string; content: string },
+    options: { allowMissing?: boolean; extraValues?: MergeValues } = {},
+  ) {
+    const used = new Set(fieldsUsed(template.content));
+    const values = { ...(await this.agreementMergeValues(client, program, enrollmentId, used)), ...options.extraValues };
+    const rendered = renderMergeFields(template.content, values);
+    if (rendered.missing.length && !options.allowMissing) {
+      throw new BadRequestException(
+        `The agreement can't be generated until these details are filled in: ${rendered.missing.map((field) => field.label).join(', ')}.`,
+      );
+    }
+    return { ...rendered, contentHash: agreementContentHash(template.name, rendered.text) };
+  }
+
   private async resolveTemplate(program: {
     id: string;
     organizationId: string;
     name: string;
     defaultContractTemplateId: string;
-  }) {
+  }): Promise<ResolvedAgreementTemplate> {
     const workflow = await this.workflowConfig.getOrCreate(program.organizationId, program.id, program.name);
     const programContractTemplateModel = (this.prisma as unknown as {
       cfProgramContractTemplate?: {
@@ -1293,6 +1786,7 @@ export class ContractsService {
         isActive: true,
         createdAt: version.createdAt,
         updatedAt: version.createdAt,
+        programTemplateId: activeProgramTemplate?.id ?? null,
       };
     }
     throw new BadRequestException(SAFE_TEMPLATE_ERROR);
@@ -1301,10 +1795,12 @@ export class ContractsService {
   private async generateInternal(
     client: Awaited<ReturnType<PrismaService['cfClient']['findFirst']>> & {},
     program: Awaited<ReturnType<PrismaService['cfProgram']['findFirst']>> & {},
-    template: { id: string; name: string; content: string },
+    template: { id: string; name: string; content: string; programTemplateId?: string | null },
     staffSigner: StaffSigner,
     // Required: a contract never exists without the enrollment it belongs to.
     enrollmentId: string,
+    /** What staff reviewed. When given, a new agreement is only created from exactly that text. */
+    review?: AgreementReview,
   ) {
     const now = new Date();
     const rawToken = generateContractToken();
@@ -1318,6 +1814,7 @@ export class ContractsService {
         status: { in: [CONTRACT_STATUS.draft, CONTRACT_STATUS.sent, CONTRACT_STATUS.opened] },
         // An old placeholder draft is never reused: a fresh one is rendered from the template.
         ...NOT_LEGACY_CONTRACT,
+        ...ENROLLMENT_AGREEMENT_WHERE,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1346,6 +1843,9 @@ export class ContractsService {
       return { contract, rawToken: rawToken as string | null };
     }
 
+    const rendered = await this.renderAgreement(client, program, enrollmentId, template);
+    if (review) assertReviewedAgreement(review, template.id, rendered.contentHash);
+
     const contract = await this.prisma.cfContract.create({
       data: {
         organizationId: client.organizationId,
@@ -1354,6 +1854,9 @@ export class ContractsService {
         enrollmentId,
         contractTemplateId: template.id,
         contractType: template.name,
+        purpose: AGREEMENT_PURPOSE.enrollment,
+        programTemplateId: template.programTemplateId ?? null,
+        renderedFromVersionId: template.id,
         status: CONTRACT_STATUS.draft,
         secureTokenHash,
         secureTokenExpiresAt,
@@ -1362,7 +1865,7 @@ export class ContractsService {
         staffSignedAt: now,
         generatedContent: renderContractSnapshot({
           templateName: template.name,
-          templateContent: template.content,
+          templateContent: rendered.text,
           clientId: client.id,
           clientName: client.primaryContactName,
           programId: program.id,
@@ -1399,7 +1902,21 @@ export class ContractsService {
       : `contract.send:${contractId}:${secureTokenHash.slice(0, 16)}`;
     const staffName = delivery.actor?.name?.trim() || 'system';
 
+    const agreement = await this.prisma.cfContract.findFirst({
+      where: { id: contractId, organizationId: client.organizationId },
+      select: { purpose: true, awardId: true },
+    });
+    const isAwardAgreement = agreement?.purpose === AGREEMENT_PURPOSE.award;
+
     const issued = await this.prisma.$transaction(async (transaction) => {
+      if (isAwardAgreement) {
+        // An award agreement is only sent while it is still that award's current agreement.
+        const award = agreement?.awardId ? await lockAward(transaction, client.organizationId, agreement.awardId) : null;
+        if (!award || award.currentAgreementId !== contractId || !['approved', 'agreement_sent'].includes(award.status)) {
+          throw new ConflictException(AWARD_AGREEMENT_RETIRED_MESSAGE);
+        }
+        await transaction.cfEnrollmentAward.update({ where: { id: award.id }, data: { status: 'agreement_sent' } });
+      }
       // Conditional: only DRAFT/SENT/OPENED/EXPIRED may be (re)issued. A contract signed or
       // cancelled meanwhile makes this throw 409 instead of reverting it to SENT.
       await transitionContract(transaction, {
@@ -1411,18 +1928,21 @@ export class ContractsService {
       const contract = await transaction.cfContract.findFirstOrThrow({
         where: { id: contractId, organizationId: client.organizationId },
       });
-      await transaction.cfClient.update({
-        where: { id: client.id },
-        data: { status: CONTRACT_CLIENT_STATUS.contractSent },
-      });
+      // Only the enrollment agreement moves the client through the joining workflow.
+      if (!isAwardAgreement) {
+        await transaction.cfClient.update({
+          where: { id: client.id },
+          data: { status: CONTRACT_CLIENT_STATUS.contractSent },
+        });
+      }
       await transaction.cfActivityLog.create({
         data: {
           organizationId: client.organizationId,
           clientId: client.id,
           enrollmentId: contract.enrollmentId,
           actorUserId: delivery.actor?.id ?? client.assignedUserId,
-          action: 'CONTRACT_SENT',
-          description: 'Contract sent',
+          action: isAwardAgreement ? 'AWARD_AGREEMENT_SENT' : 'CONTRACT_SENT',
+          description: isAwardAgreement ? 'Award agreement sent' : 'Contract sent',
           user: manual ? staffName : 'system',
           source: delivery.source,
         },
@@ -1435,7 +1955,7 @@ export class ContractsService {
         if (enrollment && isClosedEnrollment(enrollment.status)) {
           throw new BadRequestException('This enrollment is closed; its contract can no longer be sent.');
         }
-        if (enrollment && PRE_CONTRACT_ENROLLMENT_STATUSES.includes(enrollment.status)) {
+        if (!isAwardAgreement && enrollment && PRE_CONTRACT_ENROLLMENT_STATUSES.includes(enrollment.status)) {
           await transitionEnrollment(transaction, {
             organizationId: client.organizationId,
             enrollmentId: contract.enrollmentId,

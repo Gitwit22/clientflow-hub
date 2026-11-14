@@ -14,6 +14,7 @@ import {
   cfUpdateFormTemplate,
   cfCreateClient,
   cfPermanentlyDeleteClient,
+  cfGetClientDeletionEligibility,
   cfListArchivedClients,
   cfGetClient,
   cfListFormAssignments,
@@ -25,6 +26,7 @@ import {
   cfUpdateProgramWorkflow,
   cfCreateProgramWorkflowContractTemplate,
   cfCreateProgramWorkflowContractVersion,
+  cfUpdateProgramWorkflowContractTemplate,
   cfCreateProgramWorkflowWelcomeTemplate,
   cfCreateProgramWorkflowWelcomeVersion,
   cfCreateEnrollment,
@@ -224,6 +226,11 @@ export async function archiveClient(
  * Permanently erases a client and everything recorded for them, payments included, so their money
  * leaves Payments and Reports. Archive instead to keep the record and its financial history.
  */
+/** Whether permanent deletion is allowed (clients with recorded payments can only be archived). */
+export async function getClientDeletionEligibility(id: string) {
+  return cfGetClientDeletionEligibility(id);
+}
+
 export async function deleteClient(id: string, confirmation: string) {
   await cfPermanentlyDeleteClient(id, confirmation);
   setState((current) => ({
@@ -264,6 +271,11 @@ export const createProgramWorkflowContractTemplate = (
   programId: string,
   data: Record<string, unknown>,
 ) => cfCreateProgramWorkflowContractTemplate(programId, data);
+export const updateProgramWorkflowContractTemplate = (
+  programId: string,
+  templateId: string,
+  data: Parameters<typeof cfUpdateProgramWorkflowContractTemplate>[2],
+) => cfUpdateProgramWorkflowContractTemplate(programId, templateId, data);
 export const createProgramWorkflowContractVersion = (
   programId: string,
   templateId: string,
@@ -758,7 +770,7 @@ export async function saveFinalReportDraft(
  */
 export async function finalizeFinalReport(
   report: Pick<FinalReport, "id" | "clientId">,
-  data: FinalReportNarrative & { outcome: string },
+  data: FinalReportNarrative & { outcome: string; closureNote?: string; reviewHash?: string },
 ) {
   const finalized = await cfFinalizeFinalReport(report.id, data);
   upsertFinalReport(finalized);
@@ -776,13 +788,20 @@ export async function archiveAfterFinalReport(clientId: string, decision: string
 
 /* --------------------------- Documents / comms / log ------------------------- */
 
-export async function uploadDocument(clientId: string, file: File, enrollmentId?: string) {
+export async function uploadDocument(
+  clientId: string,
+  file: File,
+  enrollmentId?: string,
+  /** Files the document as supporting evidence for one funding award. */
+  awardId?: string,
+) {
   const contentType = file.type || "application/octet-stream";
   const intent = await cfCreateDocumentUpload(clientId, {
     name: file.name,
     type: contentType,
     byteSize: file.size,
     ...(enrollmentId ? { enrollmentId } : {}),
+    ...(awardId ? { awardId } : {}),
   });
   const uploadResponse = await fetch(intent.uploadUrl, {
     method: "PUT",

@@ -38,7 +38,8 @@ export class PublicContractsController {
       userAgent: request.get('user-agent')?.slice(0, 1000) || null,
     });
     let automation: { status: 'skipped' | 'completed' | 'failed'; execution?: unknown } = { status: 'skipped' };
-    if (result.programId) {
+    // Program automation follows the enrollment agreement only; an award agreement never runs it.
+    if (result.programId && result.purpose !== 'award') {
       try {
         const execution = await this.automation.runTrigger({
           organizationId: result.organizationId,

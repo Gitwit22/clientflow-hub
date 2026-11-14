@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { requireManager, type RoleActor } from '../../common/authorization/role-policy';
 import { findClientForOrg, type TenantDb } from '../../common/tenancy/org-scoped.repository';
 import { StorageService } from '../../integrations/storage/storage.service';
@@ -12,6 +12,79 @@ export const STORAGE_CLEANUP = 'storage_cleanup';
 
 type DeleteManyDelegate = { deleteMany(args: { where: Record<string, unknown> }): Promise<{ count: number }> };
 
+/** Shown when permanent deletion is refused because money was recorded for the client. */
+export const CLIENT_HAS_PAYMENTS_MESSAGE =
+  'This client has recorded payments, so they can only be archived. Archiving keeps their payment history.';
+
+export interface ClientPaymentRecordCounts {
+  /** Payments that count (billing and award, not voided). Any of these blocks permanent deletion. */
+  active: number;
+  /** Every payment row, voided included. */
+  total: number;
+  /** Rows per ledger, voided included, to check nothing appeared during the deletion. */
+  billingTotal: number;
+  awardTotal: number;
+}
+
+export interface DeletionEligibility {
+  canDelete: boolean;
+  /** Why deletion is refused, when it is. */
+  reason: 'has_payments' | null;
+  message: string | null;
+  recordedPayments: number;
+}
+
+/**
+ * Payments recorded for a client, across all of their enrollments. A client who ever had a real
+ * (not voided) payment can never be permanently deleted, only archived, so money records survive.
+ */
+export async function clientPaymentRecordCounts(
+  db: Pick<TenantDb, 'cfProgramEnrollment' | 'cfPaymentRecord' | 'cfEnrollmentBillingAgreement' | 'cfAwardPayment'>,
+  organizationId: string,
+  clientId: string,
+): Promise<ClientPaymentRecordCounts> {
+  const billing = await billingPaymentCounts(db, organizationId, clientId);
+  // Award payments are money paid out to the client; they count the same as billing payments.
+  const awardRows = await db.cfAwardPayment.findMany({
+    where: { organizationId, clientId },
+    select: { id: true, voidedAt: true },
+  });
+  const awardActive = awardRows.filter((row) => row.voidedAt === null || row.voidedAt === undefined).length;
+  return {
+    active: billing.active + awardActive,
+    total: billing.total + awardRows.length,
+    awardTotal: awardRows.length,
+    billingTotal: billing.total,
+  };
+}
+
+async function billingPaymentCounts(
+  db: Pick<TenantDb, 'cfProgramEnrollment' | 'cfPaymentRecord' | 'cfEnrollmentBillingAgreement'>,
+  organizationId: string,
+  clientId: string,
+): Promise<{ active: number; total: number }> {
+  const enrollmentIds = (await db.cfProgramEnrollment.findMany({
+    where: { organizationId, clientId },
+    select: { id: true },
+  })).map((row) => row.id);
+  if (!enrollmentIds.length) return { active: 0, total: 0 };
+  const agreementIds = (await db.cfEnrollmentBillingAgreement.findMany({
+    where: { organizationId, enrollmentId: { in: enrollmentIds } },
+    select: { id: true },
+  })).map((row) => row.id);
+  // The same rows the deletion manifest removes: by enrollment and by billing agreement.
+  const select = { id: true, voidedAt: true } as const;
+  const rows = [
+    ...(await db.cfPaymentRecord.findMany({ where: { organizationId, enrollmentId: { in: enrollmentIds } }, select })),
+    ...(agreementIds.length
+      ? await db.cfPaymentRecord.findMany({ where: { organizationId, billingAgreementId: { in: agreementIds } }, select })
+      : []),
+  ];
+  const unique = new Map(rows.map((row) => [row.id, row]));
+  const active = [...unique.values()].filter((row) => row.voidedAt === null || row.voidedAt === undefined).length;
+  return { active, total: unique.size };
+}
+
 export interface PermanentDeletionResult {
   id: string;
   deleted: true;
@@ -22,10 +95,10 @@ export interface PermanentDeletionResult {
 }
 
 /**
- * Permanently erases one client: every row the deletion manifest lists (including billing
- * agreements and payments, so the client's money leaves the reports), the stored files of their
- * contracts and documents, and the client itself. Archiving is the reversible alternative and keeps
- * all of it, money included.
+ * Permanently erases one client: every row the deletion manifest lists, the stored files of their
+ * contracts and documents, and the client itself. A client with any recorded (not voided) payment
+ * can't be deleted at all, only archived, so money records are never erased; only voided payment
+ * rows go with a deleted client. Archiving is the reversible alternative and keeps everything.
  */
 @Injectable()
 export class ClientDeletionService {
@@ -45,6 +118,10 @@ export class ClientDeletionService {
   }): Promise<PermanentDeletionResult> {
     requireManager(input.actor);
     const client = await findClientForOrg(this.prisma, input.organizationId, input.clientId, { includeArchived: true });
+    // Checked up front for a clear answer, and again inside the transaction where it counts.
+    if ((await clientPaymentRecordCounts(this.prisma, input.organizationId, client.id)).active > 0) {
+      throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
+    }
     if (normalizeName(input.confirmation) !== normalizeName(client.businessName)) {
       throw new BadRequestException('Type the business name exactly as shown to confirm permanent deletion.');
     }
@@ -78,11 +155,28 @@ export class ClientDeletionService {
     };
   }
 
+  /** Whether a client can be permanently deleted, so staff see why not before typing the name. */
+  async eligibility(organizationId: string, clientId: string, actor: RoleActor): Promise<DeletionEligibility> {
+    requireManager(actor);
+    const client = await findClientForOrg(this.prisma, organizationId, clientId, { includeArchived: true });
+    const payments = await clientPaymentRecordCounts(this.prisma, organizationId, client.id);
+    return payments.active > 0
+      ? { canDelete: false, reason: 'has_payments', message: CLIENT_HAS_PAYMENTS_MESSAGE, recordedPayments: payments.active }
+      : { canDelete: true, reason: null, message: null, recordedPayments: 0 };
+  }
+
   private async deleteRecords(db: TenantDb, organizationId: string, clientId: string, actorAdminId: string) {
     // Re-read inside the transaction so a concurrent delete can't be applied twice.
     await findClientForOrg(db, organizationId, clientId, { includeArchived: true });
     const scope = { organizationId };
+    const payments = await clientPaymentRecordCounts(db, organizationId, clientId);
+    if (payments.active > 0) throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
     const { counts, contracts, documents } = await deleteClientOwnedRows(db, organizationId, clientId);
+    // Only voided payment rows may go. If more were removed than were checked, a payment was
+    // recorded at the same moment: roll everything back rather than erase it.
+    if ((counts.cfPaymentRecord ?? 0) > payments.billingTotal || (counts.cfAwardPayment ?? 0) > payments.awardTotal) {
+      throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
+    }
 
     // Stored files that only this client's contracts and documents used (program templates and
     // welcome guides keep theirs).

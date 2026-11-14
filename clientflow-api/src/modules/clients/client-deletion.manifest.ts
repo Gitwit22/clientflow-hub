@@ -17,6 +17,8 @@ export type ClientDataKey =
 
 /** Prisma delegate names (camelCase model names) for the tables below. */
 export type ClientOwnedModel =
+  | 'cfAwardPayment'
+  | 'cfEnrollmentAward'
   | 'cfPaymentRecord'
   | 'cfEnrollmentBillingAgreement'
   | 'cfEnrollmentDeliverable'
@@ -57,12 +59,16 @@ export interface ClientDeletionStep {
 }
 
 /**
- * Deletion order. Billing comes first: a permanently deleted client's payments and agreements are
- * erased with them (an archived client keeps them). Contracts and documents go before the stored
+ * Deletion order. Money comes first (award payments and awards, then billing payments and
+ * agreements); only voided payments can reach this list, since a client with real payments can
+ * only be archived. Contracts and documents go before the stored
  * files they point at, which the deletion service removes after this list, then the client itself.
  */
 export const CLIENT_DELETION_STEPS: readonly ClientDeletionStep[] = [
-  // Money.
+  // Money. Only voided payment rows can still be here: a client with any real payment (billing or
+  // award) can't be permanently deleted (see ClientDeletionService).
+  { model: 'cfAwardPayment', by: 'clientId' },
+  { model: 'cfEnrollmentAward', by: 'clientId' },
   { model: 'cfPaymentRecord', by: 'enrollmentId' },
   { model: 'cfPaymentRecord', by: 'billingAgreementId' },
   { model: 'cfEnrollmentBillingAgreement', by: 'enrollmentId' },

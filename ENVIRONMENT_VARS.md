@@ -28,7 +28,16 @@ Server credentials belong to the EA Management Render service. Relevant variable
 - `N8N_EMAIL_WEBHOOK_URL`
 - `CLIENTFLOW_N8N_SECRET`
 - `N8N_EMAIL_BEARER_TOKEN`
-- R2 storage credentials
+- R2 storage credentials (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`)
+- `R2_BUCKET_NAME`: the **private** bucket for contracts, client documents and program files.
+  Its public access (r2.dev and custom domains) must stay off; files are only served through
+  short-lived signed links.
+- `R2_PUBLIC_ASSETS_BUCKET` and `R2_PUBLIC_ASSETS_URL`: a **separate** publicly readable bucket and
+  its public base URL, for images that emails show inline (the header logo and email images).
+  Without them, logo and email-image uploads fail with a clear message.
+- `R2_PUBLIC_URL` (legacy): public URL of the private bucket. Only used to show a header logo that
+  hasn't been moved to the public assets bucket yet (Settings maintenance: move logo). Leave unset
+  once the move is done.
 
 Do not copy these values into ClientFlow Hub or prefix them with `VITE_`.
 

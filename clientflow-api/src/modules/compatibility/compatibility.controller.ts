@@ -26,7 +26,7 @@ import { CfProgramAction, CfProgramTrigger } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScaffoldService } from '../../common/services/scaffold.service';
 import { N8nService } from '../../integrations/n8n/n8n.service';
-import { StorageService } from '../../integrations/storage/storage.service';
+import { StorageService, storageBucketOf } from '../../integrations/storage/storage.service';
 import { ProgramAutomationService } from '../automation/program-automation.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
@@ -37,7 +37,9 @@ import { assertEnrollmentTransition, isEnrollmentStatus, transitionEnrollment } 
 import { withoutLinkSecrets } from '../forms/form-delivery.service';
 import { answerFields, labelledAnswers } from '../forms/answer-list';
 import { isLegacyContract } from '../contracts/legacy-contract';
-import { assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
+import { assertAgreementMergeFields, assertContractVersionContent, welcomeVersionContent } from '../programs/workflow-version-content';
+import { assertReadyToActivate, programSetup } from '../programs/program-setup';
+import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
 import { type FieldSpec, pickFields } from '../../common/validation/pick-fields';
 import {
@@ -67,7 +69,15 @@ import { parseIdempotencyKey } from '../communications/communication-attempts';
 import { Throttle } from '@nestjs/throttler';
 import { resolveAppUrl } from '../../config/env';
 import { assertSessionActive } from '../../common/guards/session-state';
-import { assertUploadAllowed, MAX_UPLOAD_BYTES } from '../../integrations/storage/upload-rules';
+import {
+  assertUploadAllowed,
+  matchesImageSignature,
+  MAX_UPLOAD_BYTES,
+  SIGNATURE_BYTES,
+  uploadFolderOfKey,
+  uploadLimitFor,
+  uploadLimitMessage,
+} from '../../integrations/storage/upload-rules';
 import { socialLinksOf } from '../forms/form-profile-mapper';
 import { normalizeFormFields } from '../forms/form-field-mapping';
 import { buildIntakePrefill, buildProgramPrefill, type PrefillValue } from '../forms/intake-prefill';
@@ -368,9 +378,11 @@ export class ClientflowCompatibilityController {
           })
         : Promise.resolve([]),
     ]);
+    // The enrollment agreement. Award agreement templates never stand in for it.
+    const enrollmentTemplates = contractTemplates.filter((template) => template.purpose !== 'award');
     const activeContractTemplate = config?.activeContractTemplateId
-      ? contractTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
-      : contractTemplates[0] ?? null;
+      ? enrollmentTemplates.find((template) => template.id === config.activeContractTemplateId) ?? null
+      : enrollmentTemplates[0] ?? null;
     const activeWelcomeTemplate = config?.activeWelcomeEmailTemplateId
       ? welcomeTemplates.find((template) => template.id === config.activeWelcomeEmailTemplateId) ?? null
       : welcomeTemplates[0] ?? null;
@@ -378,7 +390,7 @@ export class ClientflowCompatibilityController {
       ? contractVersions.find((version) => version.id === config.activeContractVersionId) ?? null
       : activeContractTemplate
         ? contractVersions.find((version) => version.templateId === activeContractTemplate.id) ?? null
-        : contractVersions[0] ?? null;
+        : null;
     const activeWelcomeVersion = config?.activeWelcomeEmailVersionId
       ? welcomeVersions.find((version) => version.id === config.activeWelcomeEmailVersionId) ?? null
       : activeWelcomeTemplate
@@ -690,6 +702,19 @@ export class ClientflowCompatibilityController {
   }
   @Post('programs') async createProgram(@Req() request: Request, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
+    // A program created active must already meet its own setup requirements. A brand-new program
+    // has no agreement yet, so one whose journey uses contracts is created inactive and activated
+    // once its checklist is complete.
+    if (body.isActive !== false) {
+      assertReadyToActivate(await programSetup(this.requirePrisma(), {
+        id: '__new_program__',
+        organizationId: orgId,
+        isActive: false,
+        defaultFormTemplateId: typeof body.defaultFormTemplateId === 'string' ? body.defaultFormTemplateId : '',
+        statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline : [],
+        defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow : [],
+      }));
+    }
     const program = await this.requirePrisma().cfProgram.create({ data: { organizationId: orgId, name: String(body.name ?? 'Untitled Program'), description: String(body.description ?? ''), defaultFormTemplateId: String(body.defaultFormTemplateId ?? 'unknown'), defaultMonitoringFrequency: String(body.defaultMonitoringFrequency ?? 'monthly'), defaultContractTemplateId: String(body.defaultContractTemplateId ?? 'unknown'), defaultWorkflow: Array.isArray(body.defaultWorkflow) ? body.defaultWorkflow.map(String) : [], requiredDocuments: Array.isArray(body.requiredDocuments) ? body.requiredDocuments.map(String) : [], statusPipeline: Array.isArray(body.statusPipeline) ? body.statusPipeline.map(String) : [], ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}) } });
     // Only treat this as an explicit staff choice when the request actually carries workflow
     // settings - otherwise this would fake an "administrator configured this" update.
@@ -714,7 +739,29 @@ export class ClientflowCompatibilityController {
     if (typeof data.defaultFormTemplateId === 'string' && data.defaultFormTemplateId) {
       await findFormTemplateForOrg(this.requirePrisma(), orgId, data.defaultFormTemplateId);
     }
+    // Only a real inactive-to-active change is checked; ordinary edits to an active program never are.
+    if (existing.isActive === false && data.isActive === true) {
+      assertReadyToActivate(await programSetup(this.requirePrisma(), { ...existing, ...data, isActive: false }));
+    }
     return this.requirePrisma().cfProgram.update({ where: { id, organizationId: orgId }, data });
+  }
+  /** What the program needs before it can take clients, and what is done. */
+  @Get('programs/:id/setup') async getProgramSetup(@Req() request: Request, @Param('id') id: string) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const program = await findProgramForOrg(this.requirePrisma(), orgId, id);
+    return programSetup(this.requirePrisma(), program);
+  }
+  /** Setup readiness for every program, for the program list badges. */
+  @Get('programs-setup') async listProgramSetup(@Req() request: Request) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    const programs = await this.requirePrisma().cfProgram.findMany({ where: { organizationId: orgId } });
+    const results = await Promise.all(programs.map((program) => programSetup(this.requirePrisma(), program)));
+    return results.map(({ programId, isActive, ready, missingRequired }) => ({
+      programId,
+      isActive,
+      ready,
+      missingRequired: missingRequired.map((item) => item.label),
+    }));
   }
   @Get('programs/:id/workflow') async getProgramWorkflowConfig(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -752,9 +799,12 @@ export class ClientflowCompatibilityController {
           programId: id,
           isActive: true,
         },
-        select: { id: true },
+        select: { id: true, purpose: true },
       });
       if (!contractTemplate) throw new BadRequestException('Invalid active contract template for this program.');
+      if (contractTemplate.purpose === 'award') {
+        throw new BadRequestException('An award agreement template cannot be the enrollment agreement.');
+      }
     }
     if (data.activeContractVersionId) {
       const contractVersion = await this.requirePrisma().cfProgramContractVersion.findFirst({
@@ -777,6 +827,9 @@ export class ClientflowCompatibilityController {
         : null;
       if (!contractVersion || !owningTemplate) {
         throw new BadRequestException('Invalid active contract version for this program.');
+      }
+      if (data.activeContractTemplateId && contractVersion.templateId !== data.activeContractTemplateId) {
+        throw new BadRequestException('The active contract version must belong to the active contract template.');
       }
     }
     if (data.activeWelcomeEmailTemplateId) {
@@ -815,12 +868,78 @@ export class ClientflowCompatibilityController {
       }
     }
     await this.requireWorkflowConfig().applyUpdate(orgId, id, data);
+    if (data.activeContractTemplateId && data.activeContractVersionId) {
+      // Keep the template's own active version in step with the enrollment agreement designation.
+      await this.requirePrisma().cfProgramContractTemplate.updateMany({
+        where: { id: data.activeContractTemplateId, organizationId: orgId, programId: id },
+        data: { activeVersionId: data.activeContractVersionId },
+      });
+    }
     return this.getProgramWorkflow(orgId, id);
+  }
+  @Patch('programs/:programId/workflow/contracts/templates/:templateId') async updateProgramWorkflowContractTemplate(@Req() request: Request, @Param('programId') programId: string, @Param('templateId') templateId: string, @Body() body: Record<string, unknown>) {
+    const { orgId } = await this.requireOrgFromRequest(request);
+    await findProgramForOrg(this.requirePrisma(), orgId, programId);
+    const prisma = this.requirePrisma();
+    const template = await prisma.cfProgramContractTemplate.findFirst({
+      where: { id: templateId, organizationId: orgId, programId },
+    });
+    if (!template) throw new NotFoundException('Program workflow contract template not found.');
+    const config = await prisma.cfProgramWorkflowConfig.findFirst({ where: { organizationId: orgId, programId } });
+    const isEnrollmentAgreement = config?.activeContractTemplateId === template.id;
+    const data: { name?: string; purpose?: AgreementPurpose; activeVersionId?: string; isActive?: boolean } = {};
+    if (body.name !== undefined) {
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) throw new BadRequestException('Give the agreement template a name.');
+      data.name = name;
+    }
+    if (body.purpose !== undefined) {
+      const purpose = parseAgreementPurpose(body.purpose);
+      if (!purpose) throw new BadRequestException('Agreement purpose must be enrollment or award.');
+      if (purpose === 'award' && isEnrollmentAgreement) {
+        throw new BadRequestException("This template is the program's enrollment agreement. Choose another enrollment agreement first.");
+      }
+      data.purpose = purpose;
+    }
+    if (body.isActive === false) {
+      if (isEnrollmentAgreement) {
+        throw new BadRequestException("This template is the program's enrollment agreement. Choose another enrollment agreement first.");
+      }
+      data.isActive = false;
+    }
+    if (body.activeVersionId !== undefined) {
+      const versionId = typeof body.activeVersionId === 'string' ? body.activeVersionId : '';
+      const version = versionId
+        ? await prisma.cfProgramContractVersion.findFirst({ where: { id: versionId, organizationId: orgId, templateId } })
+        : null;
+      if (!version) throw new BadRequestException('That version does not belong to this agreement template.');
+      const problem = templateFieldProblemMessage(`${version.title ?? ''}\n${version.content}`, data.purpose ?? parseAgreementPurpose(template.purpose) ?? 'enrollment');
+      if (problem) throw new BadRequestException(problem);
+      data.activeVersionId = version.id;
+      if (isEnrollmentAgreement) {
+        await this.requireWorkflowConfig().applyUpdate(orgId, programId, { activeContractVersionId: version.id });
+      }
+    }
+    if (data.purpose && !body.activeVersionId && template.activeVersionId) {
+      // Changing what a template is for re-checks its active version's fields against the new purpose.
+      const active = await prisma.cfProgramContractVersion.findFirst({ where: { id: template.activeVersionId, organizationId: orgId, templateId } });
+      const problem = active ? templateFieldProblemMessage(`${active.title ?? ''}\n${active.content}`, data.purpose) : null;
+      if (problem) throw new BadRequestException(problem);
+    }
+    await prisma.cfProgramContractTemplate.update({ where: { id: template.id }, data });
+    return this.getProgramWorkflow(orgId, programId);
   }
   @Post('programs/:id/workflow/contracts/templates') async createProgramWorkflowContractTemplate(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
     await findProgramForOrg(this.requirePrisma(), orgId, id);
-    if (body.content || body.fileUrl || body.fileName) assertContractVersionContent(body);
+    const purpose: AgreementPurpose = body.purpose === undefined ? 'enrollment' : parseAgreementPurpose(body.purpose) ?? (() => {
+      throw new BadRequestException('Agreement purpose must be enrollment or award.');
+    })();
+    const hasVersion = Boolean(body.content || body.fileUrl || body.fileName);
+    if (hasVersion) {
+      assertContractVersionContent(body);
+      assertAgreementMergeFields(body, purpose);
+    }
     const template = await this.requirePrisma().cfProgramContractTemplate.create({
       data: {
         organizationId: orgId,
@@ -828,10 +947,11 @@ export class ClientflowCompatibilityController {
         name: String(body.name ?? 'Program Contract'),
         signatureRequired: body.signatureRequired !== false,
         isActive: body.isActive !== false,
+        purpose,
       },
     });
-    if (body.content || body.fileUrl || body.fileName) {
-      await this.requirePrisma().cfProgramContractVersion.create({
+    if (hasVersion) {
+      const firstVersion = await this.requirePrisma().cfProgramContractVersion.create({
         data: {
           organizationId: orgId,
           templateId: template.id,
@@ -845,6 +965,24 @@ export class ClientflowCompatibilityController {
           createdBy: admin.email,
         },
       });
+      if (body.makeActive !== false) {
+        await this.requirePrisma().cfProgramContractTemplate.update({
+          where: { id: template.id },
+          data: { activeVersionId: firstVersion.id },
+        });
+        // The program's first enrollment agreement becomes its enrollment agreement, so contracts can
+        // be sent right away (before, staff also had to find and click Activate).
+        const config = await this.requirePrisma().cfProgramWorkflowConfig.findFirst({
+          where: { organizationId: orgId, programId: id },
+          select: { activeContractTemplateId: true },
+        });
+        if (purpose === 'enrollment' && template.isActive && !config?.activeContractTemplateId) {
+          await this.requireWorkflowConfig().applyUpdate(orgId, id, {
+            activeContractTemplateId: template.id,
+            activeContractVersionId: firstVersion.id,
+          });
+        }
+      }
     }
     return this.getProgramWorkflow(orgId, id);
   }
@@ -853,10 +991,11 @@ export class ClientflowCompatibilityController {
     await findProgramForOrg(this.requirePrisma(), orgId, programId);
     const template = await this.requirePrisma().cfProgramContractTemplate.findFirst({
       where: { id: templateId, organizationId: orgId, programId },
-      select: { id: true },
+      select: { id: true, purpose: true },
     });
     if (!template) throw new NotFoundException('Program workflow contract template not found.');
     assertContractVersionContent(body);
+    assertAgreementMergeFields(body, parseAgreementPurpose(template.purpose) ?? 'enrollment');
     const latest = await this.requirePrisma().cfProgramContractVersion.findFirst({
       where: { organizationId: orgId, templateId },
       orderBy: { version: 'desc' },
@@ -877,7 +1016,14 @@ export class ClientflowCompatibilityController {
       },
     });
     if (body.makeActive !== false) {
-      await this.requireWorkflowConfig().applyUpdate(orgId, programId, { activeContractVersionId: version.id, activeContractTemplateId: templateId });
+      await this.requirePrisma().cfProgramContractTemplate.update({
+        where: { id: template.id },
+        data: { activeVersionId: version.id },
+      });
+      // Only an enrollment template's version can become the enrollment agreement.
+      if (template.purpose !== 'award') {
+        await this.requireWorkflowConfig().applyUpdate(orgId, programId, { activeContractVersionId: version.id, activeContractTemplateId: templateId });
+      }
     }
     return this.getProgramWorkflow(orgId, programId);
   }
@@ -894,7 +1040,7 @@ export class ClientflowCompatibilityController {
       },
     });
     if (content) {
-      await this.requirePrisma().cfProgramWelcomeEmailVersion.create({
+      const firstVersion = await this.requirePrisma().cfProgramWelcomeEmailVersion.create({
         data: {
           organizationId: orgId,
           templateId: template.id,
@@ -906,6 +1052,18 @@ export class ClientflowCompatibilityController {
           allowedVariables: Array.isArray(body.allowedVariables) ? body.allowedVariables : [],
         },
       });
+      // The program's first welcome email becomes its active one, so it is used right away
+      // (before, staff also had to find and click Activate). An existing choice is left alone.
+      const config = await this.requirePrisma().cfProgramWorkflowConfig.findFirst({
+        where: { organizationId: orgId, programId: id },
+        select: { activeWelcomeEmailVersionId: true },
+      });
+      if (body.makeActive !== false && template.isActive && !config?.activeWelcomeEmailVersionId) {
+        await this.requireWorkflowConfig().applyUpdate(orgId, id, {
+          activeWelcomeEmailTemplateId: template.id,
+          activeWelcomeEmailVersionId: firstVersion.id,
+        });
+      }
     }
     return this.getProgramWorkflow(orgId, id);
   }
@@ -1483,14 +1641,15 @@ export class ClientflowCompatibilityController {
     const storage = this.requireStorage();
     storage.assertEnabled();
     const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
-    const { folder: storageKeyPrefix, type: mimeType, size: sizeBytes } = assertUploadAllowed({
+    const { folder: storageKeyPrefix, type: mimeType, size: sizeBytes, bucket } = assertUploadAllowed({
       folder: body.storageKeyPrefix,
       type: body.type,
       size: body.byteSize,
     });
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `${storageKeyPrefix}/${orgId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
-    const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
+    // Only the logo and email images go to the public bucket; it fails clearly when not configured.
+    const upload = await storage.createPresignedUploadUrlIn(bucket, storageKey, mimeType);
     const storedFile = await this.requirePrisma().cfStoredFile.create({
       data: {
         organizationId: orgId,
@@ -1500,6 +1659,7 @@ export class ClientflowCompatibilityController {
         sizeBytes,
         status: 'REQUESTED',
         uploadedByUserId: admin.id,
+        ...(bucket === 'public' ? { storageBucket: 'public' } : {}),
       },
     });
     return { storedFile, uploadUrl: upload.url, expiresInSeconds: upload.expiresInSeconds };
@@ -1510,11 +1670,15 @@ export class ClientflowCompatibilityController {
     storage.assertEnabled();
     const storedFile = await this.requirePrisma().cfStoredFile.findFirst({ where: { id, organizationId: orgId } });
     if (!storedFile) throw new NotFoundException('Stored file not found.');
-    await assertStoredUploadWithinLimit(storage, storedFile.storageKey);
-    return this.requirePrisma().cfStoredFile.update({
+    await assertStoredUploadAcceptable(storage, storedFile);
+    const completed = await this.requirePrisma().cfStoredFile.update({
       where: { id: storedFile.id },
       data: { status: 'READY', completedAt: new Date() },
     });
+    // A public file (email image, logo) gets its permanent link, e.g. to insert into an email.
+    return storageBucketOf(completed) === 'public'
+      ? { ...completed, publicUrl: storage.publicAssetUrl(completed.storageKey) }
+      : completed;
   }
   @Get('files/:id/download') async downloadStoredFile(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -1658,6 +1822,19 @@ export class ClientflowCompatibilityController {
     if (!client) throw new NotFoundException('Client not found.');
     const originalFileName = typeof body.name === 'string' && body.name ? body.name : 'upload.bin';
     const { type: mimeType, size: sizeBytes } = assertUploadAllowed({ folder: 'client-documents', type: body.type, size: body.byteSize });
+    const requestedEnrollmentId = typeof body.enrollmentId === 'string' && body.enrollmentId ? body.enrollmentId : null;
+    const requestedAwardId = typeof body.awardId === 'string' && body.awardId ? body.awardId : null;
+    // A supporting document for a funding award belongs to that award's client and enrollment.
+    const award = requestedAwardId
+      ? await this.requirePrisma().cfEnrollmentAward.findFirst({
+          where: { id: requestedAwardId, organizationId: orgId, clientId },
+          select: { id: true, enrollmentId: true },
+        })
+      : null;
+    if (requestedAwardId && !award) throw new NotFoundException('Award not found for this client.');
+    if (award && requestedEnrollmentId && requestedEnrollmentId !== award.enrollmentId) {
+      throw new BadRequestException('The award belongs to a different program enrollment.');
+    }
     const safeName = sanitizeStorageName(originalFileName, 'upload.bin');
     const storageKey = `client-documents/${orgId}/${clientId}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
     const upload = await storage.createPresignedUploadUrl(storageKey, mimeType);
@@ -1679,9 +1856,10 @@ export class ClientflowCompatibilityController {
         enrollmentId: await assertEnrollmentForClient(
           this.requirePrisma(),
           orgId,
-          body.enrollmentId ? String(body.enrollmentId) : null,
+          award ? award.enrollmentId : requestedEnrollmentId,
           clientId,
         ),
+        ...(award ? { awardId: award.id } : {}),
         name: originalFileName,
         type: mimeType,
         url: '',
@@ -1714,7 +1892,8 @@ export class ClientflowCompatibilityController {
     const completed = await this.requirePrisma().cfDocument.update({
       where: { id: document.id },
       data: {
-        url: storage.getObjectPublicUrl(storedFile.storageKey) ?? '',
+        // Never a public link: client documents are private and only served through signed links.
+        url: '',
         objectKey: storedFile.storageKey,
         byteSize: storedFile.sizeBytes,
         uploadStatus: 'ready',
@@ -2593,6 +2772,33 @@ async function assertStoredUploadWithinLimit(storage: StorageService, storageKey
   if (size > MAX_UPLOAD_BYTES) {
     await storage.deleteObject(storageKey).catch(() => undefined);
     throw new BadRequestException('Files can be at most 25 MB.');
+  }
+}
+
+/**
+ * Checks a finished stored-file upload in the bucket it was issued for: the real size against its
+ * folder's limit and, for public images, that the bytes really are the declared image type. A
+ * presigned upload fixes only the declared Content-Type, so anything else is removed and rejected
+ * before it can be linked from an email.
+ */
+export async function assertStoredUploadAcceptable(
+  storage: StorageService,
+  storedFile: { storageKey: string; mimeType: string; storageBucket?: string | null },
+): Promise<void> {
+  const bucket = storageBucketOf(storedFile);
+  if (bucket === 'private') return assertStoredUploadWithinLimit(storage, storedFile.storageKey);
+  const folder = uploadFolderOfKey(storedFile.storageKey);
+  const maxBytes = folder ? uploadLimitFor(folder) : MAX_UPLOAD_BYTES;
+  const reject = async (message: string) => {
+    await storage.deleteObjectIn(bucket, storedFile.storageKey).catch(() => undefined);
+    throw new BadRequestException(message);
+  };
+  const size = await storage.objectSizeIn(bucket, storedFile.storageKey);
+  if (size === null) throw new BadRequestException('Uploaded file bytes were not found in storage.');
+  if (size > maxBytes) await reject(uploadLimitMessage(maxBytes));
+  const firstBytes = await storage.readObjectStart(bucket, storedFile.storageKey, SIGNATURE_BYTES);
+  if (!firstBytes || !matchesImageSignature(storedFile.mimeType, firstBytes)) {
+    await reject("The file isn't a valid image of the type it claims to be.");
   }
 }
 

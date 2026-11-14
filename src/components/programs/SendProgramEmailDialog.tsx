@@ -1,4 +1,4 @@
-import { Bold, Eye, Italic, Link2, List, ListOrdered } from "lucide-react";
+import { Bold, Eye, ImagePlus, Italic, Link2, List, ListOrdered } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,14 @@ import {
   cfPreviewProgramEmail,
   cfPreviewProgramEmailRecipients,
   cfSendProgramEmail,
+  cfSendProgramEmailTest,
   type ProgramEmailPreview,
 } from "@/lib/apiClient";
+import { uploadStoredFile } from "@/lib/api";
+import { describeDelivery } from "@/lib/client-send";
 import {
   formattedEmailHtml,
+  insertImage,
   insertLink,
   toggleList,
   wrapSelection,
@@ -166,6 +170,28 @@ export function SendProgramEmailDialog({
     }
   }
 
+  const [sendingTest, setSendingTest] = useState(false);
+  /** One [Test] copy to the signed-in staff member; members get nothing. */
+  async function sendTest() {
+    setSendingTest(true);
+    try {
+      const result = await cfSendProgramEmailTest(programId, {
+        subject: subject.trim(),
+        body: body.trim(),
+      });
+      const outcome = describeDelivery(result.delivery);
+      if (outcome.ok)
+        toast.success(`Test sent to ${result.recipientEmail}. Members were not emailed.`);
+      else toast.error(outcome.message);
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError ? error.message : "The test couldn't be sent. Try again.",
+      );
+    } finally {
+      setSendingTest(false);
+    }
+  }
+
   async function send() {
     try {
       const email = await attempt.run((idempotencyKey) =>
@@ -275,6 +301,13 @@ export function SendProgramEmailDialog({
                 onClick={() => setStep("compose")}
               >
                 Back to editing
+              </Button>
+              <Button
+                variant="outline"
+                disabled={sendingTest || attempt.sending}
+                onClick={() => void sendTest()}
+              >
+                {sendingTest ? "Sending test…" : "Send test to me"}
               </Button>
               <Button
                 disabled={attempt.sending || delivery.recipients.length === 0}
@@ -430,8 +463,13 @@ function RecipientPicker({
   );
 }
 
+const EMAIL_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif"];
+const EMAIL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
 function MessageEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [linking, setLinking] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   // Where the cursor was when "Link" was clicked (the link field takes the focus).
@@ -468,6 +506,35 @@ function MessageEditor({ value, onChange }: { value: string; onChange: (value: s
     apply(edit);
   }
 
+  // Uploads the image to the organization's email images and puts it on its own line at the cursor.
+  async function addImage(file: File | null) {
+    if (!file) return;
+    if (!EMAIL_IMAGE_TYPES.includes(file.type)) {
+      toast.error("Use a PNG, JPEG or GIF image.");
+      return;
+    }
+    if (file.size > EMAIL_IMAGE_MAX_BYTES) {
+      toast.error("Images can be at most 5 MB.");
+      return;
+    }
+    const at = current();
+    setUploadingImage(true);
+    try {
+      const stored = await uploadStoredFile(file, "email-images");
+      if (!stored.publicUrl) throw new Error("The image was saved but has no public link.");
+      const alt = file.name
+        .replace(/\.[a-z0-9]+$/i, "")
+        .replace(/[-_]+/g, " ")
+        .trim();
+      apply(insertImage(at, stored.publicUrl, alt || "Image"));
+      toast.success("Image added. Preview the email to see it as members will.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to add the image.");
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
   const tools = [
     { label: "Bold", icon: Bold, run: () => apply(wrapSelection(current(), "**", "bold text")) },
     {
@@ -488,6 +555,11 @@ function MessageEditor({ value, onChange }: { value: string; onChange: (value: s
         linkTarget.current = current();
         setLinking(true);
       },
+    },
+    {
+      label: uploadingImage ? "Uploading image…" : "Image",
+      icon: ImagePlus,
+      run: () => imageInput.current?.click(),
     },
   ];
 
@@ -512,10 +584,22 @@ function MessageEditor({ value, onChange }: { value: string; onChange: (value: s
               // Keep the text selection when the button is pressed.
               onMouseDown={(event) => event.preventDefault()}
               onClick={tool.run}
+              disabled={uploadingImage && tool.icon === ImagePlus}
             >
               <tool.icon className="h-4 w-4" />
             </Button>
           ))}
+          <input
+            ref={imageInput}
+            type="file"
+            accept={EMAIL_IMAGE_TYPES.join(",")}
+            aria-label="Image file"
+            className="hidden"
+            onChange={(event) => {
+              void addImage(event.target.files?.[0] ?? null);
+              event.target.value = "";
+            }}
+          />
         </div>
         {linking && (
           <div className="flex flex-wrap items-center gap-2 border-b border-input px-2 py-1.5">
@@ -562,8 +646,8 @@ function MessageEditor({ value, onChange }: { value: string; onChange: (value: s
       </div>
       <p className="text-xs text-muted-foreground">
         Select text and use the buttons, or type **bold**, _italic_, “- ” for a bullet, “1. ” for a
-        numbered list. A blank line starts a new paragraph. Use “Preview email” to see it as members
-        will.
+        numbered list. A blank line starts a new paragraph. Image adds a PNG, JPEG or GIF (up to 5
+        MB). Use “Preview email” to see it as members will.
       </p>
     </div>
   );

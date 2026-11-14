@@ -24,10 +24,30 @@ export const MONITORING_TASK_STATUS = {
   cancelled: 'CANCELLED',
 } as const;
 
+/**
+ * Agreement purposes. The enrollment agreement is the one a client signs to join a program and the
+ * only kind that drives onboarding; award agreements belong to one funding award.
+ */
+export const AGREEMENT_PURPOSE = {
+  enrollment: 'enrollment',
+  award: 'award',
+} as const;
+
+/**
+ * Prisma filter for the program's enrollment agreement. Every lookup of "the client's contract for
+ * this enrollment" uses it, so an award agreement can never satisfy or block the joining flow.
+ * Written as "not award" so rows created before purposes existed always count as enrollment ones.
+ */
+export const ENROLLMENT_AGREEMENT_WHERE = { purpose: { not: AGREEMENT_PURPOSE.award } } as const;
+
 export const INITIAL_FOLLOW_UP_TYPE = 'Initial Follow-Up';
 export const WELCOME_NEXT_STEP =
   'Your onboarding has started. A team member will follow up with you soon.';
 
+/**
+ * Placeholder wording in the seeded starter templates. It is no longer added to generated
+ * agreements; staff screens use it to warn that a template still has draft language in it.
+ */
 export const LEGAL_TEMPLATE_DISCLAIMER =
   'Template draft only. Final legal language must be reviewed by the organization before use.';
 
@@ -164,7 +184,5 @@ export function renderContractSnapshot(input: {
     'SIGNED FOR THE ORGANIZATION',
     `Signed by: ${input.staffSignerName}`,
     `Signed at: ${input.staffSignedAt.toISOString()}`,
-    '',
-    LEGAL_TEMPLATE_DISCLAIMER,
   ].join('\n');
 }

@@ -21,9 +21,16 @@ export async function publicLogoUrl(
   if (!storedFileId || !storage.isEnabled()) return undefined;
   const storedFile = await prisma.cfStoredFile.findFirst({
     where: { id: storedFileId, organizationId },
-    select: { storageKey: true },
+    select: { storageKey: true, storageBucket: true },
   });
   if (!storedFile) return undefined;
+  if (storedFile.storageBucket === 'public') {
+    // A logo in the public assets bucket. If that bucket isn't configured, send without a logo
+    // rather than failing the email.
+    return storage.isPublicAssetsConfigured() ? storage.publicAssetUrl(storedFile.storageKey) : undefined;
+  }
+  // Legacy: a logo still in the private bucket is only reachable while R2_PUBLIC_URL is set.
+  // Move it to the public assets bucket (maintenance: move logo) so the private bucket can be closed.
   return storage.getObjectPublicUrl(storedFile.storageKey);
 }
 

@@ -3,7 +3,7 @@
  * that return a fixed row, it evaluates `where` filters, so a query that forgets
  * `organizationId` really does return another organization's row, and the invariant fails.
  *
- * Supports: equality (Dates by time), `in`, `not`, `lt`/`gt`, compound unique keys
+ * Supports: equality (Dates by time), `in`, `notIn`, `not`, `startsWith`, `lt`/`gt`, AND/OR/NOT, compound unique keys
  * (`{ a_b: { a, b } }`), AND via object keys, `orderBy`, and optional unique constraints.
  */
 import { Prisma } from '../generated/clientflow';
@@ -18,10 +18,16 @@ function matches(row: Row, where: Row | undefined): boolean {
   if (!where) return true;
   return Object.entries(where).every(([key, condition]) => {
     if (condition === undefined) return true;
+    // Prisma's logical operators: AND/OR take a list (AND also an object), NOT negates its filter(s).
+    if (key === 'AND') return (Array.isArray(condition) ? condition : [condition]).every((part) => matches(row, part as Row));
+    if (key === 'OR') return (condition as Row[]).some((part) => matches(row, part));
+    if (key === 'NOT') return !(Array.isArray(condition) ? condition : [condition]).some((part) => matches(row, part as Row));
     const value = row[key];
     if (condition !== null && typeof condition === 'object' && !(condition instanceof Date)) {
       const filter = condition as Row;
       if ('in' in filter) return (filter.in as unknown[]).some((candidate) => sameValue(candidate, value));
+      if ('notIn' in filter) return !(filter.notIn as unknown[]).some((candidate) => sameValue(candidate, value));
+      if ('startsWith' in filter) return typeof value === 'string' && value.startsWith(filter.startsWith as string);
       if ('not' in filter) return !sameValue(value, filter.not);
       if ('lt' in filter || 'gt' in filter) {
         const time = (input: unknown) => (input instanceof Date ? input.getTime() : (input as number));
@@ -61,8 +67,11 @@ function uniqueViolation() {
 function table(rows: Row[], uniques: string[][] = []) {
   const first = (where?: Row, orderBy?: OrderBy) =>
     Promise.resolve(sorted(rows.filter((row) => matches(row, where)), orderBy)[0] ?? null);
+  // Like Postgres, a unique key with a NULL column never clashes (e.g. rows without an idempotency key).
   const clashes = (row: Row) =>
-    uniques.some((columns) => rows.some((other) => columns.every((column) => sameValue(other[column], row[column]))));
+    uniques.some((columns) =>
+      columns.every((column) => row[column] !== null && row[column] !== undefined) &&
+      rows.some((other) => columns.every((column) => sameValue(other[column], row[column]))));
   return {
     findFirst: ({ where, orderBy }: { where?: Row; orderBy?: OrderBy } = {}) => first(where, orderBy),
     findUnique: ({ where }: { where?: Row } = {}) => first(where),

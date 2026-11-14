@@ -34,7 +34,10 @@ function inlineHtml(text: string): string {
     .replace(/\uE000(\d+)\uE000/g, (_match, index: string) => links[Number(index)] ?? "");
 }
 
-type Line = { kind: "text" | "bullet" | "numbered"; text: string };
+type Line = { kind: "text" | "bullet" | "numbered" | "image"; text: string; url?: string };
+
+/** `![alt](https://…)` on its own line: an image (only uploaded email images are accepted to send). */
+const IMAGE_LINE = /^!\[([^\]\n]*)\]\((https:\/\/[^\s)]+)\)$/;
 
 /** The message as HTML for the in-app preview and history (escaped; safe to render). */
 export function formattedEmailHtml(body: string): string {
@@ -47,6 +50,8 @@ export function formattedEmailHtml(body: string): string {
         .split("\n")
         .filter((line) => line.trim())
         .map((line): Line => {
+          const image = IMAGE_LINE.exec(line.trim());
+          if (image) return { kind: "image", text: image[1].trim(), url: image[2] };
           const bullet = BULLET.exec(line);
           if (bullet) return { kind: "bullet", text: bullet[1] };
           const numbered = NUMBERED.exec(line);
@@ -59,7 +64,13 @@ export function formattedEmailHtml(body: string): string {
       const kind = lines[index].kind;
       const run: Line[] = [];
       while (index < lines.length && lines[index].kind === kind) run.push(lines[index++]);
-      if (kind === "text") {
+      if (kind === "image") {
+        for (const line of run) {
+          html.push(
+            `<p><img src="${escapeHtml(line.url ?? "")}" alt="${escapeHtml(line.text)}" style="display:block;max-width:100%;height:auto;"></p>`,
+          );
+        }
+      } else if (kind === "text") {
         html.push(`<p>${run.map((line) => inlineHtml(line.text)).join("<br>")}</p>`);
       } else {
         const tag = kind === "bullet" ? "ul" : "ol";
@@ -131,4 +142,19 @@ export function insertLink(edit: TextEdit, rawUrl: string): TextEdit | null {
     selectionStart: start + inserted.length,
     selectionEnd: start + inserted.length,
   };
+}
+
+/** Inserts an image line (on its own line, with blank lines around it) at the cursor. */
+export function insertImage(edit: TextEdit, url: string, alt: string): TextEdit {
+  const { value, selectionEnd: at } = edit;
+  const safeAlt = alt.replace(/[[\]\n]/g, " ").trim();
+  const before = value.slice(0, at);
+  const after = value.slice(at);
+  const lead =
+    before === "" ? "" : before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const trail =
+    after === "" ? "" : after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+  const inserted = `${lead}![${safeAlt}](${url})${trail}`;
+  const caret = before.length + inserted.length;
+  return { value: `${before}${inserted}${after}`, selectionStart: caret, selectionEnd: caret };
 }

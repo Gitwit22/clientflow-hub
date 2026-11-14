@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { type AgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 
 /**
  * Subject and body of a new welcome email version. Neither may be blank: the active version is
@@ -20,4 +21,15 @@ export function assertContractVersionContent(body: Record<string, unknown>): voi
   if (!hasText && !hasFile) {
     throw new BadRequestException('Add the contract text or upload the contract document.');
   }
+}
+
+/**
+ * The merge fields in a new agreement version must exist and suit the template's purpose (award
+ * fields only in award agreements), so a typo is caught when staff save, not when a client signs.
+ */
+export function assertAgreementMergeFields(body: Record<string, unknown>, purpose: AgreementPurpose): void {
+  const content = typeof body.content === 'string' ? body.content : '';
+  const title = typeof body.title === 'string' ? body.title : '';
+  const problem = templateFieldProblemMessage(`${title}\n${content}`, purpose);
+  if (problem) throw new BadRequestException(problem);
 }

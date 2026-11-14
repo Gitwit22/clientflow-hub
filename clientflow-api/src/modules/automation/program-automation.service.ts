@@ -4,7 +4,8 @@ import { CfProgramAction, CfProgramTrigger, Prisma } from '../../generated/clien
 import { N8nService } from '../../integrations/n8n/n8n.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isPrismaUniqueViolation } from '../../common/prisma-errors';
-import { CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-lifecycle';
+import {
+  ENROLLMENT_AGREEMENT_WHERE, CONTRACT_CLIENT_STATUS, CONTRACT_STATUS } from '../contracts/contract-lifecycle';
 import { ContractsService } from '../contracts/contracts.service';
 import { WorkflowConfigService } from '../programs/workflow-config.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
@@ -425,6 +426,8 @@ export class ProgramAutomationService {
         clientId: context.client.id,
         programId: context.program.id,
         ...NOT_UNSIGNED_LEGACY_CONTRACT,
+        // Only the enrollment agreement counts: an award agreement never means "already issued".
+        ...ENROLLMENT_AGREEMENT_WHERE,
       },
       orderBy: { createdAt: 'desc' },
     });

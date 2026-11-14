@@ -26,9 +26,23 @@ it also shows on the client's Communications tab.
 }
 ```
 
-Staff can format the message (**bold**, _italic_, bulleted and numbered lists, links). `bodyHtml`
-is the formatted version (all text escaped; only p, br, strong, em, ul, ol, li and http/mailto links);
-`body` is the plain-text version with the formatting markers removed.
+Staff can format the message (**bold**, _italic_, bulleted and numbered lists, links, images).
+`bodyHtml` is the formatted version (all text escaped; only p, br, strong, em, ul, ol, li,
+http/mailto links, and `img`); `body` is the plain-text version with the formatting markers
+removed (an image becomes `[Image: alt text]`).
+
+Images: an `img` only ever points at the organization's own uploaded email images in the public
+assets bucket (`R2_PUBLIC_ASSETS_URL/email-images/<organizationId>/…`), checked by ClientFlow before
+preview and send; any other image is refused. n8n uses `bodyHtml` as-is (verified on the live
+workflow), so no n8n change is needed for images.
+
+### Test send
+
+"Send test to me" sends one copy, `subject` prefixed `[Test] `, to the signed-in staff member with
+`eventId` `program.email.test:<uuid>` (new each time), `programEmailId` `test`, and the staff
+member's id/name in `clientId`/`clientName` (the workflow requires them non-empty; it never looks a
+client up). Nothing is recorded in ClientFlow's email history. The workflow logs it in its email
+log like any send.
 
 The copy is ClientFlow's, as staff wrote it, like `welcome.send`: n8n adds only the shared
 header image and the "Thank you, EA Management LLC" sign-off. Each recipient's `eventId` never

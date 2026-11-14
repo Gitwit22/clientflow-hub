@@ -104,11 +104,23 @@ export class ClientsController {
     });
   }
 
+  @Get(':id/deletion-eligibility')
+  @UseGuards(ClientflowAdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Whether a client can be permanently deleted',
+    description: 'Clients with any recorded (not voided) payment can only be archived.',
+  })
+  @ApiOkResponse({ description: 'canDelete, and the reason when deletion is refused.' })
+  deletionEligibility(@Req() request: AuthenticatedRequest, @Param('id') id: string) {
+    const admin = requireAdmin(request);
+    return this.deletion.eligibility(admin.organizationId, id, { id: admin.id, role: admin.role });
+  }
+
   @Delete(':id/permanent')
   @UseGuards(ClientflowAdminOnlyGuard)
   @ApiOperation({
-    summary: 'Permanently erase a client and everything recorded for them, including payments',
-    description: 'Irreversible. Archive instead to keep the record and its financial history.',
+    summary: 'Permanently erase a client and everything recorded for them',
+    description: 'Irreversible. Refused (409) when the client has any recorded payment: archive instead.',
   })
   @ApiOkResponse({ description: 'Row counts removed per table; no client details.' })
   permanentlyDelete(
