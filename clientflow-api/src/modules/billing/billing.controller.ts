@@ -16,6 +16,7 @@ import {
 } from './billing-response';
 import { BillingService } from './billing.service';
 import { BackfillSelectionDto } from './dto/backfill-selection.dto';
+import { RecordPastPaymentDto } from './dto/record-past-payment.dto';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { ReplaceAgreementDto } from './dto/replace-agreement.dto';
 import { UpsertProgramBillingConfigDto } from './dto/upsert-program-billing-config.dto';
@@ -141,6 +142,31 @@ export class EnrollmentBillingController {
       billingPeriodEnd: parseOrgDate(dto.billingPeriodEnd, timezone),
       note: dto.note ?? null,
       timezone,
+      idempotencyKey: parseIdempotencyKey(idempotencyKey),
+      ...actorFrom(request),
+    });
+    return toPaymentResponse(payment);
+  }
+
+  /** Records a payment the client made in the past, with its real date; no agreement is needed. */
+  @Post('past-payments')
+  async recordPastPayment(
+    @Req() request: AuthenticatedRequest,
+    @Param('clientId') clientId: string,
+    @Param('enrollmentId') enrollmentId: string,
+    @Body() dto: RecordPastPaymentDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    const organizationId = request.adminUser!.organizationId;
+    await this.billing.requireEnrollmentForClient(organizationId, clientId, enrollmentId);
+    const timezone = await this.billing.resolveOrgTimezone(organizationId);
+    const payment = await this.billing.recordPastPayment({
+      organizationId,
+      enrollmentId,
+      amount: dto.amount,
+      paymentDate: parseOrgDate(dto.paymentDate, timezone),
+      paymentMethod: dto.paymentMethod,
+      note: dto.note ?? null,
       idempotencyKey: parseIdempotencyKey(idempotencyKey),
       ...actorFrom(request),
     });

@@ -752,7 +752,7 @@ export type BillingFrequency =
   "one_time" | "weekly" | "monthly" | "quarterly" | "annually" | "custom";
 export type BillingAgreementStatus = "active" | "ended";
 export type PaymentMethod = "cash" | "check" | "ach" | "card" | "other";
-export type PaymentSource = "manual" | "legacy_backfill";
+export type PaymentSource = "manual" | "legacy_backfill" | "historical";
 export type PaymentPeriodStatus = "paid" | "partial" | "due" | "overdue";
 
 export interface ProgramBillingConfig {
@@ -792,12 +792,13 @@ export interface PaymentRecord {
   id: string;
   organizationId: string;
   enrollmentId: string;
-  billingAgreementId: string;
+  /** Null for a past payment (source "historical"), which belongs to no agreement or period. */
+  billingAgreementId: string | null;
   amount: number;
   paymentDate: string;
   paymentMethod: PaymentMethod;
-  billingPeriodStart: string;
-  billingPeriodEnd: string;
+  billingPeriodStart: string | null;
+  billingPeriodEnd: string | null;
   source: PaymentSource;
   note?: string | null;
   recordedByUserId?: string | null;

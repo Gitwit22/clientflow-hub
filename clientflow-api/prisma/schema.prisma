@@ -608,6 +608,8 @@ enum CfPaymentMethod {
 enum CfPaymentSource {
   manual
   legacy_backfill
+  /// A payment made before or outside the billing schedule, recorded with its real date.
+  historical
 }
 
 model CfProgramBillingConfig {
@@ -660,12 +662,13 @@ model CfPaymentRecord {
   id                    String          @id @default(cuid())
   organizationId        String
   enrollmentId          String
-  billingAgreementId    String
+  /// Null only for a past payment (source historical), which belongs to no agreement or period.
+  billingAgreementId    String?
   amount                Decimal         @db.Decimal(10, 2)
   paymentDate           DateTime
   paymentMethod         CfPaymentMethod
-  billingPeriodStart    DateTime
-  billingPeriodEnd      DateTime
+  billingPeriodStart    DateTime?
+  billingPeriodEnd      DateTime?
   source                CfPaymentSource @default(manual)
   note                  String?
   recordedByUserId      String?

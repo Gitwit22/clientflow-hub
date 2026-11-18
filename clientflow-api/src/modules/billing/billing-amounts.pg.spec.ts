@@ -73,4 +73,49 @@ describePg('billing amounts reach the browser as numbers (Postgres)', () => {
     expect(voided.amount).toBe(250.25);
     expect(voided.voidReason).toBe('Entered twice');
   });
+
+  it('records a past payment with its real date, without an agreement, and never applies it to a period', async () => {
+    const stamp = Date.now();
+    const pastClientId = (await prisma.cfClient.create({
+      data: { organizationId: request.adminUser!.organizationId, businessName: 'Old Payer', primaryContactName: 'Lee', email: `old-${stamp}@x.test`, phone: '', assignedStaff: '', intake: {} },
+    })).id;
+    const pastEnrollmentId = (await prisma.cfProgramEnrollment.create({
+      data: { organizationId: request.adminUser!.organizationId, clientId: pastClientId, programId, status: 'active' },
+    })).id;
+    const key = `past-${stamp}`;
+    const body = { amount: 75, paymentDate: '2025-03-15', paymentMethod: 'check', note: 'Paid before ClientFlow' } as never;
+
+    // No billing agreement exists for this enrollment.
+    const past = overTheWire(await enrollments.recordPastPayment(request, pastClientId, pastEnrollmentId, body, key));
+    expect(past).toEqual(expect.objectContaining({ amount: 75, source: 'historical', billingAgreementId: null, billingPeriodStart: null, note: 'Paid before ClientFlow' }));
+    expect(String(past.paymentDate).slice(0, 10)).toBe('2025-03-15');
+    // The same request again records it once.
+    const again = overTheWire(await enrollments.recordPastPayment(request, pastClientId, pastEnrollmentId, body, key));
+    expect(again.id).toBe(past.id);
+    const beforeAgreement = overTheWire(await enrollments.getSummary(request, pastClientId, pastEnrollmentId)) as { collected: number; agreement: unknown };
+    expect(beforeAgreement).toEqual(expect.objectContaining({ agreement: null, collected: 75 }));
+
+    // It counts as collected, but an agreement set up afterwards still owes its own periods.
+    await enrollments.replaceAgreement(request, pastClientId, pastEnrollmentId, { amount: 100, frequency: 'monthly', startDate: '2026-10-01' } as never);
+    const summary = overTheWire(await enrollments.getSummary(request, pastClientId, pastEnrollmentId)) as { collected: number; payments: unknown[]; outstanding: number; expected: number };
+    expect(summary.collected).toBe(75);
+    expect(summary.payments).toHaveLength(1);
+    expect(summary.outstanding).toBe(summary.expected);
+    const periods = await enrollments.getPeriods(request, pastClientId, pastEnrollmentId);
+    expect(periods.every((period) => period.paidAmount === 0)).toBe(true);
+
+    // A future date is refused, and the past payment can be voided like any other.
+    await expect(enrollments.recordPastPayment(request, pastClientId, pastEnrollmentId, { amount: 5, paymentDate: '2099-01-01', paymentMethod: 'cash' } as never))
+      .rejects.toThrow('cannot be dated in the future');
+    const voided = overTheWire(await dashboard.voidPayment(request, String(past.id), { reason: 'Duplicate' }));
+    expect(voided.voidReason).toBe('Duplicate');
+  });
+
+  it('keeps an agreement and period on every payment that is not a past payment (database check)', async () => {
+    await expect(prisma.cfPaymentRecord.create({
+      data: {
+        organizationId: request.adminUser!.organizationId, enrollmentId, amount: 10, paymentDate: new Date(), paymentMethod: 'cash', source: 'manual',
+      },
+    })).rejects.toThrow(/CfPaymentRecord_agreement_or_historical_check/);
+  });
 });

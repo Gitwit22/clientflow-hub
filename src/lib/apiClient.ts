@@ -1616,6 +1616,20 @@ export async function cfReplaceEnrollmentAgreement(
 }
 
 /** POST .../billing/payments — record a manual payment applied to a specific billing period. */
+/** Records a payment the client made in the past, with its real date and no billing period. */
+export async function cfRecordPastPayment(
+  clientId: string,
+  enrollmentId: string,
+  data: { amount: number; paymentDate: string; paymentMethod: PaymentMethod; note?: string },
+  idempotencyKey?: string,
+) {
+  return apiRequest<PaymentRecord>(`${billingBase(clientId, enrollmentId)}/past-payments`, {
+    method: "POST",
+    body: JSON.stringify(data),
+    headers: idempotencyHeaders(idempotencyKey),
+  });
+}
+
 export async function cfRecordPayment(
   clientId: string,
   enrollmentId: string,
