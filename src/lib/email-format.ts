@@ -109,7 +109,9 @@ export function toggleList(edit: TextEdit, kind: "bullet" | "numbered"): TextEdi
   const lineEnd = nextBreak === -1 ? value.length : nextBreak;
   const lines = value.slice(lineStart, lineEnd).split("\n");
   const pattern = kind === "bullet" ? BULLET : NUMBERED;
-  const already = lines.every((line) => !line.trim() || pattern.test(line));
+  // Toggling off needs list items to remove: an empty line gets a marker instead.
+  const already =
+    lines.some((line) => line.trim()) && lines.every((line) => !line.trim() || pattern.test(line));
   // A numbered item right after an existing numbered list continues its numbering.
   const previousLine =
     lineStart > 0 ? value.slice(value.lastIndexOf("\n", lineStart - 2) + 1, lineStart - 1) : "";
@@ -122,9 +124,12 @@ export function toggleList(edit: TextEdit, kind: "bullet" | "numbered"): TextEdi
       return kind === "bullet" ? `- ${text}` : `${firstNumber + index}. ${text}`;
     })
     .join("\n");
+  // With nothing selected the caret goes to the end of the item, so typing continues it; a
+  // selection stays selected.
+  const collapsed = selectionStart === selectionEnd;
   return {
     value: `${value.slice(0, lineStart)}${changed}${value.slice(lineEnd)}`,
-    selectionStart: lineStart,
+    selectionStart: collapsed ? lineStart + changed.length : lineStart,
     selectionEnd: lineStart + changed.length,
   };
 }

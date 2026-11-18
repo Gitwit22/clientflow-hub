@@ -130,3 +130,26 @@ describe("email images", () => {
 function at2(value: string, caret: number) {
   return { value, selectionStart: caret, selectionEnd: caret };
 }
+
+describe("list buttons with nothing selected", () => {
+  it("start a list on an empty line, with the caret after the marker", () => {
+    expect(toggleList(at2("", 0), "numbered")).toEqual({
+      value: "1. ",
+      selectionStart: 3,
+      selectionEnd: 3,
+    });
+    expect(toggleList(at2("Hello\n", 6), "bullet")).toEqual({
+      value: "Hello\n- ",
+      selectionStart: 8,
+      selectionEnd: 8,
+    });
+  });
+
+  it("put the caret at the end of the item, so typing continues it", () => {
+    expect(toggleList(at2("Bring", 5), "numbered")).toEqual({
+      value: "1. Bring",
+      selectionStart: 8,
+      selectionEnd: 8,
+    });
+  });
+});
