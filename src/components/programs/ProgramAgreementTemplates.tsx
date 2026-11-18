@@ -205,7 +205,7 @@ export function ProgramAgreementTemplates({
     );
 
   return (
-    <div className="space-y-3 rounded-lg border border-border p-3">
+    <div id="agreements" className="scroll-mt-4 space-y-3 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-mono text-[10px] uppercase text-muted-foreground">Agreements</p>

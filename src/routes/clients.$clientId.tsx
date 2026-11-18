@@ -1812,6 +1812,7 @@ function ClientProfile() {
               client={client}
               enrollment={selectedEnrollment}
               programName={selectedProgram.name}
+              programActive={selectedProgram.isActive}
               terms={terms}
             />
           )}

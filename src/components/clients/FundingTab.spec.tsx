@@ -21,7 +21,22 @@ vi.mock("@/lib/apiClient", () => ({
   cfRecordAwardPayment: (...a: unknown[]) => api.cfRecordAwardPayment(...a),
   cfVoidAwardPayment: (...a: unknown[]) => api.cfVoidAwardPayment(...a),
 }));
-vi.mock("@/lib/api", () => ({ uploadDocument: vi.fn(), downloadDocument: vi.fn() }));
+const getProgramWorkflow = vi.fn();
+vi.mock("@/lib/api", () => ({
+  uploadDocument: vi.fn(),
+  downloadDocument: vi.fn(),
+  downloadExecutedContract: vi.fn(),
+  getProgramWorkflow: (...a: unknown[]) => getProgramWorkflow(...a),
+}));
+const awardTemplate = (overrides: Record<string, unknown> = {}) => ({
+  id: "tpl-award",
+  name: "Grant Award Agreement",
+  purpose: "award",
+  isActive: true,
+  signatureRequired: true,
+  activeVersionId: "ver-1",
+  ...overrides,
+});
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const client = {
@@ -89,6 +104,7 @@ const renderTab = (props: Partial<Parameters<typeof FundingTab>[0]> = {}) =>
 beforeEach(() => {
   vi.clearAllMocks();
   api.cfListAwards.mockResolvedValue([award()]);
+  getProgramWorkflow.mockResolvedValue({ contract: { templates: [awardTemplate()] } });
 });
 afterEach(cleanup);
 
@@ -180,5 +196,60 @@ describe("FundingTab", () => {
     expect(screen.queryByRole("button", { name: "Cancel award" })).toBeNull();
     // Payments on an existing award can still be recorded after archiving.
     expect(screen.getByRole("button", { name: "Record payment" })).toBeTruthy();
+  });
+
+  describe("award agreement steps", () => {
+    it("shows the steps and the wording used, and links to edit the wording", async () => {
+      renderTab();
+      const steps = await screen.findByLabelText("Award agreement");
+      await within(steps).findByText(/Uses .Grant Award Agreement./);
+      expect(within(steps).getByLabelText("Agreement steps").textContent).toBe(
+        "✓ Wording2. Review & send3. Sent4. Signed",
+      );
+      const edit = within(steps).getByRole("link", { name: "Edit wording" });
+      expect(edit.getAttribute("href")).toBe("/programs/p1#agreements");
+      const send = within(steps).getByRole("button", { name: "Review & send agreement" });
+      expect((send as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("says what blocks sending before staff click", async () => {
+      getProgramWorkflow.mockResolvedValue({ contract: { templates: [] } });
+      renderTab({ programActive: false });
+      const steps = await screen.findByLabelText("Award agreement");
+      const reasons = await within(steps).findByRole("alert");
+      expect(reasons.textContent).toMatch(/program is inactive/);
+      expect(reasons.textContent).toMatch(/no award agreement yet/);
+      expect(within(steps).getByRole("link", { name: "Add agreement wording" })).toBeTruthy();
+      expect(
+        (
+          within(steps).getByRole("button", {
+            name: "Review & send agreement",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+    });
+
+    it("waits for the signature before payments when the agreement needs one", async () => {
+      api.cfListAwards.mockResolvedValue([
+        award({ status: "agreement_sent", agreementTemplateId: "tpl-award" }),
+      ]);
+      renderTab();
+      await screen.findByText(/Payments can be recorded once the client signs/);
+      expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Resend agreement" })).toBeTruthy();
+    });
+
+    it("allows payments on a sent agreement that needs no signature", async () => {
+      getProgramWorkflow.mockResolvedValue({
+        contract: { templates: [awardTemplate({ signatureRequired: false })] },
+      });
+      api.cfListAwards.mockResolvedValue([
+        award({ status: "agreement_sent", agreementTemplateId: "tpl-award" }),
+      ]);
+      renderTab();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Record payment" })).toBeTruthy(),
+      );
+    });
   });
 });

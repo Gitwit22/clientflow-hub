@@ -112,6 +112,14 @@ function ProgramDetailPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  // Links such as "Edit wording" on a client's award open this page at #agreements: scroll there
+  // once the program's agreements have loaded.
+  const workflowLoaded = Boolean(detail?.workflow);
+  useEffect(() => {
+    if (!workflowLoaded || typeof window === "undefined") return;
+    if (window.location.hash !== "#agreements") return;
+    document.getElementById("agreements")?.scrollIntoView({ block: "start" });
+  }, [workflowLoaded]);
   const [expandedEnrollmentId, setExpandedEnrollmentId] = useState<string | null>(null);
   // The participant whose next step (contract / signing link / welcome) is open in a send dialog.
   const [stepTarget, setStepTarget] = useState<{

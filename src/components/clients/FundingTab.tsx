@@ -22,7 +22,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { downloadDocument, downloadExecutedContract, uploadDocument } from "@/lib/api";
+import {
+  downloadDocument,
+  downloadExecutedContract,
+  getProgramWorkflow,
+  uploadDocument,
+} from "@/lib/api";
 import { AwardAgreementDialog } from "@/components/clients/AwardAgreementDialog";
 import {
   cfApproveAward,
@@ -73,14 +78,19 @@ export function FundingTab({
   client,
   enrollment,
   programName,
+  programActive = true,
   terms,
 }: {
   client: Client;
   enrollment: ProgramEnrollment | null;
   programName: string;
+  /** Agreements can only be sent while the program is active. */
+  programActive?: boolean;
   terms: readonly Terms[];
 }) {
   const [awards, setAwards] = useState<Award[]>([]);
+  // The program's award agreement templates, for the agreement steps on each award card.
+  const [awardTemplates, setAwardTemplates] = useState<AwardTemplateSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<Award | "new" | null>(null);
   const [paying, setPaying] = useState<Award | null>(null);
@@ -103,6 +113,31 @@ export function FundingTab({
     setAwards([]);
     void load();
   }, [load]);
+
+  const programId = enrollment?.programId;
+  useEffect(() => {
+    if (!programId) return;
+    let cancelled = false;
+    setAwardTemplates(null);
+    getProgramWorkflow(programId)
+      .then((workflow) => {
+        if (cancelled) return;
+        setAwardTemplates(
+          workflow.contract.templates
+            .filter((template) => template.purpose === "award" && template.isActive)
+            .map((template) => ({
+              id: template.id,
+              name: template.name,
+              signatureRequired: template.signatureRequired,
+              ready: Boolean(template.activeVersionId),
+            })),
+        );
+      })
+      .catch(() => !cancelled && setAwardTemplates([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [programId]);
 
   if (!enrollment) {
     return (
@@ -174,6 +209,11 @@ export function FundingTab({
             key={award.id}
             award={award}
             client={client}
+            agreementSetup={{
+              programActive,
+              enrollmentArchived: enrollment.isArchived,
+              templates: awardTemplates,
+            }}
             onChanged={replace}
             onEdit={() => setEditing(award)}
             onPay={() => setPaying(award)}
@@ -238,9 +278,11 @@ function AwardCard({
   onPay,
   onCancel,
   onReload,
+  agreementSetup,
 }: {
   award: Award;
   client: Client;
+  agreementSetup: AgreementSetup;
   onChanged: (award: Award) => void;
   onEdit: () => void;
   onPay: () => void;
@@ -253,7 +295,14 @@ function AwardCard({
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const cancelled = award.status === "cancelled";
-  const canPay = !cancelled && award.status !== "pending" && award.outstanding > 0;
+  const template = templateFor(award, agreementSetup.templates);
+  // Mirrors the server: with a sent, unsigned agreement, money waits for the signature unless the
+  // award agreement doesn't need one.
+  const waitingForSignature =
+    award.status === "agreement_sent" && (template?.signatureRequired ?? true);
+  const canPay =
+    !cancelled && award.status !== "pending" && award.outstanding > 0 && !waitingForSignature;
+  const blockers = agreementBlockers(award, client, agreementSetup);
 
   async function approve() {
     setBusy(true);
@@ -326,44 +375,33 @@ function AwardCard({
           </p>
         )}
 
+        {!cancelled && (
+          <AgreementSteps
+            award={award}
+            programId={award.programId}
+            template={template}
+            templatesLoaded={agreementSetup.templates !== null}
+            blockers={blockers}
+            busy={busy}
+            onPrepare={() => setAgreementOpen(true)}
+            onViewSigned={() =>
+              void downloadExecutedContract(clientId, award.currentAgreementId!).catch(
+                (error: unknown) =>
+                  toast.error(error instanceof Error ? error.message : "Unable to open."),
+              )
+            }
+          />
+        )}
+        {waitingForSignature && award.outstanding > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Payments can be recorded once the client signs the award agreement.
+          </p>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {award.status === "pending" && (
             <Button size="sm" disabled={busy} onClick={() => void approve()}>
               Approve
-            </Button>
-          )}
-          {award.status === "approved" && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setAgreementOpen(true)}
-            >
-              Prepare agreement
-            </Button>
-          )}
-          {award.status === "agreement_sent" && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setAgreementOpen(true)}
-            >
-              Resend agreement
-            </Button>
-          )}
-          {award.status === "agreement_signed" && award.currentAgreementId && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                void downloadExecutedContract(clientId, award.currentAgreementId!).catch(
-                  (error: unknown) =>
-                    toast.error(error instanceof Error ? error.message : "Unable to open."),
-                )
-              }
-            >
-              View signed agreement
             </Button>
           )}
           {canPay && (
@@ -845,5 +883,163 @@ function CancelAwardDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** An award agreement template of the program, as the award card needs it. */
+interface AwardTemplateSummary {
+  id: string;
+  name: string;
+  signatureRequired: boolean;
+  /** Has an active version, so agreements can be prepared from it. */
+  ready: boolean;
+}
+
+interface AgreementSetup {
+  programActive: boolean;
+  enrollmentArchived: boolean;
+  /** Null while loading. */
+  templates: AwardTemplateSummary[] | null;
+}
+
+/** The template this award's agreement uses: the one chosen before, or the program's only one. */
+function templateFor(award: Award, templates: AwardTemplateSummary[] | null) {
+  if (!templates) return null;
+  return (
+    templates.find((template) => template.id === award.agreementTemplateId) ??
+    (templates.length === 1 ? templates[0] : null)
+  );
+}
+
+/** Why the agreement can't be prepared or sent right now, each with what to do (server rules). */
+function agreementBlockers(award: Award, client: Client, setup: AgreementSetup): string[] {
+  const reasons: string[] = [];
+  if (award.status === "pending") reasons.push("Approve the award first.");
+  if (!setup.programActive) {
+    reasons.push("The program is inactive. Activate it from its setup checklist first.");
+  }
+  if (setup.enrollmentArchived) reasons.push("This program participation is archived.");
+  if (client.isArchived) reasons.push("The client is archived.");
+  if (setup.templates && !setup.templates.some((template) => template.ready)) {
+    reasons.push(
+      setup.templates.length
+        ? "The program's award agreement has no saved wording yet. Use Edit wording."
+        : "The program has no award agreement yet. Use Add agreement wording.",
+    );
+  }
+  return reasons;
+}
+
+type StepState = "done" | "current" | "todo";
+
+/**
+ * The award agreement, step by step: the wording (the program's award agreement template), review
+ * and send, sent, signed. Shows what blocks the next step before staff try it.
+ */
+function AgreementSteps({
+  award,
+  programId,
+  template,
+  templatesLoaded,
+  blockers,
+  busy,
+  onPrepare,
+  onViewSigned,
+}: {
+  award: Award;
+  programId: string;
+  template: AwardTemplateSummary | null;
+  templatesLoaded: boolean;
+  blockers: string[];
+  busy: boolean;
+  onPrepare: () => void;
+  onViewSigned: () => void;
+}) {
+  const sent = award.status === "agreement_sent";
+  const signed = award.status === "agreement_signed";
+  const hasWording = Boolean(template?.ready);
+  const steps: { label: string; state: StepState }[] = [
+    { label: "Wording", state: hasWording ? "done" : "current" },
+    {
+      label: "Review & send",
+      state: sent || signed ? "done" : hasWording ? "current" : "todo",
+    },
+    { label: "Sent", state: signed ? "done" : sent ? "current" : "todo" },
+    { label: "Signed", state: signed ? "done" : "todo" },
+  ];
+  const wordingHref = `/programs/${encodeURIComponent(programId)}#agreements`;
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3" aria-label="Award agreement">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Award agreement
+        </p>
+        <a className="text-xs font-medium text-primary underline" href={wordingHref}>
+          {hasWording || (template && !template.ready) ? "Edit wording" : "Add agreement wording"}
+        </a>
+      </div>
+      <ol className="flex flex-wrap gap-1.5 text-xs" aria-label="Agreement steps">
+        {steps.map((step, index) => (
+          <li
+            key={step.label}
+            aria-current={step.state === "current" ? "step" : undefined}
+            className={
+              step.state === "done"
+                ? "rounded-full bg-primary/10 px-2 py-0.5 text-primary"
+                : step.state === "current"
+                  ? "rounded-full border border-primary px-2 py-0.5 font-medium"
+                  : "rounded-full border border-border px-2 py-0.5 text-muted-foreground"
+            }
+          >
+            {step.state === "done" ? "✓ " : `${index + 1}. `}
+            {step.label}
+          </li>
+        ))}
+      </ol>
+      {templatesLoaded && template && (
+        <p className="text-xs text-muted-foreground">Uses &ldquo;{template.name}&rdquo;.</p>
+      )}
+      {blockers.length > 0 && !signed && (
+        <ul className="list-disc space-y-0.5 pl-5 text-xs text-destructive" role="alert">
+          {blockers.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {(award.status === "approved" || award.status === "pending") && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || blockers.length > 0 || !templatesLoaded}
+            onClick={onPrepare}
+          >
+            Review &amp; send agreement
+          </Button>
+        )}
+        {sent && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || blockers.length > 0}
+            onClick={onPrepare}
+          >
+            Resend agreement
+          </Button>
+        )}
+        {signed && award.currentAgreementId && (
+          <Button size="sm" variant="outline" onClick={onViewSigned}>
+            View signed agreement
+          </Button>
+        )}
+      </div>
+      {(sent || signed) && (
+        <p className="text-xs text-muted-foreground">
+          To change the amount, date, title or source, use Edit: the agreement is then replaced and
+          sent again.
+        </p>
+      )}
+    </div>
   );
 }
