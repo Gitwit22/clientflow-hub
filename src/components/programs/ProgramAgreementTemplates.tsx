@@ -314,7 +314,7 @@ export function ProgramAgreementTemplates({
               id="agreement-template-name"
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
-              placeholder="Member Fund Award Agreement"
+              placeholder="Grant Award Agreement"
             />
           </div>
           <div className="space-y-1">

@@ -30,6 +30,12 @@ only works while a program is inactive, so a live program is never changed this 
 questions become the program's intake questions if it had none of its own. Clients answer them on
 the intake form after the general intake.
 
+**Two deliverables that are the same thing** (for example "IDI Member Fund Opportunities" and
+"LIVE Grant Giveaway"): on the Deliverables tab, click **Merge into…** on the one to retire and choose
+the one to keep. The preview shows what will change. Notes move to the kept deliverable's item for
+the same month, open items of the retired one are marked not applicable, and it's turned off for
+future months. Every item keeps its history.
+
 **Deliverables with a program-wide date** (for example a monthly workshop) are copied without
 their dates. Set this program's own dates on its Deliverables tab.
 
@@ -39,8 +45,8 @@ Program page → Overview → **Agreements**.
 
 - **Enrollment agreement:** what a client signs to join. One per program, marked "Enrollment
   agreement". The first one you add becomes it automatically.
-- **Award agreement:** generated for an individual funding award, e.g. the IDI Member Fund
-  agreement. Add it with **Add agreement template** and choose "Award agreement".
+- **Award agreement:** generated for an individual funding award, e.g. a LIVE Grant Giveaway
+  award. Add it with **Add agreement template** and choose "Award agreement".
 - **Versions:** saving creates a new version, which is used for agreements prepared from now on.
   Agreements already sent or signed keep the exact text they were sent with.
 - **Merge fields** fill in client and award details: `{{client.businessName}}`,

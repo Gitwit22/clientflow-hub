@@ -630,7 +630,7 @@ function AwardDialog({
               id="award-source"
               value={source}
               onChange={(event) => setSource(event.target.value)}
-              placeholder="IDI Member Fund"
+              placeholder="LIVE Grant Giveaway"
             />
           </div>
           <div className="space-y-1">

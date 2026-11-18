@@ -37,7 +37,7 @@ export const MERGE_FIELDS: readonly MergeFieldDefinition[] = [
   { key: 'enrollment.startDate', label: 'Program start date', purposes: BOTH, sample: 'November 1, 2026' },
   { key: 'today', label: "Today's date", purposes: BOTH, sample: 'November 13, 2026' },
   { key: 'award.title', label: 'Award title', purposes: ['award'], sample: 'Member Business Achievement Award' },
-  { key: 'award.source', label: 'Award source', purposes: ['award'], sample: 'IDI Member Fund' },
+  { key: 'award.source', label: 'Award source', purposes: ['award'], sample: 'LIVE Grant Giveaway' },
   { key: 'award.amount', label: 'Award amount', purposes: ['award'], sample: '$500.00' },
   { key: 'award.date', label: 'Award date', purposes: ['award'], sample: 'November 12, 2026' },
 ];

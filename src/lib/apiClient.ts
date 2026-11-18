@@ -1788,6 +1788,32 @@ export async function cfUpdateProgramDeliverable(
   );
 }
 
+/** What merging one deliverable into another changes (see the API's deliverable-merge.ts). */
+export interface DeliverableMergeReport {
+  applied: boolean;
+  from: { id: string; title: string };
+  into: { id: string; title: string };
+  items: number;
+  notesMoved: number;
+  notesKeptInPlace: number;
+  closed: number;
+  alreadyMerged: number;
+  turnedOff: boolean;
+}
+
+/** Previews (apply false) or applies merging one of a program's deliverables into another. */
+export async function cfMergeProgramDeliverable(
+  programId: string,
+  templateId: string,
+  intoTemplateId: string,
+  apply: boolean,
+) {
+  return apiRequest<DeliverableMergeReport>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/merge${apply ? "" : "/preview"}`,
+    { method: "POST", body: JSON.stringify({ intoTemplateId }) },
+  );
+}
+
 /** GET /programs/:programId/deliverables/schedule?month=YYYY-MM */
 export async function cfListProgramDeliverableDates(programId: string, month: string) {
   return apiRequest<ProgramDeliverableDates>(

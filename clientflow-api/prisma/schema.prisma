@@ -1568,7 +1568,7 @@ model CfEnrollmentAward {
   enrollmentId           String
   programId              String
   title                  String
-  /// Where the money comes from, e.g. "IDI Member Fund".
+  /// Where the money comes from, e.g. "LIVE Grant Giveaway".
   source                 String
   amountAwarded          Decimal   @db.Decimal(10, 2)
   awardDate              DateTime

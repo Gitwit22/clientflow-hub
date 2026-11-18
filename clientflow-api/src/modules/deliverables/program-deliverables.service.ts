@@ -8,6 +8,7 @@ import type {
 } from '../../generated/clientflow';
 import { findEnrollmentForOrg, findProgramForOrg, type TenantDb } from '../../common/tenancy/org-scoped.repository';
 import { PrismaService } from '../../prisma/prisma.service';
+import { mergeDeliverables } from './deliverable-merge';
 import { getCalendarPeriodBounds } from '../billing/billing-schedule.util';
 import { isUniqueViolation } from '../communications/communication-attempts';
 import {
@@ -136,6 +137,19 @@ function optionalText(value: string | null | undefined): string | null | undefin
 @Injectable()
 export class ProgramDeliverablesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Merges one deliverable into another of the same program (see deliverable-merge.ts). With
+   * apply false it only reports what would change; applying runs in one transaction.
+   */
+  async mergeTemplates(organizationId: string, programId: string, fromTemplateId: string, intoTemplateId: string, apply: boolean) {
+    await findProgramForOrg(this.prisma, organizationId, programId);
+    if (!apply) return mergeDeliverables(this.prisma, organizationId, programId, fromTemplateId, intoTemplateId, false);
+    return this.prisma.$transaction(
+      (tx) => mergeDeliverables(tx, organizationId, programId, fromTemplateId, intoTemplateId, true),
+      { timeout: 30_000, maxWait: 10_000 },
+    );
+  }
 
   // ---------------------------------------------------------------------------------------------
   // Program templates
