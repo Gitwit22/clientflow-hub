@@ -117,6 +117,10 @@ export interface OrgSettings {
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;
     logoStoredFileId?: string;
+    /** The sign-off at the end of every email; empty uses the standard one. */
+    emailSignature?: string | null;
+    /** "left" (with a margin) or "center" for the email header and message. */
+    emailLayout?: "left" | "center" | null;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;
@@ -191,6 +195,10 @@ export interface Program {
   defaultContractTemplateId: ContractType;
   defaultWorkflow: string[];
   requiredDocuments: string[];
+  /** This program's own email sign-off; null uses the organization's. */
+  emailSignature?: string | null;
+  /** This program's own email layout; null uses the organization's. */
+  emailLayout?: "left" | "center" | null;
   statusPipeline: ClientStatus[];
 }
 

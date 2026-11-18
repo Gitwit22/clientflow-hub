@@ -114,4 +114,14 @@ describe('custom automatic emails', () => {
     expect(workflow.contract.activeVersion).toBeNull();
     expect(workflow.welcomeEmail.activeVersion).toBeNull();
   });
+
+  it("saves a program's own email signature and layout, empty meaning the organization's", async () => {
+    const { controller, tables } = setup();
+    tables.cfProgram[0].defaultFormTemplateId = 'general-intake';
+    await controller.updateProgram(req, 'program-1', { emailSignature: '  The Grant Team\r\nEA Management  ', emailLayout: 'left' });
+    expect(tables.cfProgram[0]).toEqual(expect.objectContaining({ emailSignature: 'The Grant Team\nEA Management', emailLayout: 'left' }));
+    await controller.updateProgram(req, 'program-1', { emailSignature: '', emailLayout: '' });
+    expect(tables.cfProgram[0]).toEqual(expect.objectContaining({ emailSignature: null, emailLayout: null }));
+    await expect(controller.updateProgram(req, 'program-1', { emailLayout: 'right' })).rejects.toThrow('"left" or "center"');
+  });
 });

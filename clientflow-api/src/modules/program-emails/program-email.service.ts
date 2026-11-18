@@ -186,6 +186,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
       recipientEmail: actor.email,
       clientName: actor.displayName,
       programName: program.name,
+      programId: program.id,
       programEmailId: 'test',
       subject: `[Test] ${subject}`,
       body,
@@ -269,7 +270,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
     const program = await findProgramForOrg(this.prisma, organizationId, programId);
     let rendered: { html: string; text: string };
     if (this.n8n) {
-      rendered = await this.n8n.previewProgramEmail(organizationId, body);
+      rendered = await this.n8n.previewProgramEmail(organizationId, body, program.id);
     } else {
       const formatted = formattedTextToEmail(body);
       rendered = { html: emailDocumentHtml(formatted.html), text: formatted.text };
@@ -454,6 +455,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
           recipientEmail: communication.recipientEmail!,
           clientName: context.name || context.businessName || 'there',
           programName,
+          programId: email.programId,
           programEmailId: email.id,
           subject: email.subject,
           body: email.body,

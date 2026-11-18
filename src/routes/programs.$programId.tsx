@@ -9,6 +9,7 @@ import { ProgramEmailsPanel } from "@/components/programs/ProgramEmailsPanel";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ProgramAgreementTemplates } from "@/components/programs/ProgramAgreementTemplates";
 import { ProgramAutomaticEmails } from "@/components/programs/ProgramAutomaticEmails";
+import { EmailStyleCard } from "@/components/EmailStyleCard";
 import { ProgramSetupChecklist } from "@/components/programs/ProgramSetupChecklist";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
@@ -756,6 +757,19 @@ function ProgramDetailPage() {
                 program={program}
                 workflow={workflow}
                 onChanged={() => setRefreshVersion((value) => value + 1)}
+              />
+              <EmailStyleCard
+                forProgram
+                title="Email signature & layout for this program"
+                description="Replaces the organization's signature and layout (Settings) on this program's emails. Leave empty to use the organization's."
+                value={{
+                  emailSignature: program.emailSignature ?? null,
+                  emailLayout: program.emailLayout ?? null,
+                }}
+                onSave={async (values) => {
+                  await updateProgram(program.id, values);
+                  setRefreshVersion((value) => value + 1);
+                }}
               />
               <div className="grid gap-4 lg:grid-cols-2">
                 <ProgramAgreementTemplates

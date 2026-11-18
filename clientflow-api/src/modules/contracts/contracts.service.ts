@@ -707,6 +707,7 @@ export class ContractsService {
           recipientEmail: client.email,
           clientName: client.primaryContactName,
           programName: program.name,
+          programId: program.id,
           contractName: contract.contractType,
           executedCopyUrl: download.url,
           source: delivery.source,
@@ -790,6 +791,7 @@ export class ContractsService {
           recipientEmail: client.email,
           clientName: client.primaryContactName,
           programName: program.name,
+          programId: program.id,
           // ClientFlow owns the wording: the resolved subject and body go out as-is.
           subject: welcomeConfig.subject,
           body: welcomeConfig.body,
@@ -2011,6 +2013,7 @@ export class ContractsService {
           recipientEmail: client.email,
           clientName: client.primaryContactName,
           programName: program.name,
+          programId: program.id,
           contractName: template.name,
           contractUrl: publicContractUrl,
           dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),

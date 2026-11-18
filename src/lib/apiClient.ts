@@ -351,6 +351,8 @@ export async function updateOrganizationSettings(
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;
     logoStoredFileId?: string | null;
+    emailSignature?: string | null;
+    emailLayout?: "left" | "center" | null;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;

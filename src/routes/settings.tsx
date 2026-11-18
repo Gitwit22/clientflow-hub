@@ -4,6 +4,11 @@ import { toast } from "sonner";
 import { DemoDataRemovalDialog } from "@/components/dialogs/DemoDataRemovalDialog";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  EmailStyleCard,
+  type EmailLayout,
+  type EmailStyleValues,
+} from "@/components/EmailStyleCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -154,6 +159,10 @@ function SettingsPage() {
   const [orgLoading, setOrgLoading] = useState(false);
   const [companyName, setCompanyName] = useState("");
   const [replyTo, setReplyTo] = useState("");
+  const [emailStyle, setEmailStyle] = useState<EmailStyleValues>({
+    emailSignature: null,
+    emailLayout: null,
+  });
   const [monitoringFreq, setMonitoringFreq] = useState("");
   const [orgSaving, setOrgSaving] = useState(false);
   const [liveMode, setLiveMode] = useState(false);
@@ -196,6 +205,10 @@ function SettingsPage() {
       const data: OrgSettings = await getOrganizationSettings(orgId);
       setCompanyName(data.name ?? "");
       setReplyTo((data.settings.replyToEmail as string) ?? "");
+      setEmailStyle({
+        emailSignature: (data.settings.emailSignature as string | null) ?? null,
+        emailLayout: (data.settings.emailLayout as EmailLayout | null) ?? null,
+      });
       setMonitoringFreq((data.settings.defaultMonitoringFrequency as string) ?? "");
       setTemplateToggles((current) => ({
         ...current,
@@ -820,6 +833,21 @@ function SettingsPage() {
             </Button>
           </CardFooter>
         </Card>
+
+        <EmailStyleCard
+          title="Email signature & layout"
+          description="The sign-off at the end of every email to clients, and where the header logo and message sit. A program can set its own on its page."
+          value={emailStyle}
+          disabled={!orgId}
+          onSave={async (values) => {
+            if (!orgId) return;
+            const updated = await updateOrganizationSettings(orgId, values);
+            setEmailStyle({
+              emailSignature: (updated.settings.emailSignature as string | null) ?? null,
+              emailLayout: (updated.settings.emailLayout as EmailLayout | null) ?? null,
+            });
+          }}
+        />
 
         {/* ── Program & form settings ────────────────────────────────────────── */}
         <Card className="shadow-card">

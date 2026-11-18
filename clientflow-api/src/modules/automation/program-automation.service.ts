@@ -555,6 +555,7 @@ export class ProgramAutomationService {
         recipientEmail: context.client.email,
         clientName: context.client.primaryContactName,
         programName: context.program.name,
+        programId: context.program.id,
         // The rule's own subject and message go out as-is, like every other welcome.send.
         subject,
         body: message,

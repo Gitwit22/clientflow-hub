@@ -323,6 +323,10 @@ model CfProgram {
   requiredDocuments          Json     @default("[]")
   statusPipeline             Json     @default("[]")
   welcomeMessage             String?
+  /// This program's email sign-off; null uses the organization's (Settings).
+  emailSignature             String?
+  /// 'left' or 'center' header and message layout for this program's emails; null uses the organization's.
+  emailLayout                String?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 

@@ -46,6 +46,7 @@ import {
   validateAutomationEmail,
 } from '../automation/automation-email';
 import { isSendableEmail } from '../communications/recipient';
+import { parseEmailLayout, parseEmailSignature } from '../../integrations/n8n/email-style';
 import { assertIntakeChoice, assertReadyToActivate, GENERAL_INTAKE_CHOICE, programSetup } from '../programs/program-setup';
 import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
@@ -744,6 +745,9 @@ export class ClientflowCompatibilityController {
   @Patch('programs/:id') async updateProgram(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId } = await this.requireOrgFromRequest(request);
     const data = pickFields(body, PROGRAM_UPDATE_FIELDS);
+    // A program's own email sign-off and layout; empty means "use the organization's".
+    if ('emailSignature' in data) data.emailSignature = parseEmailSignature(data.emailSignature);
+    if ('emailLayout' in data) data.emailLayout = parseEmailLayout(data.emailLayout);
     const existing = await findProgramForOrg(this.requirePrisma(), orgId, id);
     // Re-sending the template the program already points at is no change, even if that template is
     // gone (seeded programs point at 'general-intake'); only a newly chosen template is checked.
@@ -1237,6 +1241,7 @@ export class ClientflowCompatibilityController {
       recipientEmail: admin.email,
       clientName: staffName,
       programName: program.name,
+      programId: program.id,
       subject: renderedSubject,
       body: renderedMessage,
       renderMode: 'verbatim',
@@ -2085,6 +2090,8 @@ const PROGRAM_UPDATE_FIELDS: FieldSpec = {
   requiredDocuments: 'stringArray',
   statusPipeline: 'stringArray',
   welcomeMessage: 'nullableString',
+  emailSignature: 'nullableString',
+  emailLayout: 'nullableString',
 };
 
 const ENROLLMENT_UPDATE_FIELDS: FieldSpec = {
@@ -2171,6 +2178,9 @@ function pickOrganizationSettings(body: Record<string, unknown>): Record<string,
   if (body.logoStoredFileId === null || typeof body.logoStoredFileId === 'string') {
     settings.logoStoredFileId = body.logoStoredFileId;
   }
+  // The default email sign-off and layout; a program can set its own (CfProgram).
+  if ('emailSignature' in body) settings.emailSignature = parseEmailSignature(body.emailSignature);
+  if ('emailLayout' in body) settings.emailLayout = parseEmailLayout(body.emailLayout);
   for (const key of ['features', 'notificationTemplateToggles'] as const) {
     const value = body[key];
     if (isRecord(value)) {
