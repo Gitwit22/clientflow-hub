@@ -210,6 +210,26 @@ describe("program emails", () => {
     });
   });
 
+  it("keeps numbering as Enter is pressed in a list, and an empty item ends it", async () => {
+    await open();
+    const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(message, { target: { value: "Bring" } });
+    message.setSelectionRange(5, 5);
+    fireEvent.click(screen.getByRole("button", { name: "Numbered list" }));
+    expect(message.value).toBe("1. Bring");
+
+    message.setSelectionRange(message.value.length, message.value.length);
+    fireEvent.keyDown(message, { key: "Enter" });
+    expect(message.value).toBe("1. Bring\n2. ");
+    fireEvent.change(message, { target: { value: "1. Bring\n2. ID" } });
+    message.setSelectionRange(message.value.length, message.value.length);
+    fireEvent.keyDown(message, { key: "Enter" });
+    expect(message.value).toBe("1. Bring\n2. ID\n3. ");
+    message.setSelectionRange(message.value.length, message.value.length);
+    fireEvent.keyDown(message, { key: "Enter" });
+    expect(message.value).toBe("1. Bring\n2. ID\n");
+  });
+
   it("formats the message from the toolbar, and Preview email shows the whole email without sending", async () => {
     await open();
     const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
