@@ -159,30 +159,21 @@ export function contractTemplateId(organizationId: string, templateName: string)
   return `cftpl_${createHash('md5').update(`${organizationId}:${templateName}`).digest('hex')}`;
 }
 
+/**
+ * The agreement text as the client reads and signs it: the rendered template followed by the
+ * organization's signature (applied by the staff member who prepared it). Internal record ids are
+ * kept on the contract row, not printed in the agreement.
+ */
 export function renderContractSnapshot(input: {
-  templateName: string;
   templateContent: string;
-  clientId: string;
-  clientName: string;
-  programId: string;
-  programName: string;
-  generatedAt: Date;
   staffSignerName: string;
   staffSignedAt: Date;
 }): string {
   return [
     input.templateContent,
     '',
-    'GENERATED CONTRACT SNAPSHOT',
-    `Contract template: ${input.templateName}`,
-    `Client: ${input.clientName}`,
-    `Client ID: ${input.clientId}`,
-    `Program: ${input.programName}`,
-    `Program ID: ${input.programId}`,
-    `Generated at: ${input.generatedAt.toISOString()}`,
-    '',
     'SIGNED FOR THE ORGANIZATION',
     `Signed by: ${input.staffSignerName}`,
-    `Signed at: ${input.staffSignedAt.toISOString()}`,
+    `Signed at: ${input.staffSignedAt.toISOString().replace('T', ' ').slice(0, 16)} UTC`,
   ].join('\n');
 }

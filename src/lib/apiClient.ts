@@ -1404,6 +1404,8 @@ export interface AutomatedPublicContractData {
   };
   client: { name: string };
   program: { id: string; name: string };
+  /** The organization's header logo, shown above the agreement; null or absent when there is none. */
+  headerImageUrl?: string | null;
 }
 
 /** GET /public/contracts/:token — load the generated contract for signature (no auth). */

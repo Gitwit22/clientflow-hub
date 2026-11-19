@@ -11,11 +11,23 @@ export interface ExecutedContractPdfInput {
   title: string;
   body: string;
   acceptance?: ExecutedContractAcceptance;
+  /** The organization's header logo (PNG or JPEG), drawn above the title. Anything else is skipped. */
+  headerImage?: Buffer | null;
   /** Test hook: uncompressed streams keep the rendered text greppable. */
   compress?: boolean;
 }
 
 const MARGIN = 64;
+const LOGO_MAX_WIDTH = 180;
+const LOGO_MAX_HEIGHT = 60;
+
+/** PDFKit draws only PNG and JPEG; recognise them by their first bytes, not a declared type. */
+export function isPdfEmbeddableImage(bytes: Buffer | null | undefined): bytes is Buffer {
+  if (!bytes || bytes.length < 4) return false;
+  const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+  const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  return png || jpeg;
+}
 
 // The built-in PDF fonts only cover WinAnsi; map common typography and drop anything else
 // so an unusual character can never break the render.
@@ -64,6 +76,22 @@ export function renderExecutedContractPdf(input: ExecutedContractPdfInput): Prom
   });
 
   const width = doc.page.width - MARGIN * 2;
+
+  if (isPdfEmbeddableImage(input.headerImage)) {
+    try {
+      const top = doc.y;
+      // The logo is scaled to fit a box centred on the page.
+      doc.image(input.headerImage, (doc.page.width - LOGO_MAX_WIDTH) / 2, top, {
+        fit: [LOGO_MAX_WIDTH, LOGO_MAX_HEIGHT],
+        align: 'center',
+        valign: 'center',
+      });
+      doc.x = MARGIN;
+      doc.y = top + LOGO_MAX_HEIGHT + 16;
+    } catch {
+      // A damaged image never stops the signed copy from being produced.
+    }
+  }
 
   doc.font('Helvetica-Bold').fontSize(16).text(toWinAnsi(input.title), { width, align: 'center' });
   doc.moveDown(0.3);

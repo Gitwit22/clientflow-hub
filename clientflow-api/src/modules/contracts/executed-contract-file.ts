@@ -1,6 +1,11 @@
-import type { StorageService } from '../../integrations/storage/storage.service';
+import { logoStoredFileIdFromSettings } from '../../integrations/n8n/email-branding';
+import { storageBucketOf, type StorageService } from '../../integrations/storage/storage.service';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { renderExecutedContractPdf, type ExecutedContractAcceptance } from './executed-contract-pdf';
+import {
+  isPdfEmbeddableImage,
+  renderExecutedContractPdf,
+  type ExecutedContractAcceptance,
+} from './executed-contract-pdf';
 
 export const EXECUTED_CONTRACT_MIME_TYPE = 'application/pdf';
 
@@ -25,12 +30,47 @@ export function executedCopyFileName(businessName: string | null | undefined, co
 export function renderExecutedContract(
   contract: { contractType: string; generatedContent: string },
   acceptance: ExecutedContractAcceptance | null,
+  headerImage?: Buffer | null,
 ): Promise<Buffer> {
   return renderExecutedContractPdf({
     title: contract.contractType,
     body: contract.generatedContent,
     acceptance: acceptance ?? undefined,
+    headerImage,
   });
+}
+
+/** Logos larger than this are left off the signed copy rather than read into memory. */
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+/**
+ * The organization's header logo (Settings) as PNG or JPEG bytes for the signed copy, or null when
+ * there is none, it can't be read, or it is another format. Never throws: a missing logo must not
+ * stop an agreement from being signed.
+ */
+export async function organizationLogoImage(
+  prisma: PrismaService,
+  storage: StorageService,
+  organizationId: string,
+): Promise<Buffer | null> {
+  try {
+    if (!storage.isEnabled()) return null;
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { settings: true },
+    });
+    const storedFileId = logoStoredFileIdFromSettings(organization?.settings);
+    if (!storedFileId) return null;
+    const file = await prisma.cfStoredFile.findFirst({
+      where: { id: storedFileId, organizationId, status: 'READY' },
+      select: { storageKey: true, storageBucket: true, sizeBytes: true },
+    });
+    if (!file || !file.sizeBytes || file.sizeBytes > MAX_LOGO_BYTES) return null;
+    const bytes = await storage.readObjectStart(storageBucketOf(file), file.storageKey, file.sizeBytes);
+    return isPdfEmbeddableImage(bytes) ? bytes : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface ExecutedContractRecord {
