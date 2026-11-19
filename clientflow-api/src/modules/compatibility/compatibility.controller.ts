@@ -951,7 +951,7 @@ export class ClientflowCompatibilityController {
     const purpose: AgreementPurpose = body.purpose === undefined ? 'enrollment' : parseAgreementPurpose(body.purpose) ?? (() => {
       throw new BadRequestException('Agreement purpose must be enrollment or award.');
     })();
-    const hasVersion = Boolean(body.content || body.fileUrl || body.fileName);
+    const hasVersion = Boolean(body.content || body.fileUrl || body.fileName || body.storedFileId);
     if (hasVersion) {
       assertContractVersionContent(body);
       assertAgreementMergeFields(body, purpose);

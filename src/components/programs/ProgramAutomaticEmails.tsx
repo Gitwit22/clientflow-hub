@@ -52,10 +52,13 @@ export function ProgramAutomaticEmails({
   program,
   workflow,
   onChanged,
+  embedded = false,
 }: {
   program: Program;
   workflow: ProgramWorkflow | undefined;
   onChanged: () => void;
+  /** Inside a section that already shows the title: no frame or numbered label of its own. */
+  embedded?: boolean;
 }) {
   const [automation, setAutomation] = useState<ProgramAutomation | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -114,9 +117,18 @@ export function ProgramAutomaticEmails({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-border p-3" aria-label="Automatic emails">
+    <div
+      className={embedded ? "space-y-3" : "space-y-3 rounded-lg border border-border p-3"}
+      aria-label="Automatic emails"
+    >
       <div className="flex items-center justify-between gap-2">
-        <p className="font-mono text-[10px] uppercase text-muted-foreground">4. Automatic emails</p>
+        {embedded ? (
+          <p className="text-sm font-medium">Automation for this program</p>
+        ) : (
+          <p className="font-mono text-[10px] uppercase text-muted-foreground">
+            4. Automatic emails
+          </p>
+        )}
         <div className="flex items-center gap-2 text-sm">
           <span>{automationOn ? "On" : "Paused"}</span>
           <Switch

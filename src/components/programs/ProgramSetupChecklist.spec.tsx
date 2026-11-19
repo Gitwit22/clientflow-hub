@@ -69,4 +69,32 @@ describe("ProgramSetupChecklist", () => {
     );
     expect(screen.queryByRole("button", { name: "Activate program" })).toBeNull();
   });
+
+  it("starts open with Go-to links for what still needs attention", async () => {
+    cfGetProgramSetup.mockResolvedValue(notReady);
+    const onGoTo = vi.fn();
+    render(
+      <ProgramSetupChecklist programId="p1" refreshKey={0} onActivated={vi.fn()} onGoTo={onGoTo} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Go to Agreements" }));
+    expect(onGoTo).toHaveBeenCalledWith("enrollment_agreement");
+    expect(screen.getByRole("button", { name: "Go to Deliverables" })).toBeTruthy();
+    // Done items have no link.
+    expect(screen.queryByRole("button", { name: "Go to Program questions" })).toBeNull();
+  });
+
+  it("starts closed when a program is ready and active, with its progress in one line", async () => {
+    cfGetProgramSetup.mockResolvedValue({
+      ...notReady,
+      isActive: true,
+      ready: true,
+      missingRequired: [],
+      items: notReady.items.map((entry) => ({ ...entry, done: entry.required })),
+    });
+    render(<ProgramSetupChecklist programId="p1" refreshKey={0} onActivated={vi.fn()} />);
+    expect(await screen.findByText("2 of 2 required steps done. Ready and active.")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Setup checklist/ }).getAttribute("aria-expanded"),
+    ).toBe("false");
+  });
 });

@@ -260,6 +260,9 @@ describe('ContractsService', () => {
     // Generated agreements no longer carry the starter templates' draft disclaimer.
     const [[createArgs]] = (prisma.cfContract.create as jest.Mock<unknown, [{ data: { generatedContent: string } }]>).mock.calls;
     expect(createArgs.data.generatedContent).not.toContain('Template draft only.');
+    // The agreement carries the organization's signature, but no internal record ids.
+    expect(createArgs.data.generatedContent).toContain('SIGNED FOR THE ORGANIZATION');
+    expect(createArgs.data.generatedContent).not.toMatch(/Client ID:|Program ID:|GENERATED CONTRACT SNAPSHOT/);
     // Issued through the contract state machine: a conditional update from an issuable state.
     expect(transaction.cfContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: expect.any(String), status: { in: ['DRAFT', 'SENT', 'OPENED', 'EXPIRED'] } }),
@@ -707,6 +710,34 @@ describe('ContractsService', () => {
       content: 'Generated contract content.',
     }));
     expect(JSON.stringify(result)).not.toMatch(/secureToken|signerIp|signedEmail/);
+    expect(result.headerImageUrl).toBeNull();
+  });
+
+  it("shows the organization's header logo on the signing page", async () => {
+    const transaction = {
+      cfContract: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      cfClient: { update: jest.fn().mockResolvedValue({ ...client, status: 'CONTRACT_OPENED' }) },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-opened' }) },
+    };
+    const prisma = {
+      cfContract: { findUnique: jest.fn().mockResolvedValue(sentContract) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue(autoProgram) },
+      organization: { findUnique: jest.fn().mockResolvedValue({ settings: { logoStoredFileId: 'logo-file-1' } }) },
+      cfStoredFile: { findFirst: jest.fn().mockResolvedValue({ storageKey: 'organization/header-logo/logo.png', storageBucket: 'public' }) },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const storage = {
+      isEnabled: () => true,
+      isPublicAssetsConfigured: () => true,
+      publicAssetUrl: (key: string) => `https://assets.example.com/${key}`,
+    };
+    const service = contractsServiceTestContext(prisma, n8nDisabled(), { storage });
+
+    const result = await service.openPublicContract('a'.repeat(43));
+
+    expect(result.headerImageUrl).toBe('https://assets.example.com/organization/header-logo/logo.png');
+    expect(prisma.cfStoredFile.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'logo-file-1', organizationId: sentContract.organizationId } }));
   });
 
   it('completes a public contract, starts onboarding, and creates the first monitoring task', async () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { UnsavedChangesMarker } from "@/components/CollapsibleSection";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ export function EmailStyleCard({
   value,
   forProgram = false,
   disabled = false,
+  embedded = false,
   onSave,
 }: {
   title: string;
@@ -42,6 +44,8 @@ export function EmailStyleCard({
   /** A program can fall back to the organization's choices. */
   forProgram?: boolean;
   disabled?: boolean;
+  /** Inside a section that already shows the title: no card of its own. */
+  embedded?: boolean;
   onSave: (values: EmailStyleValues) => Promise<void>;
 }) {
   const [signature, setSignature] = useState(value.emailSignature ?? "");
@@ -69,49 +73,66 @@ export function EmailStyleCard({
   }
 
   const id = forProgram ? "program-email" : "org-email";
+  const unsaved =
+    signature.trim() !== (value.emailSignature ?? "").trim() ||
+    layout !== (value.emailLayout ?? DEFAULT_CHOICE);
+  const fields = (
+    <>
+      <p className="text-muted-foreground">{description}</p>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${id}-signature`}>Signature</Label>
+        <Textarea
+          id={`${id}-signature`}
+          rows={3}
+          maxLength={SIGNATURE_MAX}
+          value={signature}
+          onChange={(event) => setSignature(event.target.value)}
+          placeholder={
+            forProgram
+              ? "Empty uses the organization's signature (Settings)."
+              : "Thank you,\nEA Management LLC"
+          }
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Header and message layout</Label>
+        <Select value={layout} onValueChange={setLayout}>
+          <SelectTrigger aria-label="Email layout">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={DEFAULT_CHOICE}>
+              {forProgram ? "Same as the organization" : "Centered (standard)"}
+            </SelectItem>
+            <SelectItem value="left">Left, with a margin</SelectItem>
+            <SelectItem value="center">Centered</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {unsaved && <UnsavedChangesMarker />}
+    </>
+  );
+  const saveButton = (
+    <Button size="sm" disabled={disabled || saving} onClick={() => void save()}>
+      {saving ? "Saving…" : "Save email settings"}
+    </Button>
+  );
+
+  if (embedded) {
+    return (
+      <div className="space-y-3 text-sm" aria-label={title}>
+        {fields}
+        {saveButton}
+      </div>
+    );
+  }
   return (
     <Card className="shadow-card" aria-label={title}>
       <CardHeader>
         <CardTitle className="font-display text-base">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p className="text-muted-foreground">{description}</p>
-        <div className="space-y-1.5">
-          <Label htmlFor={`${id}-signature`}>Signature</Label>
-          <Textarea
-            id={`${id}-signature`}
-            rows={3}
-            maxLength={SIGNATURE_MAX}
-            value={signature}
-            onChange={(event) => setSignature(event.target.value)}
-            placeholder={
-              forProgram
-                ? "Empty uses the organization's signature (Settings)."
-                : "Thank you,\nEA Management LLC"
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Header and message layout</Label>
-          <Select value={layout} onValueChange={setLayout}>
-            <SelectTrigger aria-label="Email layout">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={DEFAULT_CHOICE}>
-                {forProgram ? "Same as the organization" : "Centered (standard)"}
-              </SelectItem>
-              <SelectItem value="left">Left, with a margin</SelectItem>
-              <SelectItem value="center">Centered</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </CardContent>
-      <CardFooter className="pt-0">
-        <Button size="sm" disabled={disabled || saving} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save email settings"}
-        </Button>
-      </CardFooter>
+      <CardContent className="space-y-3 text-sm">{fields}</CardContent>
+      <CardFooter className="pt-0">{saveButton}</CardFooter>
     </Card>
   );
 }

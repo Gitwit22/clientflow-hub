@@ -70,6 +70,7 @@ import {
   ensureExecutedContractPdf,
   executedContractObjectKey,
   executedCopyFileName,
+  organizationLogoImage,
   renderExecutedContract,
 } from './executed-contract-file';
 import { assertSendableRecipient } from '../communications/recipient';
@@ -944,7 +945,23 @@ export class ContractsService {
       },
       client: { name: client.primaryContactName },
       program: { id: program.id, name: program.name },
+      /** The organization's header logo (Settings), shown above the agreement; absent when there is none. */
+      headerImageUrl: (await this.organizationLogoUrl(contract.organizationId)) ?? null,
     };
+  }
+
+  /** The header logo's permanent public address for the signing page. Cosmetic: never throws. */
+  private async organizationLogoUrl(organizationId: string): Promise<string | undefined> {
+    if (!this.storage.isEnabled()) return undefined;
+    try {
+      const organization = await this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { settings: true },
+      });
+      return await this.resolveOrganizationLogoUrl(organizationId, logoStoredFileIdFromSettings(organization?.settings));
+    } catch {
+      return undefined;
+    }
   }
 
   async completePublicContract(
@@ -1246,12 +1263,17 @@ export class ContractsService {
   ): Promise<void> {
     if (!this.storage.isEnabled()) return;
     try {
-      const pdf = await renderExecutedContract(contract, {
-        signedName: acceptance.signedName.trim(),
-        signedEmail: acceptance.signedEmail.trim().toLowerCase(),
-        signedAt,
-        note: acceptance.signatureNote?.trim() || null,
-      });
+      const logo = await organizationLogoImage(this.prisma, this.storage, client.organizationId);
+      const pdf = await renderExecutedContract(
+        contract,
+        {
+          signedName: acceptance.signedName.trim(),
+          signedEmail: acceptance.signedEmail.trim().toLowerCase(),
+          signedAt,
+          note: acceptance.signatureNote?.trim() || null,
+        },
+        logo,
+      );
       const objectKey = executedContractObjectKey(client.organizationId, client.id, contract.id);
       const uploaded = await this.storage.uploadBuffer(
         objectKey,
@@ -1561,13 +1583,7 @@ export class ContractsService {
             staffSignedByName: staffSigner.name,
             staffSignedAt: now,
             generatedContent: renderContractSnapshot({
-              templateName: template.name,
               templateContent: rendered.text,
-              clientId: client.id,
-              clientName: client.primaryContactName,
-              programId: program.id,
-              programName: program.name,
-              generatedAt: now,
               staffSignerName: staffSigner.name,
               staffSignedAt: now,
             }),
@@ -1866,13 +1882,7 @@ export class ContractsService {
         staffSignedByName: staffSigner.name,
         staffSignedAt: now,
         generatedContent: renderContractSnapshot({
-          templateName: template.name,
           templateContent: rendered.text,
-          clientId: client.id,
-          clientName: client.primaryContactName,
-          programId: program.id,
-          programName: program.name,
-          generatedAt: now,
           staffSignerName: staffSigner.name,
           staffSignedAt: now,
         }),

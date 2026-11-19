@@ -124,6 +124,17 @@ function PublicContractPage() {
   return (
     <div className="min-h-screen bg-background px-4 py-12">
       <div className="mx-auto max-w-2xl space-y-8">
+        {data.headerImageUrl && (
+          <img
+            src={data.headerImageUrl}
+            alt=""
+            className="mx-auto max-h-20 w-auto max-w-full object-contain"
+            onError={(event) => {
+              // A logo that can't load is hidden rather than shown broken.
+              event.currentTarget.hidden = true;
+            }}
+          />
+        )}
         <div className="space-y-1">
           <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
             {data.program.name}
