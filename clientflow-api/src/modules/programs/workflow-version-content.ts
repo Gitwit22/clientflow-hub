@@ -14,13 +14,19 @@ export function welcomeVersionContent(body: Record<string, unknown>): { subject:
   return { subject, body: text };
 }
 
-/** A contract version needs its text or an uploaded document; otherwise clients sign a blank page. */
+/**
+ * An agreement version needs its text: clients read and sign the text, never the uploaded document
+ * (that is kept for staff as the original). Without text the client would sign a blank page.
+ */
 export function assertContractVersionContent(body: Record<string, unknown>): void {
   const hasText = typeof body.content === 'string' && body.content.trim().length > 0;
+  if (hasText) return;
   const hasFile = Boolean(body.storedFileId || body.fileUrl);
-  if (!hasText && !hasFile) {
-    throw new BadRequestException('Add the contract text or upload the contract document.');
-  }
+  throw new BadRequestException(
+    hasFile
+      ? 'Add the agreement text. Clients sign the text; the uploaded document is kept for reference only.'
+      : 'Add the contract text.',
+  );
 }
 
 /**

@@ -11,9 +11,11 @@ describe('workflow version content', () => {
     expect(() => welcomeVersionContent({ subject: '  ', body: 'Hi' })).toThrow('needs a subject');
   });
 
-  it('requires contract text or an uploaded document', () => {
+  it('requires agreement text, even when a document is uploaded', () => {
     expect(() => assertContractVersionContent({ content: 'Terms…' })).not.toThrow();
-    expect(() => assertContractVersionContent({ storedFileId: 'file-1' })).not.toThrow();
+    expect(() => assertContractVersionContent({ content: 'Terms…', storedFileId: 'file-1' })).not.toThrow();
+    // A document alone would send the client a blank agreement to sign.
+    expect(() => assertContractVersionContent({ storedFileId: 'file-1' })).toThrow('Add the agreement text');
     expect(() => assertContractVersionContent({ content: '  ' })).toThrow('Add the contract text');
   });
 });
