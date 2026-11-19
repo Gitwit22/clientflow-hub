@@ -55,6 +55,18 @@ Program page → Overview → **Agreements**.
   can use** for the full list, and **Preview with sample details** to check the wording.
 - Replace any "Template draft only" starter wording with your reviewed legal text. The page warns
   you while it's still there.
+- **Importing a contract you already have:**
+  1. Click **Import from PDF or Word** (a text PDF or a .docx; not a scanned image). Its text fills
+     the editor, with headings in capitals so they print bold on the signed copy.
+  2. Under **Suggested merge fields**, click **Apply** or **Apply all** to swap blanks and one-off
+     values for merge fields: "Business Name: ____", the representative, the award amount and date.
+     Blank signature lines are removed, because ClientFlow records both electronic signatures.
+  3. Read the text and the preview, then save. Nothing is saved before that.
+- **Original document:** an uploaded or imported file is kept with the version for staff.
+  Clients always read and sign the text, filled in for them. An agreement can't be saved without
+  text.
+- **Header logo:** the logo set in Settings appears at the top of the client's signing page and of
+  the signed PDF.
 
 **Sending an enrollment agreement:** on the client, click **Send contract**, then **Review
 agreement**. You'll see the exact text the client will sign. If details are missing (for

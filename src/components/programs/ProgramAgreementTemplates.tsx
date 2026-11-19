@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,13 @@ import {
   invalidFields,
   renderWithSamples,
 } from "@/lib/agreement-fields";
+import {
+  AgreementImportError,
+  extractAgreementText,
+  IMPORT_ACCEPT,
+  remainingBlanks,
+  suggestMergeFields,
+} from "@/lib/agreement-import";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/client-send";
 import type {
   AgreementPurpose,
@@ -84,6 +91,12 @@ export function ProgramAgreementTemplates({
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPurpose, setNewPurpose] = useState<AgreementPurpose>("award");
+  const importInput = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  /** A document waiting for staff to confirm it may replace the text already in the editor. */
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
+  /** The imported document's name while its suggested merge fields are offered. */
+  const [importedFrom, setImportedFrom] = useState<string | null>(null);
 
   // The editor starts from the active version of the selected template, and resets only when the
   // selected template or its active version changes (not on every keystroke-driven re-render).
@@ -92,6 +105,8 @@ export function ProgramAgreementTemplates({
     setContent(activeVersion?.content ?? "");
     setFile(null);
     setShowSample(false);
+    setPendingImport(null);
+    setImportedFrom(null);
   }
   useEffect(() => {
     restoreEditor();
@@ -107,6 +122,44 @@ export function ProgramAgreementTemplates({
     () => invalidFields(`${title}\n${content}`, editingPurpose),
     [title, content, editingPurpose],
   );
+  // Suggestions are worked out from the current text, so an applied one simply stops matching.
+  const suggestions = useMemo(
+    () => (importedFrom ? suggestMergeFields(content, editingPurpose) : []),
+    [importedFrom, content, editingPurpose],
+  );
+  const blanksLeft = importedFrom ? remainingBlanks(content) : 0;
+
+  function chooseImport(selected: File | undefined) {
+    if (importInput.current) importInput.current.value = "";
+    if (!selected) return;
+    if (content.trim()) setPendingImport(selected);
+    else void importDocument(selected);
+  }
+
+  async function importDocument(document: File) {
+    setPendingImport(null);
+    setImporting(true);
+    try {
+      const imported = await extractAgreementText(document);
+      setContent(imported.text);
+      setShowSample(false);
+      // The original is kept with the version for staff; clients sign the text.
+      setFile(document);
+      if (adding && !newName.trim()) setNewName(imported.name);
+      setImportedFrom(document.name);
+      toast.success("Document imported. Check the text and the suggested fields before saving.");
+    } catch (error) {
+      toast.error(
+        error instanceof AgreementImportError ? error.message : "Unable to read this document.",
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const applySuggestion = (apply: (text: string) => string) => setContent((text) => apply(text));
+  const applyAllSuggestions = () =>
+    setContent((text) => suggestions.reduce((current, item) => item.apply(current), text));
 
   async function act(work: () => Promise<unknown>, success: string, failure: string) {
     setSaving(true);
@@ -182,6 +235,7 @@ export function ProgramAgreementTemplates({
           });
         }
         setFile(null);
+        setImportedFrom(null);
       },
       "Agreement version saved. New agreements use it; ones already sent keep their text.",
       "Unable to save this agreement version.",
@@ -207,6 +261,7 @@ export function ProgramAgreementTemplates({
         setAdding(false);
         setNewName("");
         setFile(null);
+        setImportedFrom(null);
       },
       "Agreement template added.",
       "Unable to add this agreement template.",
@@ -354,6 +409,47 @@ export function ProgramAgreementTemplates({
 
       {(adding || selected || templates.length === 0) && (
         <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              disabled={importing || saving}
+              onClick={() => importInput.current?.click()}
+            >
+              {importing ? "Reading document…" : "Import from PDF or Word"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Brings in the document&apos;s text to review. Nothing is saved until you save.
+            </span>
+            <input
+              ref={importInput}
+              type="file"
+              accept={IMPORT_ACCEPT}
+              aria-label="Import agreement from a PDF or Word document"
+              className="hidden"
+              onChange={(event) => chooseImport(event.target.files?.[0])}
+            />
+          </div>
+          {pendingImport && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center gap-2 rounded border border-border bg-muted/40 p-2 text-xs"
+            >
+              <span>Replace the text in the editor with &ldquo;{pendingImport.name}&rdquo;?</span>
+              <Button size="sm" type="button" onClick={() => void importDocument(pendingImport)}>
+                Replace text
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                onClick={() => setPendingImport(null)}
+              >
+                Keep my text
+              </Button>
+            </div>
+          )}
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
@@ -383,12 +479,80 @@ export function ProgramAgreementTemplates({
               {problems.map((key) => `{{${key}}}`).join(", ")}
             </p>
           )}
-          <Input
-            type="file"
-            accept={DOCUMENT_UPLOAD_ACCEPT}
-            aria-label="Agreement document"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          />
+          {importedFrom && (
+            <div
+              aria-label="Suggested merge fields"
+              className="space-y-2 rounded border border-border p-3 text-xs"
+            >
+              <p className="font-medium">
+                Imported from &ldquo;{importedFrom}&rdquo;. Fill in what changes for each client:
+              </p>
+              {suggestions.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {suggestions.map((item) => (
+                    <li key={item.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>{item.label}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        onClick={() => applySuggestion(item.apply)}
+                      >
+                        Apply
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-muted-foreground">No more suggestions.</p>
+              )}
+              {suggestions.length > 1 && (
+                <Button size="sm" type="button" onClick={applyAllSuggestions}>
+                  Apply all
+                </Button>
+              )}
+              {blanksLeft > 0 && (
+                <p className="text-destructive">
+                  {blanksLeft === 1 ? "1 blank (____) is" : `${blanksLeft} blanks (____) are`} left
+                  in the text. Replace each with a merge field or the wording you want.
+                </p>
+              )}
+              <p className="text-muted-foreground">
+                Other wording that differs per award, such as the award&apos;s name, can use{" "}
+                <code>{"{{award.title}}"}</code> and <code>{"{{award.source}}"}</code>.
+              </p>
+            </div>
+          )}
+          <div className="space-y-1">
+            <Label htmlFor="agreement-original-document" className="text-xs">
+              Original document (optional)
+            </Label>
+            {file ? (
+              <p className="flex flex-wrap items-center gap-2 text-xs">
+                <span>{file.name}</span>
+                <Button
+                  size="sm"
+                  variant="link"
+                  type="button"
+                  className="h-auto p-0"
+                  onClick={() => setFile(null)}
+                >
+                  Remove
+                </Button>
+              </p>
+            ) : (
+              <Input
+                id="agreement-original-document"
+                type="file"
+                accept={DOCUMENT_UPLOAD_ACCEPT}
+                aria-label="Agreement document"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+            )}
+            <p className="text-xs text-muted-foreground">
+              Kept for staff. Clients read and sign the text above, filled in for each client.
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"

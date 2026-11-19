@@ -20,6 +20,27 @@ vi.mock("@/lib/api", () => ({
   uploadStoredFile: (...a: unknown[]) => uploadStoredFile(...a),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const extractAgreementText = vi.fn();
+vi.mock("@/lib/agreement-import", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agreement-import")>()),
+  extractAgreementText: (...a: unknown[]) => extractAgreementText(...a),
+}));
+
+const IMPORTED_TEXT = [
+  "Award Amount: $500.00",
+  "",
+  "Business Name: ______________",
+  "",
+  "The business will receive $500.00.",
+  "",
+  "Signature: ______________",
+].join("\n");
+const pdf = () => new File(["%PDF-"], "IDI Award Agreement.pdf", { type: "application/pdf" });
+const chooseImport = (file: File) =>
+  fireEvent.change(screen.getByLabelText("Import agreement from a PDF or Word document"), {
+    target: { files: [file] },
+  });
+const editorText = () => (screen.getByLabelText("Agreement text") as HTMLTextAreaElement).value;
 
 const program = { id: "p1", name: "IDI" } as Program;
 const at = "2026-11-01T00:00:00.000Z";
@@ -87,6 +108,8 @@ beforeEach(() => {
   updateProgramWorkflowContractTemplate.mockResolvedValue({});
   createProgramWorkflowContractVersion.mockResolvedValue({});
   createProgramWorkflowContractTemplate.mockResolvedValue({});
+  uploadStoredFile.mockResolvedValue({ id: "stored-original" });
+  extractAgreementText.mockResolvedValue({ text: IMPORTED_TEXT, name: "IDI Award Agreement" });
 });
 afterEach(cleanup);
 
@@ -211,6 +234,81 @@ describe("ProgramAgreementTemplates", () => {
       "Award of {{award.amount}}.",
     );
     expect(screen.queryByRole("button", { name: "Use as enrollment agreement" })).toBeNull();
+  });
+
+  it("imports a document as a new award agreement, suggests merge fields, and keeps the original", async () => {
+    render(
+      <ProgramAgreementTemplates program={program} workflow={workflow()} onChanged={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add agreement template" }));
+    chooseImport(pdf());
+
+    await waitFor(() => expect(editorText()).toBe(IMPORTED_TEXT));
+    expect((screen.getByLabelText("Template name") as HTMLInputElement).value).toBe(
+      "IDI Award Agreement",
+    );
+    expect(screen.getByText("IDI Award Agreement.pdf")).toBeTruthy();
+    const panel = screen.getByLabelText("Suggested merge fields");
+    expect(panel.textContent).toContain("Replace “$500.00” with {{award.amount}} (2 places)");
+    expect(panel.textContent).toContain("2 blanks (____) are left");
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply all" }));
+    expect(editorText()).toBe(
+      "Award Amount: {{award.amount}}\n\nBusiness Name: {{client.businessName}}\n\nThe business will receive {{award.amount}}.",
+    );
+    expect(screen.getByText("No more suggestions.")).toBeTruthy();
+    expect(screen.queryByText(/blanks? \(____\)/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add template" }));
+    await waitFor(() =>
+      expect(createProgramWorkflowContractTemplate).toHaveBeenCalledWith(
+        "p1",
+        expect.objectContaining({
+          name: "IDI Award Agreement",
+          purpose: "award",
+          content:
+            "Award Amount: {{award.amount}}\n\nBusiness Name: {{client.businessName}}\n\nThe business will receive {{award.amount}}.",
+          storedFileId: "stored-original",
+        }),
+      ),
+    );
+    // The original document is uploaded to the program's private agreement files.
+    expect(uploadStoredFile).toHaveBeenCalledWith(expect.any(File), "program-workflow/contracts");
+  });
+
+  it("asks before an import replaces text already in the editor", async () => {
+    render(
+      <ProgramAgreementTemplates program={program} workflow={workflow()} onChanged={vi.fn()} />,
+    );
+    const existing = "Template draft only. Final legal language must be reviewed.";
+    expect(editorText()).toBe(existing);
+    chooseImport(pdf());
+    expect(
+      screen.getByText("Replace the text in the editor with “IDI Award Agreement.pdf”?"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep my text" }));
+    expect(editorText()).toBe(existing);
+    expect(extractAgreementText).not.toHaveBeenCalled();
+
+    chooseImport(pdf());
+    fireEvent.click(screen.getByRole("button", { name: "Replace text" }));
+    await waitFor(() => expect(editorText()).toBe(IMPORTED_TEXT));
+  });
+
+  it("shows why a document can't be imported and leaves the text alone", async () => {
+    const { AgreementImportError } = await import("@/lib/agreement-import");
+    const { toast } = await import("sonner");
+    extractAgreementText.mockRejectedValue(
+      new AgreementImportError("No text was found in this PDF."),
+    );
+    render(
+      <ProgramAgreementTemplates program={program} workflow={workflow()} onChanged={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add agreement template" }));
+    chooseImport(pdf());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("No text was found in this PDF."));
+    expect(editorText()).toBe("");
+    expect(screen.queryByLabelText("Suggested merge fields")).toBeNull();
   });
 
   it("puts the current agreement's text back when adding a template is cancelled", () => {
