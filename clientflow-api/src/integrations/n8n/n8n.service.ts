@@ -4,7 +4,8 @@ import type { Environment } from '../../config/env';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { SUPPORT_HUB_TELEMETRY, supportHubTelemetry, toErrorCode, type TelemetryReporter } from '../support-hub/support-hub-telemetry';
-import { organizationHeaderImageUrl } from './email-branding';
+import { logoStoredFileIdFromSettings, publicLogoUrl } from './email-branding';
+import { resolveEmailStyle, type EmailStyle } from './email-style';
 import type {
   ClientflowLifecyclePayload,
   ContractCopyEmailDeliveryResult,
@@ -52,6 +53,8 @@ export class N8nService {
   private readonly logger = new Logger(N8nService.name);
 
   private readonly headerImageCache = new Map<string, { url: string | undefined; expiresAt: number }>();
+  // The organization's settings (logo, signature, layout), read once per organization per window.
+  private readonly settingsCache = new Map<string, { settings: unknown; expiresAt: number }>();
 
   constructor(
     private readonly config: ConfigService<Environment, true>,
@@ -76,12 +79,35 @@ export class N8nService {
     const cached = this.headerImageCache.get(organizationId);
     if (cached && cached.expiresAt > Date.now()) return cached.url;
     try {
-      const url = await organizationHeaderImageUrl(this.prisma, this.storage, organizationId);
+      const settings = await this.organizationSettings(organizationId);
+      const url = await publicLogoUrl(this.prisma, this.storage, organizationId, logoStoredFileIdFromSettings(settings));
       this.headerImageCache.set(organizationId, { url, expiresAt: Date.now() + HEADER_IMAGE_CACHE_MS });
       return url;
     } catch (error) {
       this.logger.warn(`Unable to resolve the email header logo: ${(error as Error).message}`);
       return undefined;
+    }
+  }
+
+  private async organizationSettings(organizationId: string): Promise<unknown> {
+    const cached = this.settingsCache.get(organizationId);
+    if (cached && cached.expiresAt > Date.now()) return cached.settings;
+    const organization = await this.prisma!.organization.findUnique({ where: { id: organizationId }, select: { settings: true } });
+    this.settingsCache.set(organizationId, { settings: organization?.settings ?? null, expiresAt: Date.now() + HEADER_IMAGE_CACHE_MS });
+    return organization?.settings ?? null;
+  }
+
+  /**
+   * The signature and layout for an email (the program's, else Settings'). Cosmetic like the logo:
+   * a failed lookup logs and the email goes out with the workflow's own sign-off and layout.
+   */
+  private async resolveStyle(organizationId: string, programId?: string): Promise<EmailStyle> {
+    if (!this.prisma) return {};
+    try {
+      return await resolveEmailStyle(this.prisma, organizationId, programId, await this.organizationSettings(organizationId));
+    } catch (error) {
+      this.logger.warn(`Unable to resolve the email signature and layout: ${(error as Error).message}`);
+      return {};
     }
   }
 
@@ -261,6 +287,7 @@ export class N8nService {
       programName: payload.programName,
       executedCopyUrl: payload.executedCopyUrl,
       source: payload.source,
+      programId: payload.programId,
     });
   }
 
@@ -301,10 +328,14 @@ export class N8nService {
   }
 
   /** The whole email one member would receive, for a preview before sending. Nothing is sent. */
-  async previewProgramEmail(organizationId: string, body: string): Promise<{ html: string; text: string }> {
+  async previewProgramEmail(organizationId: string, body: string, programId?: string): Promise<{ html: string; text: string }> {
     const formatted = formattedTextToEmail(body, { allowImage: this.emailImagePolicy(organizationId) });
     return {
-      html: emailDocumentHtml(formatted.html, await this.resolveHeaderImageUrl(organizationId)),
+      html: emailDocumentHtml(
+        formatted.html,
+        await this.resolveHeaderImageUrl(organizationId),
+        await this.resolveStyle(organizationId, programId),
+      ),
       text: formatted.text,
     };
   }
@@ -326,6 +357,7 @@ export class N8nService {
       subject: payload.subject,
       body: formatted.text,
       bodyHtml: formatted.html,
+      programId: payload.programId,
     });
   }
 
@@ -338,8 +370,12 @@ export class N8nService {
     if (!webhookUrl || !secret) throw new ServiceUnavailableException('n8n is not configured.');
     // Looked up by ClientFlow's own organization, before the wire organizationId is swapped in.
     const headerImageUrl = payload.headerImageUrl ?? (await this.resolveHeaderImageUrl(payload.organizationId));
+    // programId only chooses the signature and layout; it is not part of what n8n receives.
+    const { programId, ...event } = payload;
+    const style = await this.resolveStyle(payload.organizationId, programId);
     const outboundPayload = {
-      ...payload,
+      ...style,
+      ...event,
       ...(headerImageUrl ? { headerImageUrl } : {}),
       organizationId: this.config.get('N8N_ORGANIZATION_ID', { infer: true }) ?? payload.organizationId,
     };

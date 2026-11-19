@@ -117,6 +117,10 @@ export interface OrgSettings {
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;
     logoStoredFileId?: string;
+    /** The sign-off at the end of every email; empty uses the standard one. */
+    emailSignature?: string | null;
+    /** "left" (with a margin) or "center" for the email header and message. */
+    emailLayout?: "left" | "center" | null;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;
@@ -191,6 +195,10 @@ export interface Program {
   defaultContractTemplateId: ContractType;
   defaultWorkflow: string[];
   requiredDocuments: string[];
+  /** This program's own email sign-off; null uses the organization's. */
+  emailSignature?: string | null;
+  /** This program's own email layout; null uses the organization's. */
+  emailLayout?: "left" | "center" | null;
   statusPipeline: ClientStatus[];
 }
 
@@ -752,7 +760,7 @@ export type BillingFrequency =
   "one_time" | "weekly" | "monthly" | "quarterly" | "annually" | "custom";
 export type BillingAgreementStatus = "active" | "ended";
 export type PaymentMethod = "cash" | "check" | "ach" | "card" | "other";
-export type PaymentSource = "manual" | "legacy_backfill";
+export type PaymentSource = "manual" | "legacy_backfill" | "historical";
 export type PaymentPeriodStatus = "paid" | "partial" | "due" | "overdue";
 
 export interface ProgramBillingConfig {
@@ -792,12 +800,13 @@ export interface PaymentRecord {
   id: string;
   organizationId: string;
   enrollmentId: string;
-  billingAgreementId: string;
+  /** Null for a past payment (source "historical"), which belongs to no agreement or period. */
+  billingAgreementId: string | null;
   amount: number;
   paymentDate: string;
   paymentMethod: PaymentMethod;
-  billingPeriodStart: string;
-  billingPeriodEnd: string;
+  billingPeriodStart: string | null;
+  billingPeriodEnd: string | null;
   source: PaymentSource;
   note?: string | null;
   recordedByUserId?: string | null;

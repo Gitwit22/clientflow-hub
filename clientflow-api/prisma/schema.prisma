@@ -323,6 +323,10 @@ model CfProgram {
   requiredDocuments          Json     @default("[]")
   statusPipeline             Json     @default("[]")
   welcomeMessage             String?
+  /// This program's email sign-off; null uses the organization's (Settings).
+  emailSignature             String?
+  /// 'left' or 'center' header and message layout for this program's emails; null uses the organization's.
+  emailLayout                String?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
@@ -386,6 +390,26 @@ model CfProgramContractVersion {
   @@unique([templateId, version])
   @@index([organizationId, templateId, createdAt])
   @@index([storedFileId])
+}
+
+/// One copy of a program's setup into another program: the audit trail, and the idempotency record
+/// that makes a repeated request (same key) return the first copy instead of copying twice.
+model CfProgramSetupCopy {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  targetProgramId      String
+  sourceProgramId      String
+  /// The parts staff chose (journey, intakeQuestions, agreements, ...).
+  parts                Json     @default("[]")
+  /// What was copied, replaced or skipped for each part.
+  summary              Json     @default("[]")
+  idempotencyKey       String
+  createdByUserId      String?
+  createdByDisplayName String?
+  createdAt            DateTime @default(now())
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, targetProgramId])
 }
 
 model CfProgramWelcomeEmailTemplate {
@@ -588,6 +612,8 @@ enum CfPaymentMethod {
 enum CfPaymentSource {
   manual
   legacy_backfill
+  /// A payment made before or outside the billing schedule, recorded with its real date.
+  historical
 }
 
 model CfProgramBillingConfig {
@@ -640,12 +666,13 @@ model CfPaymentRecord {
   id                    String          @id @default(cuid())
   organizationId        String
   enrollmentId          String
-  billingAgreementId    String
+  /// Null only for a past payment (source historical), which belongs to no agreement or period.
+  billingAgreementId    String?
   amount                Decimal         @db.Decimal(10, 2)
   paymentDate           DateTime
   paymentMethod         CfPaymentMethod
-  billingPeriodStart    DateTime
-  billingPeriodEnd      DateTime
+  billingPeriodStart    DateTime?
+  billingPeriodEnd      DateTime?
   source                CfPaymentSource @default(manual)
   note                  String?
   recordedByUserId      String?
@@ -1545,7 +1572,7 @@ model CfEnrollmentAward {
   enrollmentId           String
   programId              String
   title                  String
-  /// Where the money comes from, e.g. "IDI Member Fund".
+  /// Where the money comes from, e.g. "LIVE Grant Giveaway".
   source                 String
   amountAwarded          Decimal   @db.Decimal(10, 2)
   awardDate              DateTime

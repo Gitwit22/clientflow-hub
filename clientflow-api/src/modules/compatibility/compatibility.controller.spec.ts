@@ -107,7 +107,7 @@ describe('compatibility route scaffold', () => {
       expect(prisma.cfProgram.update).toHaveBeenCalledWith({ where: { id: 'program-1', organizationId: 'org-1' }, data: { name: 'IDI' } });
 
       await expect(controller.updateProgram({} as never, 'program-1', { defaultFormTemplateId: 'other-missing' }))
-        .rejects.toThrow('Form template not found.');
+        .rejects.toThrow('belong to this program');
     });
 
     it('saves an older template whose scope is legacy, and still refuses setting scope to legacy', async () => {

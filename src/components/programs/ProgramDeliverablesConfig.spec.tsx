@@ -8,7 +8,9 @@ const update = vi.fn();
 const reorder = vi.fn();
 const listDates = vi.fn();
 const setDate = vi.fn();
+const merge = vi.fn();
 vi.mock("@/lib/apiClient", () => ({
+  cfMergeProgramDeliverable: (...a: unknown[]) => merge(...a),
   cfListProgramDeliverables: (...a: unknown[]) => list(...a),
   cfCreateProgramDeliverable: (...a: unknown[]) => create(...a),
   cfUpdateProgramDeliverable: (...a: unknown[]) => update(...a),
@@ -175,5 +177,39 @@ describe("ProgramDeliverablesConfig", () => {
     await screen.findByText("Coaching Session");
     expect(screen.queryByText("Program dates")).toBeNull();
     expect(listDates).not.toHaveBeenCalled();
+  });
+
+  it("merges a deliverable into another after a preview, then reloads the list", async () => {
+    const report = (applied: boolean) => ({
+      applied,
+      from: { id: "t1", title: "Coaching Session" },
+      into: { id: "t2", title: "Financial Review" },
+      items: 12,
+      notesMoved: 8,
+      notesKeptInPlace: 0,
+      closed: 5,
+      alreadyMerged: 0,
+      turnedOff: true,
+    });
+    merge.mockImplementation((_p: string, _t: string, _i: string, apply: boolean) =>
+      Promise.resolve(report(apply)),
+    );
+    render(<ProgramDeliverablesConfig programId="p1" />);
+    const coaching = await screen.findByRole("listitem", { name: "Coaching Session" });
+    fireEvent.click(within(coaching).getByRole("button", { name: "Merge into…" }));
+
+    // The only other deliverable is chosen, and the preview shows what will change.
+    const preview = await screen.findByLabelText("Merge preview");
+    expect(merge).toHaveBeenCalledWith("p1", "t1", "t2", false);
+    expect(preview.textContent).toMatch(/8 with notes move to “Financial Review”/);
+    expect(preview.textContent).toMatch(/5 open item\(s\) are marked not applicable/);
+    expect(preview.textContent).toMatch(/turned off for future months/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(merge).toHaveBeenCalledWith("p1", "t1", "t2", true));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(toastSuccess).toHaveBeenCalledWith(
+      "Merged “Coaching Session” into “Financial Review”: 8 note(s) moved, 5 open item(s) closed.",
+    );
   });
 });

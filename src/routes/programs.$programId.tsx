@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
+import { ArrowLeft, Copy, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
+import { AddEditFormTemplateDialog } from "@/components/dialogs/AddEditFormTemplateDialog";
+import { CopyProgramSetupDialog } from "@/components/programs/CopyProgramSetupDialog";
 import { ProgramDeliverablesConfig } from "@/components/programs/ProgramDeliverablesConfig";
 import { ProgramEmailsPanel } from "@/components/programs/ProgramEmailsPanel";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ProgramAgreementTemplates } from "@/components/programs/ProgramAgreementTemplates";
+import { ProgramAutomaticEmails } from "@/components/programs/ProgramAutomaticEmails";
+import { EmailStyleCard } from "@/components/EmailStyleCard";
 import { ProgramSetupChecklist } from "@/components/programs/ProgramSetupChecklist";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
@@ -36,6 +40,7 @@ import {
   getProgramDetail,
   refreshClientCommunications,
   refreshClientContracts,
+  updateProgram,
   updateProgramWorkflow,
   uploadStoredFile,
   withdrawEnrollment,
@@ -63,6 +68,7 @@ import { toast } from "sonner";
 import type {
   BillingFrequency,
   Client,
+  FormTemplate,
   ProgramBillingConfig,
   ProgramDetailResponse,
   ProgramEnrollment,
@@ -107,6 +113,14 @@ function ProgramDetailPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  // Links such as "Edit wording" on a client's award open this page at #agreements: scroll there
+  // once the program's agreements have loaded.
+  const workflowLoaded = Boolean(detail?.workflow);
+  useEffect(() => {
+    if (!workflowLoaded || typeof window === "undefined") return;
+    if (window.location.hash !== "#agreements") return;
+    document.getElementById("agreements")?.scrollIntoView({ block: "start" });
+  }, [workflowLoaded]);
   const [expandedEnrollmentId, setExpandedEnrollmentId] = useState<string | null>(null);
   // The participant whose next step (contract / signing link / welcome) is open in a send dialog.
   const [stepTarget, setStepTarget] = useState<{
@@ -115,6 +129,9 @@ function ProgramDetailPage() {
   } | null>(null);
   const [stepLoadingId, setStepLoadingId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  // The program questions form being written: a new one (no template) or an existing one.
+  const [questionsForm, setQuestionsForm] = useState<{ template?: FormTemplate } | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
   const [nextActions, setNextActions] = useState<Record<string, MemberNextAction>>({});
@@ -279,6 +296,33 @@ function ProgramDetailPage() {
   );
   const workflow = detail?.workflow;
 
+  /**
+   * New questions become the program's intake questions when it has none of its own yet (it used
+   * the general intake alone), so staff don't have to point the program at them separately.
+   */
+  async function adoptAsIntakeIfNone(saved: FormTemplate) {
+    const current = program;
+    if (!current) return;
+    const ownsCurrent = programTemplates.some(
+      (template) => template.id === current.defaultFormTemplateId && template.isActive,
+    );
+    if (saved.programId !== current.id || !saved.isActive || ownsCurrent) {
+      setRefreshVersion((value) => value + 1);
+      return;
+    }
+    try {
+      await updateProgram(current.id, { defaultFormTemplateId: saved.id });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Saved, but couldn't use these as the intake questions.",
+      );
+    } finally {
+      setRefreshVersion((value) => value + 1);
+    }
+  }
+
   const MemberList = ({ past = false }: { past?: boolean }) => {
     const normalizedQuery = memberQuery.trim().toLowerCase();
     const records = (past ? pastParticipants : currentParticipants).filter((participant) => {
@@ -442,6 +486,12 @@ function ProgramDetailPage() {
               <Plus className="mr-2 h-4 w-4" />
               Add members
             </Button>
+            {!program.isActive && (
+              <Button variant="outline" onClick={() => setCopyOpen(true)}>
+                <Copy className="mr-2 h-4 w-4" />
+                Copy setup from another program
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setEditOpen(true)}>
               <Pencil className="mr-2 h-4 w-4" />
               Edit program
@@ -703,51 +753,24 @@ function ProgramDetailPage() {
                     "Add a welcome email version to enable post-signature messaging."}
                 </p>
               </div>
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">
-                  4. Automation
-                </p>
-                <div className="flex items-center justify-between gap-2">
-                  <span>Send contract after intake submission</span>
-                  <Switch
-                    checked={workflow?.config.sendContractAfterIntake ?? false}
-                    disabled={savingWorkflow || !workflow}
-                    onCheckedChange={(checked) => {
-                      if (!workflow) return;
-                      setSavingWorkflow(true);
-                      void updateProgramWorkflow(program.id, { sendContractAfterIntake: checked })
-                        .then(() => setRefreshVersion((value) => value + 1))
-                        .catch((error: unknown) => {
-                          toast.error(
-                            error instanceof Error ? error.message : "Unable to update workflow.",
-                          );
-                        })
-                        .finally(() => setSavingWorkflow(false));
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span>Send welcome email after contract signing</span>
-                  <Switch
-                    checked={workflow?.config.sendWelcomeAfterContractSigned ?? false}
-                    disabled={savingWorkflow || !workflow}
-                    onCheckedChange={(checked) => {
-                      if (!workflow) return;
-                      setSavingWorkflow(true);
-                      void updateProgramWorkflow(program.id, {
-                        sendWelcomeAfterContractSigned: checked,
-                      })
-                        .then(() => setRefreshVersion((value) => value + 1))
-                        .catch((error: unknown) => {
-                          toast.error(
-                            error instanceof Error ? error.message : "Unable to update workflow.",
-                          );
-                        })
-                        .finally(() => setSavingWorkflow(false));
-                    }}
-                  />
-                </div>
-              </div>
+              <ProgramAutomaticEmails
+                program={program}
+                workflow={workflow}
+                onChanged={() => setRefreshVersion((value) => value + 1)}
+              />
+              <EmailStyleCard
+                forProgram
+                title="Email signature & layout for this program"
+                description="Replaces the organization's signature and layout (Settings) on this program's emails. Leave empty to use the organization's."
+                value={{
+                  emailSignature: program.emailSignature ?? null,
+                  emailLayout: program.emailLayout ?? null,
+                }}
+                onSave={async (values) => {
+                  await updateProgram(program.id, values);
+                  setRefreshVersion((value) => value + 1);
+                }}
+              />
               <div className="grid gap-4 lg:grid-cols-2">
                 <ProgramAgreementTemplates
                   program={program}
@@ -925,17 +948,40 @@ function ProgramDetailPage() {
         </TabsContent>
 
         <TabsContent value="questions" className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Questions clients answer for this program on the intake form, after the general
+              intake.
+            </p>
+            <Button size="sm" onClick={() => setQuestionsForm({})}>
+              <Plus className="h-4 w-4" /> Add program questions
+            </Button>
+          </div>
           {programTemplates.length === 0 ? (
             <Card className="shadow-card">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                No program-specific forms are configured.
+                No program questions yet. Clients answer only the general intake.
               </CardContent>
             </Card>
           ) : (
             programTemplates.map((template) => (
               <Card key={template.id} className="shadow-card">
-                <CardHeader>
-                  <CardTitle className="font-display text-base">{template.name}</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+                  <CardTitle className="font-display text-base">
+                    {template.name}
+                    {!template.isActive && (
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        (inactive)
+                      </span>
+                    )}
+                  </CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setQuestionsForm({ template })}
+                  >
+                    <Pencil className="h-4 w-4" /> Edit questions
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">{template.description}</p>
@@ -961,6 +1007,20 @@ function ProgramDetailPage() {
       </Tabs>
 
       <AddEditProgramDialog program={program} open={editOpen} onOpenChange={setEditOpen} />
+      <CopyProgramSetupDialog
+        program={program}
+        programs={state.programs}
+        open={copyOpen}
+        onOpenChange={setCopyOpen}
+        onCopied={() => setRefreshVersion((value) => value + 1)}
+      />
+      <AddEditFormTemplateDialog
+        template={questionsForm?.template}
+        open={questionsForm !== null}
+        onOpenChange={(open) => !open && setQuestionsForm(null)}
+        defaultProgramId={program.id}
+        onSaved={(saved) => void adoptAsIntakeIfNone(saved)}
+      />
       {stepTarget && stepClient && (
         <>
           <SendContractDialog

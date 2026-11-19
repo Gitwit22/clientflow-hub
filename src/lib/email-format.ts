@@ -109,19 +109,84 @@ export function toggleList(edit: TextEdit, kind: "bullet" | "numbered"): TextEdi
   const lineEnd = nextBreak === -1 ? value.length : nextBreak;
   const lines = value.slice(lineStart, lineEnd).split("\n");
   const pattern = kind === "bullet" ? BULLET : NUMBERED;
-  const already = lines.every((line) => !line.trim() || pattern.test(line));
+  // Toggling off needs list items to remove: an empty line gets a marker instead.
+  const already =
+    lines.some((line) => line.trim()) && lines.every((line) => !line.trim() || pattern.test(line));
+  // A numbered item right after an existing numbered list continues its numbering.
+  const previousLine =
+    lineStart > 0 ? value.slice(value.lastIndexOf("\n", lineStart - 2) + 1, lineStart - 1) : "";
+  const previousNumber = NUMBERED_ITEM.exec(previousLine)?.[2];
+  const firstNumber = previousNumber ? Number(previousNumber) + 1 : 1;
   const changed = lines
     .map((line, index) => {
       if (already) return line.replace(kind === "bullet" ? /^\s*[-*•]\s+/ : /^\s*\d+[.)]\s+/, "");
       const text = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "");
-      return kind === "bullet" ? `- ${text}` : `${index + 1}. ${text}`;
+      return kind === "bullet" ? `- ${text}` : `${firstNumber + index}. ${text}`;
     })
     .join("\n");
+  // With nothing selected the caret goes to the end of the item, so typing continues it; a
+  // selection stays selected.
+  const collapsed = selectionStart === selectionEnd;
   return {
     value: `${value.slice(0, lineStart)}${changed}${value.slice(lineEnd)}`,
-    selectionStart: lineStart,
+    selectionStart: collapsed ? lineStart + changed.length : lineStart,
     selectionEnd: lineStart + changed.length,
   };
+}
+
+const BULLET_ITEM = /^(\s*)([-*•])(?:\s+(.*))?$/;
+const NUMBERED_ITEM = /^(\s*)(\d+)([.)])(?:\s+(.*))?$/;
+
+/**
+ * Enter inside a list item: starts the next item ("- " or the next number) and renumbers the
+ * numbered items after it. Enter on an empty item ends the list instead. Returns null when Enter
+ * should behave normally (not on a list item, a selection, or the caret inside the marker).
+ */
+export function continueListOnEnter(edit: TextEdit): TextEdit | null {
+  const { value, selectionStart, selectionEnd } = edit;
+  if (selectionStart !== selectionEnd) return null;
+  const lineStart = value.lastIndexOf("\n", selectionStart - 1) + 1;
+  const nextBreak = value.indexOf("\n", selectionStart);
+  const lineEnd = nextBreak === -1 ? value.length : nextBreak;
+  const line = value.slice(lineStart, lineEnd);
+  const bullet = BULLET_ITEM.exec(line);
+  const numbered = bullet ? null : NUMBERED_ITEM.exec(line);
+  if (!bullet && !numbered) return null;
+  const itemText = (bullet ? bullet[3] : numbered![4]) ?? "";
+  const markerLength = line.length - itemText.length;
+  if (selectionStart - lineStart < markerLength && itemText) return null;
+
+  if (!itemText.trim()) {
+    // An empty item ends the list: the marker is removed and the line stays, empty.
+    return {
+      value: `${value.slice(0, lineStart)}${value.slice(lineEnd)}`,
+      selectionStart: lineStart,
+      selectionEnd: lineStart,
+    };
+  }
+
+  const indent = (bullet ?? numbered)![1];
+  const nextNumber = numbered ? Number(numbered[2]) + 1 : 0;
+  const marker = bullet ? `${indent}${bullet[2]} ` : `${indent}${nextNumber}${numbered![3]} `;
+  const before = value.slice(0, selectionStart);
+  // Text after the caret moves to the new item, without the space that separated it.
+  let after = value.slice(selectionStart).replace(/^[ \t]+/, "");
+  if (numbered) after = renumberFollowing(after, indent, nextNumber + 1);
+  const caret = selectionStart + 1 + marker.length;
+  return { value: `${before}\n${marker}${after}`, selectionStart: caret, selectionEnd: caret };
+}
+
+/** Renumbers the numbered items directly following the current line, starting at `from`. */
+function renumberFollowing(rest: string, indent: string, from: number): string {
+  const lines = rest.split("\n");
+  let number = from;
+  for (let index = 1; index < lines.length; index += 1) {
+    const item = NUMBERED_ITEM.exec(lines[index]);
+    if (!item || item[1] !== indent) break;
+    lines[index] = `${indent}${number}${item[3]} ${item[4] ?? ""}`;
+    number += 1;
+  }
+  return lines.join("\n");
 }
 
 /** Inserts [text](url) around the selection. Only web and email addresses become links. */

@@ -144,17 +144,23 @@ export function AddEditFormTemplateDialog({
   template,
   open,
   onOpenChange,
+  defaultProgramId,
+  onSaved,
 }: {
   template?: FormTemplate;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Program a new form belongs to when it is created from that program's page. */
+  defaultProgramId?: string;
+  /** Called with the saved form, after it is created or updated. */
+  onSaved?: (template: FormTemplate) => void;
 }) {
   const { programs } = useAppState();
   const isEdit = !!template;
 
   const [name, setName] = useState(template?.name ?? "");
   const [description, setDescription] = useState(template?.description ?? "");
-  const [programId, setProgramId] = useState(template?.programId ?? "");
+  const [programId, setProgramId] = useState(template?.programId ?? defaultProgramId ?? "");
   const [dueInDays, setDueInDays] = useState(template?.dueInDays ?? 7);
   const [isActive, setIsActive] = useState(template?.isActive ?? true);
   const [internalNotes, setInternalNotes] = useState(template?.internalNotes ?? "");
@@ -168,13 +174,13 @@ export function AddEditFormTemplateDialog({
     if (open) {
       setName(template?.name ?? "");
       setDescription(template?.description ?? "");
-      setProgramId(template?.programId ?? "");
+      setProgramId(template?.programId ?? defaultProgramId ?? "");
       setDueInDays(template?.dueInDays ?? 7);
       setIsActive(template?.isActive ?? true);
       setInternalNotes(template?.internalNotes ?? "");
       setFields(template ? template.fields.map(fieldToRow) : [newRow()]);
     }
-  }, [open, template]);
+  }, [open, template, defaultProgramId]);
 
   function updateField(idx: number, patch: Partial<FieldRow>) {
     setFields((prev) =>
@@ -249,10 +255,10 @@ export function AddEditFormTemplateDialog({
         fields: activeFields.map(rowToField),
       };
       if (isEdit && template) {
-        await updateFormTemplate(template.id, data);
+        onSaved?.(await updateFormTemplate(template.id, data));
         toast.success("Form template updated.");
       } else {
-        await createFormTemplate(data);
+        onSaved?.(await createFormTemplate(data));
         toast.success("Form template created.");
       }
       onOpenChange(false);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formattedEmailHtml, insertLink, toggleList, wrapSelection } from "./email-format";
+import {
+  continueListOnEnter,
+  formattedEmailHtml,
+  insertLink,
+  toggleList,
+  wrapSelection,
+} from "./email-format";
 
 describe("email formatting", () => {
   it("renders bold, italic, links and lists, and escapes everything else", () => {
@@ -66,5 +72,84 @@ describe("email images", () => {
     expect(insertImage({ value: "", selectionStart: 0, selectionEnd: 0 }, url, "Flyer").value).toBe(
       `![Flyer](${url})`,
     );
+  });
+
+  describe("Enter in a list", () => {
+    const at = (value: string, caret = value.length) => ({
+      value,
+      selectionStart: caret,
+      selectionEnd: caret,
+    });
+
+    it("continues numbering, and keeps going on every Enter", () => {
+      const first = continueListOnEnter(at("Steps:\n1. Apply"))!;
+      expect(first).toEqual({
+        value: "Steps:\n1. Apply\n2. ",
+        selectionStart: 19,
+        selectionEnd: 19,
+      });
+      const typed = { ...first, value: `${first.value}Sign`, selectionStart: 23, selectionEnd: 23 };
+      expect(continueListOnEnter(typed)!.value).toBe("Steps:\n1. Apply\n2. Sign\n3. ");
+    });
+
+    it("continues bullets", () => {
+      expect(continueListOnEnter(at("- one"))!.value).toBe("- one\n- ");
+      expect(continueListOnEnter(at("  * nested"))!.value).toBe("  * nested\n  * ");
+    });
+
+    it("ends the list when Enter is pressed on an empty item", () => {
+      expect(continueListOnEnter(at("1. Apply\n2. "))).toEqual(at("1. Apply\n"));
+      expect(continueListOnEnter(at("- one\n- "))).toEqual(at("- one\n"));
+    });
+
+    it("splits an item in the middle and renumbers the items after it", () => {
+      const value = "1. Apply now\n2. Sign\n3. Start";
+      const result = continueListOnEnter(at(value, 8))!;
+      expect(result.value).toBe("1. Apply\n2. now\n3. Sign\n4. Start");
+      expect(result.selectionStart).toBe(12);
+    });
+
+    it("leaves Enter alone outside lists, with a selection, or inside the marker", () => {
+      expect(continueListOnEnter(at("Hello"))).toBeNull();
+      expect(continueListOnEnter(at("1.5 million raised"))).toBeNull();
+      expect(
+        continueListOnEnter({ value: "- one", selectionStart: 2, selectionEnd: 5 }),
+      ).toBeNull();
+      expect(continueListOnEnter(at("12. item", 1))).toBeNull();
+    });
+  });
+
+  it("numbers a new item after an existing numbered list from where it left off", () => {
+    const value = "1. Apply\n2. Sign\nStart";
+    expect(toggleList(at2(value, value.length), "numbered").value).toBe(
+      "1. Apply\n2. Sign\n3. Start",
+    );
+  });
+});
+
+function at2(value: string, caret: number) {
+  return { value, selectionStart: caret, selectionEnd: caret };
+}
+
+describe("list buttons with nothing selected", () => {
+  it("start a list on an empty line, with the caret after the marker", () => {
+    expect(toggleList(at2("", 0), "numbered")).toEqual({
+      value: "1. ",
+      selectionStart: 3,
+      selectionEnd: 3,
+    });
+    expect(toggleList(at2("Hello\n", 6), "bullet")).toEqual({
+      value: "Hello\n- ",
+      selectionStart: 8,
+      selectionEnd: 8,
+    });
+  });
+
+  it("put the caret at the end of the item, so typing continues it", () => {
+    expect(toggleList(at2("Bring", 5), "numbered")).toEqual({
+      value: "1. Bring",
+      selectionStart: 8,
+      selectionEnd: 8,
+    });
   });
 });

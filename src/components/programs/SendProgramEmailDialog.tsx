@@ -29,6 +29,7 @@ import {
   formattedEmailHtml,
   insertImage,
   insertLink,
+  continueListOnEnter,
   toggleList,
   wrapSelection,
   type TextEdit,
@@ -641,13 +642,22 @@ function MessageEditor({ value, onChange }: { value: string; onChange: (value: s
           value={value}
           maxLength={BODY_MAX}
           onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            // Enter in a list item starts the next item; Enter on an empty item ends the list.
+            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+            const next = continueListOnEnter(current());
+            if (!next) return;
+            event.preventDefault();
+            apply(next);
+          }}
           placeholder={"Hello everyone,\n\n…"}
         />
       </div>
       <p className="text-xs text-muted-foreground">
         Select text and use the buttons, or type **bold**, _italic_, “- ” for a bullet, “1. ” for a
-        numbered list. A blank line starts a new paragraph. Image adds a PNG, JPEG or GIF (up to 5
-        MB). Use “Preview email” to see it as members will.
+        numbered list. In a list, Enter starts the next item; Enter on an empty item ends the list.
+        A blank line starts a new paragraph. Image adds a PNG, JPEG or GIF (up to 5 MB). Use
+        “Preview email” to see it as members will.
       </p>
     </div>
   );

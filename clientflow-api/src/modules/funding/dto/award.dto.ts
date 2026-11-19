@@ -11,7 +11,7 @@ export class CreateAwardDto {
   @MaxLength(200)
   title!: string;
 
-  @ApiProperty({ example: 'IDI Member Fund', description: 'Where the money comes from.' })
+  @ApiProperty({ example: 'LIVE Grant Giveaway', description: 'Where the money comes from.' })
   @IsString()
   @MinLength(1)
   @MaxLength(200)

@@ -79,12 +79,48 @@ interface ProgramForSetup {
   defaultWorkflow: unknown;
 }
 
+/** Whether a program's intake choice is the organization's general intake (no extra questions). */
+export function usesGeneralIntake(organizationId: string, templateId: string | null | undefined): boolean {
+  return templateId === GENERAL_INTAKE_CHOICE || templateId === generalIntakeTemplateId(organizationId);
+}
+
+/** What staff pick for "General intake only" in the program dialog. */
+export const GENERAL_INTAKE_CHOICE = 'general-intake';
+
+/** Forms the public intake shows as a program's own questions (mirrors the public intake's lookup). */
+const programSectionWhere = (organizationId: string, programId: string) => ({
+  organizationId,
+  programId,
+  isActive: true,
+  OR: [{ scope: 'program_section' }, { scope: 'legacy' }],
+});
+
+/**
+ * Refuses an intake choice the public intake would ignore: a program's intake is either the general
+ * intake alone, or questions that belong to that program. A brand-new program (no id yet) can only
+ * start with the general intake; its own questions are added from the program page.
+ */
+export async function assertIntakeChoice(
+  db: Pick<Prisma.TransactionClient, 'cfFormTemplate'>,
+  organizationId: string,
+  programId: string | null,
+  templateId: string,
+): Promise<void> {
+  if (usesGeneralIntake(organizationId, templateId)) return;
+  const owned = programId
+    ? await db.cfFormTemplate.findFirst({ where: { id: templateId, ...programSectionWhere(organizationId, programId) }, select: { id: true } })
+    : null;
+  if (!owned) {
+    throw new BadRequestException(
+      "Choose General intake, or questions that belong to this program (add them from the program's Program questions tab).",
+    );
+  }
+}
+
 export async function programSetup(db: Db, program: ProgramForSetup): Promise<ProgramSetup> {
   const organizationId = program.organizationId;
-  const [formTemplate, workflow, awardTemplates, deliverableCount, billing] = await Promise.all([
-    program.defaultFormTemplateId
-      ? db.cfFormTemplate.findFirst({ where: { id: program.defaultFormTemplateId, organizationId }, select: { id: true, isActive: true } })
-      : Promise.resolve(null),
+  const [ownQuestions, workflow, awardTemplates, deliverableCount, billing] = await Promise.all([
+    db.cfFormTemplate.findFirst({ where: programSectionWhere(organizationId, program.id), select: { id: true } }),
     db.cfProgramWorkflowConfig.findFirst({ where: { organizationId, programId: program.id } }),
     db.cfProgramContractTemplate.findMany({
       where: { organizationId, programId: program.id, purpose: 'award', isActive: true },
@@ -94,10 +130,10 @@ export async function programSetup(db: Db, program: ProgramForSetup): Promise<Pr
     db.cfProgramBillingConfig.findFirst({ where: { organizationId, programId: program.id } }),
   ]);
 
-  // Intake: the organization's general intake (always available) or one of its form templates.
-  const usesGeneralIntake = program.defaultFormTemplateId === 'general-intake'
-    || program.defaultFormTemplateId === generalIntakeTemplateId(organizationId);
-  const intakeDone = usesGeneralIntake || Boolean(formTemplate?.isActive);
+  // Intake: the program's own questions (what the public intake shows for it), or the general intake
+  // alone. A form that belongs to another program, or to none, is never shown, so it doesn't count.
+  const generalOnly = usesGeneralIntake(organizationId, program.defaultFormTemplateId);
+  const intakeDone = Boolean(ownQuestions) || generalOnly;
 
   // Enrollment agreement: the workflow's designated template, with an existing active version.
   const agreementTemplate = workflow?.activeContractTemplateId
@@ -134,7 +170,11 @@ export async function programSetup(db: Db, program: ProgramForSetup): Promise<Pr
       label: 'Intake form',
       required: true,
       done: intakeDone,
-      detail: intakeDone ? 'Clients can apply through the intake form.' : 'Choose the intake form clients fill in (Edit program).',
+      detail: ownQuestions
+        ? "Clients answer this program's questions on the intake form."
+        : generalOnly
+          ? 'Clients apply through the general intake. Add program questions if you need more.'
+          : "Choose General intake, or add this program's questions (Program questions tab).",
     },
     {
       key: 'enrollment_agreement',

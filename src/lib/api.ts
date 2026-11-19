@@ -8,6 +8,10 @@
 import { getState, retryBootstrap, setState, uid } from "./store";
 import { emailTemplateBody } from "@/data/defaults";
 import {
+  cfCopyProgramSetup,
+  cfCreateProgramFromSetup,
+  cfListFormTemplates,
+  cfListPrograms,
   cfCreateFormAssignment,
   cfCreateFormTemplate,
   cfDeleteFormTemplate,
@@ -303,6 +307,33 @@ export async function createProgram(data: Omit<Program, "id">) {
     ),
   }));
   return delay(program);
+}
+
+/** Reloads programs and forms after a setup copy created or changed several of them at once. */
+async function reloadProgramsAndForms() {
+  const [programs, formTemplates] = await Promise.all([cfListPrograms(), cfListFormTemplates()]);
+  setState((s) => ({ ...s, programs, formTemplates }));
+}
+
+/** Creates a new, inactive program from another program's setup (see cfCreateProgramFromSetup). */
+export async function createProgramFromSetup(
+  input: Parameters<typeof cfCreateProgramFromSetup>[0],
+  idempotencyKey: string,
+) {
+  const result = await cfCreateProgramFromSetup(input, idempotencyKey);
+  await reloadProgramsAndForms();
+  return result;
+}
+
+/** Copies parts of another program's setup into an inactive program. */
+export async function copyProgramSetup(
+  targetProgramId: string,
+  input: Parameters<typeof cfCopyProgramSetup>[1],
+  idempotencyKey: string,
+) {
+  const result = await cfCopyProgramSetup(targetProgramId, input, idempotencyKey);
+  await reloadProgramsAndForms();
+  return result;
 }
 
 export async function updateProgram(id: string, data: Partial<Program>) {

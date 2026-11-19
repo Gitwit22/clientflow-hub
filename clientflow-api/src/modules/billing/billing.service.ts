@@ -55,6 +55,18 @@ export interface RecordPaymentInput {
   idempotencyKey?: string | null;
 }
 
+export interface RecordPastPaymentInput {
+  organizationId: string;
+  enrollmentId: string;
+  amount: number;
+  paymentDate: Date;
+  paymentMethod: CfPaymentMethod;
+  note?: string | null;
+  actorUserId: string | null;
+  actorDisplayName: string;
+  idempotencyKey?: string | null;
+}
+
 export interface OpenPeriod {
   dueDate: Date;
   billingPeriodStart: Date;
@@ -284,6 +296,47 @@ export class BillingService {
     }
   }
 
+  /**
+   * Records a payment the client made before (or outside) ClientFlow's billing schedule, with its
+   * real date: no billing agreement is needed and it is applied to no billing period, so it never
+   * changes what an agreement says is owed. It shows in the payment history and counts as money
+   * collected, and it can be voided like any payment.
+   */
+  async recordPastPayment(input: RecordPastPaymentInput): Promise<CfPaymentRecord> {
+    const recorded = await this.findPaymentByKey(input.organizationId, input.idempotencyKey);
+    if (recorded) return recorded;
+    if (!(input.amount > 0)) throw new BadRequestException('Enter an amount greater than zero.');
+    // "Today" in the organization's time zone can be tomorrow in UTC; anything later is a typo.
+    if (input.paymentDate.getTime() > Date.now() + 86_400_000) {
+      throw new BadRequestException('A past payment cannot be dated in the future.');
+    }
+    try {
+      return await this.prisma.cfPaymentRecord.create({
+        data: {
+          organizationId: input.organizationId,
+          enrollmentId: input.enrollmentId,
+          billingAgreementId: null,
+          amount: input.amount,
+          paymentDate: input.paymentDate,
+          paymentMethod: input.paymentMethod,
+          billingPeriodStart: null,
+          billingPeriodEnd: null,
+          source: 'historical',
+          note: input.note?.trim() || null,
+          recordedByUserId: input.actorUserId,
+          recordedByDisplayName: input.actorDisplayName,
+          idempotencyKey: input.idempotencyKey ?? null,
+        },
+      });
+    } catch (error) {
+      if (input.idempotencyKey && isPrismaUniqueViolation(error)) {
+        const concurrent = await this.findPaymentByKey(input.organizationId, input.idempotencyKey);
+        if (concurrent) return concurrent;
+      }
+      throw error;
+    }
+  }
+
   private async findPaymentByKey(organizationId: string, idempotencyKey?: string | null) {
     if (!idempotencyKey) return null;
     return this.prisma.cfPaymentRecord.findFirst({ where: { organizationId, idempotencyKey } });
@@ -313,9 +366,11 @@ export class BillingService {
     const voided = await this.prisma.cfPaymentRecord.findFirstOrThrow({ where: { id: payment.id, organizationId } });
     // The cached nextDueDate can go stale if the voided payment had covered the current period —
     // only bother recomputing while the agreement it belongs to is still the active one.
-    const agreement = await this.prisma.cfEnrollmentBillingAgreement.findFirst({
-      where: { id: payment.billingAgreementId, organizationId, status: 'active' },
-    });
+    const agreement = payment.billingAgreementId
+      ? await this.prisma.cfEnrollmentBillingAgreement.findFirst({
+          where: { id: payment.billingAgreementId, organizationId, status: 'active' },
+        })
+      : null;
     if (agreement) {
       const timezone = await this.resolveOrgTimezone(organizationId);
       await this.prisma.cfEnrollmentBillingAgreement.update({
@@ -333,7 +388,9 @@ export class BillingService {
     const payments = await this.listPaymentsForEnrollment(organizationId, enrollmentId);
 
     if (!agreement) {
-      return { agreement: null, payments, collected: 0, expected: 0, outstanding: 0, nextDueDate: null };
+      // Past payments can exist before any agreement; they count as collected.
+      const collected = payments.filter((payment) => !payment.voidedAt).reduce((sum, payment) => sum + Number(payment.amount), 0);
+      return { agreement: null, payments, collected, expected: 0, outstanding: 0, nextDueDate: null };
     }
 
     const activePayments = payments.filter((payment) => !payment.voidedAt);
@@ -347,7 +404,7 @@ export class BillingService {
     // Only this agreement's payments settle this agreement's obligations (a replaced agreement's
     // payments stay in `collected` but can't hide what the current one is owed).
     const applied = activePayments
-      .filter((payment) => payment.billingAgreementId === agreement.id && payment.billingPeriodStart <= now)
+      .filter((payment) => payment.billingAgreementId === agreement.id && payment.billingPeriodStart !== null && payment.billingPeriodStart <= now)
       .reduce((sum, payment) => sum + Number(payment.amount), 0);
     const outstanding = Math.max(0, expected - applied);
 
@@ -363,8 +420,10 @@ export class BillingService {
     const agreement = await this.getActiveAgreement(organizationId, enrollmentId);
     if (!agreement) return [];
     const schedule = scheduleFrom(agreement, timezone);
+    // Only payments applied to a period count here; a past payment belongs to none.
     const payments = (await this.listPaymentsForEnrollment(organizationId, enrollmentId)).filter(
-      (payment) => !payment.voidedAt,
+      (payment): payment is typeof payment & { billingPeriodStart: Date; billingPeriodEnd: Date } =>
+        !payment.voidedAt && payment.billingPeriodStart !== null && payment.billingPeriodEnd !== null,
     );
     const amount = Number(agreement.amount);
     const now = new Date();

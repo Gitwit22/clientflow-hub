@@ -77,6 +77,11 @@ export function PaymentLedgerDialog({
                       Backfilled
                     </span>
                   )}
+                  {payment.source === "historical" && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+                      Past payment
+                    </span>
+                  )}
                 </div>
                 {payment.note && <p className="text-xs text-muted-foreground">{payment.note}</p>}
                 {payment.voidedAt ? (

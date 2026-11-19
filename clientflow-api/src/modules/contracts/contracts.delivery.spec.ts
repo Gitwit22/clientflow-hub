@@ -399,6 +399,8 @@ describe('ContractsService: send the signed copy', () => {
       clientName: 'Client Owner',
       executedCopyUrl: 'https://r2.example.com/signed?sig=1',
       programName: 'Brand Awareness Subscription',
+      // Chooses the program's email signature and layout; not sent on to n8n.
+      programId: 'program-1',
       contractName: 'Brand Awareness Service Agreement',
       source: 'manual_staff_action',
       sentByUserId: 'admin-1',

@@ -351,6 +351,8 @@ export async function updateOrganizationSettings(
     replyToEmail?: string;
     defaultMonitoringFrequency?: string;
     logoStoredFileId?: string | null;
+    emailSignature?: string | null;
+    emailLayout?: "left" | "center" | null;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;
@@ -684,6 +686,78 @@ export async function cfGetProgramDetail(id: string) {
 export async function cfCreateProgram(data: Record<string, unknown>) {
   return apiRequest<Program>(`${CF}/programs`, { method: "POST", body: JSON.stringify(data) });
 }
+/** A part of a program's setup that can be copied into another program. */
+export type SetupCopyPart =
+  | "journey"
+  | "intakeQuestions"
+  | "agreements"
+  | "welcomeEmail"
+  | "deliverables"
+  | "billing"
+  | "automation";
+
+export interface SetupCopyPartResult {
+  part: SetupCopyPart;
+  label: string;
+  outcome: "copy" | "replace" | "skip" | "nothing";
+  detail: string;
+}
+
+export interface SetupCopyResult {
+  programId: string;
+  sourceProgramId: string;
+  parts: SetupCopyPartResult[];
+  replayed: boolean;
+}
+
+/** What copying a program's setup would do (into a new program, or into `targetProgramId`). */
+export async function cfPreviewSetupCopy(
+  targetProgramId: string | null,
+  input: { sourceProgramId: string; parts: SetupCopyPart[] },
+) {
+  const path = targetProgramId
+    ? `/api/v1/programs/${encodeURIComponent(targetProgramId)}/setup-copy/preview`
+    : "/api/v1/programs/setup-copy/preview";
+  return apiRequest<{
+    sourceProgramId: string;
+    targetProgramId: string | null;
+    parts: SetupCopyPartResult[];
+  }>(path, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Creates a new, inactive program from another program's setup. */
+export async function cfCreateProgramFromSetup(
+  input: {
+    name: string;
+    description: string;
+    defaultMonitoringFrequency?: string;
+    defaultContractTemplateId?: string;
+    statusPipeline?: string[];
+    defaultWorkflow?: string[];
+    sourceProgramId: string;
+    parts: SetupCopyPart[];
+  },
+  idempotencyKey: string,
+) {
+  return apiRequest<SetupCopyResult>("/api/v1/programs/from-setup", {
+    method: "POST",
+    body: JSON.stringify(input),
+    headers: idempotencyHeaders(idempotencyKey),
+  });
+}
+
+/** Copies the chosen parts of another program's setup into an inactive program. */
+export async function cfCopyProgramSetup(
+  targetProgramId: string,
+  input: { sourceProgramId: string; parts: SetupCopyPart[] },
+  idempotencyKey: string,
+) {
+  return apiRequest<SetupCopyResult>(
+    `/api/v1/programs/${encodeURIComponent(targetProgramId)}/setup-copy`,
+    { method: "POST", body: JSON.stringify(input), headers: idempotencyHeaders(idempotencyKey) },
+  );
+}
+
 export async function cfUpdateProgram(id: string, data: Record<string, unknown>) {
   return apiRequest<Program>(`${CF}/programs/${id}`, {
     method: "PATCH",
@@ -1544,6 +1618,20 @@ export async function cfReplaceEnrollmentAgreement(
 }
 
 /** POST .../billing/payments — record a manual payment applied to a specific billing period. */
+/** Records a payment the client made in the past, with its real date and no billing period. */
+export async function cfRecordPastPayment(
+  clientId: string,
+  enrollmentId: string,
+  data: { amount: number; paymentDate: string; paymentMethod: PaymentMethod; note?: string },
+  idempotencyKey?: string,
+) {
+  return apiRequest<PaymentRecord>(`${billingBase(clientId, enrollmentId)}/past-payments`, {
+    method: "POST",
+    body: JSON.stringify(data),
+    headers: idempotencyHeaders(idempotencyKey),
+  });
+}
+
 export async function cfRecordPayment(
   clientId: string,
   enrollmentId: string,
@@ -1699,6 +1787,32 @@ export async function cfUpdateProgramDeliverable(
   return apiRequest<ProgramDeliverableTemplate>(
     `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}`,
     { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+/** What merging one deliverable into another changes (see the API's deliverable-merge.ts). */
+export interface DeliverableMergeReport {
+  applied: boolean;
+  from: { id: string; title: string };
+  into: { id: string; title: string };
+  items: number;
+  notesMoved: number;
+  notesKeptInPlace: number;
+  closed: number;
+  alreadyMerged: number;
+  turnedOff: boolean;
+}
+
+/** Previews (apply false) or applies merging one of a program's deliverables into another. */
+export async function cfMergeProgramDeliverable(
+  programId: string,
+  templateId: string,
+  intoTemplateId: string,
+  apply: boolean,
+) {
+  return apiRequest<DeliverableMergeReport>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/merge${apply ? "" : "/preview"}`,
+    { method: "POST", body: JSON.stringify({ intoTemplateId }) },
   );
 }
 
@@ -1973,6 +2087,84 @@ export async function cfSendProgramEmailTest(
 ) {
   return apiRequest<{ recipientEmail: string; delivery: SendDeliveryResult }>(
     `/api/v1/programs/${encodeURIComponent(programId)}/emails/test`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+/** A program's custom automatic email: an automation rule that sends an email when something happens. */
+export interface ProgramAutomationRule {
+  id: string;
+  programId: string;
+  trigger: string;
+  action: string;
+  actionConfig: { subject?: string; message?: string } & Record<string, unknown>;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface ProgramAutomation {
+  rules: ProgramAutomationRule[];
+  /** Merge fields a custom email may use, as the server accepts them. */
+  emailFields: { key: string; label: string; sample: string }[];
+  /** Events that can send a custom email, in staff wording. */
+  emailTriggers: { trigger: string; label: string }[];
+}
+
+export async function cfGetProgramAutomation(programId: string) {
+  return apiRequest<ProgramAutomation>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation`,
+  );
+}
+
+export async function cfCreateAutomationEmail(
+  programId: string,
+  data: { trigger: string; subject: string; message: string; enabled?: boolean },
+) {
+  return apiRequest<ProgramAutomationRule>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/rules`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        trigger: data.trigger,
+        action: "send_email",
+        actionConfig: { subject: data.subject, message: data.message },
+        enabled: data.enabled ?? true,
+      }),
+    },
+  );
+}
+
+export async function cfUpdateAutomationEmail(
+  programId: string,
+  ruleId: string,
+  data: { trigger?: string; subject?: string; message?: string; enabled?: boolean },
+) {
+  const body: Record<string, unknown> = {};
+  if (data.trigger !== undefined) body.trigger = data.trigger;
+  if (data.enabled !== undefined) body.enabled = data.enabled;
+  if (data.subject !== undefined || data.message !== undefined) {
+    body.actionConfig = { subject: data.subject ?? "", message: data.message ?? "" };
+  }
+  return apiRequest<ProgramAutomationRule>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/rules/${encodeURIComponent(ruleId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+}
+
+export async function cfDeleteAutomationEmail(programId: string, ruleId: string) {
+  return apiRequest<{ deleted: boolean; id: string }>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/rules/${encodeURIComponent(ruleId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** Sends one test copy of a custom email to the signed-in staff member, with sample details. */
+export async function cfSendAutomationEmailTest(
+  programId: string,
+  data: { subject: string; message: string },
+) {
+  return apiRequest<{ recipientEmail: string; delivery: SendDeliveryResult }>(
+    `${CF}/programs/${encodeURIComponent(programId)}/automation/emails/test`,
     { method: "POST", body: JSON.stringify(data) },
   );
 }

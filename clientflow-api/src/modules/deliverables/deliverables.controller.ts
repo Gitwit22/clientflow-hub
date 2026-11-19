@@ -11,6 +11,7 @@ import {
   SetProgramDeliverableDateDto,
   UpdateDeliverableTemplateDto,
 } from './dto/deliverable-template.dto';
+import { MergeDeliverableDto } from './dto/merge-deliverable.dto';
 import { UpdateEnrollmentDeliverableDto } from './dto/update-enrollment-deliverable.dto';
 import { ProgramDeliverablesService, type DeliverableActor } from './program-deliverables.service';
 
@@ -64,6 +65,28 @@ export class ProgramDeliverablesController {
     @Body() dto: SetProgramDeliverableDateDto,
   ) {
     return this.deliverables.setProgramDate(request.adminUser!.organizationId, programId, templateId, dto);
+  }
+
+  /** What merging this deliverable into another would change. Changes nothing. */
+  @Post(':templateId/merge/preview')
+  previewMerge(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Param('templateId') templateId: string,
+    @Body() dto: MergeDeliverableDto,
+  ) {
+    return this.deliverables.mergeTemplates(request.adminUser!.organizationId, programId, templateId, dto.intoTemplateId, false);
+  }
+
+  /** Merges this deliverable into another of the program (same thing under two names). */
+  @Post(':templateId/merge')
+  merge(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Param('templateId') templateId: string,
+    @Body() dto: MergeDeliverableDto,
+  ) {
+    return this.deliverables.mergeTemplates(request.adminUser!.organizationId, programId, templateId, dto.intoTemplateId, true);
   }
 
   // Declared before ':templateId' so "reorder" is never read as a template id.

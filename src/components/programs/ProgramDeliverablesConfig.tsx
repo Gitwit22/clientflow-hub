@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MergeDeliverableDialog } from "@/components/programs/MergeDeliverableDialog";
 import {
   cfCreateProgramDeliverable,
   cfListProgramDeliverableDates,
@@ -41,6 +42,10 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ProgramDeliverableTemplate | "new" | null>(null);
+  const [merging, setMerging] = useState<ProgramDeliverableTemplate | null>(null);
+  // Bumped to load the list again (after a merge changes several deliverables at once).
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = () => setReloadKey((key) => key + 1);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,7 +60,7 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
     return () => {
       cancelled = true;
     };
-  }, [programId]);
+  }, [programId, reloadKey]);
 
   async function move(index: number, offset: -1 | 1) {
     if (!templates) return;
@@ -199,12 +204,32 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
                     >
                       {template.active ? "Disable" : "Enable"}
                     </Button>
+                    {templates.filter((other) => other.active && other.id !== template.id).length >
+                      0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        disabled={busy}
+                        onClick={() => setMerging(template)}
+                      >
+                        Merge into…
+                      </Button>
+                    )}
                   </div>
                 </li>
               ))}
             </ul>
           )}
         </CardContent>
+        <MergeDeliverableDialog
+          programId={programId}
+          from={merging}
+          templates={templates ?? []}
+          open={merging !== null}
+          onOpenChange={(open) => !open && setMerging(null)}
+          onMerged={reload}
+        />
         <DeliverableTemplateDialog
           programId={programId}
           template={editing === "new" ? null : editing}

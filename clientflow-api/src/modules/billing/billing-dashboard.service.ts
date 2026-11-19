@@ -121,7 +121,7 @@ export class BillingDashboardService {
       const occurrencesToDate = computeOccurrences(schedule, agreement.startDate, agreementBound);
       const owed = occurrencesToDate.length * Number(agreement.amount);
       const settled = payments
-        .filter((payment) => payment.billingAgreementId === agreement.id && payment.billingPeriodStart <= periodEnd)
+        .filter((payment) => payment.billingAgreementId === agreement.id && payment.billingPeriodStart !== null && payment.billingPeriodStart <= periodEnd)
         .reduce((sum, payment) => sum + Number(payment.amount), 0);
       outstanding += Math.max(0, owed - settled);
 
@@ -139,6 +139,9 @@ export class BillingDashboardService {
           .filter(
             (payment) =>
               payment.enrollmentId === agreement.enrollmentId
+              // A past payment belongs to no period, so it never settles a due date.
+              && payment.billingPeriodStart !== null
+              && payment.billingPeriodEnd !== null
               && payment.billingPeriodStart <= dueDate
               && payment.billingPeriodEnd >= dueDate,
           )

@@ -305,7 +305,8 @@ describe('email header logo on every n8n event', () => {
     } as never);
 
     expect(sentBody().headerImageUrl).toBe('https://assets.example.com/other.png');
-    expect(prisma.organization.findUnique).not.toHaveBeenCalled();
+    // The Settings logo isn't looked up (the organization's settings still are, for the signature).
+    expect(prisma.cfStoredFile.findFirst).not.toHaveBeenCalled();
   });
 
   it('omits the header when no logo is configured or storage is off', async () => {

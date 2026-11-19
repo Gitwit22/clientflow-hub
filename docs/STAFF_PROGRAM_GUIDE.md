@@ -4,9 +4,14 @@ Short instructions for running a program from setup to closing a client out.
 
 ## 1. Set up and activate a program
 
-1. **Programs → New program.** Enter the name, description and intake form. Leave it **Inactive**.
+1. **Programs → New program.** Enter the name and description, then choose how to start:
+   - **A blank program:** clients answer the general intake. Add the program's own questions later.
+   - **Copy another program's setup** (for example IDI): pick the program, tick the parts to bring
+     over, and check the preview next to each part. The parts are journey & settings, intake
+     questions, agreements, welcome email, deliverables, billing defaults and automatic emails.
+     Clients and their history are never copied. The new program starts **Inactive**.
 2. Open the program. The **Setup checklist** at the top of Overview shows what this program needs:
-   - **Intake form** (always).
+   - **Intake questions** (always): the general intake alone, or questions of the program's own.
    - **Enrollment agreement**, only when the program's journey has a Contract stage or contracts
      are sent automatically after intake.
    - **Welcome email**, only when it's sent automatically after signing.
@@ -16,14 +21,32 @@ Short instructions for running a program from setup to closing a client out.
 
 A program that doesn't use contracts (no Contract stage) can be activated without an agreement.
 
+**Finishing one of the existing inactive programs** (Grant, Sponsorship, ...): open it and click
+**Copy setup from another program**. Only parts it doesn't already have are added. Its own
+questions, active welcome email, and agreements or deliverables with the same names are kept. Copying
+only works while a program is inactive, so a live program is never changed this way.
+
+**Intake questions:** program page → **Program questions** → **Add program questions**. New
+questions become the program's intake questions if it had none of its own. Clients answer them on
+the intake form after the general intake.
+
+**Two deliverables that are the same thing** (for example "IDI Member Fund Opportunities" and
+"LIVE Grant Giveaway"): on the Deliverables tab, click **Merge into…** on the one to retire and choose
+the one to keep. The preview shows what will change. Notes move to the kept deliverable's item for
+the same month, open items of the retired one are marked not applicable, and it's turned off for
+future months. Every item keeps its history.
+
+**Deliverables with a program-wide date** (for example a monthly workshop) are copied without
+their dates. Set this program's own dates on its Deliverables tab.
+
 ## 2. Agreements (contracts)
 
 Program page → Overview → **Agreements**.
 
 - **Enrollment agreement:** what a client signs to join. One per program, marked "Enrollment
   agreement". The first one you add becomes it automatically.
-- **Award agreement:** generated for an individual funding award, e.g. the IDI Member Fund
-  agreement. Add it with **Add agreement template** and choose "Award agreement".
+- **Award agreement:** generated for an individual funding award, e.g. a LIVE Grant Giveaway
+  award. Add it with **Add agreement template** and choose "Award agreement".
 - **Versions:** saving creates a new version, which is used for agreements prepared from now on.
   Agreements already sent or signed keep the exact text they were sent with.
 - **Merge fields** fill in client and award details: `{{client.businessName}}`,
@@ -62,7 +85,27 @@ Rules ClientFlow enforces:
 What the client asked for (intake) and the proposed terms are shown alongside, but are not the
 same as an award.
 
-## 4. Program emails with images
+## 4. Automatic emails
+
+Program page → Overview → **Automatic emails**.
+
+- **The switch at the top** turns automation on or off for the whole program. When it's off,
+  nothing on the card is sent automatically.
+- **Agreement signing link after intake** and **Welcome email after signing** can each be switched
+  on or off. The card warns you when the agreement link is on but no enrollment agreement is set yet.
+- **Signed copy of the agreement** always goes to the client.
+- **Custom emails:** click **Add email**, choose when it's sent (for example "When an intake is
+  submitted"), then write the subject and message.
+  - Use merge fields like `{{client.businessName}}` or `{{program.name}}`. Click **Merge fields you
+    can use** for the list.
+  - The preview shows the email with sample details. **Send test to me** emails you one copy,
+    marked [Test].
+  - Each custom email is sent once per client for each event. Switch one off to pause it, or delete
+    it.
+
+Reminders on a schedule (for example monthly check-ins) aren't available yet.
+
+## 5. Program emails with images
 
 Program page → **Emails** → **Send email blast**.
 
@@ -71,7 +114,7 @@ Program page → **Emails** → **Send email blast**.
 - **Send test to me** emails one copy, marked [Test], to you only. Members get nothing.
 - Then send to everyone or to chosen members.
 
-## 5. Closing a client out (final report)
+## 6. Closing a client out (final report)
 
 Client → choose the program → **Final Report** tab.
 
@@ -87,7 +130,7 @@ Client → choose the program → **Final Report** tab.
    - Agreements still waiting for a signature are cancelled.
    - Unpaid awards stay in Award follow-up and can still be paid.
 
-## 6. Deleting a client
+## 7. Deleting a client
 
 A client who has **any recorded payment**, either a billing payment or an award payment, can't be
 permanently deleted. Archive them instead: archiving keeps their payment history. Clients with no

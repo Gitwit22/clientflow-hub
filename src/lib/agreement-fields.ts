@@ -59,7 +59,7 @@ export const AGREEMENT_FIELDS: readonly AgreementField[] = [
     purposes: ["award"],
     sample: "Member Business Achievement Award",
   },
-  { key: "award.source", label: "Award source", purposes: ["award"], sample: "IDI Member Fund" },
+  { key: "award.source", label: "Award source", purposes: ["award"], sample: "LIVE Grant Giveaway" },
   { key: "award.amount", label: "Award amount", purposes: ["award"], sample: "$500.00" },
   { key: "award.date", label: "Award date", purposes: ["award"], sample: "November 12, 2026" },
 ];

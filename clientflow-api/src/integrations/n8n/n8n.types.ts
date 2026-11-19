@@ -20,6 +20,17 @@ interface LifecycleEventBase {
   sentByUserId: string;
   /** Public URL of the organization's Settings header logo; added to every event when configured. */
   headerImageUrl?: string;
+  /**
+   * Internal: the program the email is for, used to choose its signature and layout. Removed
+   * before the event is sent to n8n.
+   */
+  programId?: string;
+  /** The sign-off (program's, else Settings'), added to every event when configured. */
+  signatureText?: string;
+  /** The same sign-off as escaped HTML with <br/> line breaks. */
+  signatureHtml?: string;
+  /** 'left' (header and message aligned left with a margin) or 'center'; added when configured. */
+  layout?: 'left' | 'center';
 }
 
 // n8n's webhook validator switches on eventType and requires different fields per branch
@@ -209,6 +220,8 @@ export type IntakeEmailDeliveryResult =
 
 export interface ContractEmailPayload {
   organizationId: string;
+  /** The program the email is for: its signature and layout are used. */
+  programId?: string;
   clientId: string;
   recipientEmail: string;
   clientName: string;
@@ -223,6 +236,8 @@ export type ContractEmailDeliveryResult = IntakeEmailDeliveryResult;
 
 export interface WelcomeEmailPayload {
   organizationId: string;
+  /** The program the email is for: its signature and layout are used. */
+  programId?: string;
   clientId: string;
   recipientEmail: string;
   clientName: string;

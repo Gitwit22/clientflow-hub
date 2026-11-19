@@ -238,6 +238,18 @@ the subject, body or htmlBody: `422`, `errorCode: "VALIDATION_FAILED"`,
   `bodyHtml` (paragraphs and line breaks), falling back to converting `body` the same way. The old invented welcome wording ("Welcome, {name}!", "Thank you for completing the
   previous step", "Your next step:") is gone.
 
+- **Signature and layout (optional fields, sent when staff set them):** ClientFlow adds these to an
+  event when the program, or Settings, has them. When they are absent, keep today's frame unchanged.
+  - `signatureText` / `signatureHtml`: the sign-off. Replace the footer "Thank you, / EA Management
+    LLC" with `signatureHtml` in the HTML (already escaped, line breaks as `<br/>`) and with
+    `signatureText` in the plain-text version.
+  - `layout`: `"left"` or `"center"`. For `"left"`, put the header and message in one column aligned
+    left, with a 24px margin: a full-width table whose cell is `align="left"` with `padding:24px`,
+    holding a `max-width:600px; text-align:left` block with the logo, message and signature. For
+    `"center"` (or no value), keep the centered header.
+  - ClientFlow's preview builds the same markup (`emailDocumentHtml` in
+    `src/integrations/n8n/email-body.ts`); keep the two in step.
+
 ### 4.7 Attachments
 
 - Both the flat form (`attachmentUrl` + name/type) and the array form are accepted.

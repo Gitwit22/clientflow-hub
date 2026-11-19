@@ -87,11 +87,14 @@ export function ProgramAgreementTemplates({
 
   // The editor starts from the active version of the selected template, and resets only when the
   // selected template or its active version changes (not on every keystroke-driven re-render).
-  useEffect(() => {
+  function restoreEditor() {
     setTitle(activeVersion?.title ?? "");
     setContent(activeVersion?.content ?? "");
     setFile(null);
     setShowSample(false);
+  }
+  useEffect(() => {
+    restoreEditor();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, activeVersion?.id]);
 
@@ -188,7 +191,8 @@ export function ProgramAgreementTemplates({
     act(
       async () => {
         const fileId = await storedFileId();
-        await createProgramWorkflowContractTemplate(program.id, {
+        const existingIds = new Set(templates.map((template) => template.id));
+        const next = await createProgramWorkflowContractTemplate(program.id, {
           name: newName.trim(),
           purpose: newPurpose,
           title: title.trim() || newName.trim(),
@@ -196,6 +200,10 @@ export function ProgramAgreementTemplates({
           storedFileId: fileId,
           isActive: true,
         });
+        // Show the new template, so its wording isn't left in another template's editor.
+        const added = next?.contract?.templates?.find((template) => !existingIds.has(template.id));
+        if (added) setSelectedId(added.id);
+        else restoreEditor();
         setAdding(false);
         setNewName("");
         setFile(null);
@@ -205,7 +213,7 @@ export function ProgramAgreementTemplates({
     );
 
   return (
-    <div className="space-y-3 rounded-lg border border-border p-3">
+    <div id="agreements" className="scroll-mt-4 space-y-3 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-mono text-[10px] uppercase text-muted-foreground">Agreements</p>
@@ -219,9 +227,16 @@ export function ProgramAgreementTemplates({
           variant="outline"
           disabled={saving}
           onClick={() => {
-            setAdding((value) => !value);
-            setTitle("");
-            setContent("");
+            if (adding) {
+              setAdding(false);
+              restoreEditor();
+            } else {
+              setAdding(true);
+              setTitle("");
+              setContent("");
+              setFile(null);
+              setShowSample(false);
+            }
           }}
         >
           {adding ? "Cancel" : "Add agreement template"}
@@ -314,7 +329,7 @@ export function ProgramAgreementTemplates({
               id="agreement-template-name"
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
-              placeholder="Member Fund Award Agreement"
+              placeholder="Grant Award Agreement"
             />
           </div>
           <div className="space-y-1">
