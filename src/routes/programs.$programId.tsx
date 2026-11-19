@@ -10,6 +10,7 @@ import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ProgramAgreementTemplates } from "@/components/programs/ProgramAgreementTemplates";
 import { ProgramAutomaticEmails } from "@/components/programs/ProgramAutomaticEmails";
 import { EmailStyleCard } from "@/components/EmailStyleCard";
+import { CollapsibleSection, UnsavedChangesMarker } from "@/components/CollapsibleSection";
 import { ProgramSetupChecklist } from "@/components/programs/ProgramSetupChecklist";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
@@ -73,8 +74,14 @@ import type {
   ProgramDetailResponse,
   ProgramEnrollment,
   ProgramParticipantDetail,
+  ProgramSetupItem,
+  ProgramWorkflow,
+  Program,
 } from "@/types";
 import { canCompleteEnrollment } from "@/lib/enrollment-status";
+import { formatMoney } from "@/lib/money";
+import { JOURNEY_STAGES, programJourney } from "@/lib/program-journey";
+import { useOpenSections } from "@/lib/use-open-sections";
 
 const BILLING_FREQUENCIES: BillingFrequency[] = [
   "one_time",
@@ -87,6 +94,124 @@ const BILLING_FREQUENCIES: BillingFrequency[] = [
 
 const PROGRAM_TABS = ["overview", "members", "questions", "deliverables", "emails"] as const;
 type ProgramTab = (typeof PROGRAM_TABS)[number];
+
+/** Sections inside another section: opening one (from a link) opens its parent too. */
+const SECTION_PARENTS: Readonly<Record<string, string>> = {
+  agreements: "program-workflow",
+  "welcome-email": "program-workflow",
+  automations: "program-workflow",
+  "email-signature": "program-workflow",
+};
+/** Overview sections a link such as `/programs/:id#agreements` can open. */
+const OVERVIEW_SECTIONS = new Set([
+  "setup-checklist",
+  "client-journey",
+  "required-documents",
+  "billing",
+  "program-workflow",
+  ...Object.keys(SECTION_PARENTS),
+]);
+
+const onOff = (on: boolean | undefined) => (on ? "on" : "off");
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+function journeySummary(program: Program) {
+  const stages = new Set(programJourney(program));
+  return JOURNEY_STAGES.filter((stage) => stages.has(stage.id))
+    .map((stage) => stage.label)
+    .join(" → ");
+}
+
+function documentsSummary(program: Program) {
+  const count = program.requiredDocuments?.length ?? 0;
+  return count ? plural(count, "required document") : "No required documents";
+}
+
+function billingSummary(config: ProgramBillingConfig | null) {
+  if (!config) return "Loading billing settings…";
+  const frequency =
+    config.frequency === "custom" && config.customIntervalDays
+      ? `every ${plural(config.customIntervalDays, "day")}`
+      : config.frequency.replace("_", "-");
+  return `${formatMoney(config.defaultAmount)} · ${frequency} · ${config.active ? "Billing active" : "Billing off"}`;
+}
+
+/** Whether the billing form differs from the saved settings (compared as the values saved). */
+function billingFormDirty(
+  form: {
+    defaultAmount: string;
+    frequency: BillingFrequency;
+    customIntervalDays: string;
+    billingRequired: boolean;
+    defaultDueDay: string;
+    allowCustomClientPricing: boolean;
+    active: boolean;
+  },
+  config: ProgramBillingConfig,
+) {
+  const optionalNumber = (value: string) => (value ? Number(value) : null);
+  return (
+    Number(form.defaultAmount || 0) !== Number(config.defaultAmount) ||
+    form.frequency !== config.frequency ||
+    optionalNumber(form.customIntervalDays) !== (config.customIntervalDays ?? null) ||
+    form.billingRequired !== config.billingRequired ||
+    optionalNumber(form.defaultDueDay) !== (config.defaultDueDay ?? null) ||
+    form.allowCustomClientPricing !== config.allowCustomClientPricing ||
+    form.active !== config.active
+  );
+}
+
+function enrollmentAgreementName(workflow: ProgramWorkflow | undefined) {
+  return workflow?.contract.activeVersion?.title ?? workflow?.contract.activeTemplate?.name ?? null;
+}
+
+function workflowSummary(workflow: ProgramWorkflow | undefined) {
+  if (!workflow) return "Loading…";
+  return [
+    `Agreement: ${enrollmentAgreementName(workflow) ?? "none"}`,
+    `Welcome email: ${workflow.welcomeEmail.activeVersion ? "set" : "none"}`,
+    `Automation: ${workflow.config.enabled ? "on" : "paused"}`,
+  ].join(" · ");
+}
+
+function agreementsSummary(workflow: ProgramWorkflow | undefined) {
+  if (!workflow) return "Loading…";
+  const name = enrollmentAgreementName(workflow);
+  const awards = workflow.contract.templates.filter((template) => template.purpose === "award");
+  const enrollment = name
+    ? `Enrollment: ${name}${workflow.contract.activeTemplate?.signatureRequired ? " (signature required)" : ""}`
+    : "No enrollment agreement";
+  return `${enrollment} · ${plural(awards.length, "award agreement")}`;
+}
+
+function welcomeSummary(workflow: ProgramWorkflow | undefined) {
+  if (!workflow) return "Loading…";
+  const subject = workflow.welcomeEmail.activeVersion?.subject;
+  return subject ? `Active: “${subject}”` : "No active welcome email";
+}
+
+function automationSummary(workflow: ProgramWorkflow | undefined) {
+  if (!workflow) return "Loading…";
+  const config = workflow.config;
+  return [
+    config.enabled ? "On" : "Paused",
+    `agreement after intake ${onOff(config.sendContractAfterIntake)}`,
+    `welcome after signing ${onOff(config.sendWelcomeAfterContractSigned)}`,
+  ].join(" · ");
+}
+
+function signatureSummary(program: Program) {
+  const signature = program.emailSignature
+    ? "This program's own signature"
+    : "The organization's signature";
+  const layout =
+    program.emailLayout === "left"
+      ? "left layout"
+      : program.emailLayout === "center"
+        ? "centered layout"
+        : "organization's layout";
+  return `${signature} · ${layout}`;
+}
 
 export const Route = createFileRoute("/programs/$programId")({
   head: () => ({
@@ -113,14 +238,22 @@ function ProgramDetailPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [refreshVersion, setRefreshVersion] = useState(0);
-  // Links such as "Edit wording" on a client's award open this page at #agreements: scroll there
-  // once the program's agreements have loaded.
+  // Overview sections open and close independently; several can be open at once.
+  const sections = useOpenSections(SECTION_PARENTS);
+  const { reveal } = sections;
+  // Links such as "Edit wording" on a client's award open this page at #agreements: open that
+  // section (and the one it sits in) and scroll to it once the program's workflow has loaded.
   const workflowLoaded = Boolean(detail?.workflow);
   useEffect(() => {
     if (!workflowLoaded || typeof window === "undefined") return;
-    if (window.location.hash !== "#agreements") return;
-    document.getElementById("agreements")?.scrollIntoView({ block: "start" });
-  }, [workflowLoaded]);
+    const openFromAddress = () => {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      if (OVERVIEW_SECTIONS.has(id)) reveal(id);
+    };
+    openFromAddress();
+    window.addEventListener("hashchange", openFromAddress);
+    return () => window.removeEventListener("hashchange", openFromAddress);
+  }, [workflowLoaded, reveal]);
   const [expandedEnrollmentId, setExpandedEnrollmentId] = useState<string | null>(null);
   // The participant whose next step (contract / signing link / welcome) is open in a send dialog.
   const [stepTarget, setStepTarget] = useState<{
@@ -295,6 +428,22 @@ function ProgramDetailPage() {
     (template) => template.programId === program.id,
   );
   const workflow = detail?.workflow;
+  const welcomeDirty =
+    welcomeSubject !== (workflow?.welcomeEmail.activeVersion?.subject ?? "") ||
+    welcomeBody !== (workflow?.welcomeEmail.activeVersion?.body ?? "") ||
+    Boolean(welcomeGuideFile);
+
+  /** A setup-checklist "Go to" link: another tab, or the Overview section where it's set up. */
+  function goToSetupItem(key: ProgramSetupItem["key"]) {
+    if (key === "intake_form" || key === "deliverables") {
+      void navigate({ search: { tab: key === "intake_form" ? "questions" : "deliverables" } });
+      return;
+    }
+    const target =
+      key === "welcome_email" ? "welcome-email" : key === "billing" ? "billing" : "agreements";
+    window.history.replaceState(null, "", `#${target}`);
+    reveal(target);
+  }
 
   /**
    * New questions become the program's intake questions when it has none of its own yet (it used
@@ -520,7 +669,7 @@ function ProgramDetailPage() {
           })
         }
       >
-        <TabsList>
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="members">Members ({summary.current})</TabsTrigger>
           <TabsTrigger value="questions">Program questions</TabsTrigger>
@@ -533,6 +682,9 @@ function ProgramDetailPage() {
             programId={program.id}
             refreshKey={refreshVersion}
             onActivated={() => setRefreshVersion((value) => value + 1)}
+            open={sections.isOpen("setup-checklist")}
+            onOpenChange={(open) => sections.setOpen("setup-checklist", open)}
+            onGoTo={goToSetupItem}
           />
           <Card className="shadow-card">
             <CardHeader>
@@ -585,19 +737,40 @@ function ProgramDetailPage() {
               </div>
             </CardContent>
           </Card>
-          <ProgramJourneyCard
-            program={program}
-            onSaved={() => setRefreshVersion((value) => value + 1)}
-          />
-          <ProgramDocumentsCard
-            program={program}
-            onSaved={() => setRefreshVersion((value) => value + 1)}
-          />
-          <Card className="shadow-card lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Billing</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
+          <CollapsibleSection
+            {...sections.sectionProps("client-journey")}
+            title="Client journey"
+            summary={journeySummary(program)}
+            className="lg:col-span-2"
+          >
+            <ProgramJourneyCard
+              embedded
+              program={program}
+              onSaved={() => setRefreshVersion((value) => value + 1)}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            {...sections.sectionProps("required-documents")}
+            title="Required documents"
+            summary={documentsSummary(program)}
+            className="lg:col-span-2"
+          >
+            <ProgramDocumentsCard
+              embedded
+              program={program}
+              onSaved={() => setRefreshVersion((value) => value + 1)}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            {...sections.sectionProps("billing")}
+            title="Billing"
+            summary={billingSummary(billingConfig)}
+            className="lg:col-span-2"
+          >
+            <div className="space-y-4 text-sm">
+              {billingConfig && billingFormDirty(billingForm, billingConfig) && (
+                <UnsavedChangesMarker />
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Standard fee</Label>
@@ -714,13 +887,15 @@ function ProgramDetailPage() {
               >
                 {savingBilling ? "Saving..." : "Save billing settings"}
               </Button>
-            </CardContent>
-          </Card>
-          <Card className="shadow-card lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Program workflow</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
+            </div>
+          </CollapsibleSection>
+          <CollapsibleSection
+            {...sections.sectionProps("program-workflow")}
+            title="Program workflow"
+            summary={workflowSummary(workflow)}
+            className="lg:col-span-2"
+          >
+            <div className="space-y-3 text-sm">
               <div className="space-y-1">
                 <p className="font-mono text-[10px] uppercase text-muted-foreground">1. Intake</p>
                 <p>
@@ -728,60 +903,29 @@ function ProgramDetailPage() {
                     ?.name ?? "No intake form configured"}
                 </p>
               </div>
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">2. Contract</p>
-                <p>
-                  {workflow?.contract.activeVersion?.title ??
-                    workflow?.contract.activeTemplate?.name ??
-                    "No active contract template"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Signature required:{" "}
-                  {workflow?.contract.activeTemplate?.signatureRequired ? "Yes" : "No"}
-                </p>
-              </div>
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="font-mono text-[10px] uppercase text-muted-foreground">
-                  3. Welcome email
-                </p>
-                <p>
-                  {workflow?.welcomeEmail.activeVersion?.subject ||
-                    "No active welcome email template"}
-                </p>
-                <p className="text-xs text-muted-foreground line-clamp-2">
-                  {workflow?.welcomeEmail.activeVersion?.body ||
-                    "Add a welcome email version to enable post-signature messaging."}
-                </p>
-              </div>
-              <ProgramAutomaticEmails
-                program={program}
-                workflow={workflow}
-                onChanged={() => setRefreshVersion((value) => value + 1)}
-              />
-              <EmailStyleCard
-                forProgram
-                title="Email signature & layout for this program"
-                description="Replaces the organization's signature and layout (Settings) on this program's emails. Leave empty to use the organization's."
-                value={{
-                  emailSignature: program.emailSignature ?? null,
-                  emailLayout: program.emailLayout ?? null,
-                }}
-                onSave={async (values) => {
-                  await updateProgram(program.id, values);
-                  setRefreshVersion((value) => value + 1);
-                }}
-              />
-              <div className="grid gap-4 lg:grid-cols-2">
+              <CollapsibleSection
+                variant="nested"
+                {...sections.sectionProps("agreements")}
+                title="Agreements"
+                summary={agreementsSummary(workflow)}
+              >
                 <ProgramAgreementTemplates
+                  embedded
                   program={program}
                   workflow={workflow}
                   onChanged={() => setRefreshVersion((value) => value + 1)}
                 />
-                <div className="space-y-3 rounded-lg border border-border p-3">
+              </CollapsibleSection>
+              <CollapsibleSection
+                variant="nested"
+                {...sections.sectionProps("welcome-email")}
+                title="Welcome email"
+                summary={welcomeSummary(workflow)}
+              >
+                <div className="space-y-3">
+                  {welcomeDirty && <UnsavedChangesMarker />}
                   <div>
-                    <p className="font-mono text-[10px] uppercase text-muted-foreground">
-                      Welcome versions
-                    </p>
+                    <p className="text-xs font-medium">Welcome versions</p>
                     <p className="text-xs text-muted-foreground">
                       If no active custom version exists, ClientFlow falls back to the generic
                       welcome body.
@@ -902,9 +1046,43 @@ function ProgramDetailPage() {
                     Save welcome version
                   </Button>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CollapsibleSection>
+              <CollapsibleSection
+                variant="nested"
+                {...sections.sectionProps("automations")}
+                title="Automations"
+                summary={automationSummary(workflow)}
+              >
+                <ProgramAutomaticEmails
+                  embedded
+                  program={program}
+                  workflow={workflow}
+                  onChanged={() => setRefreshVersion((value) => value + 1)}
+                />
+              </CollapsibleSection>
+              <CollapsibleSection
+                variant="nested"
+                {...sections.sectionProps("email-signature")}
+                title="Email signature"
+                summary={signatureSummary(program)}
+              >
+                <EmailStyleCard
+                  embedded
+                  forProgram
+                  title="Email signature & layout for this program"
+                  description="Replaces the organization's signature and layout (Settings) on this program's emails. Leave empty to use the organization's."
+                  value={{
+                    emailSignature: program.emailSignature ?? null,
+                    emailLayout: program.emailLayout ?? null,
+                  }}
+                  onSave={async (values) => {
+                    await updateProgram(program.id, values);
+                    setRefreshVersion((value) => value + 1);
+                  }}
+                />
+              </CollapsibleSection>
+            </div>
+          </CollapsibleSection>
         </TabsContent>
 
         <TabsContent value="members" className="mt-4 space-y-4">

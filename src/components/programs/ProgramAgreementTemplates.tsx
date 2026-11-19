@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { UnsavedChangesMarker } from "@/components/CollapsibleSection";
+import { validationErrorProps } from "@/lib/section-markers";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,10 +61,13 @@ export function ProgramAgreementTemplates({
   program,
   workflow,
   onChanged,
+  embedded = false,
 }: {
   program: Program;
   workflow: ProgramWorkflow | undefined;
   onChanged: () => void;
+  /** Inside a section titled "Agreements" (which carries the #agreements link target). */
+  embedded?: boolean;
 }) {
   const templates = workflow?.contract.templates ?? [];
   const enrollmentTemplateId = workflow?.config.activeContractTemplateId ?? null;
@@ -128,6 +133,11 @@ export function ProgramAgreementTemplates({
     [importedFrom, content, editingPurpose],
   );
   const blanksLeft = importedFrom ? remainingBlanks(content) : 0;
+  const unsaved = adding
+    ? Boolean(content.trim() || newName.trim() || file)
+    : title !== (activeVersion?.title ?? "") ||
+      content !== (activeVersion?.content ?? "") ||
+      Boolean(file);
 
   function chooseImport(selected: File | undefined) {
     if (importInput.current) importInput.current.value = "";
@@ -268,10 +278,18 @@ export function ProgramAgreementTemplates({
     );
 
   return (
-    <div id="agreements" className="scroll-mt-4 space-y-3 rounded-lg border border-border p-3">
+    <div
+      id={embedded ? undefined : "agreements"}
+      className={
+        embedded ? "space-y-3" : "scroll-mt-4 space-y-3 rounded-lg border border-border p-3"
+      }
+    >
+      {unsaved && <UnsavedChangesMarker />}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="font-mono text-[10px] uppercase text-muted-foreground">Agreements</p>
+          {!embedded && (
+            <p className="font-mono text-[10px] uppercase text-muted-foreground">Agreements</p>
+          )}
           <p className="text-xs text-muted-foreground">
             New agreements use each template&apos;s active version. Agreements already sent or
             signed keep the text they were sent with.
@@ -474,7 +492,7 @@ export function ProgramAgreementTemplates({
             </ul>
           </details>
           {problems.length > 0 && (
-            <p role="alert" className="text-xs text-destructive">
+            <p role="alert" className="text-xs text-destructive" {...validationErrorProps}>
               Not available in {PURPOSE_LABEL[editingPurpose].toLowerCase()}s:{" "}
               {problems.map((key) => `{{${key}}}`).join(", ")}
             </p>

@@ -12,17 +12,52 @@ import {
   type JourneyStageId,
 } from "@/lib/program-journey";
 import { cn } from "@/lib/utils";
+import { UnsavedChangesMarker } from "@/components/CollapsibleSection";
 import type { Program } from "@/types";
+import type { ReactNode } from "react";
 
 const sameList = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
+/** A card of its own, or (embedded) just its content inside a section that already has the title. */
+function SetupFrame({
+  embedded,
+  title,
+  description,
+  children,
+}: {
+  embedded?: boolean;
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+}) {
+  if (embedded) {
+    return (
+      <div className="space-y-4">
+        {description}
+        {children}
+      </div>
+    );
+  }
+  return (
+    <Card className="shadow-card lg:col-span-2">
+      <CardHeader>
+        <CardTitle className="font-display text-base">{title}</CardTitle>
+        {description}
+      </CardHeader>
+      <CardContent className="space-y-4">{children}</CardContent>
+    </Card>
+  );
+}
+
 export function ProgramJourneyCard({
   program,
   onSaved,
+  embedded,
 }: {
   program: Program;
   onSaved: () => void;
+  embedded?: boolean;
 }) {
   const saved = programJourney(program);
   const [stages, setStages] = useState<JourneyStageId[]>(saved);
@@ -55,58 +90,61 @@ export function ProgramJourneyCard({
   }
 
   return (
-    <Card className="shadow-card lg:col-span-2">
-      <CardHeader>
-        <CardTitle className="font-display text-base">Client journey</CardTitle>
+    <SetupFrame
+      embedded={embedded}
+      title="Client journey"
+      description={
         <p className="text-sm text-muted-foreground">
           The stages a client moves through in this program. Detailed statuses are handled for you.
         </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {JOURNEY_STAGES.map((stage, index) => {
-            const on = stages.includes(stage.id);
-            return (
-              <div key={stage.id} className="flex items-center gap-1.5">
-                {index > 0 && <ArrowRight className="size-3.5 text-muted-foreground" />}
-                <button
-                  type="button"
-                  aria-pressed={on}
-                  disabled={stage.required || saving}
-                  onClick={() => toggle(stage.id)}
-                  title={stage.required ? "Every program includes this stage" : undefined}
-                  className={cn(
-                    "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
-                    on
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-dashed border-border text-muted-foreground line-through hover:bg-muted",
-                    stage.required && "cursor-default",
-                  )}
-                >
-                  {stage.label}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Click Review, Contract or Monitoring to skip or include them. Intake, Active and Completed
-          are always part of the journey.
-        </p>
-        <Button size="sm" onClick={() => void save()} disabled={saving || sameList(stages, saved)}>
-          {saving ? "Saving..." : "Save journey"}
-        </Button>
-      </CardContent>
-    </Card>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        {JOURNEY_STAGES.map((stage, index) => {
+          const on = stages.includes(stage.id);
+          return (
+            <div key={stage.id} className="flex items-center gap-1.5">
+              {index > 0 && <ArrowRight className="size-3.5 text-muted-foreground" />}
+              <button
+                type="button"
+                aria-pressed={on}
+                disabled={stage.required || saving}
+                onClick={() => toggle(stage.id)}
+                title={stage.required ? "Every program includes this stage" : undefined}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                  on
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-dashed border-border text-muted-foreground line-through hover:bg-muted",
+                  stage.required && "cursor-default",
+                )}
+              >
+                {stage.label}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Click Review, Contract or Monitoring to skip or include them. Intake, Active and Completed
+        are always part of the journey.
+      </p>
+      <Button size="sm" onClick={() => void save()} disabled={saving || sameList(stages, saved)}>
+        {saving ? "Saving..." : "Save journey"}
+      </Button>
+      {!sameList(stages, saved) && <UnsavedChangesMarker />}
+    </SetupFrame>
   );
 }
 
 export function ProgramDocumentsCard({
   program,
   onSaved,
+  embedded,
 }: {
   program: Program;
   onSaved: () => void;
+  embedded?: boolean;
 }) {
   const saved = program.requiredDocuments ?? [];
   const [documents, setDocuments] = useState<string[]>(saved);
@@ -131,25 +169,17 @@ export function ProgramDocumentsCard({
   }
 
   return (
-    <Card className="shadow-card lg:col-span-2">
-      <CardHeader>
-        <CardTitle className="font-display text-base">Required documents</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <TagListEditor
-          label="Documents clients must provide"
-          items={documents}
-          onChange={setDocuments}
-          placeholder="e.g. Signed agreement"
-        />
-        <Button
-          size="sm"
-          onClick={() => void save()}
-          disabled={saving || sameList(documents, saved)}
-        >
-          {saving ? "Saving..." : "Save documents"}
-        </Button>
-      </CardContent>
-    </Card>
+    <SetupFrame embedded={embedded} title="Required documents">
+      <TagListEditor
+        label="Documents clients must provide"
+        items={documents}
+        onChange={setDocuments}
+        placeholder="e.g. Signed agreement"
+      />
+      <Button size="sm" onClick={() => void save()} disabled={saving || sameList(documents, saved)}>
+        {saving ? "Saving..." : "Save documents"}
+      </Button>
+      {!sameList(documents, saved) && <UnsavedChangesMarker />}
+    </SetupFrame>
   );
 }
