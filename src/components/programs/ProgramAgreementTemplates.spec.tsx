@@ -180,4 +180,48 @@ describe("ProgramAgreementTemplates", () => {
       ),
     );
   });
+
+  it("shows the new template after adding it, not its wording under the enrollment agreement", async () => {
+    const before = workflow();
+    const after = workflow();
+    after.contract.templates.push(
+      template("t-new", "LIVE Grant Giveaway Award Agreement", "award", "v-new") as never,
+    );
+    after.contract.versions.push(version("v-new", "t-new", "Award of {{award.amount}}.") as never);
+    createProgramWorkflowContractTemplate.mockResolvedValue(after);
+    const onChanged = vi.fn();
+    const { rerender } = render(
+      <ProgramAgreementTemplates program={program} workflow={before} onChanged={onChanged} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add agreement template" }));
+    fireEvent.change(screen.getByLabelText("Template name"), {
+      target: { value: "LIVE Grant Giveaway Award Agreement" },
+    });
+    fireEvent.change(screen.getByLabelText("Agreement text"), {
+      target: { value: "Award of {{award.amount}}." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add template" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    // The page reloads the program's agreements; the new one is the one being edited.
+    rerender(
+      <ProgramAgreementTemplates program={program} workflow={after} onChanged={onChanged} />,
+    );
+    expect(screen.queryByText(/Not available in enrollment agreements/)).toBeNull();
+    expect((screen.getByLabelText("Agreement text") as HTMLTextAreaElement).value).toBe(
+      "Award of {{award.amount}}.",
+    );
+    expect(screen.queryByRole("button", { name: "Use as enrollment agreement" })).toBeNull();
+  });
+
+  it("puts the current agreement's text back when adding a template is cancelled", () => {
+    render(
+      <ProgramAgreementTemplates program={program} workflow={workflow()} onChanged={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add agreement template" }));
+    expect((screen.getByLabelText("Agreement text") as HTMLTextAreaElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect((screen.getByLabelText("Agreement text") as HTMLTextAreaElement).value).toBe(
+      "Template draft only. Final legal language must be reviewed.",
+    );
+  });
 });
