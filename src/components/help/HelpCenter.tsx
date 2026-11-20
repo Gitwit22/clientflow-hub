@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { Lightbulb, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -85,8 +85,8 @@ function Topic({ topic, highlighted }: { topic: HelpTopic; highlighted: boolean 
  * The staff guide: topics grouped by area, a search box, and an area list. A topic can be opened
  * directly with /help#<topic-id> (the "How this works" links on each page do this).
  */
-export function HelpCenter() {
-  const [query, setQuery] = useState("");
+export function HelpCenter({ initialQuery }: { initialQuery?: string }) {
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const results = useMemo(() => searchHelp(query), [query]);
   const areas = HELP_AREAS.map((area) => ({
@@ -94,7 +94,14 @@ export function HelpCenter() {
     topics: results.filter((topic) => topic.area === area),
   })).filter((group) => group.topics.length > 0);
 
-  // Open the topic named in the address, now and whenever it changes.
+  // "See all help results" from the top-bar search opens this page with the words filled in.
+  useEffect(() => {
+    if (initialQuery !== undefined) setQuery(initialQuery);
+  }, [initialQuery]);
+
+  // Open the topic named in the address. In-app links (the top-bar search, "How this works")
+  // change the router's address without a browser hashchange, so follow both.
+  const routerHash = useRouterState({ select: (state) => state.location.hash });
   useEffect(() => {
     const open = () => {
       const id = topicFromAddress();
@@ -108,13 +115,13 @@ export function HelpCenter() {
     open();
     window.addEventListener("hashchange", open);
     return () => window.removeEventListener("hashchange", open);
-  }, []);
+  }, [routerHash]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
       <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto lg:pr-1">
         <label className="relative block">
-          <span className="sr-only">Search help</span>
+          <span className="sr-only">Filter help topics</span>
           <Search
             aria-hidden
             className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground"
@@ -123,7 +130,7 @@ export function HelpCenter() {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search help…"
+            placeholder="Filter topics…"
             className="pl-8"
           />
         </label>

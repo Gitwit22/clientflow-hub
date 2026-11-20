@@ -17,10 +17,15 @@ export const Route = createFileRoute("/help")({
       },
     ],
   }),
+  // ?q= comes from "See all help results" in the top-bar search.
+  validateSearch: (search: Record<string, unknown>): { q?: string } => ({
+    q: typeof search.q === "string" && search.q.trim() ? search.q.slice(0, 100) : undefined,
+  }),
   component: HelpPage,
 });
 
 function HelpPage() {
+  const { q } = Route.useSearch();
   return (
     <div>
       <PageHeader
@@ -28,7 +33,7 @@ function HelpPage() {
         title="How to use ClientFlow"
         description="Step-by-step help for every part of ClientFlow. Search, or pick a topic."
       />
-      <HelpCenter />
+      <HelpCenter initialQuery={q} />
     </div>
   );
 }

@@ -8,6 +8,9 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to, hash }: { children: React.ReactNode; to: string; hash?: string }) => (
     <a href={hash ? `${to}#${hash}` : to}>{children}</a>
   ),
+  // The router's address follows window.location in these tests.
+  useRouterState: ({ select }: { select: (state: { location: { hash: string } }) => unknown }) =>
+    select({ location: { hash: window.location.hash.slice(1) } }),
 }));
 
 beforeEach(() => {
@@ -30,18 +33,27 @@ describe("HelpCenter", () => {
 
   it("filters topics as staff search, and says when nothing matches", () => {
     render(<HelpCenter />);
-    fireEvent.change(screen.getByPlaceholderText("Search help…"), {
+    fireEvent.change(screen.getByPlaceholderText("Filter topics…"), {
       target: { value: "past payment" },
     });
     expect(screen.getByRole("heading", { name: "Set up and record client payments" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Reports" })).toBeNull();
 
-    fireEvent.change(screen.getByPlaceholderText("Search help…"), {
+    fireEvent.change(screen.getByPlaceholderText("Filter topics…"), {
       target: { value: "qwertyuiop" },
     });
     expect(screen.getByRole("status").textContent).toContain(
       "No help topics match “qwertyuiop”. Try a shorter word.",
     );
+  });
+
+  it("starts filtered when opened from the top-bar search's See all results", () => {
+    render(<HelpCenter initialQuery="ledger" />);
+    expect((screen.getByPlaceholderText("Filter topics…") as HTMLInputElement).value).toBe(
+      "ledger",
+    );
+    expect(screen.getByRole("heading", { name: "Set up and record client payments" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Reports" })).toBeNull();
   });
 
   it("opens the topic named in the address and highlights it", async () => {

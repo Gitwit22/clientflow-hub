@@ -53,4 +53,11 @@ describe("searching help", () => {
     expect(searchHelp("zzzz-nothing")).toEqual([]);
     expect(searchHelp("   ")).toHaveLength(HELP_TOPICS.length);
   });
+
+  it("puts the topic about the subject first", () => {
+    expect(searchHelp("monitoring")[0].id).toBe("monitoring");
+    expect(searchHelp("welcome email")[0].id).toBe("welcome-email");
+    expect(searchHelp("signature")[0].id).toBe("email-signature");
+    expect(searchHelp("past payment")[0].id).toBe("billing-setup");
+  });
 });

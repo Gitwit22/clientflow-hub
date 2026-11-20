@@ -829,12 +829,30 @@ export function topicText(topic: HelpTopic): string {
   return [topic.title, topic.summary, topic.keywords.join(" "), ...blocks].join(" ").toLowerCase();
 }
 
-/** Topics matching every word of the query (case-insensitive), in guide order. */
+/**
+ * Topics matching every word of the query (case-insensitive), best match first: a word in the
+ * title counts most, then the keywords, the summary, and the rest of the text. Ties keep guide order.
+ */
 export function searchHelp(query: string, topics: HelpTopic[] = HELP_TOPICS): HelpTopic[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return topics;
-  return topics.filter((topic) => {
+  const scored: { topic: HelpTopic; score: number; order: number }[] = [];
+  topics.forEach((topic, order) => {
     const text = topicText(topic);
-    return words.every((word) => text.includes(word));
+    if (!words.every((word) => text.includes(word))) return;
+    const title = topic.title.toLowerCase();
+    const keywords = topic.keywords.join(" ").toLowerCase();
+    const summary = topic.summary.toLowerCase();
+    const score = words.reduce(
+      (total, word) =>
+        total +
+        (title.includes(word) ? 8 : 0) +
+        (keywords.includes(word) ? 4 : 0) +
+        (summary.includes(word) ? 2 : 0) +
+        1,
+      0,
+    );
+    scored.push({ topic, score, order });
   });
+  return scored.sort((a, b) => b.score - a.score || a.order - b.order).map((entry) => entry.topic);
 }
