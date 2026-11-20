@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -143,6 +144,7 @@ function ClientsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.clients}
         title="Clients"
         description="One master profile per client, across every program they touch."
         actions={

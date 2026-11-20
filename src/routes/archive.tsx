@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -58,6 +59,7 @@ function ArchivePage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.archive}
         title="Archive"
         description="Inactive, declined, completed and closed clients with final report access."
       />

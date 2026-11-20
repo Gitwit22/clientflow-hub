@@ -1,5 +1,8 @@
 # ClientFlow: staff guide to programs, agreements, funding and emails
 
+> The up-to-date guide is in the app: **Help** in the sidebar (`/help`), with a "How this works"
+> link on each page. Its content lives in `src/lib/help-content.ts`; update it with any screen change.
+
 Short instructions for running a program from setup to closing a client out.
 
 ## 1. Set up and activate a program

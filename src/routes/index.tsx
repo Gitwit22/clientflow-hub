@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertTriangle, Send, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
@@ -97,6 +98,7 @@ function Dashboard() {
   return (
     <div className="space-y-7">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.dashboard}
         eyebrow={`Today · ${todayLabel}`}
         title="Dashboard"
         description="What needs attention today, across every client."

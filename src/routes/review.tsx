@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   AlertDialog,
@@ -135,6 +136,7 @@ function ReviewQueuePage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.review}
         title="Pending Review"
         description="Clients whose selected program requires staff approval before a contract is sent."
       />

@@ -3,6 +3,7 @@ import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Mail, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -250,6 +251,7 @@ export function ProgramsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.programs}
         title="Programs"
         description="Each program drives its default form, contract template and monitoring cadence."
         actions={

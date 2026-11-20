@@ -1,9 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { DemoDataRemovalDialog } from "@/components/dialogs/DemoDataRemovalDialog";
 import { PageHeader } from "@/components/PageHeader";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import {
   EmailStyleCard,
   type EmailLayout,
@@ -27,7 +26,6 @@ import { Crown, Eye, EyeOff, KeyRound, Link2, UserPlus, UserX } from "lucide-rea
 import {
   ApiError,
   changePassword,
-  cfSeedDemo,
   disableMember,
   enableMember,
   getOrganizationSettings,
@@ -41,13 +39,13 @@ import {
   type StaffEmailDelivery,
 } from "@/lib/apiClient";
 import { uploadStoredFile } from "@/lib/api";
-import { useAppState, retryBootstrap } from "@/lib/store";
+import { useAppState } from "@/lib/store";
 import { CLIENT_STATUSES } from "@/types";
 import type { OrgMember, OrgSettings, BackendRole } from "@/types";
 import { InviteUserDialog } from "@/components/dialogs/InviteUserDialog";
 import { CopyLinkDialog } from "@/components/dialogs/CopyLinkDialog";
 import { notifyMembersChanged } from "@/hooks/use-organization-members";
-import { LegacyDataCleanupCard } from "@/components/settings/LegacyDataCleanupCard";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -123,7 +121,8 @@ function SettingsPage() {
   const { programs, formTemplates, authenticatedAdmin } = useAppState();
   const orgId = authenticatedAdmin?.organizationId ?? null;
   const selfId = authenticatedAdmin?.id ?? null;
-  const canRemoveDemoPermanently =
+  // Organization admins can email invite/reset links.
+  const isOrgAdmin =
     authenticatedAdmin?.role === "org_admin" || authenticatedAdmin?.role === "super_admin";
 
   // Users & Roles
@@ -165,10 +164,6 @@ function SettingsPage() {
   });
   const [monitoringFreq, setMonitoringFreq] = useState("");
   const [orgSaving, setOrgSaving] = useState(false);
-  const [liveMode, setLiveMode] = useState(false);
-  const [demoRemovedAt, setDemoRemovedAt] = useState<string | null>(null);
-  const [removeDemoOpen, setRemoveDemoOpen] = useState(false);
-  const [demoSeeding, setDemoSeeding] = useState(false);
   const [logoStoredFileId, setLogoStoredFileId] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
 
@@ -214,8 +209,6 @@ function SettingsPage() {
         ...current,
         ...data.settings.notificationTemplateToggles,
       }));
-      setLiveMode(data.liveMode);
-      setDemoRemovedAt(data.demoRemovedAt ?? null);
       setLogoStoredFileId((data.settings.logoStoredFileId as string | undefined) ?? null);
     } catch {
       // Non-fatal — org settings may not be seeded yet
@@ -281,22 +274,6 @@ function SettingsPage() {
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Failed to change password.");
       setPasswordSaving(false);
-    }
-  }
-
-  async function handleSeedDemo() {
-    if (!window.confirm("Create server-persisted sample data for this organization?")) return;
-    setDemoSeeding(true);
-    try {
-      const result = await cfSeedDemo();
-      setLiveMode(result.liveMode);
-      setDemoRemovedAt(null);
-      retryBootstrap();
-      toast.success("Demo data created.");
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Failed to create demo data.");
-    } finally {
-      setDemoSeeding(false);
     }
   }
 
@@ -475,23 +452,31 @@ function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.settings}
         title="Settings"
         description="Configuration for users, programs, workflow statuses and templates."
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
         {/* ── Users & Roles ──────────────────────────────────────────────────── */}
-        <Card className="shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="font-display text-base">Users & roles</CardTitle>
-            {orgId && (
+        <CollapsibleSection
+          id="users-roles"
+          title="Users & roles"
+          summary={
+            membersLoading
+              ? "Loading team members…"
+              : `${members.length} team member${members.length === 1 ? "" : "s"}`
+          }
+        >
+          {orgId && (
+            <div className="mb-3 flex justify-end">
               <Button size="sm" variant="outline" onClick={() => setInviteOpen(true)}>
                 <UserPlus className="size-3.5 mr-1.5" />
                 Invite
               </Button>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-2">
+            </div>
+          )}
+          <div className="space-y-2">
             {!orgId ? (
               <p className="text-sm text-muted-foreground">
                 No organization found. Sign in with an admin account to manage users.
@@ -515,7 +500,8 @@ function SettingsPage() {
                     className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="flex items-center gap-1.5 truncate font-medium leading-tight">
+                      {/* A div, not a p: the badges render as divs, which a p can't contain. */}
+                      <div className="flex items-center gap-1.5 truncate font-medium leading-tight">
                         {memberName(member)}
                         {isSelf && (
                           <Badge variant="secondary" className="shrink-0 text-[10px] uppercase">
@@ -527,7 +513,7 @@ function SettingsPage() {
                             <Crown className="size-3" /> Principal
                           </Badge>
                         )}
-                      </p>
+                      </div>
                       <p className="truncate font-mono text-xs text-muted-foreground">
                         {[member.jobTitle, member.email].filter(Boolean).join(" · ")}
                       </p>
@@ -554,34 +540,32 @@ function SettingsPage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    {canRemoveDemoPermanently &&
-                      !isSelf &&
-                      (member.invitePending || member.isActive) && (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="size-7 shrink-0"
-                          onClick={() => void handleMemberLink(member)}
-                          disabled={linkLoading === member.id}
-                          aria-label={
-                            member.invitePending
-                              ? `New invite link for ${member.email}`
-                              : `Password reset link for ${member.email}`
-                          }
-                          title={
-                            member.invitePending
-                              ? "Email a new invite link"
-                              : "Email a password reset link"
-                          }
-                        >
-                          {member.invitePending ? (
-                            <Link2 className="size-4" />
-                          ) : (
-                            <KeyRound className="size-4" />
-                          )}
-                        </Button>
-                      )}
+                    {isOrgAdmin && !isSelf && (member.invitePending || member.isActive) && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 shrink-0"
+                        onClick={() => void handleMemberLink(member)}
+                        disabled={linkLoading === member.id}
+                        aria-label={
+                          member.invitePending
+                            ? `New invite link for ${member.email}`
+                            : `Password reset link for ${member.email}`
+                        }
+                        title={
+                          member.invitePending
+                            ? "Email a new invite link"
+                            : "Email a password reset link"
+                        }
+                      >
+                        {member.invitePending ? (
+                          <Link2 className="size-4" />
+                        ) : (
+                          <KeyRound className="size-4" />
+                        )}
+                      </Button>
+                    )}
                     {member.invitePending ? (
                       <Button
                         type="button"
@@ -607,16 +591,17 @@ function SettingsPage() {
                 );
               })
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </CollapsibleSection>
 
         {/* ── Personal profile ──────────────────────────────────────────────── */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Personal profile</CardTitle>
-          </CardHeader>
+        <CollapsibleSection
+          id="personal-profile"
+          title="Personal profile"
+          summary={authenticatedAdmin?.email ?? "Your name and email"}
+        >
           <form onSubmit={handleSavePersonalProfile}>
-            <CardContent className="space-y-3">
+            <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="s-first-name">First name</Label>
@@ -656,19 +641,18 @@ function SettingsPage() {
                   maxLength={150}
                 />
               </div>
-            </CardContent>
-            <CardFooter className="pt-0">
+            </div>
+            <div className="pt-4">
               <Button type="submit" size="sm" disabled={profileSaving || !authenticatedAdmin}>
                 {profileSaving ? "Saving…" : "Save profile"}
               </Button>
-            </CardFooter>
+            </div>
           </form>
-        </Card>
+        </CollapsibleSection>
 
         {/* ── Security ─────────────────────────────────────────────────────── */}
-        <Card className="shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="font-display text-base">Security</CardTitle>
+        <CollapsibleSection id="security" title="Security" summary="Change your password">
+          <div className="mb-1 flex justify-end">
             <Button
               type="button"
               size="icon"
@@ -679,9 +663,9 @@ function SettingsPage() {
             >
               {showPasswords ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </Button>
-          </CardHeader>
+          </div>
           <form onSubmit={handleChangePassword}>
-            <CardContent className="space-y-3">
+            <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="s-current-password">Current password</Label>
                 <Input
@@ -723,8 +707,8 @@ function SettingsPage() {
                   />
                 </div>
               </div>
-            </CardContent>
-            <CardFooter className="pt-0">
+            </div>
+            <div className="pt-4">
               <Button
                 type="submit"
                 size="sm"
@@ -732,17 +716,18 @@ function SettingsPage() {
               >
                 {passwordSaving ? "Changing…" : "Change password"}
               </Button>
-            </CardFooter>
+            </div>
           </form>
-        </Card>
+        </CollapsibleSection>
 
         {/* ── Company profile ────────────────────────────────────────────────── */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Company profile</CardTitle>
-          </CardHeader>
+        <CollapsibleSection
+          id="company-profile"
+          title="Company profile"
+          summary={companyName || "Company name, reply-to email and monitoring frequency"}
+        >
           <form onSubmit={handleSaveProfile}>
-            <CardContent className="space-y-3">
+            <div className="space-y-3">
               {orgLoading ? (
                 <>
                   <Skeleton className="h-9 w-full" />
@@ -781,32 +766,34 @@ function SettingsPage() {
                   </div>
                 </>
               )}
-            </CardContent>
-            <CardFooter className="pt-0">
+            </div>
+            <div className="pt-4">
               <Button type="submit" size="sm" disabled={orgSaving || orgLoading || !orgId}>
                 {orgSaving ? "Saving…" : "Save"}
               </Button>
-            </CardFooter>
+            </div>
           </form>
-        </Card>
+        </CollapsibleSection>
 
         {/* ── Status settings ────────────────────────────────────────────────── */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Status settings</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
+        <CollapsibleSection
+          id="status-settings"
+          title="Status settings"
+          summary={`${CLIENT_STATUSES.length} client statuses`}
+        >
+          <div className="flex flex-wrap gap-2">
             {CLIENT_STATUSES.map((s) => (
               <StatusBadge key={s} status={s} />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </CollapsibleSection>
 
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Email header logo</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <CollapsibleSection
+          id="email-header-logo"
+          title="Email header logo"
+          summary={logoStoredFileId ? "Logo uploaded" : "No logo yet"}
+        >
+          <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Shown at the top of welcome emails sent to clients, across all programs.
             </p>
@@ -820,8 +807,8 @@ function SettingsPage() {
                 event.target.value = "";
               }}
             />
-          </CardContent>
-          <CardFooter className="pt-0">
+          </div>
+          <div className="pt-4">
             <Button
               type="button"
               size="sm"
@@ -831,30 +818,38 @@ function SettingsPage() {
             >
               {logoUploading ? "Working…" : "Remove logo"}
             </Button>
-          </CardFooter>
-        </Card>
+          </div>
+        </CollapsibleSection>
 
-        <EmailStyleCard
+        <CollapsibleSection
+          id="email-signature"
           title="Email signature & layout"
-          description="The sign-off at the end of every email to clients, and where the header logo and message sit. A program can set its own on its page."
-          value={emailStyle}
-          disabled={!orgId}
-          onSave={async (values) => {
-            if (!orgId) return;
-            const updated = await updateOrganizationSettings(orgId, values);
-            setEmailStyle({
-              emailSignature: (updated.settings.emailSignature as string | null) ?? null,
-              emailLayout: (updated.settings.emailLayout as EmailLayout | null) ?? null,
-            });
-          }}
-        />
+          summary={`${emailStyle.emailSignature ? "Custom signature" : "Standard signature"} · ${emailStyle.emailLayout === "left" ? "left layout" : "centered layout"}`}
+        >
+          <EmailStyleCard
+            embedded
+            title="Email signature & layout"
+            description="The sign-off at the end of every email to clients, and where the header logo and message sit. A program can set its own on its page."
+            value={emailStyle}
+            disabled={!orgId}
+            onSave={async (values) => {
+              if (!orgId) return;
+              const updated = await updateOrganizationSettings(orgId, values);
+              setEmailStyle({
+                emailSignature: (updated.settings.emailSignature as string | null) ?? null,
+                emailLayout: (updated.settings.emailLayout as EmailLayout | null) ?? null,
+              });
+            }}
+          />
+        </CollapsibleSection>
 
         {/* ── Program & form settings ────────────────────────────────────────── */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Program & form settings</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+        <CollapsibleSection
+          id="program-form-settings"
+          title="Program & form settings"
+          summary={`${programs.length} program${programs.length === 1 ? "" : "s"}`}
+        >
+          <div className="space-y-2 text-sm">
             {programs.map((p) => (
               <div
                 key={p.id}
@@ -883,15 +878,16 @@ function SettingsPage() {
                 </Select>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </CollapsibleSection>
 
         {/* ── Email & contract templates ─────────────────────────────────────── */}
-        <Card className="shadow-card lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Email & contract templates</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 text-sm">
+        <CollapsibleSection
+          id="email-contract-templates"
+          title="Email & contract templates"
+          summary={`${Object.values(templateToggles).filter(Boolean).length} of ${Object.keys(templateToggles).length} switched on`}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 text-sm">
             {(
               [
                 { key: "programInvite" as const, label: "Program form invitation email" },
@@ -918,39 +914,8 @@ function SettingsPage() {
                 />
               </div>
             ))}
-          </CardContent>
-        </Card>
-
-        {/* ── Demo data ─────────────────────────────────────────────────────── */}
-        <Card className="shadow-card lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Demo data</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p className="text-muted-foreground">
-              Sample clients, form assignments, monitoring items, contracts, documents,
-              communications and activity logs are loaded by default so you can explore the app.
-              Programs and form templates are kept. You can remove the sample clients permanently —
-              they will no longer appear after any login.
-            </p>
-            {!liveMode && canRemoveDemoPermanently ? (
-              <Button variant="destructive" size="sm" onClick={() => setRemoveDemoOpen(true)}>
-                Remove demo data permanently
-              </Button>
-            ) : liveMode && canRemoveDemoPermanently ? (
-              <Button size="sm" disabled={demoSeeding} onClick={() => void handleSeedDemo()}>
-                {demoSeeding ? "Creating demo data..." : "Create demo data"}
-              </Button>
-            ) : (
-              <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-                {liveMode
-                  ? `Demo data permanently removed${demoRemovedAt ? ` ${new Date(demoRemovedAt).toLocaleDateString()}` : ""}`
-                  : "Only organization administrators can permanently remove demo data"}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-        {canRemoveDemoPermanently && <LegacyDataCleanupCard />}
+          </div>
+        </CollapsibleSection>
       </div>
 
       {orgId && (
@@ -976,15 +941,6 @@ function SettingsPage() {
           emailDelivery={memberLink.emailDelivery}
         />
       )}
-
-      <DemoDataRemovalDialog
-        open={removeDemoOpen}
-        onOpenChange={setRemoveDemoOpen}
-        onPermanentSuccess={(result) => {
-          setLiveMode(result.liveMode);
-          setDemoRemovedAt(result.demoRemovedAt);
-        }}
-      />
     </div>
   );
 }

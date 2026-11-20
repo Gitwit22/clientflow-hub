@@ -1,3 +1,4 @@
+import type React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Program, ProgramWorkflow } from "@/types";
@@ -9,6 +10,11 @@ const createProgramWorkflowContractTemplate = vi.fn();
 const createProgramWorkflowContractVersion = vi.fn();
 const uploadStoredFile = vi.fn();
 
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to, hash }: { children: React.ReactNode; to: string; hash?: string }) => (
+    <a href={hash ? `${to}#${hash}` : to}>{children}</a>
+  ),
+}));
 vi.mock("@/lib/api", () => ({
   updateProgramWorkflow: (...a: unknown[]) => updateProgramWorkflow(...a),
   updateProgramWorkflowContractTemplate: (...a: unknown[]) =>

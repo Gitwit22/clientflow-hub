@@ -16,6 +16,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppSidebarNav } from "@/components/AppSidebar";
 import { IdleSessionWarning } from "@/components/IdleSessionWarning";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { HelpSearch } from "@/components/help/HelpSearch";
 import { Toaster } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -199,7 +200,8 @@ function AuthenticatedShell() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="hidden h-16 items-center justify-end border-b border-border bg-background px-8 lg:flex">
+          <header className="hidden h-16 items-center justify-between gap-4 border-b border-border bg-background px-8 lg:flex">
+            <HelpSearch className="w-full max-w-sm" />
             <NotificationCenter />
           </header>
           <header className="flex items-center gap-3 border-b border-border bg-sidebar px-4 py-3 lg:hidden">
@@ -218,8 +220,11 @@ function AuthenticatedShell() {
                 <AppSidebarNav />
               </SheetContent>
             </Sheet>
-            <span className="font-display text-sm font-semibold text-white">ClientFlow</span>
-            <div className="ml-auto">
+            <span className="hidden font-display text-sm font-semibold text-white sm:inline">
+              ClientFlow
+            </span>
+            <HelpSearch className="min-w-0 flex-1" />
+            <div className="shrink-0">
               <NotificationCenter inverted />
             </div>
           </header>
