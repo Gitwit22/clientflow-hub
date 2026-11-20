@@ -747,10 +747,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       {
         type: "list",
         items: [
+          "Each Settings section opens and closes: click its title. Closed, it shows a one-line summary.",
           'Settings → "Users & roles" → "Invite": name, email and role (Admin or Staff). They get an email to set a password.',
           "Change a member's role, or switch their account off.",
           "Admins can email a new invite link or a password reset link.",
-          "Admins alone can permanently delete clients and manage demo data.",
+          "Admins alone can permanently delete clients.",
         ],
       },
     ],
