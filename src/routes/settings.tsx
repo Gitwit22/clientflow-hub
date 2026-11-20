@@ -500,7 +500,8 @@ function SettingsPage() {
                     className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="flex items-center gap-1.5 truncate font-medium leading-tight">
+                      {/* A div, not a p: the badges render as divs, which a p can't contain. */}
+                      <div className="flex items-center gap-1.5 truncate font-medium leading-tight">
                         {memberName(member)}
                         {isSelf && (
                           <Badge variant="secondary" className="shrink-0 text-[10px] uppercase">
@@ -512,7 +513,7 @@ function SettingsPage() {
                             <Crown className="size-3" /> Principal
                           </Badge>
                         )}
-                      </p>
+                      </div>
                       <p className="truncate font-mono text-xs text-muted-foreground">
                         {[member.jobTitle, member.email].filter(Boolean).join(" · ")}
                       </p>
