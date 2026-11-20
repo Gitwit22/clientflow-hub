@@ -240,6 +240,10 @@ the subject, body or htmlBody: `422`, `errorCode: "VALIDATION_FAILED"`,
 
 - **Signature and layout (optional fields, sent when staff set them):** ClientFlow adds these to an
   event when the program, or Settings, has them. When they are absent, keep today's frame unchanged.
+  **Live since 2026-11-20:** in the "CLIENTFLOW - Send Form Email" workflow, the step
+  `08 - Apply Signature & Layout` (a Code node after every "Prepare Email" node, before
+  `Has Attachment?`) applies them. The attachment Gmail node reads the email from that step. Version
+  `533fad66`; the previous version, `f5a75dc4`, is the rollback.
   - `signatureText` / `signatureHtml`: the sign-off. Replace the footer "Thank you, / EA Management
     LLC" with `signatureHtml` in the HTML (already escaped, line breaks as `<br/>`) and with
     `signatureText` in the plain-text version.
