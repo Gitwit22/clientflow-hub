@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { DemoDataRemovalDialog } from "@/components/dialogs/DemoDataRemovalDialog";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   EmailStyleCard,
@@ -475,6 +476,7 @@ function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.settings}
         title="Settings"
         description="Configuration for users, programs, workflow statuses and templates."
       />

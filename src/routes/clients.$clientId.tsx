@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSendMenu";
 import { JoinedDateEditor } from "@/components/clients/JoinedDateEditor";
@@ -773,6 +774,7 @@ function ClientProfile() {
   return (
     <div className="space-y-6">
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.clientProfile}
         title={client.businessName}
         description={`${client.primaryContactName} · ${client.email} · ${client.phone}`}
         actions={

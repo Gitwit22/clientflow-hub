@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { UnsavedChangesMarker } from "@/components/CollapsibleSection";
+import { HelpLink } from "@/components/help/HelpLink";
 import { validationErrorProps } from "@/lib/section-markers";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { VersionHistory } from "@/components/programs/VersionHistory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -294,6 +296,7 @@ export function ProgramAgreementTemplates({
             New agreements use each template&apos;s active version. Agreements already sent or
             signed keep the text they were sent with.
           </p>
+          <HelpLink topic={PAGE_HELP_TOPICS.agreements} className="mt-1" />
         </div>
         <Button
           size="sm"

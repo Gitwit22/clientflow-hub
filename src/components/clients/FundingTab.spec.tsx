@@ -1,3 +1,4 @@
+import type React from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Award, Client, ProgramEnrollment, Terms } from "@/types";
@@ -12,6 +13,11 @@ const api = {
   cfRecordAwardPayment: vi.fn(),
   cfVoidAwardPayment: vi.fn(),
 };
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to, hash }: { children: React.ReactNode; to: string; hash?: string }) => (
+    <a href={hash ? `${to}#${hash}` : to}>{children}</a>
+  ),
+}));
 vi.mock("@/lib/apiClient", () => ({
   cfListAwards: (...a: unknown[]) => api.cfListAwards(...a),
   cfCreateAward: (...a: unknown[]) => api.cfCreateAward(...a),

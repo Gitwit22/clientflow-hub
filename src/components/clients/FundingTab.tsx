@@ -29,6 +29,8 @@ import {
   uploadDocument,
 } from "@/lib/api";
 import { AwardAgreementDialog } from "@/components/clients/AwardAgreementDialog";
+import { HelpLink } from "@/components/help/HelpLink";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import {
   cfApproveAward,
   cfCancelAward,
@@ -167,7 +169,10 @@ export function FundingTab({
     <div className="space-y-4">
       <Card className="shadow-card">
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="font-display text-base">Funding awards · {programName}</CardTitle>
+          <div className="space-y-1">
+            <CardTitle className="font-display text-base">Funding awards · {programName}</CardTitle>
+            <HelpLink topic={PAGE_HELP_TOPICS.funding} />
+          </div>
           <Button size="sm" onClick={() => setEditing("new")} disabled={enrollment.isArchived}>
             Add award
           </Button>

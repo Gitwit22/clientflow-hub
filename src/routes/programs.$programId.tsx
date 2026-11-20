@@ -14,6 +14,7 @@ import { CollapsibleSection, UnsavedChangesMarker } from "@/components/Collapsib
 import { ProgramSetupChecklist } from "@/components/programs/ProgramSetupChecklist";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { ProgramParticipantRow } from "@/components/programs/ProgramParticipantRow";
 import { ProgramDocumentsCard, ProgramJourneyCard } from "@/components/programs/ProgramSetupCards";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -620,6 +621,7 @@ function ProgramDetailPage() {
       </Button>
 
       <PageHeader
+        helpTopic={PAGE_HELP_TOPICS.program}
         eyebrow="Program"
         title={program.name}
         description={program.description}

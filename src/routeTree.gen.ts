@@ -14,6 +14,7 @@ import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as ArchiveRouteImport } from './routes/archive'
 import { Route as ClientsRouteImport } from './routes/clients'
 import { Route as FormsRouteImport } from './routes/forms'
+import { Route as HelpRouteImport } from './routes/help'
 import { Route as IntakeRouteImport } from './routes/intake'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MonitoringRouteImport } from './routes/monitoring'
@@ -57,6 +58,11 @@ const ClientsRoute = ClientsRouteImport.update({
 const FormsRoute = FormsRouteImport.update({
   id: '/forms',
   path: '/forms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IntakeRoute = IntakeRouteImport.update({
@@ -161,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/archive': typeof ArchiveRoute
   '/clients': typeof ClientsRouteWithChildren
   '/forms': typeof FormsRoute
+  '/help': typeof HelpRoute
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
@@ -186,6 +193,7 @@ export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
   '/archive': typeof ArchiveRoute
   '/forms': typeof FormsRoute
+  '/help': typeof HelpRoute
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
@@ -211,6 +219,7 @@ export interface FileRoutesById {
   '/archive': typeof ArchiveRoute
   '/clients': typeof ClientsRouteWithChildren
   '/forms': typeof FormsRoute
+  '/help': typeof HelpRoute
   '/intake': typeof IntakeRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
@@ -239,6 +248,7 @@ export interface FileRouteTypes {
     | '/archive'
     | '/clients'
     | '/forms'
+    | '/help'
     | '/intake'
     | '/login'
     | '/monitoring'
@@ -264,6 +274,7 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/archive'
     | '/forms'
+    | '/help'
     | '/intake'
     | '/login'
     | '/monitoring'
@@ -288,6 +299,7 @@ export interface FileRouteTypes {
     | '/archive'
     | '/clients'
     | '/forms'
+    | '/help'
     | '/intake'
     | '/login'
     | '/monitoring'
@@ -315,6 +327,7 @@ export interface RootRouteChildren {
   ArchiveRoute: typeof ArchiveRoute
   ClientsRoute: typeof ClientsRouteWithChildren
   FormsRoute: typeof FormsRoute
+  HelpRoute: typeof HelpRoute
   IntakeRoute: typeof IntakeRoute
   LoginRoute: typeof LoginRoute
   MonitoringRoute: typeof MonitoringRoute
@@ -365,6 +378,13 @@ declare module '@tanstack/react-router' {
       path: '/forms'
       fullPath: '/forms'
       preLoaderRoute: typeof FormsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/intake': {
@@ -550,6 +570,7 @@ const rootRouteChildren: RootRouteChildren = {
   ArchiveRoute: ArchiveRoute,
   ClientsRoute: ClientsRouteWithChildren,
   FormsRoute: FormsRoute,
+  HelpRoute: HelpRoute,
   IntakeRoute: IntakeRoute,
   LoginRoute: LoginRoute,
   MonitoringRoute: MonitoringRoute,

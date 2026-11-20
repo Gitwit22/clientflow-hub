@@ -3,6 +3,7 @@ import {
   Archive,
   BarChart3,
   Briefcase,
+  CircleHelp,
   ClipboardCheck,
   ClipboardList,
   DollarSign,
@@ -40,6 +41,7 @@ const workflowItems: NavItem[] = [
 const insightItems: NavItem[] = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Settings", url: "/settings", icon: Settings },
+  { title: "Help", url: "/help", icon: CircleHelp },
 ];
 
 const navSections: Array<{ label: string | null; items: NavItem[] }> = [

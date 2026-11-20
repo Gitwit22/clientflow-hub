@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
+import { PAGE_HELP_TOPICS } from "@/lib/help-content";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   AlertDialog,
@@ -158,6 +159,7 @@ function PipelineClientDetailPage() {
       ) : (
         <>
           <PageHeader
+            helpTopic={PAGE_HELP_TOPICS.pipeline}
             title={client.businessName || client.contactName}
             description={`${client.contactName} · ${client.email} · ${client.phone}`}
             actions={<StatusBadge status={client.status} />}
