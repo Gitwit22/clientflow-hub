@@ -92,9 +92,16 @@ import {
   updateClient,
   uploadDocument,
 } from "@/lib/api";
-import { cfGetEnrollmentBillingSummary, cfGetProgramBillingConfig } from "@/lib/apiClient";
+import {
+  cfGetEnrollmentBillingSummary,
+  cfGetProgramBillingConfig,
+  cfListOpenBillingPeriods,
+} from "@/lib/apiClient";
+import { accountStanding } from "@/lib/billing-standing";
+import { AccountStanding } from "@/components/clients/AccountStanding";
 import {
   type EnrollmentBillingSummary,
+  type OpenBillingPeriod,
   type FormAssignment,
   type IntakeDetails,
   type IntakeSubmission,
@@ -218,6 +225,9 @@ function ClientProfile() {
 
   // Billing & payments (fetched on-demand per selected enrollment, not part of the global store)
   const [billingSummary, setBillingSummary] = useState<EnrollmentBillingSummary | null>(null);
+  // The schedule up to now, for the Current / Behind line. null while unknown (no agreement,
+  // loading, or the lookup failed), and then no line is shown.
+  const [billingPeriods, setBillingPeriods] = useState<OpenBillingPeriod[] | null>(null);
   const [billingProgramConfig, setBillingProgramConfig] = useState<ProgramBillingConfig | null>(
     null,
   );
@@ -313,6 +323,7 @@ function ClientProfile() {
     if (!client || !selectedEnrollment) {
       billingFetchedFor.current = null;
       setBillingSummary(null);
+      setBillingPeriods(null);
       setBillingProgramConfig(null);
       return;
     }
@@ -320,6 +331,7 @@ function ClientProfile() {
     if (billingFetchedFor.current !== selectedEnrollment.id) {
       billingFetchedFor.current = selectedEnrollment.id;
       setBillingSummary(null);
+      setBillingPeriods(null);
       setBillingProgramConfig(null);
     }
     let cancelled = false;
@@ -332,6 +344,19 @@ function ClientProfile() {
         if (cancelled) return;
         setBillingSummary(summary);
         setBillingProgramConfig(config);
+        if (!summary.agreement) {
+          setBillingPeriods(null);
+          return;
+        }
+        // Pinned to now, so periods paid ahead or not yet due never make the client look behind.
+        // Optional: if it fails, the tab still works and just shows no Current / Behind line.
+        cfListOpenBillingPeriods(client.id, selectedEnrollment.id, new Date().toISOString())
+          .then((periods) => {
+            if (!cancelled) setBillingPeriods(periods);
+          })
+          .catch(() => {
+            if (!cancelled) setBillingPeriods(null);
+          });
       })
       .catch((error: unknown) => {
         if (!cancelled)
@@ -1295,6 +1320,16 @@ function ClientProfile() {
                           Next payment: {new Date(billingSummary.nextDueDate).toLocaleDateString()}
                         </p>
                       )}
+                      {billingPeriods && (
+                        <AccountStanding
+                          standing={accountStanding(billingPeriods)}
+                          onCatchUp={() => {
+                            // Pick exactly which past periods were paid; nothing is assumed.
+                            setBringCurrentMode("partial_unknown");
+                            setBringCurrentOpen(true);
+                          }}
+                        />
+                      )}
                       <div className="flex flex-wrap gap-2">
                         <Button onClick={() => setRecordPaymentOpen(true)}>Record payment</Button>
                         <Button variant="outline" onClick={() => setSetUpPaymentsOpen(true)}>
@@ -1302,15 +1337,6 @@ function ClientProfile() {
                         </Button>
                         <Button variant="outline" onClick={() => setLedgerOpen(true)}>
                           View Ledger
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setBringCurrentMode("current");
-                            setBringCurrentOpen(true);
-                          }}
-                        >
-                          Bring Account Current
                         </Button>
                       </div>
                     </div>

@@ -688,6 +688,9 @@ export const HELP_TOPICS: HelpTopic[] = [
       "ledger",
       "void",
       "bring current",
+      "behind",
+      "overdue",
+      "current",
       "agreement",
     ],
     blocks: [
@@ -701,7 +704,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           '"Set Up Payments": amount, frequency and start date.',
           '"Record payment" for any money the client paid (see below).',
           '"View Ledger" lists every payment; void one with a reason if it was entered by mistake.',
-          '"Bring Account Current" records periods that were already paid, either everything up to a paid-through date or the exact periods you pick.',
+          'The status line shows "Current" when nothing is owed so far, or "Behind" with how many periods are overdue, how much, and which months.',
+          'When a client is behind on months they actually paid before ClientFlow, click "Already paid? Mark earlier periods as paid" and tick those periods. They then show as paid.',
         ],
       },
       { type: "text", text: "To record a payment:" },
@@ -724,7 +728,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         type: "tip",
-        text: 'If the client was paying on a schedule before ClientFlow, set up the agreement and use "Bring Account Current" instead, so those periods show as paid.',
+        text: 'Setting up payments for a client who was already paying? Set "Existing payment status" when you save the agreement, and ClientFlow asks which earlier periods were paid, so they don\'t show as overdue.',
       },
     ],
     links: [{ label: "Go to Payments", to: "/payments" }],
