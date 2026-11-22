@@ -19,6 +19,7 @@ import {
   uniqueEnrollments,
 } from "@/lib/enrollment-status";
 import { useAppState } from "@/lib/store";
+import { withoutTestRecords } from "@/lib/test-records";
 import { isLiveMonitoring, monitoringBucket } from "@/lib/monitoring-buckets";
 import type { OrgBillingDashboard } from "@/types";
 import { formatMoney } from "@/lib/money";
@@ -117,7 +118,14 @@ function useBillingDashboard(period: Period) {
 }
 
 function ReportsPage() {
-  const { clients, programs, enrollments, monitoring, contracts, terms } = useAppState();
+  const state = useAppState();
+  const { programs } = state;
+  // Test clients and everything recorded for them are left out of every report.
+  const clients = withoutTestRecords(state.clients);
+  const enrollments = withoutTestRecords(state.enrollments);
+  const monitoring = withoutTestRecords(state.monitoring);
+  const contracts = withoutTestRecords(state.contracts);
+  const terms = withoutTestRecords(state.terms);
   const [period, setPeriod] = useState<Period>("month");
   const { dashboard, loading, error } = useBillingDashboard(period);
 

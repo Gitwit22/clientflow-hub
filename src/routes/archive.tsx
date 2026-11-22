@@ -65,7 +65,8 @@ function ArchivePage() {
       />
       <p className="text-sm text-muted-foreground">
         Archived clients keep their full record, including payments, which still count in Payments
-        and Reports. Deleting a client permanently erases them and their payments.
+        and Reports. Restore brings a client back with their programs and history. A client with
+        recorded payments can only be archived, never deleted (test clients are the exception).
       </p>
       <Card className="overflow-x-auto p-4 shadow-card">
         <Table>

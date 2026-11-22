@@ -26,6 +26,15 @@ export interface ProgramEmailRecipientsPreview {
   skippedCount: number;
 }
 
+/** Who an email to several programs would reach: each person once, earlier programs first. */
+export interface MultiProgramRecipientsPreview {
+  programs: { id: string; name: string; recipientCount: number; alreadyIncluded: number }[];
+  recipients: (ProgramEmailRecipientPreview & { programId: string })[];
+  skipped: SkippedMember[];
+  recipientCount: number;
+  skippedCount: number;
+}
+
 export interface ProgramEmailCounts {
   pending: number;
   sending: number;
@@ -99,4 +108,12 @@ export function failureReason(code: string | null): string {
   if (code.startsWith("n8n_http_4")) return `The email service turned it down (${code})`;
   if (code.startsWith("n8n_http_5")) return `The email service had an error (${code})`;
   return "The email service wasn't available";
+}
+
+/** The result of sending one message to several programs: one recorded email per program. */
+export interface MultiProgramEmailResult {
+  emails: ProgramEmailDetail[];
+  /** Programs with nobody new to email (everyone reached through an earlier program, or nobody reachable). */
+  skippedPrograms: { programId: string; programName: string }[];
+  recipientCount: number;
 }

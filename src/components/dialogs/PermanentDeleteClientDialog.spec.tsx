@@ -121,4 +121,24 @@ describe("PermanentDeleteClientDialog", () => {
     );
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+
+  it("deletes a test client that has payments, saying payments and history go with it", async () => {
+    getClientDeletionEligibility.mockResolvedValue({
+      ...allowed,
+      isTest: true,
+      recordedPayments: 2,
+    });
+    render(
+      <PermanentDeleteClientDialog
+        client={{ ...client, isDemo: true } as Client}
+        onOpenChange={vi.fn()}
+      />,
+    );
+    await ready();
+    expect(screen.getByText("Delete this test client?")).toBeTruthy();
+    expect(screen.getByText(/awards, payments/)).toBeTruthy();
+    typeName("Test Erase LLC");
+    fireEvent.click(screen.getByRole("button", { name: "Delete test client" }));
+    await waitFor(() => expect(deleteClient).toHaveBeenCalledWith("c1", "Test Erase LLC"));
+  });
 });

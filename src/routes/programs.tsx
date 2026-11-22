@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import type { ProgramSetupSummary } from "@/types";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
 import { SendProgramEmailDialog } from "@/components/programs/SendProgramEmailDialog";
+import { SendMultiProgramEmailDialog } from "@/components/programs/SendMultiProgramEmailDialog";
 import { journeyLabel, programJourney } from "@/lib/program-journey";
 
 export const Route = createFileRoute("/programs")({
@@ -48,6 +49,7 @@ export function ProgramsPage() {
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
   const [updatingProgramId, setUpdatingProgramId] = useState<string | null>(null);
   const [emailProgramId, setEmailProgramId] = useState<string | null>(null);
+  const [emailMembersOpen, setEmailMembersOpen] = useState(false);
   // Which programs still miss required setup (shown as a badge; activation is checked on the server).
   const [setupByProgram, setSetupByProgram] = useState<Record<string, ProgramSetupSummary>>({});
   const [setupVersion, setSetupVersion] = useState(0);
@@ -255,10 +257,16 @@ export function ProgramsPage() {
         title="Programs"
         description="Each program drives its default form, contract template and monitoring cadence."
         actions={
-          <Button size="sm" onClick={openAdd}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            New program
-          </Button>
+          <>
+            <Button size="sm" variant="outline" onClick={() => setEmailMembersOpen(true)}>
+              <Mail className="mr-1.5 h-4 w-4" />
+              Email members
+            </Button>
+            <Button size="sm" onClick={openAdd}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              New program
+            </Button>
+          </>
         }
       />
       <Tabs defaultValue="active">
@@ -278,6 +286,11 @@ export function ProgramsPage() {
         program={editingProgram}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+      />
+      <SendMultiProgramEmailDialog
+        programs={[...activePrograms, ...inactivePrograms]}
+        open={emailMembersOpen}
+        onOpenChange={setEmailMembersOpen}
       />
       {emailProgram && (
         <SendProgramEmailDialog
