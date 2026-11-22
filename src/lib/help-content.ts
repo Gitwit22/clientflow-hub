@@ -150,6 +150,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Enter the contact name and email (business name and phone are optional).",
           'Leave "Send the General Intake email immediately" ticked to email the intake now, or untick it to send later.',
           'Click "Add client".',
+          'If a client already uses that email, ClientFlow says so first. For an archived client choose "Restore that profile" to bring them back with their history; for an active one, "Open existing". "Create new anyway" adds a separate client.',
         ],
       },
       {
@@ -267,16 +268,57 @@ export const HELP_TOPICS: HelpTopic[] = [
         type: "list",
         items: [
           '"Move to archive" on the client\'s page asks for a reason and final status. Archived clients are listed on the Archive page.',
-          '"Restore client" (or Restore on the Archive page) brings them back.',
+          '"Restore client" on their page, Restore on the Archive page, or Restore on the Clients page\'s Archived tab brings them back with the programs that were archived with them.',
+          "Adding a new client with an archived client's email offers \"Restore that profile\", so you don't end up with two records.",
           "Admins can permanently delete a client from the Clients or Archive list by typing the business name.",
         ],
       },
       {
         type: "tip",
-        text: "A client with any recorded payment can't be deleted, only archived, so the payment history is kept.",
+        text: 'A client with any recorded payment can\'t be deleted, only archived, so the payment history is kept. Test clients are the exception (see "Try things out with a test client").',
       },
     ],
     links: [{ label: "Go to Archive", to: "/archive" }],
+  },
+  {
+    id: "test-clients",
+    area: "Clients",
+    title: "Try things out with a test client",
+    summary: "Walk through awards, contracts, payments and emails without touching your numbers.",
+    keywords: [
+      "test",
+      "practice",
+      "demo",
+      "sandbox",
+      "try",
+      "training",
+      "delete test client",
+      "fake client",
+    ],
+    blocks: [
+      {
+        type: "steps",
+        items: [
+          'Click "Add client", enter a name and your own email address, and tick "This is a test client". Click "Add test client".',
+          "Use the test client like any other: enroll them in a program, give an award, send the agreement, record payments (including past payments), send forms.",
+          'When you\'re done, open the test client and click "Delete test client". Type the name to confirm.',
+        ],
+      },
+      {
+        type: "list",
+        items: [
+          'Test clients show a "Test" badge in the client list, on their page and in program member lists.',
+          "They and everything recorded for them are left out of the Dashboard, Reports, the Payments page, award follow-up and program member counts.",
+          'Program email blasts never go to test clients. Use "Send test to me" to try a blast.',
+          "Deleting a test client erases everything entered under it, including awards, payments, contracts, documents and email history.",
+        ],
+      },
+      {
+        type: "tip",
+        text: "Emails to a test client really send, so use an address you own. Emails already sent can't be recalled. A client can only be marked as a test when it's created, never later, so a real client's payments can never be deleted this way. Deleting needs an admin.",
+      },
+    ],
+    links: [{ label: "Go to Clients", to: "/clients" }],
   },
 
   // Intake & approval
@@ -517,19 +559,48 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: "email-blasts",
     area: "Programs",
     title: "Email all program members",
-    summary: "Send one email to everyone in a program, with images.",
-    keywords: ["blast", "newsletter", "email members", "images", "bulk"],
+    summary: "Send one email to everyone in a program, in several programs, or in all of them.",
+    keywords: [
+      "blast",
+      "newsletter",
+      "email members",
+      "images",
+      "bulk",
+      "all members",
+      "everyone",
+      "multiple programs",
+      "announcement",
+    ],
     blocks: [
+      { type: "text", text: "One program:" },
       {
         type: "steps",
         items: [
-          'Program → Emails → "Send email blast".',
+          'Program → Emails → "Send email blast" (or "Send email blast" on the program\'s card on the Programs page).',
           'Write the message. Use the list buttons for bullets or numbers (Enter continues the list) and "Image" to add a picture.',
           '"Preview email", then "Send test to me".',
           "Send to everyone or to chosen members.",
         ],
       },
+      { type: "text", text: "Several programs, or everyone:" },
+      {
+        type: "steps",
+        items: [
+          'Programs page → "Email members".',
+          'Tick the programs you want, or "All programs". The count shows how many people will get it.',
+          'Write the message, "Preview email", "Send test to me", then "Send to N people".',
+        ],
+      },
+      {
+        type: "list",
+        items: [
+          "Each person gets one copy, even if they're in several of the chosen programs.",
+          "The send is recorded under each program, so every program's Emails tab shows its part and can retry failures.",
+          "Archived clients and test clients are never emailed.",
+        ],
+      },
     ],
+    links: [{ label: "Go to Programs", to: "/programs" }],
   },
 
   // Funding
@@ -612,22 +683,52 @@ export const HELP_TOPICS: HelpTopic[] = [
       "billing",
       "payment",
       "past payment",
+      "record payment",
+      "applies to period",
       "ledger",
       "void",
       "bring current",
+      "behind",
+      "overdue",
+      "current",
       "agreement",
     ],
     blocks: [
-      { type: "text", text: "Client → choose the program → Billing tab." },
+      {
+        type: "text",
+        text: "Client → choose the program → Billing tab. Only admins can record payments.",
+      },
       {
         type: "list",
         items: [
           '"Set Up Payments": amount, frequency and start date.',
-          '"Record Payment" for a payment against the schedule.',
-          '"Record past payment" for money received before ClientFlow, with its real date. It counts toward "Collected" but isn\'t applied to the schedule.',
+          '"Record payment" for any money the client paid (see below).',
           '"View Ledger" lists every payment; void one with a reason if it was entered by mistake.',
-          '"Bring Account Current" records periods that were already paid, either everything up to a paid-through date or the exact periods you pick.',
+          'The status line shows "Current" when nothing is owed so far, or "Behind" with how many periods are overdue, how much, and which months.',
+          'When a client is behind on months they actually paid before ClientFlow, click "Already paid? Mark earlier periods as paid" and tick those periods. They then show as paid.',
         ],
+      },
+      { type: "text", text: "To record a payment:" },
+      {
+        type: "steps",
+        items: [
+          "Open the client and pick the program in the bar at the top.",
+          'Open the Billing tab and click "Record payment".',
+          'For a payment on the schedule, pick the period it covers under "Applies to period". That period then shows as paid and Outstanding goes down.',
+          'For money received before ClientFlow (or outside the schedule), tick "This is a past payment". It counts toward "Collected" but isn\'t applied to a period. Without a payment agreement, every payment is saved this way.',
+          "Enter the amount, the date it was paid (today or earlier) and how it was paid, then save.",
+        ],
+      },
+      {
+        type: "list",
+        items: [
+          '"Applies to period" lists the periods still unpaid, up to the next due date. If those are all paid (the client paid ahead), it offers the next unpaid one.',
+          'Past payments show in the ledger as "Past payment".',
+        ],
+      },
+      {
+        type: "tip",
+        text: 'Setting up payments for a client who was already paying? Set "Existing payment status" when you save the agreement, and ClientFlow asks which earlier periods were paid, so they don\'t show as overdue.',
       },
     ],
     links: [{ label: "Go to Payments", to: "/payments" }],
@@ -819,6 +920,7 @@ export const PAGE_HELP_TOPICS = {
   reports: "reports",
   settings: "settings-users",
   funding: "funding-awards",
+  billing: "billing-setup",
   agreements: "program-agreements",
 } as const;
 

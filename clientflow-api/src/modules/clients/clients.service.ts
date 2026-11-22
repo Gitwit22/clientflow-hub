@@ -97,6 +97,7 @@ export class ClientsService {
       : 'Unassigned';
     const n8nAvailability = this.n8n.getIntakeAvailability();
     const deferred = dto.sendIntakeImmediately === false;
+    const isDemo = dto.isTest === true;
 
     const created = await traceStep('intake.transaction', () => this.prisma.$transaction(async (transaction) => {
       let template = await traceStep('intake.template.lookup', () => transaction.cfFormTemplate.findFirst({
@@ -142,6 +143,9 @@ export class ClientsService {
           intakeSource: dto.intakeSource?.trim() || 'admin_created',
           source: dto.intakeSource?.trim() || 'admin_created',
           intake: {},
+          // A test client is set once, here; no update path can write isDemo, so a real client can
+          // never be turned into one (which would let its payments be deleted with it).
+          isDemo,
         },
       }));
       const assignment = await traceStep('intake.assignment.insert', () => transaction.cfFormAssignment.create({
@@ -160,6 +164,7 @@ export class ClientsService {
           sentAt: now,
           secureLinkToken: tokenHash,
           createdByUserId: assignee?.id ?? null,
+          isDemo,
         },
       }));
       eventId = `intake-${assignment.id}`;
@@ -171,6 +176,7 @@ export class ClientsService {
           action: 'CLIENT_CREATED',
           description: 'Client created and General Intake assigned.',
           user: assignedStaff,
+          isDemo,
         },
       }));
       if (deferred) {
@@ -182,6 +188,7 @@ export class ClientsService {
             action: 'INTAKE_EMAIL_DEFERRED',
             description: 'Intake email send deferred by staff at creation.',
             user: 'system',
+            isDemo,
           },
         }));
       } else if (n8nAvailability !== 'ready') {
@@ -195,6 +202,7 @@ export class ClientsService {
               ? 'Intake email skipped because n8n delivery is disabled.'
               : 'Intake email skipped because n8n is not configured.',
             user: 'system',
+            isDemo,
           },
         }));
       }
@@ -235,6 +243,7 @@ export class ClientsService {
               ? 'General Intake email accepted by n8n.'
               : `General Intake email delivery failed: ${emailDelivery.reason}.`,
             user: 'system',
+            isDemo,
           },
         });
       } catch {
@@ -251,6 +260,7 @@ export class ClientsService {
         email: created.client.email,
         phone: created.client.phone,
         status: created.client.status,
+        isTest: created.client.isDemo,
       },
       assignment: {
         id: created.assignment.id,
@@ -263,6 +273,34 @@ export class ClientsService {
       },
       publicFormUrl,
       emailDelivery,
+    };
+  }
+
+  /**
+   * Clients in the organization with this email, archived ones included, so staff adding a client
+   * can restore an existing profile instead of creating a second one. The match ignores case and
+   * surrounding spaces (older rows were not always stored lowercase). Read-only: creating a client
+   * with the same email is still allowed.
+   */
+  async findByEmail(organizationId: string, email: string | undefined) {
+    const normalized = (email ?? '').trim();
+    if (!normalized || !normalized.includes('@') || normalized.length > 320) return { matches: [] };
+    const clients = await this.prisma.cfClient.findMany({
+      where: { organizationId, email: { equals: normalized, mode: 'insensitive' } },
+      select: { id: true, primaryContactName: true, businessName: true, email: true, isArchived: true, archivedAt: true, isDemo: true },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+    return {
+      matches: clients.map((client) => ({
+        id: client.id,
+        contactName: client.primaryContactName,
+        businessName: client.businessName,
+        email: client.email,
+        isArchived: client.isArchived,
+        archivedAt: client.archivedAt,
+        isTest: client.isDemo,
+      })),
     };
   }
 

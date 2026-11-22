@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronDown, UserMinus } from "lucide-react";
 import { ParticipantProgressPanel } from "./ParticipantProgressPanel";
 import { ParticipantRepliesPanel } from "./ParticipantRepliesPanel";
 import { StatusBadge } from "@/components/StatusBadge";
+import { TestClientBadge } from "@/components/clients/TestClientBadge";
 import { displayEnrollmentStatus } from "@/lib/enrollment-status";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -58,6 +59,7 @@ export function ProgramParticipantRow({
           >
             {client.businessName}
           </Link>
+          <TestClientBadge client={client} className="ml-2" />
           <p className="mt-1 text-xs text-muted-foreground">
             {client.primaryContactName} · {client.email} · Assigned to {assignedStaffName}
           </p>

@@ -23,7 +23,8 @@ const sameName = (typed: string, expected: string) =>
 /**
  * Permanent deletion erases the client and everything recorded for them, so it asks for the
  * business name. A client with any recorded payment can't be deleted at all, only archived, so the
- * dialog checks that first. The server enforces the same rule.
+ * dialog checks that first. The server enforces the same rule. A test client is the exception: it
+ * goes with everything it recorded, payments included.
  */
 export function PermanentDeleteClientDialog({
   client,
@@ -40,6 +41,7 @@ export function PermanentDeleteClientDialog({
   const [eligibility, setEligibility] = useState<ClientDeletionEligibility | null>(null);
   const [checking, setChecking] = useState(false);
   const blocked = eligibility?.canDelete === false;
+  const isTest = eligibility?.isTest ?? client?.isDemo === true;
   const confirmed = client && !blocked ? sameName(typed, client.businessName) : false;
 
   const clientId = client?.id;
@@ -87,7 +89,9 @@ export function PermanentDeleteClientDialog({
     <AlertDialog open={client !== null} onOpenChange={close}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Permanently delete this client?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isTest ? "Delete this test client?" : "Permanently delete this client?"}
+          </AlertDialogTitle>
           <AlertDialogDescription asChild>
             {blocked ? (
               <div className="space-y-2" role="alert">
@@ -97,6 +101,15 @@ export function PermanentDeleteClientDialog({
                     "This client has recorded payments, so they can only be archived."}
                 </p>
                 <p>Archive the client instead to remove them from active lists.</p>
+              </div>
+            ) : isTest ? (
+              <div className="space-y-2">
+                <p>
+                  {client?.businessName} is a test client. It and everything recorded under it will
+                  be erased: enrollments, awards, payments, forms, contracts, uploaded files, email
+                  history, reports, tasks, monitoring and activity. This cannot be undone.
+                </p>
+                <p>Emails that were already sent can&apos;t be recalled.</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -138,7 +151,7 @@ export function PermanentDeleteClientDialog({
                 void confirmDelete();
               }}
             >
-              {deleting ? "Deleting..." : "Delete permanently"}
+              {deleting ? "Deleting..." : isTest ? "Delete test client" : "Delete permanently"}
             </AlertDialogAction>
           )}
         </AlertDialogFooter>

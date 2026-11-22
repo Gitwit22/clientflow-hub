@@ -4,6 +4,7 @@ import { ArrowLeft, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { PAGE_HELP_TOPICS } from "@/lib/help-content";
+import { HelpLink } from "@/components/help/HelpLink";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ClientSendMenu, ClientSendPanel } from "@/components/clients/ClientSendMenu";
 import { JoinedDateEditor } from "@/components/clients/JoinedDateEditor";
@@ -60,6 +61,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { FormRendererDialog } from "@/components/dialogs/FormRendererDialog";
 import { EditClientDialog } from "@/components/dialogs/EditClientDialog";
+import { PermanentDeleteClientDialog } from "@/components/dialogs/PermanentDeleteClientDialog";
+import { TestClientBadge } from "@/components/clients/TestClientBadge";
 import { SendContractDialog } from "@/components/dialogs/SendContractDialog";
 import { SendIntakeDialog } from "@/components/dialogs/SendIntakeDialog";
 import { SendWelcomeDialog } from "@/components/dialogs/SendWelcomeDialog";
@@ -69,7 +72,6 @@ import {
   type InitialPaymentStatus,
 } from "@/components/dialogs/SetUpPaymentsDialog";
 import { RecordPaymentDialog } from "@/components/dialogs/RecordPaymentDialog";
-import { RecordPastPaymentDialog } from "@/components/dialogs/RecordPastPaymentDialog";
 import { BringAccountCurrentDialog } from "@/components/dialogs/BringAccountCurrentDialog";
 import { PaymentLedgerDialog } from "@/components/dialogs/PaymentLedgerDialog";
 import { getState, useAppState } from "@/lib/store";
@@ -90,9 +92,16 @@ import {
   updateClient,
   uploadDocument,
 } from "@/lib/api";
-import { cfGetEnrollmentBillingSummary, cfGetProgramBillingConfig } from "@/lib/apiClient";
+import {
+  cfGetEnrollmentBillingSummary,
+  cfGetProgramBillingConfig,
+  cfListOpenBillingPeriods,
+} from "@/lib/apiClient";
+import { accountStanding } from "@/lib/billing-standing";
+import { AccountStanding } from "@/components/clients/AccountStanding";
 import {
   type EnrollmentBillingSummary,
+  type OpenBillingPeriod,
   type FormAssignment,
   type IntakeDetails,
   type IntakeSubmission,
@@ -216,6 +225,9 @@ function ClientProfile() {
 
   // Billing & payments (fetched on-demand per selected enrollment, not part of the global store)
   const [billingSummary, setBillingSummary] = useState<EnrollmentBillingSummary | null>(null);
+  // The schedule up to now, for the Current / Behind line. null while unknown (no agreement,
+  // loading, or the lookup failed), and then no line is shown.
+  const [billingPeriods, setBillingPeriods] = useState<OpenBillingPeriod[] | null>(null);
   const [billingProgramConfig, setBillingProgramConfig] = useState<ProgramBillingConfig | null>(
     null,
   );
@@ -223,7 +235,6 @@ function ClientProfile() {
   const [billingRefreshVersion, setBillingRefreshVersion] = useState(0);
   const [setUpPaymentsOpen, setSetUpPaymentsOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
-  const [recordPastPaymentOpen, setRecordPastPaymentOpen] = useState(false);
   const [bringCurrentOpen, setBringCurrentOpen] = useState(false);
   const [bringCurrentMode, setBringCurrentMode] = useState<"current" | "partial_unknown">(
     "current",
@@ -238,6 +249,7 @@ function ClientProfile() {
   const [archiveFinalStatusInput, setArchiveFinalStatusInput] = useState("Archived");
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [deletingTestClient, setDeletingTestClient] = useState(false);
   const action = useAsyncAction();
 
   // Monitoring dialog state
@@ -311,6 +323,7 @@ function ClientProfile() {
     if (!client || !selectedEnrollment) {
       billingFetchedFor.current = null;
       setBillingSummary(null);
+      setBillingPeriods(null);
       setBillingProgramConfig(null);
       return;
     }
@@ -318,6 +331,7 @@ function ClientProfile() {
     if (billingFetchedFor.current !== selectedEnrollment.id) {
       billingFetchedFor.current = selectedEnrollment.id;
       setBillingSummary(null);
+      setBillingPeriods(null);
       setBillingProgramConfig(null);
     }
     let cancelled = false;
@@ -330,6 +344,19 @@ function ClientProfile() {
         if (cancelled) return;
         setBillingSummary(summary);
         setBillingProgramConfig(config);
+        if (!summary.agreement) {
+          setBillingPeriods(null);
+          return;
+        }
+        // Pinned to now, so periods paid ahead or not yet due never make the client look behind.
+        // Optional: if it fails, the tab still works and just shows no Current / Behind line.
+        cfListOpenBillingPeriods(client.id, selectedEnrollment.id, new Date().toISOString())
+          .then((periods) => {
+            if (!cancelled) setBillingPeriods(periods);
+          })
+          .catch(() => {
+            if (!cancelled) setBillingPeriods(null);
+          });
       })
       .catch((error: unknown) => {
         if (!cancelled)
@@ -809,11 +836,23 @@ function ClientProfile() {
                 Move to archive
               </Button>
             )}
+            {client.isDemo &&
+            (s.authenticatedAdmin?.role === "org_admin" ||
+              s.authenticatedAdmin?.role === "super_admin") ? (
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setDeletingTestClient(true)}
+              >
+                Delete test client
+              </Button>
+            ) : null}
           </>
         }
       />
 
       <div className="flex flex-wrap items-center gap-3">
+        <TestClientBadge client={client} />
         <StatusBadge status={client.status} />
         {client.relationshipType && <StatusBadge status={client.relationshipType} />}
         <span className="font-mono text-xs text-muted-foreground">
@@ -1212,8 +1251,9 @@ function ClientProfile() {
           ) : (
             <>
               <Card className="shadow-card">
-                <CardHeader>
+                <CardHeader className="space-y-1">
                   <CardTitle className="font-display text-base">Billing & payments</CardTitle>
+                  <HelpLink topic={PAGE_HELP_TOPICS.billing} />
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm">
                   {loadingBilling && !billingSummary ? (
@@ -1232,8 +1272,8 @@ function ClientProfile() {
                       )}
                       <div className="flex flex-wrap gap-2">
                         <Button onClick={() => setSetUpPaymentsOpen(true)}>Set Up Payments</Button>
-                        <Button variant="outline" onClick={() => setRecordPastPaymentOpen(true)}>
-                          Record past payment
+                        <Button variant="outline" onClick={() => setRecordPaymentOpen(true)}>
+                          Record payment
                         </Button>
                         {(billingSummary?.payments.length ?? 0) > 0 && (
                           <Button variant="outline" onClick={() => setLedgerOpen(true)}>
@@ -1280,25 +1320,23 @@ function ClientProfile() {
                           Next payment: {new Date(billingSummary.nextDueDate).toLocaleDateString()}
                         </p>
                       )}
+                      {billingPeriods && (
+                        <AccountStanding
+                          standing={accountStanding(billingPeriods)}
+                          onCatchUp={() => {
+                            // Pick exactly which past periods were paid; nothing is assumed.
+                            setBringCurrentMode("partial_unknown");
+                            setBringCurrentOpen(true);
+                          }}
+                        />
+                      )}
                       <div className="flex flex-wrap gap-2">
-                        <Button onClick={() => setRecordPaymentOpen(true)}>Record Payment</Button>
+                        <Button onClick={() => setRecordPaymentOpen(true)}>Record payment</Button>
                         <Button variant="outline" onClick={() => setSetUpPaymentsOpen(true)}>
                           Update Agreement
                         </Button>
                         <Button variant="outline" onClick={() => setLedgerOpen(true)}>
                           View Ledger
-                        </Button>
-                        <Button variant="outline" onClick={() => setRecordPastPaymentOpen(true)}>
-                          Record past payment
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setBringCurrentMode("current");
-                            setBringCurrentOpen(true);
-                          }}
-                        >
-                          Bring Account Current
                         </Button>
                       </div>
                     </div>
@@ -1902,6 +1940,11 @@ function ClientProfile() {
         onOpenChange={setTermsOpen}
       />
       <EditClientDialog client={client} open={editOpen} onOpenChange={setEditOpen} />
+      <PermanentDeleteClientDialog
+        client={deletingTestClient ? client : null}
+        onOpenChange={(open) => !open && setDeletingTestClient(false)}
+        onDeleted={() => void navigate({ to: "/clients" })}
+      />
 
       {selectedEnrollment && (
         <>
@@ -1929,14 +1972,8 @@ function ClientProfile() {
             onOpenChange={setRecordPaymentOpen}
             clientId={client.id}
             enrollmentId={selectedEnrollment.id}
+            hasAgreement={Boolean(billingSummary?.agreement)}
             agreementAmount={billingSummary?.agreement?.amount ?? 0}
-            onSaved={() => setBillingRefreshVersion((v) => v + 1)}
-          />
-          <RecordPastPaymentDialog
-            open={recordPastPaymentOpen}
-            onOpenChange={setRecordPastPaymentOpen}
-            clientId={client.id}
-            enrollmentId={selectedEnrollment.id}
             onSaved={() => setBillingRefreshVersion((v) => v + 1)}
           />
           <BringAccountCurrentDialog

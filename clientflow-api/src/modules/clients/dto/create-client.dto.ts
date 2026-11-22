@@ -43,4 +43,14 @@ export class CreateClientDto {
   @IsOptional()
   @IsBoolean()
   sendIntakeImmediately?: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description:
+      'Create a test client: it and everything recorded for it are left out of counts and reports, and it can be deleted with all its data. Can only be set at creation.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isTest?: boolean;
 }

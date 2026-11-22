@@ -45,7 +45,7 @@ const SUBJECT_MAX = 200;
 const BODY_MAX = 20_000;
 
 /** A member who can be chosen: anyone with a usable address. */
-interface Candidate {
+export interface Candidate {
   clientId: string;
   businessName: string;
   name: string;
@@ -467,7 +467,13 @@ function RecipientPicker({
 const EMAIL_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif"];
 const EMAIL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-function MessageEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function MessageEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -678,7 +684,7 @@ export function FormattedEmailBody({ body }: { body: string }) {
  * The email as one member will receive it, rendered from the same HTML the send uses (logo header,
  * message, sign-off), in a sandboxed frame that can't run scripts. Below it, who gets a copy.
  */
-function EmailPreview({
+export function EmailPreview({
   email,
   everyone,
   recipients,

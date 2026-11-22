@@ -586,7 +586,7 @@ export class ClientflowCompatibilityController {
     const [clients, formAssignments, formTemplates, terms, contracts, monitoring, statusHistory, intakeLinks, welcomeEmails] = await Promise.all([
       prisma.cfClient.findMany({
         where: { organizationId: orgId, id: { in: clientIds }, isArchived: false },
-        select: { id: true, businessName: true, primaryContactName: true, email: true, phone: true },
+        select: { id: true, businessName: true, primaryContactName: true, email: true, phone: true, isDemo: true },
       }),
       prisma.cfFormAssignment.findMany({
         where: { organizationId: orgId, enrollmentId: { in: enrollmentIds } },
@@ -696,13 +696,15 @@ export class ClientflowCompatibilityController {
       }];
     });
     const workflow = await this.getProgramWorkflow(orgId, id);
+    // Test clients are listed (so staff can try every step) but never counted.
+    const counted = participants.filter(({ enrollment }) => !enrollment.isDemo);
     return {
       program,
       workflow,
       summary: {
-        current: participants.filter(({ enrollment }) => !['completed', 'declined', 'withdrawn'].includes(enrollment.status)).length,
-        completed: participants.filter(({ enrollment }) => enrollment.status === 'completed').length,
-        closed: participants.filter(({ enrollment }) => ['declined', 'withdrawn'].includes(enrollment.status)).length,
+        current: counted.filter(({ enrollment }) => !['completed', 'declined', 'withdrawn'].includes(enrollment.status)).length,
+        completed: counted.filter(({ enrollment }) => enrollment.status === 'completed').length,
+        closed: counted.filter(({ enrollment }) => ['declined', 'withdrawn'].includes(enrollment.status)).length,
       },
       participants,
     };

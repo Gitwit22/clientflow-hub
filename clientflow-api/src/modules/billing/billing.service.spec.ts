@@ -573,6 +573,53 @@ describe('BillingService', () => {
       expect(periods[3].status).toBe('due');
     });
 
+    it('offers the next unpaid period once every period up to the upcoming one is paid', async () => {
+      const { prisma } = createFakePrisma();
+      const service = new BillingService(prisma);
+      jest.useFakeTimers().setSystemTime(new Date('2026-03-15T12:00:00.000Z'));
+      await service.replaceAgreement({
+        organizationId: 'org-1',
+        enrollmentId: 'enroll-1',
+        amount: 250,
+        frequency: 'monthly',
+        startDate: new Date('2026-01-01T05:00:00.000Z'),
+        defaultDueDay: 1,
+        timezone: TZ,
+        actorUserId: 'user-1',
+        actorDisplayName: 'Jordan Staff',
+      });
+      // Brought current through the end of May: Jan-May are paid, April and May ahead of time.
+      await service.confirmBackfill('org-1', 'enroll-1', TZ, { paidThroughDate: new Date('2026-05-31T12:00:00.000Z') }, 'user-1', 'Jordan Staff');
+
+      const periods = await service.listOpenPeriods('org-1', 'enroll-1', TZ);
+      jest.useRealTimers();
+
+      expect(periods.map((period) => period.status)).toEqual(['paid', 'paid', 'paid', 'paid', 'paid', 'due']);
+      expect(periods.at(-1)!.dueDate.toISOString().slice(0, 7)).toBe('2026-06');
+    });
+
+    it('offers nothing new for a one-time agreement that is already paid', async () => {
+      const { prisma } = createFakePrisma();
+      const service = new BillingService(prisma);
+      jest.useFakeTimers().setSystemTime(new Date('2026-03-15T12:00:00.000Z'));
+      await service.replaceAgreement({
+        organizationId: 'org-1',
+        enrollmentId: 'enroll-1',
+        amount: 250,
+        frequency: 'one_time',
+        startDate: new Date('2026-03-01T05:00:00.000Z'),
+        timezone: TZ,
+        actorUserId: 'user-1',
+        actorDisplayName: 'Jordan Staff',
+      });
+      await service.confirmBackfill('org-1', 'enroll-1', TZ, { paidThroughDate: new Date('2026-03-15T12:00:00.000Z') }, 'user-1', 'Jordan Staff');
+
+      const periods = await service.listOpenPeriods('org-1', 'enroll-1', TZ);
+      jest.useRealTimers();
+
+      expect(periods.map((period) => period.status)).toEqual(['paid']);
+    });
+
     it('an explicit throughDate is not extended (used by legacy backfill review)', async () => {
       const { prisma } = createFakePrisma();
       const service = new BillingService(prisma);

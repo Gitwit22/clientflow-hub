@@ -351,7 +351,7 @@ export interface ProgramDetailForm {
 }
 
 export interface ProgramParticipantDetail {
-  client: Pick<Client, "id" | "businessName" | "primaryContactName" | "email" | "phone">;
+  client: Pick<Client, "id" | "businessName" | "primaryContactName" | "email" | "phone" | "isDemo">;
   enrollment: ProgramEnrollment;
   coreIntake: ProgramDetailAnswerGroup[];
   programIntake: ProgramDetailAnswerGroup[];

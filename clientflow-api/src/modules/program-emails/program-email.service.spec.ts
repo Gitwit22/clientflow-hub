@@ -288,3 +288,97 @@ describe('sending a program email', () => {
     expect(detail.recipients[0].errorCode).toBe('not_configured');
   });
 });
+
+describe('emailing several programs at once', () => {
+  /** A second program sharing some members (and an address) with the first. */
+  function withGrantProgram(send?: jest.Mock) {
+    const context = setup(send);
+    context.rows.cfProgram.push({ id: 'p-grant', organizationId: ORG, name: 'Grant Program' });
+    context.rows.cfClient.push(
+      client('c10', 'Fresh Face LLC', 'fresh@example.com'),
+      client('c11', 'Same Inbox As Moonlight', 'PAT@moonlight.test'),
+      client('c12', 'Also No Email', null),
+    );
+    for (const [id, clientId] of [['g1', 'c1'], ['g10', 'c10'], ['g11', 'c11'], ['g12', 'c12'], ['g3', 'c3']]) {
+      context.rows.cfProgramEnrollment.push(enrollment(id, clientId, 'active', { programId: 'p-grant' }));
+    }
+    return context;
+  }
+
+  it('previews one copy per person and per address, earlier programs first', async () => {
+    const { service } = withGrantProgram();
+    const preview = await service.previewMultiRecipients(ORG, ['p-idi', 'p-grant']);
+
+    expect(preview.programs).toEqual([
+      { id: 'p-idi', name: 'The Inspired Detroit Initiative', recipientCount: 3, alreadyIncluded: 0 },
+      // c1 (also in IDI) and c11 (Moonlight's address) are reached through IDI.
+      { id: 'p-grant', name: 'Grant Program', recipientCount: 1, alreadyIncluded: 2 },
+    ]);
+    expect(preview.recipients.map((recipient) => recipient.email)).toEqual([
+      'tamika@example.com', 'pat@moonlight.test', 'baker@example.com', 'fresh@example.com',
+    ]);
+    // No Email LLC is in both programs but listed once; the new member without an address is listed too.
+    expect(preview.skipped.map((member) => member.clientId).sort()).toEqual(['c12', 'c3', 'c4', 'c5']);
+    // Test and archived clients never appear.
+    expect(JSON.stringify(preview)).not.toMatch(/demo@example|archived@example|finished@example/);
+  });
+
+  it('sends each person exactly one copy, recorded under each program', async () => {
+    const { service, sendProgramEmail, rows } = withGrantProgram();
+    const result = await service.createForPrograms(ORG, staff, {
+      programIds: ['p-idi', 'p-grant'], subject: 'All members', body: 'Hello everyone', idempotencyKey: 'multi-key-1',
+    });
+    await Promise.all(result.emails.map((email) => service.whenIdle(email.id)));
+
+    expect(result.recipientCount).toBe(4);
+    expect(result.skippedPrograms).toEqual([]);
+    expect(rows.cfProgramEmail.map((email) => [email.programId, email.recipientCount])).toEqual([['p-idi', 3], ['p-grant', 1]]);
+    const addresses = sendProgramEmail.mock.calls.map(([, payload]) => (payload as { recipientEmail: string }).recipientEmail);
+    expect(addresses.sort()).toEqual(['baker@example.com', 'fresh@example.com', 'pat@moonlight.test', 'tamika@example.com']);
+    // Each program's history shows its part.
+    expect(await service.list(ORG, 'p-grant')).toEqual([expect.objectContaining({ subject: 'All members', recipientCount: 1 })]);
+  });
+
+  it('returns the same emails for a repeated request and never sends twice', async () => {
+    const { service, sendProgramEmail, rows } = withGrantProgram();
+    const input = { programIds: ['p-idi', 'p-grant'], subject: 'S', body: 'B', idempotencyKey: 'multi-key-2' };
+    const first = await service.createForPrograms(ORG, staff, input);
+    await Promise.all(first.emails.map((email) => service.whenIdle(email.id)));
+    // A member joins between the attempts: the program already sent keeps its recipients.
+    rows.cfProgramEnrollment.push(enrollment('e-late', 'c10'));
+    const again = await service.createForPrograms(ORG, staff, input);
+
+    expect(again.emails.map((email) => email.id)).toEqual(first.emails.map((email) => email.id));
+    expect(rows.cfProgramEmail).toHaveLength(2);
+    expect(sendProgramEmail).toHaveBeenCalledTimes(4);
+  });
+
+  it('skips a program with nobody new to email, and refuses when nobody at all is reachable', async () => {
+    const { service } = withGrantProgram();
+    const result = await service.createForPrograms(ORG, staff, {
+      programIds: ['p-idi', 'p-empty'], subject: 'S', body: 'B', idempotencyKey: 'multi-key-3',
+    });
+    await Promise.all(result.emails.map((email) => service.whenIdle(email.id)));
+    expect(result.skippedPrograms).toEqual([{ programId: 'p-empty', programName: 'Empty Program' }]);
+
+    await expect(service.createForPrograms(ORG, staff, {
+      programIds: ['p-empty'], subject: 'S', body: 'B', idempotencyKey: 'multi-key-4',
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("refuses another organization's program and a malformed choice, sending nothing", async () => {
+    const { service, sendProgramEmail, rows } = withGrantProgram();
+    await expect(service.createForPrograms(ORG, staff, {
+      programIds: ['p-idi', 'p-foreign'], subject: 'S', body: 'B', idempotencyKey: 'multi-key-5',
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.previewMultiRecipients(ORG, ['p-foreign'])).rejects.toBeInstanceOf(NotFoundException);
+    for (const programIds of [[], 'p-idi', [1]]) {
+      await expect(service.previewMultiRecipients(ORG, programIds)).rejects.toBeInstanceOf(BadRequestException);
+    }
+    await expect(service.createForPrograms(ORG, staff, {
+      programIds: ['p-idi'], subject: 'S', body: 'B', idempotencyKey: null,
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(rows.cfProgramEmail).toHaveLength(0);
+    expect(sendProgramEmail).not.toHaveBeenCalled();
+  });
+});

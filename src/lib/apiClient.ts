@@ -56,6 +56,8 @@ import type {
   ProgramDeliverableTemplate,
 } from "@/lib/program-deliverables";
 import type {
+  MultiProgramEmailResult,
+  MultiProgramRecipientsPreview,
   ProgramEmailDetail,
   ProgramEmailRecipientsPreview,
   ProgramEmailSummary,
@@ -648,6 +650,8 @@ export async function cfUpdateClient(id: string, data: Record<string, unknown>) 
 /** Whether a client can be permanently deleted. Clients with recorded payments can only be archived. */
 export interface ClientDeletionEligibility {
   canDelete: boolean;
+  /** A test client: deleted with everything recorded for it, payments included. Older servers omit it. */
+  isTest?: boolean;
   reason: "has_payments" | null;
   message: string | null;
   recordedPayments: number;
@@ -1292,6 +1296,27 @@ export interface CreateAutomatedClientPayload {
   intakeSource?: string;
   assignedStaffId?: string;
   sendIntakeImmediately?: boolean;
+  /** A test client: left out of counts and reports, deletable with all its data. Set only here. */
+  isTest?: boolean;
+}
+
+/** A client in this organization that already uses an email address (archived ones included). */
+export interface ClientEmailMatch {
+  id: string;
+  contactName: string;
+  businessName: string;
+  email: string;
+  isArchived: boolean;
+  archivedAt: string | null;
+  isTest: boolean;
+}
+
+/** GET /clients/duplicates — clients that already use this email, so staff can restore instead of duplicating. */
+export async function acfFindClientsByEmail(email: string) {
+  const params = new URLSearchParams({ email });
+  return apiRequest<{ matches: ClientEmailMatch[] }>(
+    `/api/v1/clients/duplicates?${params.toString()}`,
+  );
 }
 
 /** POST /clients — creates a client and auto-sends (or defers) the General Intake form. */
@@ -1899,6 +1924,29 @@ export async function cfSendProgramEmail(
     `/api/v1/programs/${encodeURIComponent(programId)}/emails`,
     { method: "POST", body: JSON.stringify(data), headers: idempotencyHeaders(idempotencyKey) },
   );
+}
+
+/** POST /program-emails/multi/recipients — who an email to several programs would reach (one copy each). */
+export async function cfPreviewMultiProgramEmailRecipients(programIds: string[]) {
+  return apiRequest<MultiProgramRecipientsPreview>("/api/v1/program-emails/multi/recipients", {
+    method: "POST",
+    body: JSON.stringify({ programIds }),
+  });
+}
+
+/**
+ * POST /program-emails/multi — one message to the members of several programs, each person once,
+ * recorded under each program. The same idempotency key returns the emails already created.
+ */
+export async function cfSendMultiProgramEmail(
+  data: { programIds: string[]; subject: string; body: string },
+  idempotencyKey: string,
+) {
+  return apiRequest<MultiProgramEmailResult>("/api/v1/program-emails/multi", {
+    method: "POST",
+    body: JSON.stringify(data),
+    headers: idempotencyHeaders(idempotencyKey),
+  });
 }
 
 /** GET /program-emails/:emailId — one email with each recipient's outcome. */

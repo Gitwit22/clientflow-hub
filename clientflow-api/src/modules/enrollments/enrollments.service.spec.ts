@@ -61,4 +61,40 @@ describe('EnrollmentsService', () => {
       }));
     });
   });
+
+  describe('createManualEnrollment', () => {
+    function serviceFor(client: Record<string, unknown>) {
+      const enrollmentCreate = jest.fn().mockResolvedValue({ id: 'enroll-1', status: 'active' });
+      const activityCreate = jest.fn().mockResolvedValue({ id: 'activity-1' });
+      const prisma = {
+        $transaction: jest.fn(async (callback: (tx: unknown) => unknown) =>
+          callback({
+            cfClient: { findFirst: jest.fn().mockResolvedValue(client) },
+            cfProgram: { findFirst: jest.fn().mockResolvedValue({ id: 'program-1' }) },
+            cfProgramEnrollment: { create: enrollmentCreate },
+            cfEnrollmentStatusHistory: { create: jest.fn().mockResolvedValue({ id: 'history-1' }) },
+            cfActivityLog: { create: activityCreate },
+          }),
+        ),
+      } as unknown as PrismaService;
+      return { service: new EnrollmentsService(prisma), enrollmentCreate, activityCreate };
+    }
+    const input = {
+      organizationId: 'org-1', clientId: 'client-1', programId: 'program-1', status: 'active', progressPercentage: 10,
+      actorUserId: 'admin-1', actorDisplayName: 'Admin',
+    };
+
+    it("marks a test client's enrollment (and its activity) as test, so it stays out of counts", async () => {
+      const { service, enrollmentCreate, activityCreate } = serviceFor({ id: 'client-1', isDemo: true });
+      await service.createManualEnrollment(input);
+      expect(enrollmentCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isDemo: true }) }));
+      expect(activityCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isDemo: true }) }));
+    });
+
+    it("never marks a real client's enrollment as test, whatever the caller passes", async () => {
+      const { service, enrollmentCreate } = serviceFor({ id: 'client-1', isDemo: false });
+      await service.createManualEnrollment({ ...input, isDemo: true } as typeof input & { isDemo: boolean });
+      expect(enrollmentCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isDemo: false }) }));
+    });
+  });
 });

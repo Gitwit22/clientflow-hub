@@ -27,9 +27,10 @@ import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
 import { PermanentDeleteClientDialog } from "@/components/dialogs/PermanentDeleteClientDialog";
 import { SendFormDialog } from "@/components/dialogs/SendFormDialog";
 import { useAppState } from "@/lib/store";
-import { archiveClient, loadArchivedClients } from "@/lib/api";
+import { archiveClient, loadArchivedClients, restoreClient } from "@/lib/api";
 import { lifecycleBucket } from "@/lib/client-lifecycle";
 import { ClientProgramBadges } from "@/components/clients/ClientProgramBadges";
+import { TestClientBadge } from "@/components/clients/TestClientBadge";
 import { memberOptionLabel, useOrganizationMembers } from "@/hooks/use-organization-members";
 import { type Client, type RelationshipType } from "@/types";
 import { useAsyncAction } from "@/hooks/use-async-action";
@@ -245,6 +246,7 @@ function ClientsPage() {
                     >
                       {c.businessName}
                     </Link>
+                    <TestClientBadge client={c} className="ml-2" />
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">{c.primaryContactName}</div>
@@ -280,19 +282,37 @@ function ClientsPage() {
                     <Button size="sm" variant="ghost" onClick={() => setSendTo(c)}>
                       Send form
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={action.busy === c.id}
-                      onClick={() =>
-                        void action.run(c.id, () => archiveClient(c.id), {
-                          success: "Client archived",
-                          error: "Unable to archive this client.",
-                        })
-                      }
-                    >
-                      {action.busy === c.id ? "Archiving…" : "Archive"}
-                    </Button>
+                    {/* Archiving an archived client again would overwrite when it was archived, and a
+                        later restore would then leave its programs archived. */}
+                    {c.isArchived ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={action.busy === c.id}
+                        onClick={() =>
+                          void action.run(c.id, () => restoreClient(c.id), {
+                            success: "Client restored",
+                            error: "Unable to restore this client.",
+                          })
+                        }
+                      >
+                        {action.busy === c.id ? "Restoring…" : "Restore"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={action.busy === c.id}
+                        onClick={() =>
+                          void action.run(c.id, () => archiveClient(c.id), {
+                            success: "Client archived",
+                            error: "Unable to archive this client.",
+                          })
+                        }
+                      >
+                        {action.busy === c.id ? "Archiving…" : "Archive"}
+                      </Button>
+                    )}
                     {canDelete ? (
                       <Button
                         size="sm"

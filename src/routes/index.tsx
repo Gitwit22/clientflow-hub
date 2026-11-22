@@ -9,6 +9,7 @@ import { AddClientDialog } from "@/components/dialogs/AddClientDialog";
 import { lifecycleBucket } from "@/lib/client-lifecycle";
 import { clientProgramNames, hasOpenEnrollment } from "@/lib/enrollment-status";
 import { useAppState } from "@/lib/store";
+import { withoutTestRecords } from "@/lib/test-records";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -41,7 +42,14 @@ function activityColor(action: string): string {
 }
 
 function Dashboard() {
-  const { clients, contracts, communications, activity, programs, enrollments } = useAppState();
+  const state = useAppState();
+  const { programs } = state;
+  // Test clients and their records never count on the dashboard.
+  const clients = withoutTestRecords(state.clients);
+  const contracts = withoutTestRecords(state.contracts);
+  const communications = withoutTestRecords(state.communications);
+  const activity = withoutTestRecords(state.activity);
+  const enrollments = withoutTestRecords(state.enrollments);
   const [addClientOpen, setAddClientOpen] = useState(false);
   const today = new Date();
   const todayLabel = today.toLocaleDateString("en-US", {
