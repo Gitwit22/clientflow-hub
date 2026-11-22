@@ -41,6 +41,14 @@ export class ClientsController {
     return this.clients.list(requireAdmin(request).organizationId, status);
   }
 
+  // Declared before ':id' so "duplicates" is never read as a client id.
+  @Get('duplicates')
+  @ApiOperation({ summary: 'Clients in this organization (archived included) with the given email' })
+  @ApiOkResponse({ description: 'Matching clients, newest first; empty when none.' })
+  findDuplicates(@Req() request: AuthenticatedRequest, @Query('email') email?: string) {
+    return this.clients.findByEmail(requireAdmin(request).organizationId, email);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a client with its current program, contract and monitoring task' })
   @ApiOkResponse({ description: 'Safe client detail.' })

@@ -63,7 +63,7 @@ function ownedRows(organizationId: string, suffix: string, options: { activePaym
   return { ids, rows, files };
 }
 
-function setup(storage: Partial<StorageService> = {}, options: { targetHasPayment?: boolean } = {}) {
+function setup(storage: Partial<StorageService> = {}, options: { targetHasPayment?: boolean; targetIsTest?: boolean } = {}) {
   const target = ownedRows(ORG, 'a', { activePayment: options.targetHasPayment });
   const bystander = ownedRows(ORG, 'b');
   const otherOrg = ownedRows(OTHER_ORG, 'z');
@@ -72,7 +72,7 @@ function setup(storage: Partial<StorageService> = {}, options: { targetHasPaymen
     for (const [model, rows] of Object.entries(set.rows)) (tables[model] ??= []).push(...rows);
   }
   tables.cfClient = [
-    { id: 'client-a', organizationId: ORG, isArchived: true, ...PII },
+    { id: 'client-a', organizationId: ORG, isArchived: true, isDemo: options.targetIsTest === true, ...PII },
     { id: 'client-b', organizationId: ORG, isArchived: false, businessName: 'Keep LLC' },
     { id: 'client-z', organizationId: OTHER_ORG, isArchived: false, businessName: 'Other Org LLC' },
   ];
@@ -198,11 +198,11 @@ describe('INVARIANT: a client with recorded payments can only be archived', () =
   it('tells staff up front, before they type the name', async () => {
     const blocked = setup({}, { targetHasPayment: true });
     await expect(blocked.service.eligibility(ORG, 'client-a', manager)).resolves.toEqual({
-      canDelete: false, reason: 'has_payments', message: expect.stringContaining('can only be archived'), recordedPayments: 1,
+      canDelete: false, isTest: false, reason: 'has_payments', message: expect.stringContaining('can only be archived'), recordedPayments: 1,
     });
     const allowed = setup();
     await expect(allowed.service.eligibility(ORG, 'client-a', manager)).resolves.toEqual({
-      canDelete: true, reason: null, message: null, recordedPayments: 0,
+      canDelete: true, isTest: false, reason: null, message: null, recordedPayments: 0,
     });
     await expect(allowed.service.eligibility(ORG, 'client-a', { id: 'rev-1', role: 'reviewer' }))
       .rejects.toBeInstanceOf(ForbiddenException);
@@ -225,6 +225,40 @@ describe('INVARIANT: a client with recorded payments can only be archived', () =
     await expect(service.permanentlyDelete({
       organizationId: ORG, clientId: 'client-a', actor: manager, confirmation: PII.businessName,
     })).rejects.toThrow(ConflictException);
+  });
+});
+
+describe('RULE: a test client is deleted with everything, payments included', () => {
+  it('erases a test client that has a real payment, and still touches no one else', async () => {
+    const { tables, service, target } = setup({}, { targetHasPayment: true, targetIsTest: true });
+    tables.cfAwardPayment.push({
+      id: 'award-pay-test', organizationId: ORG, clientId: 'client-a', awardId: 'award-a', enrollmentId: 'enr-a', amount: 500, voidedAt: null,
+    });
+    await expect(service.eligibility(ORG, 'client-a', manager)).resolves.toEqual({
+      canDelete: true, isTest: true, reason: null, message: null, recordedPayments: 2,
+    });
+
+    await service.permanentlyDelete({ organizationId: ORG, clientId: 'client-a', actor: manager, confirmation: PII.businessName });
+
+    expect(ownedBy(tables, target.ids)).toEqual([]);
+    expect(tables.cfPaymentRecord.map((payment) => payment.id)).not.toContain('pay-a');
+    expect(tables.cfAwardPayment.map((payment) => payment.id)).not.toContain('award-pay-test');
+    expect(tables.cfPaymentRecord.map((payment) => payment.id)).toEqual(expect.arrayContaining(['pay-b', 'pay-z']));
+    expect(tables.cfClient.map((client) => client.id)).toEqual(['client-b', 'client-z']);
+    expect(tables.auditLog).toEqual([expect.objectContaining({
+      targetType: CLIENT_PERMANENTLY_DELETED, targetId: 'client-a', metadata: expect.objectContaining({ testClient: true }),
+    })]);
+  });
+
+  it('still needs the typed name and an admin for a test client', async () => {
+    const { tables, service } = setup({}, { targetHasPayment: true, targetIsTest: true });
+    await expect(service.permanentlyDelete({
+      organizationId: ORG, clientId: 'client-a', actor: manager, confirmation: 'Wrong LLC',
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.permanentlyDelete({
+      organizationId: ORG, clientId: 'client-a', actor: { id: 'rev-1', role: 'reviewer' }, confirmation: PII.businessName,
+    })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tables.cfClient.map((client) => client.id)).toContain('client-a');
   });
 });
 

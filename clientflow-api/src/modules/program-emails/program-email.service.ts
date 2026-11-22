@@ -17,7 +17,7 @@ import { StorageService } from '../../integrations/storage/storage.service';
 import { isSendableEmail } from '../communications/recipient';
 import { PrismaService } from '../../prisma/prisma.service';
 import { COMMUNICATION_STATUS, DELIVERY_SOURCE, attemptEventId, isUniqueViolation } from '../communications/communication-attempts';
-import { buildRecipientList, type SkippedMember } from './program-email-recipients';
+import { buildRecipientList, type ProgramEmailRecipient, type SkippedMember } from './program-email-recipients';
 
 export interface ProgramEmailActor {
   id: string | null;
@@ -111,6 +111,37 @@ function chosenMembers(value: unknown): Set<string> | undefined {
   if (!value.length) throw new BadRequestException('Choose at least one member, or send to everyone.');
   if (value.length > MAX_CHOSEN) throw new BadRequestException('Too many members chosen.');
   return new Set(value as string[]);
+}
+
+const MAX_PROGRAMS = 100;
+
+/** The programs chosen for a multi-program email, in the order chosen, each id once. */
+function chosenProgramIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((id) => typeof id !== 'string' || !id)) {
+    throw new BadRequestException('programIds must be a list of program ids.');
+  }
+  const ids = [...new Set(value as string[])];
+  if (!ids.length) throw new BadRequestException('Choose at least one program.');
+  if (ids.length > MAX_PROGRAMS) throw new BadRequestException('Too many programs chosen.');
+  return ids;
+}
+
+/** One program's part of a multi-program email: who it sends to, after earlier programs took theirs. */
+interface ProgramShare {
+  program: { id: string; name: string };
+  /** Members to choose for this program's email: new recipients plus new members with no usable address. */
+  clientIds: string[];
+  recipients: ProgramEmailRecipient[];
+  skipped: SkippedMember[];
+  /** Members left out because an earlier program already emails them (or their address). */
+  alreadyIncluded: number;
+}
+
+export interface MultiProgramEmailResult {
+  emails: ProgramEmailDetail[];
+  /** Programs with nobody new to email (everyone is reached through an earlier program, or nobody is reachable). */
+  skippedPrograms: Array<{ programId: string; programName: string }>;
+  recipientCount: number;
 }
 
 function skippedOf(email: Pick<CfProgramEmail, 'skipped'>): SkippedMember[] {
@@ -258,6 +289,137 @@ export class ProgramEmailService implements OnApplicationBootstrap {
       }
     }
     return buildRecipientList(onlyClientIds ? members.filter((member) => onlyClientIds.has(member.clientId)) : members);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Several programs at once
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Splits the members of several programs so each person gets one copy. Programs are taken in the
+   * order chosen; a member (or an address) already reached through an earlier program is left out
+   * of later ones. `seen` may start with people an earlier attempt of the same send already covered.
+   */
+  private async shareOut(
+    organizationId: string,
+    programs: Array<{ id: string; name: string }>,
+    seen = { clients: new Set<string>(), emails: new Set<string>() },
+  ): Promise<ProgramShare[]> {
+    const shares: ProgramShare[] = [];
+    for (const program of programs) {
+      shares.push(await this.shareFor(organizationId, program, seen));
+    }
+    return shares;
+  }
+
+  private async shareFor(
+    organizationId: string,
+    program: { id: string; name: string },
+    seen: { clients: Set<string>; emails: Set<string> },
+  ): Promise<ProgramShare> {
+    const list = await this.recipientsFor(organizationId, program.id);
+    let alreadyIncluded = 0;
+    const recipients = list.recipients.filter((recipient) => {
+      const fresh = !seen.clients.has(recipient.clientId) && !seen.emails.has(recipient.email);
+      if (!fresh) alreadyIncluded += 1;
+      return fresh;
+    });
+    // Within one program a second member sharing an address is already "duplicate_email"; across
+    // programs that member is simply reached through the earlier program.
+    const skipped = list.skipped.filter((member) => {
+      if (seen.clients.has(member.clientId)) return false;
+      if (member.reason === 'duplicate_email' && member.email && seen.emails.has(member.email)) return false;
+      return true;
+    });
+    for (const recipient of recipients) {
+      seen.clients.add(recipient.clientId);
+      seen.emails.add(recipient.email);
+    }
+    for (const member of skipped) seen.clients.add(member.clientId);
+    return {
+      program,
+      clientIds: [...recipients.map((recipient) => recipient.clientId), ...skipped.filter((member) => member.reason !== 'duplicate_email').map((member) => member.clientId)],
+      recipients,
+      skipped,
+      alreadyIncluded,
+    };
+  }
+
+  private async programsFor(organizationId: string, programIds: unknown) {
+    const programs: Array<{ id: string; name: string }> = [];
+    for (const id of chosenProgramIds(programIds)) {
+      const program = await findProgramForOrg(this.prisma, organizationId, id);
+      programs.push({ id: program.id, name: program.name });
+    }
+    return programs;
+  }
+
+  /** Who an email to several programs would reach right now: one copy per person, per address. */
+  async previewMultiRecipients(organizationId: string, programIds: unknown) {
+    const shares = await this.shareOut(organizationId, await this.programsFor(organizationId, programIds));
+    const recipients = shares.flatMap((share) => share.recipients.map((recipient) => ({ ...recipient, programId: share.program.id })));
+    const skipped = shares.flatMap((share) => share.skipped);
+    return {
+      programs: shares.map((share) => ({
+        id: share.program.id,
+        name: share.program.name,
+        recipientCount: share.recipients.length,
+        alreadyIncluded: share.alreadyIncluded,
+      })),
+      recipients,
+      skipped,
+      recipientCount: recipients.length,
+      skippedCount: skipped.length,
+    };
+  }
+
+  /**
+   * One message to the members of several programs, each person once. It is recorded as one
+   * program email per program (so each program's history, retry and email style keep working),
+   * created with a key derived from the request's key: repeating the request returns the emails
+   * already created and never sends a second copy, and a program already sent keeps the
+   * recipients it recorded when the rest are worked out again.
+   */
+  async createForPrograms(
+    organizationId: string,
+    actor: ProgramEmailActor,
+    input: { programIds?: unknown; subject?: unknown; body?: unknown; idempotencyKey: string | null },
+  ): Promise<MultiProgramEmailResult> {
+    if (!input.idempotencyKey) throw new BadRequestException('An Idempotency-Key header is required to send a program email.');
+    const { subject, body } = messageFrom(input);
+    await this.assertEmailImages(organizationId, body);
+    const programs = await this.programsFor(organizationId, input.programIds);
+
+    const seen = { clients: new Set<string>(), emails: new Set<string>() };
+    const emails: ProgramEmailDetail[] = [];
+    const skippedPrograms: MultiProgramEmailResult['skippedPrograms'] = [];
+    for (const program of programs) {
+      const key = `${input.idempotencyKey}:${program.id}`;
+      const prior = await this.prisma.cfProgramEmail.findFirst({ where: { organizationId, idempotencyKey: key } });
+      if (prior) {
+        const detail = await this.detailOf(prior);
+        for (const recipient of detail.recipients) {
+          seen.clients.add(recipient.clientId);
+          seen.emails.add(recipient.email.toLowerCase());
+        }
+        for (const member of detail.skipped) seen.clients.add(member.clientId);
+        emails.push(detail);
+        continue;
+      }
+      const share = await this.shareFor(organizationId, program, seen);
+      if (!share.recipients.length) {
+        skippedPrograms.push({ programId: program.id, programName: program.name });
+        continue;
+      }
+      emails.push(await this.create(organizationId, actor, program.id, {
+        subject,
+        body,
+        clientIds: share.clientIds,
+        idempotencyKey: key,
+      }));
+    }
+    if (!emails.length) throw new BadRequestException('Nobody in the chosen programs has a usable email address.');
+    return { emails, skippedPrograms, recipientCount: emails.reduce((sum, email) => sum + email.recipientCount, 0) };
   }
 
   /**

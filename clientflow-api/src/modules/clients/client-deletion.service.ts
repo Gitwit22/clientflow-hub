@@ -28,6 +28,8 @@ export interface ClientPaymentRecordCounts {
 
 export interface DeletionEligibility {
   canDelete: boolean;
+  /** A test client: deleted with everything recorded for it, payments included. */
+  isTest: boolean;
   /** Why deletion is refused, when it is. */
   reason: 'has_payments' | null;
   message: string | null;
@@ -99,6 +101,10 @@ export interface PermanentDeletionResult {
  * contracts and documents, and the client itself. A client with any recorded (not voided) payment
  * can't be deleted at all, only archived, so money records are never erased; only voided payment
  * rows go with a deleted client. Archiving is the reversible alternative and keeps everything.
+ *
+ * The one exception is a test client (isDemo, set only when the client was created and never
+ * writable afterwards): it exists to try the system out, so its payments go with it. The flag is
+ * always read from the stored client, never from the request.
  */
 @Injectable()
 export class ClientDeletionService {
@@ -119,7 +125,7 @@ export class ClientDeletionService {
     requireManager(input.actor);
     const client = await findClientForOrg(this.prisma, input.organizationId, input.clientId, { includeArchived: true });
     // Checked up front for a clear answer, and again inside the transaction where it counts.
-    if ((await clientPaymentRecordCounts(this.prisma, input.organizationId, client.id)).active > 0) {
+    if (!client.isDemo && (await clientPaymentRecordCounts(this.prisma, input.organizationId, client.id)).active > 0) {
       throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
     }
     if (normalizeName(input.confirmation) !== normalizeName(client.businessName)) {
@@ -160,20 +166,24 @@ export class ClientDeletionService {
     requireManager(actor);
     const client = await findClientForOrg(this.prisma, organizationId, clientId, { includeArchived: true });
     const payments = await clientPaymentRecordCounts(this.prisma, organizationId, client.id);
+    if (client.isDemo) {
+      return { canDelete: true, isTest: true, reason: null, message: null, recordedPayments: payments.active };
+    }
     return payments.active > 0
-      ? { canDelete: false, reason: 'has_payments', message: CLIENT_HAS_PAYMENTS_MESSAGE, recordedPayments: payments.active }
-      : { canDelete: true, reason: null, message: null, recordedPayments: 0 };
+      ? { canDelete: false, isTest: false, reason: 'has_payments', message: CLIENT_HAS_PAYMENTS_MESSAGE, recordedPayments: payments.active }
+      : { canDelete: true, isTest: false, reason: null, message: null, recordedPayments: 0 };
   }
 
   private async deleteRecords(db: TenantDb, organizationId: string, clientId: string, actorAdminId: string) {
     // Re-read inside the transaction so a concurrent delete can't be applied twice.
-    await findClientForOrg(db, organizationId, clientId, { includeArchived: true });
+    const client = await findClientForOrg(db, organizationId, clientId, { includeArchived: true });
+    const isTest = client.isDemo === true;
     const scope = { organizationId };
     const payments = await clientPaymentRecordCounts(db, organizationId, clientId);
-    if (payments.active > 0) throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
+    if (!isTest && payments.active > 0) throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
     const { counts, contracts, documents } = await deleteClientOwnedRows(db, organizationId, clientId);
-    // Only voided payment rows may go. If more were removed than were checked, a payment was
-    // recorded at the same moment: roll everything back rather than erase it.
+    // Only the payment rows checked above may go (voided ones, or all of a test client's). If more
+    // were removed, a payment was recorded at the same moment: roll everything back rather than erase it.
     if ((counts.cfPaymentRecord ?? 0) > payments.billingTotal || (counts.cfAwardPayment ?? 0) > payments.awardTotal) {
       throw new ConflictException(CLIENT_HAS_PAYMENTS_MESSAGE);
     }
@@ -230,7 +240,7 @@ export class ClientDeletionService {
         action: 'deleted',
         targetType: CLIENT_PERMANENTLY_DELETED,
         targetId: clientId,
-        metadata: { counts },
+        metadata: { counts, ...(isTest ? { testClient: true } : {}) },
       },
     });
 

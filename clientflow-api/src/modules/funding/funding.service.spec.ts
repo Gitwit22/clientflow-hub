@@ -176,6 +176,18 @@ describe('FundingService', () => {
     expect(await service.outstanding('org-2')).toEqual([]);
   });
 
+  it("leaves a test client's awards out of the follow-up list", async () => {
+    const { service, tables } = setup();
+    const real = await service.create(ORG, 'client-1', 'enr-1', award({ approve: true, amountAwarded: 1000 }), actor, null);
+    tables.cfClient.push({ id: 'client-test', organizationId: ORG, businessName: 'Test LLC', isDemo: true, isArchived: false });
+    tables.cfProgramEnrollment.push({ id: 'enr-test', organizationId: ORG, clientId: 'client-test', programId: 'program-1', isArchived: false, isDemo: true, status: 'active' });
+    const test = await service.create(ORG, 'client-test', 'enr-test', award({ approve: true, amountAwarded: 5000 }), actor, null);
+    expect(tables.cfEnrollmentAward.find((row) => row.id === test.id).isDemo).toBe(true);
+
+    const followUp = await service.outstanding(ORG);
+    expect(followUp.map((row: { id: string }) => row.id)).toEqual([real.id]);
+  });
+
   it('stores amounts as exact decimals', async () => {
     const { service, tables } = setup();
     const created = await service.create(ORG, 'client-1', 'enr-1', award({ approve: true, amountAwarded: 0.3 }), actor, null);

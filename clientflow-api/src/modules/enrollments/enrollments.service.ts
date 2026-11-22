@@ -73,6 +73,7 @@ interface CreateEnrollmentArgs {
   completedAt?: Date | null;
   withdrawnAt?: Date | null;
   onHoldReason?: string | null;
+  /** Ignored: an enrollment always takes its client's test flag. */
   isDemo?: boolean;
   actorUserId: string | null;
   actorDisplayName: string;
@@ -132,7 +133,6 @@ export class EnrollmentsService {
   async createManualEnrollment(input: CreateManualEnrollmentInput) {
     return this.createEnrollment({
       ...input,
-      isDemo: false,
       activityDescription: `Enrollment created with status ${input.status}.`,
       statusHistoryReason: 'Enrollment created.',
     });
@@ -199,8 +199,11 @@ export class EnrollmentsService {
   private async createEnrollmentIn(transaction: TenantDb, input: CreateEnrollmentArgs) {
     // Both ids must belong to the organization: a foreign client or program is a 404, and can
     // never occupy the global [clientId, programId] slot for another organization.
-    await findClientForOrg(transaction, input.organizationId, input.clientId, { includeArchived: true });
+    const client = await findClientForOrg(transaction, input.organizationId, input.clientId, { includeArchived: true });
     await findProgramForOrg(transaction, input.organizationId, input.programId);
+    // An enrollment is a test record exactly when its client is one, whichever path created it, so
+    // a test client's enrollments never count in program or report numbers.
+    const isDemo = client.isDemo === true;
     const enrollment = await transaction.cfProgramEnrollment.create({
       data: {
         organizationId: input.organizationId,
@@ -227,7 +230,7 @@ export class EnrollmentsService {
         completedAt: input.completedAt ?? null,
         withdrawnAt: input.withdrawnAt ?? null,
         onHoldReason: input.onHoldReason ?? null,
-        isDemo: input.isDemo ?? false,
+        isDemo,
       } as any,
     });
 
@@ -252,7 +255,7 @@ export class EnrollmentsService {
         action: 'ENROLLMENT_CREATED',
         description: input.activityDescription,
         user: input.actorDisplayName,
-        isDemo: input.isDemo ?? false,
+        isDemo,
       },
     });
 

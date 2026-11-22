@@ -76,6 +76,29 @@ export class ProgramEmailController {
     });
   }
 
+  /** Who an email to several programs would reach: one copy per person, earlier programs first. */
+  @Post('program-emails/multi/recipients')
+  @HttpCode(200)
+  multiRecipients(@Req() request: AuthenticatedRequest, @Body() body: { programIds?: unknown }) {
+    return this.emails.previewMultiRecipients(request.adminUser!.organizationId, body?.programIds);
+  }
+
+  /** One message to the members of several programs, each person once; recorded per program. */
+  @Post('program-emails/multi')
+  @HttpCode(202)
+  createMulti(
+    @Req() request: AuthenticatedRequest,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() body: { programIds?: unknown; subject?: unknown; body?: unknown },
+  ) {
+    return this.emails.createForPrograms(request.adminUser!.organizationId, actorFrom(request), {
+      programIds: body?.programIds,
+      subject: body?.subject,
+      body: body?.body,
+      idempotencyKey: parseIdempotencyKey(idempotencyKey),
+    });
+  }
+
   @Get('program-emails/:emailId')
   get(@Req() request: AuthenticatedRequest, @Param('emailId') emailId: string) {
     return this.emails.get(request.adminUser!.organizationId, emailId);

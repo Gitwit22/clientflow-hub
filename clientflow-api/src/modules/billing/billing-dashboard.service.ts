@@ -80,14 +80,18 @@ export class BillingDashboardService {
     const { start: periodStart, end: periodEnd } = getCalendarPeriodBounds(period, new Date(), timezone);
     const now = new Date();
 
-    const [agreements, payments, enrollments, programs, clients, configs] = await Promise.all([
+    const [agreements, allPayments, enrollments, programs, clients, configs, testEnrollments] = await Promise.all([
       this.prisma.cfEnrollmentBillingAgreement.findMany({ where: { organizationId } }),
       this.prisma.cfPaymentRecord.findMany({ where: { organizationId, voidedAt: null } }),
-      this.prisma.cfProgramEnrollment.findMany({ where: { organizationId, isArchived: false } }),
+      this.prisma.cfProgramEnrollment.findMany({ where: { organizationId, isArchived: false, isDemo: false } }),
       this.prisma.cfProgram.findMany({ where: { organizationId } }),
-      this.prisma.cfClient.findMany({ where: { organizationId, isArchived: false } }),
+      this.prisma.cfClient.findMany({ where: { organizationId, isArchived: false, isDemo: false } }),
       this.prisma.cfProgramBillingConfig.findMany({ where: { organizationId } }),
+      // Test clients' enrollments (archived or not): their money never counts.
+      this.prisma.cfProgramEnrollment.findMany({ where: { organizationId, isDemo: true }, select: { id: true, isDemo: true } }),
     ]);
+    const testEnrollmentIds = new Set(testEnrollments.filter((enrollment) => enrollment.isDemo === true).map((enrollment) => enrollment.id));
+    const payments = allPayments.filter((payment) => !testEnrollmentIds.has(payment.enrollmentId));
 
     const programById = new Map(programs.map((program) => [program.id, program]));
     const clientById = new Map(clients.map((client) => [client.id, client]));

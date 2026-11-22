@@ -184,6 +184,69 @@ describe('ClientsService', () => {
     expect(result.emailDelivery).toEqual({ status: 'deferred' });
   });
 
+  it.each([
+    ['a test client when isTest is true', true, true],
+    ['a real client by default', undefined, false],
+  ])('creates %s, marking its intake and activity the same way', async (_label, isTest, expected) => {
+    const transaction = {
+      cfFormTemplate: { findFirst: jest.fn().mockResolvedValue({ id: 'form-1', name: 'General Intake', dueInDays: 7 }), upsert: jest.fn() },
+      cfClient: {
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: 'client-1', organizationId: 'org-1', primaryContactName: 'Tess Tester', businessName: 'Tess Tester',
+          email: 'tess@example.com', phone: '', status: 'INTAKE_SENT', isDemo: data.isDemo,
+        })),
+      },
+      cfFormAssignment: {
+        create: jest.fn().mockResolvedValue({ id: 'assignment-1', formId: 'form-1', status: 'sent', dueDate: '2030-01-08', sentAt: new Date(), submittedAt: null, expiresAt: null }),
+      },
+      cfActivityLog: { create: jest.fn().mockResolvedValue({ id: 'activity-1' }) },
+    };
+    const prisma = {
+      organization: { findFirst: jest.fn().mockResolvedValue({ id: 'org-1' }) },
+      adminUser: { findFirst: jest.fn() },
+      cfActivityLog: { create: jest.fn() },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    } as unknown as PrismaService;
+    const n8n = {
+      getIntakeAvailability: jest.fn().mockReturnValue('disabled'),
+      sendIntake: jest.fn().mockResolvedValue({ status: 'skipped', reason: 'disabled' }),
+    } as unknown as N8nService;
+    const service = new ClientsService(prisma, configService(), n8n, contractsServiceMock());
+
+    const result = await service.create('org-1', { contactName: 'Tess Tester', email: 'tess@example.com', isTest });
+
+    expect(transaction.cfClient.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isDemo: expected }) }));
+    expect(transaction.cfFormAssignment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isDemo: expected }) }));
+    for (const [call] of transaction.cfActivityLog.create.mock.calls) {
+      expect(call).toEqual(expect.objectContaining({ data: expect.objectContaining({ isDemo: expected }) }));
+    }
+    expect(result.client.isTest).toBe(expected);
+  });
+
+  describe('findByEmail', () => {
+    function serviceWith(findMany: jest.Mock) {
+      const prisma = { cfClient: { findMany } } as unknown as PrismaService;
+      return new ClientsService(prisma, configService(), {} as N8nService, contractsServiceMock());
+    }
+
+    it('matches archived and active clients by email, ignoring case and spaces, within the organization only', async () => {
+      const findMany = jest.fn().mockResolvedValue([
+        { id: 'c-1', primaryContactName: 'Ann', businessName: 'Ann LLC', email: 'ann@example.com', isArchived: true, archivedAt: new Date('2026-01-01'), isDemo: false },
+      ]);
+      const result = await serviceWith(findMany).findByEmail('org-1', '  Ann@Example.com ');
+      expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { organizationId: 'org-1', email: { equals: 'Ann@Example.com', mode: 'insensitive' } },
+      }));
+      expect(result.matches).toEqual([expect.objectContaining({ id: 'c-1', contactName: 'Ann', isArchived: true, isTest: false })]);
+    });
+
+    it.each([[undefined], [''], ['not-an-email']])('does not search for %p', async (email) => {
+      const findMany = jest.fn();
+      await expect(serviceWith(findMany).findByEmail('org-1', email)).resolves.toEqual({ matches: [] });
+      expect(findMany).not.toHaveBeenCalled();
+    });
+  });
+
   it('lists clients scoped to an organization and optional status', async () => {
     const clients = [{
       id: 'client-1',

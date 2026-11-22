@@ -160,11 +160,12 @@ export class FundingService {
 
   /**
    * Every award with money still owed, across the organization, including enrollments that have
-   * been archived: closing a participation never makes an unpaid award disappear.
+   * been archived: closing a participation never makes an unpaid award disappear. Test clients'
+   * awards are left out.
    */
   async outstanding(organizationId: string) {
     const awards = await this.prisma.cfEnrollmentAward.findMany({
-      where: { organizationId, status: { not: AWARD_STATUS.cancelled } },
+      where: { organizationId, status: { not: AWARD_STATUS.cancelled }, isDemo: false },
       orderBy: [{ awardDate: 'asc' }, { createdAt: 'asc' }],
     });
     const views = (await this.views(organizationId, awards, { withDocuments: false })).filter((view) => view.outstanding > 0);

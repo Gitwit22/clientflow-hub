@@ -247,6 +247,7 @@ describe('BillingDashboardService: revenue for reports', () => {
     const prisma = createFakePrisma({ agreements, payments, enrollments, programs, clients });
     (prisma.cfProgramEnrollment.findMany as jest.Mock)
       .mockResolvedValueOnce(enrollments)
+      .mockResolvedValueOnce([]) // test clients' enrollments: none
       .mockResolvedValueOnce([{ id: 'e-archived', clientId: 'c-9', programId: 'p-2', isArchived: true }]);
 
     const dashboard = await new BillingDashboardService(prisma).getOrgDashboard('org-1', TZ, 'month');
@@ -257,5 +258,44 @@ describe('BillingDashboardService: revenue for reports', () => {
       { programId: 'p-1', programName: 'Inspired Detroit', received: 50, payingClients: 2 },
     ]);
     expect(dashboard.payingClients).toBe(2);
+  });
+
+  it("leaves a test client's payments, agreements and setup gaps out of every figure", async () => {
+    const start = new Date('2026-01-01T05:00:00.000Z');
+    const enrollments = [
+      { id: 'enroll-real', clientId: 'client-real', programId: 'program-1', isArchived: false, isDemo: false, status: 'active', startDate: start },
+      { id: 'enroll-test', clientId: 'client-test', programId: 'program-1', isArchived: false, isDemo: true, status: 'active', startDate: start },
+    ];
+    const clients = [
+      { id: 'client-real', businessName: 'Real LLC', isArchived: false, isDemo: false },
+      { id: 'client-test', businessName: 'Test LLC', isArchived: false, isDemo: true },
+    ];
+    const agreements = [
+      agreement({ enrollmentId: 'enroll-real', amount: 100, frequency: 'monthly', startDate: start }),
+      agreement({ enrollmentId: 'enroll-test', amount: 900, frequency: 'monthly', startDate: start }),
+    ];
+    const paidAt = new Date();
+    const payments = [
+      payment({ id: 'pay-real', enrollmentId: 'enroll-real', amount: 100, paymentDate: paidAt, billingPeriodStart: null, billingPeriodEnd: null }),
+      payment({ id: 'pay-test', enrollmentId: 'enroll-test', amount: 900, paymentDate: paidAt, billingPeriodStart: null, billingPeriodEnd: null }),
+    ];
+    // Like the database, each query returns only the rows its filter selects.
+    const matches = (row: Record<string, unknown>, where: Record<string, unknown>) =>
+      Object.entries(where).every(([key, value]) => key === 'organizationId' || (row[key] ?? false) === value);
+    const prisma = {
+      cfEnrollmentBillingAgreement: { findMany: jest.fn().mockResolvedValue(agreements) },
+      cfPaymentRecord: { findMany: jest.fn().mockResolvedValue(payments) },
+      cfProgramEnrollment: { findMany: jest.fn(async ({ where }: { where: Record<string, unknown> }) => enrollments.filter((row) => matches(row, where))) },
+      cfProgram: { findMany: jest.fn().mockResolvedValue([{ id: 'program-1', name: 'Program', organizationId: 'org-1' }]) },
+      cfClient: { findMany: jest.fn(async ({ where }: { where: Record<string, unknown> }) => clients.filter((row) => matches(row, where))) },
+      cfProgramBillingConfig: { findMany: jest.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService;
+
+    const dashboard = await new BillingDashboardService(prisma).getOrgDashboard('org-1', TZ, 'month');
+
+    expect(dashboard.revenue.received).toBe(100);
+    expect(dashboard.revenue.activeRecurringRevenue).toBe(100);
+    expect(dashboard.expectedPayments.every((row) => row.clientId === 'client-real')).toBe(true);
+    expect(dashboard.receivedByProgram).toEqual([expect.objectContaining({ received: 100, payingClients: 1 })]);
   });
 });
