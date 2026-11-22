@@ -1,3 +1,4 @@
+import { escapeAgreementText } from './agreement-format';
 import { createHash } from 'node:crypto';
 
 /**
@@ -6,7 +7,8 @@ import { createHash } from 'node:crypto';
  * Templates are validated when a version is saved (unknown fields, or award fields in an enrollment
  * agreement, are rejected). When an agreement is generated, a known field with no value blocks it,
  * so a client is never sent an agreement with a blank where their details belong. Values are
- * inserted as plain text: agreement content is plain text everywhere it is shown.
+ * inserted as text, escaped so they show exactly as they are inside formatted agreement text
+ * (agreement-format.ts).
  */
 
 export type AgreementPurpose = 'enrollment' | 'award';
@@ -109,7 +111,8 @@ export function renderMergeFields(content: string, values: MergeValues): Rendere
       missing.set(key, field.label);
       return whole;
     }
-    return String(value).trim();
+    // The value shows exactly as it is: characters that would start formatting are escaped.
+    return escapeAgreementText(String(value).trim());
   });
   return { text, missing: [...missing].map(([key, label]) => ({ key, label })) };
 }

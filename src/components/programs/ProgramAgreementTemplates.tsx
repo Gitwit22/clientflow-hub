@@ -1,3 +1,5 @@
+import { AgreementText } from "@/components/AgreementText";
+import { AgreementEditor } from "@/components/programs/AgreementEditor";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { UnsavedChangesMarker } from "@/components/CollapsibleSection";
@@ -16,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import {
   createProgramWorkflowContractTemplate,
   createProgramWorkflowContractVersion,
@@ -477,13 +478,7 @@ export function ProgramAgreementTemplates({
             placeholder="Agreement title"
             aria-label="Agreement title"
           />
-          <Textarea
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            rows={10}
-            placeholder="Agreement text. Use merge fields such as {{client.businessName}}."
-            aria-label="Agreement text"
-          />
+          <AgreementEditor value={content} onChange={setContent} />
           <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer">Merge fields you can use</summary>
             <ul className="mt-1 grid gap-0.5 sm:grid-cols-2">
@@ -603,12 +598,13 @@ export function ProgramAgreementTemplates({
             )}
           </div>
           {showSample && (
-            <pre
+            <div
               aria-label="Sample agreement"
-              className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-muted/40 p-3 font-sans text-sm"
+              className="max-h-96 overflow-auto rounded border border-border bg-muted/40 p-4 text-sm"
             >
-              {`${title.trim() ? `${title.trim()}\n\n` : ""}${renderWithSamples(content)}`}
-            </pre>
+              {title.trim() && <p className="mb-3 text-base font-semibold">{title.trim()}</p>}
+              <AgreementText text={renderWithSamples(content)} />
+            </div>
           )}
         </div>
       )}

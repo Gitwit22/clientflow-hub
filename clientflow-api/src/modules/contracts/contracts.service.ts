@@ -713,6 +713,8 @@ export class ContractsService {
           executedCopyUrl: download.url,
           source: delivery.source,
           sentByUserId: manual ? delivery.actor?.id ?? client.assignedUserId ?? 'system' : 'system',
+          // A staff member's own send carries their role's signature.
+          ...(manual && delivery.actor?.id ? { senderUserId: delivery.actor.id } : {}),
         });
       } catch (error) {
         this.logger.warn(`Unable to prepare the signed copy for contract ${contract.id}: ${(error as Error).message}`);
@@ -804,6 +806,9 @@ export class ContractsService {
           attachmentMimeType: attachment?.mimeType,
           headerImageUrl: welcomeConfig.headerImageUrl,
           sentByUserId: input.delivery.actor?.id ?? client.assignedUserId ?? 'system',
+          ...(input.delivery.source === DELIVERY_SOURCE.manual && input.delivery.actor?.id
+            ? { senderUserId: input.delivery.actor.id }
+            : {}),
         });
     await this.recordWelcomeDeliveryResult(input.communicationId, client, welcomeDelivery, input.delivery);
     return welcomeDelivery;
@@ -2027,7 +2032,8 @@ export class ContractsService {
           contractName: template.name,
           contractUrl: publicContractUrl,
           dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),
-          sentByUserId: client.assignedUserId ?? 'system',
+          sentByUserId: (manual ? delivery.actor?.id : null) ?? client.assignedUserId ?? 'system',
+          ...(manual && delivery.actor?.id ? { senderUserId: delivery.actor.id } : {}),
         });
     await this.recordDeliveryResult(issued.communication.id, emailDelivery);
 

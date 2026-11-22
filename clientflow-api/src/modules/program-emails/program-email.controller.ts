@@ -34,7 +34,12 @@ export class ProgramEmailController {
     @Param('programId') programId: string,
     @Body() body: { subject?: unknown; body?: unknown },
   ) {
-    return this.emails.preview(request.adminUser!.organizationId, programId, { subject: body?.subject, body: body?.body });
+    return this.emails.preview(
+      request.adminUser!.organizationId,
+      programId,
+      { subject: body?.subject, body: body?.body },
+      request.adminUser?.id ?? null,
+    );
   }
 
   /** Sends one [Test] copy to the signed-in staff member. Records nothing against members. */

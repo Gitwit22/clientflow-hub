@@ -55,6 +55,8 @@ export class N8nService {
   private readonly headerImageCache = new Map<string, { url: string | undefined; expiresAt: number }>();
   // The organization's settings (logo, signature, layout), read once per organization per window.
   private readonly settingsCache = new Map<string, { settings: unknown; expiresAt: number }>();
+  /** Staff roles by organization and user, for role signatures; refreshed like the settings. */
+  private readonly senderRoleCache = new Map<string, { role: string | null; expiresAt: number }>();
 
   constructor(
     private readonly config: ConfigService<Environment, true>,
@@ -98,13 +100,36 @@ export class N8nService {
   }
 
   /**
+   * The role of the staff member who sent an email, looked up only within the email's own
+   * organization. Unknown or placeholder ids ('system', 'staff') have no role.
+   */
+  private async senderRole(organizationId: string, senderUserId?: string): Promise<string | null> {
+    if (!this.prisma || !senderUserId || senderUserId === 'system' || senderUserId === 'staff') return null;
+    const key = `${organizationId}:${senderUserId}`;
+    const cached = this.senderRoleCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.role;
+    try {
+      const admin = await this.prisma.adminUser.findFirst({
+        where: { id: senderUserId, organizationId },
+        select: { role: true },
+      });
+      const role = admin?.role ?? null;
+      this.senderRoleCache.set(key, { role, expiresAt: Date.now() + HEADER_IMAGE_CACHE_MS });
+      return role;
+    } catch (error) {
+      this.logger.warn(`Unable to look up the email sender's role: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
    * The signature and layout for an email (the program's, else Settings'). Cosmetic like the logo:
    * a failed lookup logs and the email goes out with the workflow's own sign-off and layout.
    */
-  private async resolveStyle(organizationId: string, programId?: string): Promise<EmailStyle> {
+  private async resolveStyle(organizationId: string, programId?: string, senderRole?: string | null): Promise<EmailStyle> {
     if (!this.prisma) return {};
     try {
-      return await resolveEmailStyle(this.prisma, organizationId, programId, await this.organizationSettings(organizationId));
+      return await resolveEmailStyle(this.prisma, organizationId, programId, await this.organizationSettings(organizationId), senderRole);
     } catch (error) {
       this.logger.warn(`Unable to resolve the email signature and layout: ${(error as Error).message}`);
       return {};
@@ -288,6 +313,7 @@ export class N8nService {
       executedCopyUrl: payload.executedCopyUrl,
       source: payload.source,
       programId: payload.programId,
+      ...(payload.senderUserId ? { senderUserId: payload.senderUserId } : {}),
     });
   }
 
@@ -305,6 +331,7 @@ export class N8nService {
       organizationName: payload.organizationName,
       roleLabel: payload.roleLabel,
       expiresInHours: payload.expiresInHours,
+      ...(payload.senderUserId ? { senderUserId: payload.senderUserId } : {}),
     });
   }
 
@@ -324,17 +351,23 @@ export class N8nService {
       requestedByName: payload.requestedByName,
       organizationName: payload.organizationName,
       expiresInMinutes: payload.expiresInMinutes,
+      ...(payload.senderUserId ? { senderUserId: payload.senderUserId } : {}),
     });
   }
 
   /** The whole email one member would receive, for a preview before sending. Nothing is sent. */
-  async previewProgramEmail(organizationId: string, body: string, programId?: string): Promise<{ html: string; text: string }> {
+  async previewProgramEmail(
+    organizationId: string,
+    body: string,
+    programId?: string,
+    senderUserId?: string,
+  ): Promise<{ html: string; text: string }> {
     const formatted = formattedTextToEmail(body, { allowImage: this.emailImagePolicy(organizationId) });
     return {
       html: emailDocumentHtml(
         formatted.html,
         await this.resolveHeaderImageUrl(organizationId),
-        await this.resolveStyle(organizationId, programId),
+        await this.resolveStyle(organizationId, programId, await this.senderRole(organizationId, senderUserId)),
       ),
       text: formatted.text,
     };
@@ -358,6 +391,7 @@ export class N8nService {
       body: formatted.text,
       bodyHtml: formatted.html,
       programId: payload.programId,
+      ...(payload.senderUserId ? { senderUserId: payload.senderUserId } : {}),
     });
   }
 
@@ -370,9 +404,10 @@ export class N8nService {
     if (!webhookUrl || !secret) throw new ServiceUnavailableException('n8n is not configured.');
     // Looked up by ClientFlow's own organization, before the wire organizationId is swapped in.
     const headerImageUrl = payload.headerImageUrl ?? (await this.resolveHeaderImageUrl(payload.organizationId));
-    // programId only chooses the signature and layout; it is not part of what n8n receives.
-    const { programId, ...event } = payload;
-    const style = toWireStyle(await this.resolveStyle(payload.organizationId, programId));
+    // programId and senderUserId only choose the signature and layout; n8n never receives them.
+    const { programId, senderUserId, ...event } = payload;
+    const role = await this.senderRole(payload.organizationId, senderUserId);
+    const style = toWireStyle(await this.resolveStyle(payload.organizationId, programId, role));
     const outboundPayload = {
       ...style,
       ...event,

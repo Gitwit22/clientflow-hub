@@ -355,6 +355,10 @@ export async function updateOrganizationSettings(
     logoStoredFileId?: string | null;
     emailSignature?: string | null;
     emailLayout?: "left" | "left-edge" | "center" | null;
+    /** Sign-offs by staff role; each role saved replaces only that role. */
+    emailSignaturesByRole?: Partial<
+      Record<"org_admin" | "reviewer" | "super_admin", string | null>
+    >;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;

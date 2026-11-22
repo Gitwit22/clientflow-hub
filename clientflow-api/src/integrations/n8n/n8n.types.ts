@@ -25,6 +25,11 @@ interface LifecycleEventBase {
    * before the event is sent to n8n.
    */
   programId?: string;
+  /**
+   * Internal: the staff member who sent this email themselves (never set for automatic emails).
+   * Their role's signature is used when one is saved. Removed before the event is sent to n8n.
+   */
+  senderUserId?: string;
   /** The sign-off (program's, else Settings'), added to every event when configured. */
   signatureText?: string;
   /** The same sign-off as escaped HTML with <br/> line breaks. */
@@ -210,6 +215,8 @@ export interface IntakeEmailPayload {
   dueDate: string;
   expiresAt?: string | null;
   sentByUserId: string;
+  /** The staff member who sent it themselves, for their role's signature. */
+  senderUserId?: string;
 }
 
 /** n8n answered with this HTTP status instead of accepting the event (e.g. `n8n_http_500`). */
@@ -232,6 +239,8 @@ export interface ContractEmailPayload {
   contractUrl: string;
   dueDate?: string;
   sentByUserId: string;
+  /** The staff member who sent it themselves, for their role's signature. */
+  senderUserId?: string;
 }
 
 export type ContractEmailDeliveryResult = IntakeEmailDeliveryResult;
@@ -259,6 +268,8 @@ export interface WelcomeEmailPayload {
   /** Public URL of the org's header logo; resolved independently of the guide attachment. */
   headerImageUrl?: string;
   sentByUserId: string;
+  /** The staff member who sent it themselves, for their role's signature. */
+  senderUserId?: string;
 }
 
 export type WelcomeEmailDeliveryResult = IntakeEmailDeliveryResult;

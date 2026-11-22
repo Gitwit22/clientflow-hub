@@ -2,7 +2,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import { inMemoryDb } from '../../invariants/in-memory-db';
 import { emailDocumentHtml } from './email-body';
-import { parseEmailLayout, parseEmailSignature, resolveEmailStyle, toWireStyle } from './email-style';
+import { parseEmailLayout, parseEmailSignature, parseEmailSignaturesByRole, resolveEmailStyle, toWireStyle } from './email-style';
 import { N8nService } from './n8n.service';
 
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-base-to-string */
@@ -10,7 +10,14 @@ import { N8nService } from './n8n.service';
 function setup() {
   return inMemoryDb({
     organization: [
-      { id: 'org-1', settings: { emailSignature: 'Warm regards,\nEA Management Team', emailLayout: 'left' } },
+      {
+        id: 'org-1',
+        settings: {
+          emailSignature: 'Warm regards,\nEA Management Team',
+          emailLayout: 'left',
+          emailSignaturesByRole: { org_admin: 'Thank you,\nEAM Administration', reviewer: 'Thank you,\nEAM Staff', super_admin: '  ' },
+        },
+      },
       { id: 'org-2', settings: {} },
     ],
     cfProgram: [
@@ -18,6 +25,12 @@ function setup() {
       { id: 'p-grant', organizationId: 'org-1', emailSignature: 'The Grant Team <grants@ea.example>', emailLayout: 'center' },
       { id: 'p-other-org', organizationId: 'org-2', emailSignature: 'Not yours', emailLayout: 'left' },
       { id: 'p-edge', organizationId: 'org-1', emailSignature: null, emailLayout: 'left-edge' },
+    ],
+    adminUser: [
+      { id: 'admin-1', organizationId: 'org-1', role: 'org_admin' },
+      { id: 'staff-1', organizationId: 'org-1', role: 'reviewer' },
+      { id: 'boss-1', organizationId: 'org-1', role: 'super_admin' },
+      { id: 'outsider-1', organizationId: 'org-2', role: 'org_admin' },
     ],
   }) as any;
 }
@@ -131,5 +144,62 @@ describe('email signature and layout', () => {
     expect(toWireStyle({ layout: 'left' })).toEqual({ layout: 'left' });
     expect(toWireStyle({ layout: 'center' })).toEqual({ layout: 'center' });
     expect(toWireStyle({})).toEqual({});
+  });
+
+  it("uses the sender's role signature first, then the program's, then the organization's", async () => {
+    const db = setup();
+    const settings = {
+      emailSignature: 'Warm regards,\nEA Management Team',
+      emailLayout: 'left',
+      emailSignaturesByRole: { org_admin: 'Thank you,\nEAM Administration', reviewer: 'Thank you,\nEAM Staff', super_admin: '  ' },
+    };
+    // The role signature wins over a program's own signature.
+    expect(await resolveEmailStyle(db, 'org-1', 'p-grant', settings, 'org_admin')).toEqual(expect.objectContaining({
+      signatureText: 'Thank you,\nEAM Administration', signatureHtml: 'Thank you,<br/>EAM Administration', layout: 'center',
+    }));
+    expect(await resolveEmailStyle(db, 'org-1', 'p-idi', settings, 'reviewer')).toEqual(expect.objectContaining({ signatureText: 'Thank you,\nEAM Staff' }));
+    // A super admin with a blank signature of their own uses the Admin one (Settings shows them as Admins).
+    expect(await resolveEmailStyle(db, 'org-1', 'p-grant', settings, 'super_admin')).toEqual(expect.objectContaining({ signatureText: 'Thank you,\nEAM Administration' }));
+    // A role with no signature, or no sender, falls back as before.
+    expect(await resolveEmailStyle(db, 'org-1', 'p-grant', { emailSignaturesByRole: { org_admin: 'A' } }, 'reviewer'))
+      .toEqual(expect.objectContaining({ signatureText: 'The Grant Team <grants@ea.example>' }));
+    expect(await resolveEmailStyle(db, 'org-1', 'p-idi', settings, null)).toEqual(expect.objectContaining({ signatureText: 'Warm regards,\nEA Management Team' }));
+  });
+
+  it('reads role signatures from staff: known roles only, each a valid signature', () => {
+    expect(parseEmailSignaturesByRole({ org_admin: ' Thank you,\r\nEAM Administration ', reviewer: '' })).toEqual({
+      org_admin: 'Thank you,\nEAM Administration', reviewer: null,
+    });
+    expect(parseEmailSignaturesByRole(null)).toEqual({});
+    expect(() => parseEmailSignaturesByRole({ owner: 'x' })).toThrow('Unknown role "owner"');
+    expect(() => parseEmailSignaturesByRole(['x'])).toThrow('by role');
+    expect(() => parseEmailSignaturesByRole({ reviewer: 'x'.repeat(1001) })).toThrow('under 1000');
+  });
+
+  it("signs an email a staff member sent with their role's signature, never tells n8n who sent it, and ignores other organizations' users", async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const sent = JSON.parse(String((init as RequestInit).body));
+      return new Response(JSON.stringify({ success: true, status: 'ACCEPTED', eventId: sent.eventId, sentAt: '2030-01-01T00:00:00.000Z' }), { status: 202 });
+    });
+    const values: Record<string, unknown> = {
+      N8N_ENABLED: 'true', N8N_EMAIL_WEBHOOK_URL: 'https://n8n.example.com/webhook/intake', CLIENTFLOW_N8N_SECRET: 'webhook-secret', N8N_TIMEOUT_MS: 5000,
+    };
+    const service = new N8nService({ get: (key: string) => values[key] } as unknown as ConfigService<Environment, true>, setup());
+    const base = {
+      organizationId: 'org-1', programId: 'p-grant', clientId: 'c1', recipientEmail: 'pat@example.com', clientName: 'Pat',
+      programName: 'Grant', subject: 'Welcome', body: 'Hello', renderMode: 'verbatim', nextStep: 'Hello', sentByUserId: 'staff-1',
+      welcome: { source: 'program_template', templateId: null, templateName: null, versionId: null, versionNumber: null },
+    };
+    await service.sendWelcome('w-staff', { ...base, senderUserId: 'staff-1' } as never);
+    await service.sendWelcome('w-auto', base as never);
+    await service.sendWelcome('w-outsider', { ...base, senderUserId: 'outsider-1' } as never);
+    const [staff, automatic, outsider] = fetchMock.mock.calls.map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(staff).toEqual(expect.objectContaining({ signatureText: 'Thank you,\nEAM Staff' }));
+    expect(staff).not.toHaveProperty('senderUserId');
+    // No sender (automatic): the program's signature, as before.
+    expect(automatic).toEqual(expect.objectContaining({ signatureText: 'The Grant Team <grants@ea.example>' }));
+    // A user from another organization is not a sender here.
+    expect(outsider).toEqual(expect.objectContaining({ signatureText: 'The Grant Team <grants@ea.example>' }));
+    fetchMock.mockRestore();
   });
 });

@@ -46,7 +46,7 @@ import {
   validateAutomationEmail,
 } from '../automation/automation-email';
 import { isSendableEmail } from '../communications/recipient';
-import { parseEmailLayout, parseEmailSignature } from '../../integrations/n8n/email-style';
+import { parseEmailLayout, parseEmailSignature, parseEmailSignaturesByRole } from '../../integrations/n8n/email-style';
 import { assertIntakeChoice, assertReadyToActivate, GENERAL_INTAKE_CHOICE, programSetup } from '../programs/program-setup';
 import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
@@ -1250,6 +1250,7 @@ export class ClientflowCompatibilityController {
       welcome: { source: 'automation_rule', templateId: null, templateName: null, versionId: null, versionNumber: null, ruleId: 'test' },
       nextStep: renderedMessage,
       sentByUserId: admin.id,
+      senderUserId: admin.id,
     });
     return { recipientEmail: admin.email, delivery };
   }
@@ -2183,6 +2184,8 @@ function pickOrganizationSettings(body: Record<string, unknown>): Record<string,
   // The default email sign-off and layout; a program can set its own (CfProgram).
   if ('emailSignature' in body) settings.emailSignature = parseEmailSignature(body.emailSignature);
   if ('emailLayout' in body) settings.emailLayout = parseEmailLayout(body.emailLayout);
+  // Sign-offs by staff role, used on emails a person sends (merged role by role on save).
+  if ('emailSignaturesByRole' in body) settings.emailSignaturesByRole = parseEmailSignaturesByRole(body.emailSignaturesByRole);
   for (const key of ['features', 'notificationTemplateToggles'] as const) {
     const value = body[key];
     if (isRecord(value)) {
@@ -2667,6 +2670,7 @@ export class OrganizationsCompatibilityController {
         organizationId: member.organizationId,
         clientId: member.id,
         sentByUserId: actor.id,
+        senderUserId: actor.id,
         recipientEmail: member.email,
         clientName: staffName(member),
         actionUrl,
@@ -2717,7 +2721,7 @@ export class OrganizationsCompatibilityController {
     }
     const nextSettings: Record<string, unknown> = { ...currentSettings, ...changes };
     // Toggle maps merge key by key: turning one notification off must not reset the others.
-    for (const key of ['features', 'notificationTemplateToggles'] as const) {
+    for (const key of ['features', 'notificationTemplateToggles', 'emailSignaturesByRole'] as const) {
       if (isRecord(changes[key])) {
         nextSettings[key] = { ...(isRecord(currentSettings[key]) ? currentSettings[key] : {}), ...changes[key] };
       }

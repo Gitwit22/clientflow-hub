@@ -423,6 +423,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       "award agreement",
       "enrollment agreement",
       "version",
+      "bold",
+      "italic",
+      "underline",
+      "heading",
+      "format",
     ],
     blocks: [
       { type: "text", text: "Program → Overview → Program workflow → Agreements." },
@@ -445,6 +450,15 @@ export const HELP_TOPICS: HelpTopic[] = [
       {
         type: "text",
         text: "Merge fields you can use include {{client.businessName}}, {{client.contactName}}, {{program.name}}, {{today}}, and in award agreements {{award.amount}}, {{award.date}}, {{award.title}} and {{award.source}}.",
+      },
+      {
+        type: "list",
+        items: [
+          "Formatting: select text and use the toolbar above the agreement text: Bold, Italic, Underline, the text size menu (Heading, Subheading, Normal text, Small print), Bulleted list, Numbered list and Center.",
+          'The toolbar writes simple marks you can also type: **bold**, _italic_, ++underline++; a line starting "# " (heading), "## " (subheading), "-# " (small print), "- " or "1. " (list); a line wrapped in -> and <- is centered.',
+          "The preview, the client's signing page and the signed PDF all show the formatting. A note under the text points out formatting that was started but not finished.",
+          "Lines in ALL CAPS still show as headings, so agreements written before formatting look as they did.",
+        ],
       },
       {
         type: "tip",
@@ -513,6 +527,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Program → Overview → Program workflow → Email signature: a program's own, which replaces the default for that program's emails. Leave it empty to use the organization's.",
           'Layout: "Centered" (standard), "Left, with a margin" (logo and text indented from the left), or "Left, logo at the edge" (the logo starts at the very left edge and the text keeps its margin).',
           "Email apps add a little space of their own around every email, so the logo can't sit closer to the edge than that.",
+          'Signature by role (same Settings section): an Admin signature (for example "Thank you, EAM Administration") and a Staff signature ("Thank you, EAM Staff"). Emails a person sends (blasts, forms, agreements, welcome emails, staff invites) end with their role\'s signature; automatic emails keep the program\'s or organization\'s. Leave a role empty to use those.',
         ],
       },
       { type: "tip", text: 'Use "Send test to me" on a program email to see the result.' },
@@ -904,7 +919,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         type: "list",
         items: [
           "Intake email: a secure link to their own intake form. They answer the general questions, choose at least one program (the form highlights the program list and won't submit until one is ticked), answer each chosen program's questions and submit.",
-          "Agreement email: a link to read and sign. Signing takes their typed name, email and agreement.",
+          'Agreement email: a link to read and sign. The agreement shows in large, easy-to-read text. They must scroll to the end before they can tick "I agree" and sign ("Jump to the end" is there too). Signing takes their typed name, email and agreement; anything missing or mistyped is explained next to the field, and a link that has expired says to ask for a new one.',
           "Signed copy: an email with a link to the signed PDF.",
           "Welcome email and any program emails, with your logo and signature.",
         ],

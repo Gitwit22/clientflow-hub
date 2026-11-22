@@ -404,6 +404,7 @@ describe('ContractsService: send the signed copy', () => {
       contractName: 'Brand Awareness Service Agreement',
       source: 'manual_staff_action',
       sentByUserId: 'admin-1',
+      senderUserId: 'admin-1',
     });
     expect(n8n.sendContract).not.toHaveBeenCalled(); // never the signing-link path
     expect(prisma.cfContract.update).not.toHaveBeenCalled(); // no token rotation, no status change

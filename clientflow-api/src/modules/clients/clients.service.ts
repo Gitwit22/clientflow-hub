@@ -592,6 +592,7 @@ export class ClientsService {
       dueDate: (dueAt ?? now).toISOString(),
       expiresAt: expiresAt?.toISOString() ?? null,
       sentByUserId: options.actor?.id ?? client.assignedUserId ?? 'system',
+      ...(options.actor?.id ? { senderUserId: options.actor.id } : {}),
     });
     const failureReason = emailDelivery.status === 'sent' ? null : emailDelivery.reason;
     await this.prisma.cfCommunication.update({

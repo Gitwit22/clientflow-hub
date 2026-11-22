@@ -121,6 +121,10 @@ export interface OrgSettings {
     emailSignature?: string | null;
     /** "left" (with a margin) or "center" for the email header and message. */
     emailLayout?: "left" | "left-edge" | "center" | null;
+    /** Sign-offs on emails a person sends, by their role (super admins use org_admin's). */
+    emailSignaturesByRole?: Partial<
+      Record<"org_admin" | "reviewer" | "super_admin", string | null>
+    >;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;

@@ -214,6 +214,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
       // The test goes to the staff member themself; no client is involved.
       clientId: actor.id ?? 'staff',
       sentByUserId: actor.id ?? 'staff',
+      ...(actor.id ? { senderUserId: actor.id } : {}),
       recipientEmail: actor.email,
       clientName: actor.displayName,
       programName: program.name,
@@ -426,13 +427,19 @@ export class ProgramEmailService implements OnApplicationBootstrap {
    * The email exactly as a member would receive it (sender, subject, logo header, formatted message,
    * sign-off), built the same way the send builds it. Nothing is recorded or sent.
    */
-  async preview(organizationId: string, programId: string, input: { subject?: unknown; body?: unknown }) {
+  async preview(
+    organizationId: string,
+    programId: string,
+    input: { subject?: unknown; body?: unknown },
+    /** The staff member previewing: the email shows their role's signature, as it will be sent. */
+    senderUserId?: string | null,
+  ) {
     const { subject, body } = messageFrom(input);
     await this.assertEmailImages(organizationId, body);
     const program = await findProgramForOrg(this.prisma, organizationId, programId);
     let rendered: { html: string; text: string };
     if (this.n8n) {
-      rendered = await this.n8n.previewProgramEmail(organizationId, body, program.id);
+      rendered = await this.n8n.previewProgramEmail(organizationId, body, program.id, senderUserId ?? undefined);
     } else {
       const formatted = formattedTextToEmail(body);
       rendered = { html: emailDocumentHtml(formatted.html), text: formatted.text };
@@ -614,6 +621,8 @@ export class ProgramEmailService implements OnApplicationBootstrap {
           organizationId: email.organizationId,
           clientId: communication.clientId,
           sentByUserId: email.sentByUserId ?? 'system',
+          // Sent on behalf of the staff member who wrote it: their role's signature.
+          ...(email.sentByUserId ? { senderUserId: email.sentByUserId } : {}),
           recipientEmail: communication.recipientEmail!,
           clientName: context.name || context.businessName || 'there',
           programName,
