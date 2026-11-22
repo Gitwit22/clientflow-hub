@@ -258,16 +258,16 @@ export class ProgramEmailService implements OnApplicationBootstrap {
   private async recipientsFor(organizationId: string, programId: string, onlyClientIds?: ReadonlySet<string>) {
     // Every enrollment counts, whatever its status, except archived ones: an archived client, or a
     // participation archived when its final report was finalized, is out of the program's working
-    // list. Demo records are sample data, never emailed.
+    // list. Test clients get the email too (that is what they are for); they are marked isTest.
     const enrollments = await this.prisma.cfProgramEnrollment.findMany({
-      where: { organizationId, programId, isDemo: false, isArchived: false },
+      where: { organizationId, programId, isArchived: false },
       select: { id: true, clientId: true },
       orderBy: { createdAt: 'asc' },
     });
     const clients = enrollments.length
       ? await this.prisma.cfClient.findMany({
-          where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isDemo: false, isArchived: false },
-          select: { id: true, businessName: true, primaryContactName: true, email: true },
+          where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isArchived: false },
+          select: { id: true, businessName: true, primaryContactName: true, email: true, isDemo: true },
         })
       : [];
     const byId = new Map(clients.map((client) => [client.id, client]));
@@ -280,6 +280,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
             businessName: client.businessName,
             contactName: client.primaryContactName,
             email: client.email,
+            ...(client.isDemo ? { isTest: true } : {}),
           }]
         : [];
     });

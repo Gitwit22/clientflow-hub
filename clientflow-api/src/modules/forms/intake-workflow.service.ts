@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
+import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { Prisma } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -66,7 +67,8 @@ export class IntakeWorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly enrollments: EnrollmentsService,
-    private readonly automation?: ProgramAutomationService,
+    @Optional() private readonly automation?: ProgramAutomationService,
+    @Optional() private readonly deliverables?: ProgramDeliverablesService,
   ) {}
 
   async submit(rawToken: string, input: IntakeSubmissionInput): Promise<IntakeSubmissionResult> {
@@ -309,6 +311,22 @@ export class IntakeWorkflowService {
           actorDisplayName: actor,
           idempotencySeed: `form.completed:${submission.id}`,
           payload: { formId: assignment.formId, assignmentId: assignment.id },
+        });
+      }
+    }
+
+    // Program deliverables set to complete when this form is submitted (a monthly report, say):
+    // the form's own enrollment, or every program this intake enrolled the client in.
+    if (this.deliverables) {
+      const formName = template?.name?.trim() || 'A form';
+      for (const enrollmentId of assignment.enrollmentId ? [assignment.enrollmentId] : enrollmentIds) {
+        await this.deliverables.autoComplete({
+          organizationId: assignment.organizationId,
+          enrollmentId,
+          trigger: 'form_submitted',
+          formId: assignment.formId,
+          occurredAt: submittedAt,
+          detail: `${formName} submitted`,
         });
       }
     }

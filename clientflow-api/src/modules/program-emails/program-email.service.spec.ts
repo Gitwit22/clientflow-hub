@@ -45,7 +45,8 @@ function setup(send?: jest.Mock) {
       enrollment('e4', 'c4'),
       enrollment('e5', 'c5'),
       enrollment('e6', 'c6', 'withdrawn'),
-      enrollment('e7', 'c7', 'active', { isDemo: true }),
+      // The test client is in another program here; a test below puts one in this program.
+      enrollment('e7', 'c7', 'active', { isDemo: true, programId: 'p-elsewhere' }),
       enrollment('e8', 'c8', 'interested'), // the client was archived, the enrollment left open
       enrollment('e9', 'c9', 'completed', { isArchived: true }), // participation archived
       { ...enrollment('ex', 'cx'), organizationId: OTHER_ORG, programId: 'p-foreign' },
@@ -87,8 +88,18 @@ describe('program email recipients', () => {
       { clientId: 'c4', businessName: 'Typo Co', email: 'typo@gmail', reason: 'invalid_email' },
     ]);
     expect(preview).toEqual(expect.objectContaining({ recipientCount: 3, skippedCount: 3 }));
-    // Demo records and other organizations never appear.
-    expect(JSON.stringify(preview)).not.toMatch(/demo@example|theirs@example/);
+    // Other organizations never appear.
+    expect(JSON.stringify(preview)).not.toMatch(/theirs@example/);
+  });
+
+  it('includes test clients (marked as tests), so staff can try a blast on them', async () => {
+    const { rows, service } = setup();
+    rows.cfProgramEnrollment.push(enrollment('e-test', 'c7', 'active', { isDemo: true }));
+    const preview = await service.previewRecipients(ORG, 'p-idi');
+    expect(preview.recipients).toEqual(expect.arrayContaining([
+      expect.objectContaining({ clientId: 'c7', email: 'demo@example.com', isTest: true }),
+    ]));
+    expect(preview.recipients.filter((recipient) => recipient.isTest)).toHaveLength(1);
   });
 
   it("never reads another organization's program", async () => {
@@ -319,8 +330,8 @@ describe('emailing several programs at once', () => {
     ]);
     // No Email LLC is in both programs but listed once; the new member without an address is listed too.
     expect(preview.skipped.map((member) => member.clientId).sort()).toEqual(['c12', 'c3', 'c4', 'c5']);
-    // Test and archived clients never appear.
-    expect(JSON.stringify(preview)).not.toMatch(/demo@example|archived@example|finished@example/);
+    // Archived clients and archived participations never appear.
+    expect(JSON.stringify(preview)).not.toMatch(/archived@example|finished@example/);
   });
 
   it('sends each person exactly one copy, recorded under each program', async () => {

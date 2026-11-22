@@ -14,7 +14,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useAppState } from "@/lib/store";
 import { MergeDeliverableDialog } from "@/components/programs/MergeDeliverableDialog";
+import { ConfirmDeliverableDialog } from "@/components/programs/ConfirmDeliverableDialog";
 import {
   cfCreateProgramDeliverable,
   cfListProgramDeliverableDates,
@@ -25,17 +34,23 @@ import {
 } from "@/lib/apiClient";
 import {
   CADENCE_LABELS,
+  DELIVERABLE_TRIGGER_LABELS,
+  type DeliverableTrigger,
   formatDeliverableDate,
   type ProgramDeliverableDates,
   type ProgramDeliverableTemplate,
 } from "@/lib/program-deliverables";
+
+/** The "completes automatically" choice for a deliverable staff complete by hand. */
+const MANUAL_ONLY = "manual";
 
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
 /**
  * The program's deliverables: what every enrolled client is promised each month. Changes apply
- * to future months only; months already started keep what they had.
+ * to every member's checklist for this month and to later months; earlier and finalized months
+ * keep what they had.
  */
 export function ProgramDeliverablesConfig({ programId }: { programId: string }) {
   const [templates, setTemplates] = useState<ProgramDeliverableTemplate[] | null>(null);
@@ -43,6 +58,7 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ProgramDeliverableTemplate | "new" | null>(null);
   const [merging, setMerging] = useState<ProgramDeliverableTemplate | null>(null);
+  const [confirming, setConfirming] = useState<ProgramDeliverableTemplate | null>(null);
   // Bumped to load the list again (after a merge changes several deliverables at once).
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((key) => key + 1);
@@ -121,8 +137,8 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
           <div>
             <CardTitle className="font-display text-base">Program Deliverables</CardTitle>
             <p className="text-xs text-muted-foreground">
-              What each enrolled client receives every month. Changes apply from the next month;
-              months already started keep their list.
+              What each enrolled client receives every month. Changes update every member&apos;s
+              checklist for this month and later; earlier and finalized months keep their record.
             </p>
           </div>
           <Button size="sm" onClick={() => setEditing("new")} disabled={busy || !templates}>
@@ -162,7 +178,7 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
                   <div className="flex items-center gap-1">
                     <span className="mr-2 font-mono text-[10px] uppercase text-muted-foreground">
                       {template.active
-                        ? `${CADENCE_LABELS[template.cadence]}${template.programWideDate ? " · Program date" : ""}`
+                        ? `${CADENCE_LABELS[template.cadence]}${template.programWideDate ? " · Program date" : ""}${template.completeOn ? " · Auto" : ""}`
                         : "Disabled"}
                     </span>
                     <Button
@@ -195,6 +211,17 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
+                    {template.active && template.cadence === "MONTHLY" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        disabled={busy}
+                        onClick={() => setConfirming(template)}
+                      >
+                        Confirm for members
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"
@@ -222,6 +249,12 @@ export function ProgramDeliverablesConfig({ programId }: { programId: string }) 
             </ul>
           )}
         </CardContent>
+        <ConfirmDeliverableDialog
+          programId={programId}
+          template={confirming}
+          open={confirming !== null}
+          onOpenChange={(open) => !open && setConfirming(null)}
+        />
         <MergeDeliverableDialog
           programId={programId}
           from={merging}
@@ -428,13 +461,19 @@ function DeliverableTemplateDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [programWideDate, setProgramWideDate] = useState(false);
+  const [completeOn, setCompleteOn] = useState<string>(MANUAL_ONLY);
+  const [completeOnFormId, setCompleteOnFormId] = useState("");
   const [saving, setSaving] = useState(false);
+  const { formTemplates } = useAppState();
+  const forms = formTemplates.filter((form) => form.isActive !== false);
 
   useEffect(() => {
     if (!open) return;
     setTitle(template?.title ?? "");
     setDescription(template?.description ?? "");
     setProgramWideDate(template?.programWideDate ?? false);
+    setCompleteOn(template?.completeOn ?? MANUAL_ONLY);
+    setCompleteOnFormId(template?.completeOnFormId ?? "");
   }, [open, template]);
 
   async function handleSubmit(event: FormEvent) {
@@ -443,12 +482,19 @@ function DeliverableTemplateDialog({
       toast.error("Give the deliverable a title.");
       return;
     }
+    if (completeOn === "form_submitted" && !completeOnFormId) {
+      toast.error("Choose the form that completes this deliverable.");
+      return;
+    }
     setSaving(true);
     try {
+      const trigger = completeOn === MANUAL_ONLY ? null : (completeOn as DeliverableTrigger);
       const data = {
         title: title.trim(),
         description: description.trim() || null,
         programWideDate,
+        completeOn: trigger,
+        completeOnFormId: trigger === "form_submitted" ? completeOnFormId : null,
       };
       const result = template
         ? await cfUpdateProgramDeliverable(programId, template.id, data)
@@ -506,6 +552,42 @@ function DeliverableTemplateDialog({
               </span>
             </span>
           </label>
+          <div className="space-y-1.5">
+            <Label>Completes automatically when…</Label>
+            <Select value={completeOn} onValueChange={setCompleteOn}>
+              <SelectTrigger aria-label="Completes automatically when">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={MANUAL_ONLY}>
+                  Staff mark it done (no automatic completion)
+                </SelectItem>
+                {(Object.keys(DELIVERABLE_TRIGGER_LABELS) as DeliverableTrigger[]).map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {DELIVERABLE_TRIGGER_LABELS[key]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {completeOn === "form_submitted" && (
+              <Select value={completeOnFormId} onValueChange={setCompleteOnFormId}>
+                <SelectTrigger aria-label="Form that completes it">
+                  <SelectValue placeholder="Choose the form" />
+                </SelectTrigger>
+                <SelectContent>
+                  {forms.map((form) => (
+                    <SelectItem key={form.id} value={form.id}>
+                      {form.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-xs text-muted-foreground">
+              When it happens, this deliverable is marked completed on that client&apos;s checklist
+              for the month, with a note saying what completed it. Staff can still mark it by hand.
+            </p>
+          </div>
           <p className="text-xs text-muted-foreground">
             Tracked monthly for every active client in this program.
           </p>

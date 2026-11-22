@@ -83,6 +83,8 @@ describe("ProgramDeliverablesConfig", () => {
         title: "Business Plan Update",
         description: null,
         programWideDate: false,
+        completeOn: null,
+        completeOnFormId: null,
         cadence: "MONTHLY",
       }),
     );
@@ -105,6 +107,8 @@ describe("ProgramDeliverablesConfig", () => {
         title: "Coaching Call",
         description: null,
         programWideDate: false,
+        completeOn: null,
+        completeOnFormId: null,
       }),
     );
 
@@ -135,6 +139,8 @@ describe("ProgramDeliverablesConfig", () => {
         title: "Coaching Session",
         description: null,
         programWideDate: true,
+        completeOn: null,
+        completeOnFormId: null,
       }),
     );
     expect(await screen.findByText("Monthly · Program date")).toBeTruthy();

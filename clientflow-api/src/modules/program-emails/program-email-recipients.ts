@@ -7,6 +7,8 @@ export interface ProgramMember {
   businessName: string;
   contactName: string;
   email: string | null;
+  /** A test client (it gets the email; staff see it marked as a test). */
+  isTest?: boolean;
 }
 
 export interface ProgramEmailRecipient {
@@ -17,6 +19,7 @@ export interface ProgramEmailRecipient {
   name: string;
   /** Trimmed and lower-cased, so each address gets one copy. */
   email: string;
+  isTest?: boolean;
 }
 
 export type SkipReason = 'missing_email' | 'invalid_email' | 'duplicate_email';
@@ -71,6 +74,7 @@ export function buildRecipientList(members: readonly ProgramMember[]): Recipient
       businessName: member.businessName,
       name: member.contactName.trim() || member.businessName,
       email,
+      ...(member.isTest ? { isTest: true } : {}),
     });
   }
   return { recipients, skipped };

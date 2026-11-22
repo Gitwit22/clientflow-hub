@@ -5,6 +5,7 @@ import { AutomationModule } from '../automation/automation.module';
 import { ProgramsModule } from '../programs/programs.module';
 import { EnrollmentsModule } from '../enrollments/enrollments.module';
 import { FormsModule } from '../forms/forms.module';
+import { DeliverablesModule } from '../deliverables/deliverables.module';
 import { FinalReportsModule } from '../final-reports/final-reports.module';
 import {
   AuthCompatibilityController,
@@ -15,7 +16,7 @@ import {
 } from './compatibility.controller';
 
 @Module({
-  imports: [IntegrationsModule, AutomationModule, ProgramsModule, EnrollmentsModule, FormsModule, FinalReportsModule],
+  imports: [IntegrationsModule, AutomationModule, ProgramsModule, EnrollmentsModule, FormsModule, FinalReportsModule, DeliverablesModule],
   controllers: [
     AuthCompatibilityController,
     ClientflowCompatibilityController,

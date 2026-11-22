@@ -9,6 +9,8 @@ export interface ProgramEmailRecipientPreview {
   businessName: string;
   name: string;
   email: string;
+  /** A test client: it gets the email, and is marked as a test in the member list. */
+  isTest?: boolean;
 }
 
 export interface SkippedMember {

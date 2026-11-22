@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type {
   CfDeliverableStatus,
   CfEnrollmentDeliverable,
@@ -12,6 +12,7 @@ import { mergeDeliverables } from './deliverable-merge';
 import { getCalendarPeriodBounds } from '../billing/billing-schedule.util';
 import { isUniqueViolation } from '../communications/communication-attempts';
 import {
+  hasRecordedActivity,
   isDone,
   isResolved,
   selectNextAction,
@@ -19,6 +20,7 @@ import {
   type DeliverableSummary,
 } from './deliverable-summary';
 import type {
+  ConfirmDeliverableForMembersDto,
   CreateDeliverableTemplateDto,
   ReorderDeliverableTemplatesDto,
   SetProgramDeliverableDateDto,
@@ -31,7 +33,18 @@ export interface DeliverableActor {
   displayName: string;
 }
 
+/** Events that can complete a program deliverable on their own (CfProgramDeliverableTemplate.completeOn). */
+export const DELIVERABLE_TRIGGERS = [
+  'form_submitted',
+  'payment_recorded',
+  'agreement_signed',
+  'document_uploaded',
+  'checkin_recorded',
+] as const;
+export type DeliverableTrigger = (typeof DELIVERABLE_TRIGGERS)[number];
+
 export const DELIVERABLE_ACTIVITY = {
+  autoCompleted: 'PROGRAM_DELIVERABLE_AUTO_COMPLETED',
   statusChanged: 'PROGRAM_DELIVERABLE_STATUS_CHANGED',
   completed: 'PROGRAM_DELIVERABLE_COMPLETED',
   nextActionSet: 'PROGRAM_DELIVERABLE_NEXT_ACTION_SET',
@@ -136,7 +149,14 @@ function optionalText(value: string | null | undefined): string | null | undefin
  */
 @Injectable()
 export class ProgramDeliverablesService {
+  private readonly logger = new Logger(ProgramDeliverablesService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /** The current time (one place, so "this month" is consistent and testable). */
+  private now(): Date {
+    return new Date();
+  }
 
   /**
    * Merges one deliverable into another of the same program (see deliverable-merge.ts). With
@@ -172,7 +192,7 @@ export class ProgramDeliverablesService {
       orderBy: { sortOrder: 'desc' },
       select: { sortOrder: true },
     });
-    return this.prisma.cfProgramDeliverableTemplate.create({
+    const created = await this.prisma.cfProgramDeliverableTemplate.create({
       data: {
         organizationId,
         programId,
@@ -182,8 +202,11 @@ export class ProgramDeliverablesService {
         active: dto.active ?? true,
         programWideDate: dto.programWideDate ?? false,
         sortOrder: (last?.sortOrder ?? -1) + 1,
+        ...(await this.autoCompleteSetting(organizationId, dto.completeOn ?? null, dto.completeOnFormId ?? null)),
       },
     });
+    await this.syncCurrentChecklists(organizationId, programId);
+    return created;
   }
 
   async updateTemplate(
@@ -203,7 +226,20 @@ export class ProgramDeliverablesService {
     if (dto.cadence !== undefined) data.cadence = dto.cadence;
     if (dto.active !== undefined) data.active = dto.active;
     if (dto.programWideDate !== undefined) data.programWideDate = dto.programWideDate;
-    return this.prisma.cfProgramDeliverableTemplate.update({ where: { id: templateId, organizationId }, data });
+    if (dto.completeOn !== undefined || dto.completeOnFormId !== undefined) {
+      const current = await this.requireTemplate(organizationId, programId, templateId);
+      Object.assign(
+        data,
+        await this.autoCompleteSetting(
+          organizationId,
+          dto.completeOn !== undefined ? dto.completeOn : (current.completeOn as DeliverableTrigger | null),
+          dto.completeOnFormId !== undefined ? dto.completeOnFormId : current.completeOnFormId,
+        ),
+      );
+    }
+    const updated = await this.prisma.cfProgramDeliverableTemplate.update({ where: { id: templateId, organizationId }, data });
+    await this.syncCurrentChecklists(organizationId, programId);
+    return updated;
   }
 
   async reorderTemplates(organizationId: string, programId: string, dto: ReorderDeliverableTemplatesDto) {
@@ -225,7 +261,103 @@ export class ProgramDeliverablesService {
         }),
       ),
     );
+    await this.syncCurrentChecklists(organizationId, programId);
     return this.listTemplates(organizationId, programId);
+  }
+
+  /**
+   * Brings every member's checklist for the current month in line with the program's deliverables
+   * after staff change them: new names and descriptions, the new order, newly added deliverables,
+   * and deliverables turned off removed where nothing was recorded on them yet (anything staff
+   * worked on stays, at the end). Statuses, dates, notes and outcomes are never changed. Finalized
+   * months and earlier months keep exactly what they had, for the record and final reports; later
+   * months are created from the program as it is.
+   */
+  private async syncCurrentChecklists(organizationId: string, programId: string): Promise<number> {
+    const timezone = await this.resolveOrgTimezone(organizationId);
+    const { start } = getCalendarPeriodBounds('month', this.now(), timezone);
+    const enrollments = await this.prisma.cfProgramEnrollment.findMany({
+      where: { organizationId, programId },
+      select: { id: true },
+    });
+    if (!enrollments.length) return 0;
+    const cycles = await this.prisma.cfEnrollmentDeliverableCycle.findMany({
+      where: {
+        organizationId,
+        enrollmentId: { in: enrollments.map((enrollment) => enrollment.id) },
+        cadence: 'MONTHLY',
+        periodStart: start,
+        status: 'OPEN',
+      },
+      select: { id: true, enrollmentId: true },
+    });
+    if (!cycles.length) return 0;
+    const cycleIds = cycles.map((cycle) => cycle.id);
+    const templates = await this.prisma.cfProgramDeliverableTemplate.findMany({
+      where: { organizationId, programId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    const current = templates.filter((template) => template.active && template.cadence === 'MONTHLY');
+    const retiredIds = templates.filter((template) => !current.includes(template)).map((template) => template.id);
+    const programDates = await this.programDatesFor(organizationId, programId, start);
+    const existing = await this.prisma.cfEnrollmentDeliverable.findMany({
+      where: { organizationId, cycleId: { in: cycleIds } },
+      select: { id: true, cycleId: true, programDeliverableTemplateId: true, status: true, notes: true, outcome: true },
+    });
+    const present = new Set(existing.map((row) => `${row.cycleId}:${row.programDeliverableTemplateId}`));
+    const untouchedRetired = existing
+      .filter((row) => retiredIds.includes(row.programDeliverableTemplateId) && !hasRecordedActivity(row))
+      .map((row) => row.id);
+
+    await this.prisma.$transaction(async (transaction) => {
+      for (const [index, template] of current.entries()) {
+        await transaction.cfEnrollmentDeliverable.updateMany({
+          where: { organizationId, cycleId: { in: cycleIds }, programDeliverableTemplateId: template.id },
+          data: { titleSnapshot: template.title, descriptionSnapshot: template.description, sortOrder: index },
+        });
+      }
+      const missing = cycles.flatMap((cycle) =>
+        current.flatMap((template, index) =>
+          present.has(`${cycle.id}:${template.id}`)
+            ? []
+            : [{
+                organizationId,
+                cycleId: cycle.id,
+                enrollmentId: cycle.enrollmentId,
+                programDeliverableTemplateId: template.id,
+                titleSnapshot: template.title,
+                descriptionSnapshot: template.description,
+                sortOrder: index,
+                ...(template.programWideDate && programDates.has(template.id)
+                  ? { status: 'SCHEDULED' as const, scheduledFor: programDates.get(template.id)! }
+                  : { status: 'NOT_STARTED' as const }),
+                isNextAction: false,
+              }],
+        ),
+      );
+      if (missing.length) await transaction.cfEnrollmentDeliverable.createMany({ data: missing, skipDuplicates: true });
+      if (untouchedRetired.length) {
+        await transaction.cfEnrollmentDeliverable.deleteMany({ where: { organizationId, id: { in: untouchedRetired } } });
+      }
+      // Turned-off deliverables someone already worked on stay, after the current ones.
+      for (const [offset, templateId] of retiredIds.entries()) {
+        await transaction.cfEnrollmentDeliverable.updateMany({
+          where: { organizationId, cycleId: { in: cycleIds }, programDeliverableTemplateId: templateId },
+          data: { sortOrder: current.length + offset },
+        });
+      }
+    });
+    return cycles.length;
+  }
+
+  /** A checked "completes automatically when…" setting: a form trigger needs one of this organization's forms. */
+  private async autoCompleteSetting(organizationId: string, completeOn: DeliverableTrigger | null, formId: string | null) {
+    if (!completeOn) return { completeOn: null, completeOnFormId: null };
+    if (completeOn !== 'form_submitted') return { completeOn, completeOnFormId: null };
+    if (!formId) throw new BadRequestException('Choose the form that completes this deliverable.');
+    const form = await this.prisma.cfFormTemplate.findFirst({ where: { id: formId, organizationId }, select: { id: true } });
+    if (!form) throw new BadRequestException('That form was not found. Choose another form.');
+    return { completeOn, completeOnFormId: form.id };
   }
 
   private async requireTemplate(organizationId: string, programId: string, templateId: string) {
@@ -356,6 +488,255 @@ export class ProgramDeliverablesService {
       }
       return { templateId, month: dto.month, label, scheduledFor, clientsUpdated: updated };
     });
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Completing deliverables automatically
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Something happened for a client (a form submitted, a payment recorded…): every deliverable of
+   * their program set to complete on that event is marked completed on their checklist for the
+   * month it happened in, with a note saying what completed it. This month's checklist is created
+   * when missing; an earlier month only if its checklist is still open; future months never.
+   * Items already resolved (done or not applicable) are left alone, so repeating an event changes
+   * nothing. Never throws: a problem here must not affect the event that triggered it.
+   * Returns how many deliverables were completed.
+   */
+  async autoComplete(input: {
+    organizationId: string;
+    enrollmentId: string;
+    trigger: DeliverableTrigger;
+    /** For form_submitted: the form that was submitted. */
+    formId?: string | null;
+    /** When it happened (defaults to now); decides which month's checklist it counts for. */
+    occurredAt?: Date | null;
+    /** What happened, for the note: "Monthly Report form submitted". */
+    detail: string;
+  }): Promise<number> {
+    try {
+      const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
+        where: { id: input.enrollmentId, organizationId: input.organizationId },
+      });
+      if (!enrollment) return 0;
+      const templates = await this.prisma.cfProgramDeliverableTemplate.findMany({
+        where: {
+          organizationId: input.organizationId,
+          programId: enrollment.programId,
+          active: true,
+          cadence: 'MONTHLY',
+          completeOn: input.trigger,
+          ...(input.trigger === 'form_submitted' ? { completeOnFormId: input.formId ?? '__none__' } : {}),
+        },
+        select: { id: true },
+      });
+      if (!templates.length) return 0;
+
+      const now = this.now();
+      const when = input.occurredAt && !Number.isNaN(input.occurredAt.getTime()) ? input.occurredAt : now;
+      const timezone = await this.resolveOrgTimezone(input.organizationId);
+      const { start } = getCalendarPeriodBounds('month', when, timezone);
+      const current = getCalendarPeriodBounds('month', now, timezone).start;
+      if (start.getTime() > current.getTime()) return 0;
+      const cycle = start.getTime() === current.getTime()
+        ? await this.ensureCycleFor(enrollment, now)
+        : await this.prisma.cfEnrollmentDeliverableCycle.findUnique({
+            where: { enrollmentId_cadence_periodStart: { enrollmentId: enrollment.id, cadence: 'MONTHLY', periodStart: start } },
+          });
+      if (!cycle || cycle.status !== 'OPEN') return 0;
+
+      const rows = await this.prisma.cfEnrollmentDeliverable.findMany({
+        where: {
+          organizationId: input.organizationId,
+          cycleId: cycle.id,
+          programDeliverableTemplateId: { in: templates.map((template) => template.id) },
+        },
+      });
+      const open = rows.filter((row) => !isResolved(row.status));
+      if (!open.length) return 0;
+      const note = `Completed automatically: ${input.detail}.`;
+      await this.prisma.$transaction(async (transaction) => {
+        for (const row of open) {
+          // Only a row still open is changed, so two events at once complete it once.
+          const changed = await transaction.cfEnrollmentDeliverable.updateMany({
+            where: { id: row.id, organizationId: input.organizationId, status: row.status },
+            data: {
+              status: 'COMPLETED',
+              completedAt: when,
+              isNextAction: false,
+              outcome: row.outcome ? row.outcome : note,
+            },
+          });
+          if (!changed.count) continue;
+          await this.logActivity(
+            transaction,
+            enrollment,
+            { id: null, displayName: 'ClientFlow' },
+            {
+              action: DELIVERABLE_ACTIVITY.autoCompleted,
+              description: `${row.titleSnapshot} (${cycle.label}) completed automatically: ${input.detail}.`,
+            },
+            'automation',
+          );
+        }
+      });
+      return open.length;
+    } catch (error) {
+      this.logger.warn(`Deliverable auto-complete (${input.trigger}) failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      return 0;
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Confirming a deliverable for many members at once (a monthly meeting everyone attended)
+  // ---------------------------------------------------------------------------------------------
+
+  /** The month a confirmation is for: this month (checklists are created as needed) or an earlier one. */
+  private async confirmationMonth(organizationId: string, month: string) {
+    const bounds = await this.monthBounds(organizationId, month);
+    const timezone = await this.resolveOrgTimezone(organizationId);
+    const current = getCalendarPeriodBounds('month', this.now(), timezone).start;
+    if (bounds.start.getTime() > current.getTime()) {
+      throw new BadRequestException(`${bounds.label} hasn't started yet.`);
+    }
+    return { ...bounds, isCurrent: bounds.start.getTime() === current.getTime() };
+  }
+
+  /**
+   * Every member who could receive this deliverable in `month`, with where they stand: done
+   * already, can be confirmed, or why not (finalized month, not active, not on their checklist).
+   */
+  async listConfirmationMembers(organizationId: string, programId: string, templateId: string, month: string) {
+    const template = await this.requireTemplate(organizationId, programId, templateId);
+    const { start, label, isCurrent } = await this.confirmationMonth(organizationId, month);
+    const enrollments = await this.prisma.cfProgramEnrollment.findMany({
+      where: { organizationId, programId, isArchived: false },
+      orderBy: { createdAt: 'asc' },
+    });
+    const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+    const [clients, cycles] = await Promise.all([
+      this.prisma.cfClient.findMany({
+        where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isArchived: false },
+        select: { id: true, businessName: true, primaryContactName: true, isDemo: true },
+      }),
+      enrollmentIds.length
+        ? this.prisma.cfEnrollmentDeliverableCycle.findMany({
+            where: { organizationId, enrollmentId: { in: enrollmentIds }, cadence: 'MONTHLY', periodStart: start },
+          })
+        : Promise.resolve([]),
+    ]);
+    const rows = cycles.length
+      ? await this.prisma.cfEnrollmentDeliverable.findMany({
+          where: { organizationId, cycleId: { in: cycles.map((cycle) => cycle.id) }, programDeliverableTemplateId: template.id },
+          select: { cycleId: true, status: true },
+        })
+      : [];
+    const clientById = new Map(clients.map((client) => [client.id, client]));
+    const cycleByEnrollment = new Map(cycles.map((cycle) => [cycle.enrollmentId, cycle]));
+    const rowByCycle = new Map(rows.map((row) => [row.cycleId, row]));
+    const members = enrollments.flatMap((enrollment) => {
+      const client = clientById.get(enrollment.clientId);
+      if (!client) return [];
+      const cycle = cycleByEnrollment.get(enrollment.id);
+      const row = cycle ? rowByCycle.get(cycle.id) : undefined;
+      let blockedReason: 'finalized' | 'not_active' | 'not_on_checklist' | null = null;
+      if (cycle?.status === 'FINALIZED') blockedReason = 'finalized';
+      else if (cycle && !row) blockedReason = 'not_on_checklist';
+      else if (!cycle && !(isCurrent && enrollment.status === 'active' && template.active && template.cadence === 'MONTHLY')) {
+        blockedReason = isCurrent && enrollment.status !== 'active' ? 'not_active' : 'not_on_checklist';
+      }
+      // Members not active and without a checklist this month aren't part of it.
+      if (!cycle && enrollment.status !== 'active') return [];
+      return [{
+        enrollmentId: enrollment.id,
+        clientId: client.id,
+        businessName: client.businessName,
+        contactName: client.primaryContactName,
+        isTest: client.isDemo,
+        status: row?.status ?? null,
+        done: row ? isDone(row.status) : false,
+        blockedReason,
+      }];
+    });
+    return { templateId: template.id, title: template.title, month, label, members };
+  }
+
+  /**
+   * Marks one deliverable completed (or delivered) for the chosen members in one step. This month's
+   * checklists are created when missing; earlier months only where a checklist exists. Finalized
+   * months, items already done and members it doesn't apply to are left alone and reported.
+   */
+  async confirmForMembers(
+    organizationId: string,
+    actor: DeliverableActor,
+    programId: string,
+    templateId: string,
+    dto: ConfirmDeliverableForMembersDto,
+  ) {
+    const template = await this.requireTemplate(organizationId, programId, templateId);
+    const { start, label, isCurrent } = await this.confirmationMonth(organizationId, dto.month);
+    const status = dto.status ?? 'COMPLETED';
+    const note = optionalText(dto.note) ?? null;
+    const wanted = [...new Set(dto.enrollmentIds)];
+    if (!wanted.length) throw new BadRequestException('Choose at least one member.');
+    const enrollments = await this.prisma.cfProgramEnrollment.findMany({
+      where: { organizationId, programId, id: { in: wanted }, isArchived: false },
+    });
+    if (enrollments.length !== wanted.length) {
+      throw new BadRequestException('Some of the chosen members are not in this program. Reload and choose again.');
+    }
+
+    const skipped: Array<{ enrollmentId: string; reason: 'finalized' | 'not_on_checklist' }> = [];
+    const alreadyDone: string[] = [];
+    const toConfirm: Array<{ enrollment: CfProgramEnrollment; deliverable: CfEnrollmentDeliverable }> = [];
+    for (const enrollment of enrollments) {
+      const cycle = isCurrent
+        ? await this.ensureCycleFor(enrollment, this.now())
+        : await this.prisma.cfEnrollmentDeliverableCycle.findUnique({
+            where: { enrollmentId_cadence_periodStart: { enrollmentId: enrollment.id, cadence: 'MONTHLY', periodStart: start } },
+          });
+      if (!cycle) {
+        skipped.push({ enrollmentId: enrollment.id, reason: 'not_on_checklist' });
+        continue;
+      }
+      if (cycle.status === 'FINALIZED') {
+        skipped.push({ enrollmentId: enrollment.id, reason: 'finalized' });
+        continue;
+      }
+      const deliverable = await this.prisma.cfEnrollmentDeliverable.findFirst({
+        where: { organizationId, cycleId: cycle.id, programDeliverableTemplateId: template.id },
+      });
+      if (!deliverable) skipped.push({ enrollmentId: enrollment.id, reason: 'not_on_checklist' });
+      else if (isDone(deliverable.status)) alreadyDone.push(enrollment.id);
+      else toConfirm.push({ enrollment, deliverable });
+    }
+
+    const completedAt = this.now();
+    await this.prisma.$transaction(async (transaction) => {
+      for (const { enrollment, deliverable } of toConfirm) {
+        await transaction.cfEnrollmentDeliverable.update({
+          where: { id: deliverable.id, organizationId },
+          data: {
+            status,
+            completedAt,
+            isNextAction: false,
+            ...(note ? { notes: deliverable.notes ? `${deliverable.notes}\n${note}` : note } : {}),
+          },
+        });
+        await this.logActivity(transaction, enrollment, actor, {
+          action: DELIVERABLE_ACTIVITY.completed,
+          description: `${deliverable.titleSnapshot} (${label}): ${STATUS_LABELS[deliverable.status]} → ${STATUS_LABELS[status]}. Confirmed for ${toConfirm.length} member${toConfirm.length === 1 ? '' : 's'}${note ? ` — ${note}` : ''}.`,
+        });
+      }
+    });
+    return {
+      templateId: template.id,
+      month: dto.month,
+      label,
+      confirmed: toConfirm.map(({ enrollment }) => enrollment.id),
+      alreadyDone,
+      skipped,
+    };
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -772,6 +1153,7 @@ export class ProgramDeliverablesService {
     enrollment: CfProgramEnrollment,
     actor: DeliverableActor,
     entry: { action: string; description: string },
+    source: 'manual_staff_action' | 'automation' = 'manual_staff_action',
   ) {
     await db.cfActivityLog.create({
       data: {
@@ -782,7 +1164,7 @@ export class ProgramDeliverablesService {
         action: entry.action,
         description: entry.description,
         user: actor.displayName,
-        source: 'manual_staff_action',
+        source,
         isDemo: enrollment.isDemo,
       },
     });

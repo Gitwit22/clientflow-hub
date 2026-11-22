@@ -47,6 +47,8 @@ import type {
   DeliverableCadence,
   DeliverableCycle,
   DeliverableCycleHistoryEntry,
+  DeliverableConfirmationList,
+  DeliverableConfirmationResult,
   DeliverableCycleView,
   DeliverableStatus,
   EnrollmentDeliverable,
@@ -1796,6 +1798,8 @@ export async function cfCreateProgramDeliverable(
     description?: string | null;
     cadence?: DeliverableCadence;
     programWideDate?: boolean;
+    completeOn?: ProgramDeliverableTemplate["completeOn"];
+    completeOnFormId?: string | null;
   },
 ) {
   return apiRequest<ProgramDeliverableTemplate>(programDeliverablesPath(programId), {
@@ -1811,7 +1815,13 @@ export async function cfUpdateProgramDeliverable(
   data: Partial<
     Pick<
       ProgramDeliverableTemplate,
-      "title" | "description" | "cadence" | "active" | "programWideDate"
+      | "title"
+      | "description"
+      | "cadence"
+      | "active"
+      | "programWideDate"
+      | "completeOn"
+      | "completeOnFormId"
     >
   >,
 ) {
@@ -1844,6 +1854,34 @@ export async function cfMergeProgramDeliverable(
   return apiRequest<DeliverableMergeReport>(
     `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/merge${apply ? "" : "/preview"}`,
     { method: "POST", body: JSON.stringify({ intoTemplateId }) },
+  );
+}
+
+/** GET /programs/:programId/deliverables/:templateId/confirm?month=YYYY-MM — members and where each stands. */
+export async function cfListDeliverableConfirmationMembers(
+  programId: string,
+  templateId: string,
+  month: string,
+) {
+  return apiRequest<DeliverableConfirmationList>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/confirm?month=${encodeURIComponent(month)}`,
+  );
+}
+
+/** POST /programs/:programId/deliverables/:templateId/confirm — marks it done for the chosen members. */
+export async function cfConfirmDeliverableForMembers(
+  programId: string,
+  templateId: string,
+  data: {
+    month: string;
+    enrollmentIds: string[];
+    status?: "COMPLETED" | "DELIVERED";
+    note?: string;
+  },
+) {
+  return apiRequest<DeliverableConfirmationResult>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/confirm`,
+    { method: "POST", body: JSON.stringify(data) },
   );
 }
 

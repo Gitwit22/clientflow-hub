@@ -1,6 +1,7 @@
 import { Bold, Eye, ImagePlus, Italic, Link2, List, ListOrdered } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { TestClientBadge } from "@/components/clients/TestClientBadge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -50,6 +51,7 @@ export interface Candidate {
   businessName: string;
   name: string;
   email: string;
+  isTest?: boolean;
 }
 
 /** A member who can't be emailed (no address, or one that isn't valid). */
@@ -61,6 +63,7 @@ function candidatesOf(preview: ProgramEmailRecipientsPreview) {
     businessName: recipient.businessName,
     name: recipient.name,
     email: recipient.email,
+    ...(recipient.isTest ? { isTest: true } : {}),
   }));
   // Someone sharing an address is still choosable: chosen alone, they get the email.
   for (const member of preview.skipped) {
@@ -433,6 +436,7 @@ function RecipientPicker({
                     {candidate.name !== candidate.businessName && (
                       <span className="text-muted-foreground"> · {candidate.name}</span>
                     )}
+                    <TestClientBadge client={{ isDemo: candidate.isTest }} className="ml-2" />
                   </span>
                   <span className="truncate text-xs text-muted-foreground">{candidate.email}</span>
                 </label>

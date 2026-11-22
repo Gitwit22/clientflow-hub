@@ -309,7 +309,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         items: [
           'Test clients show a "Test" badge in the client list, on their page and in program member lists.',
           "They and everything recorded for them are left out of the Dashboard, Reports, the Payments page, award follow-up and program member counts.",
-          'Program email blasts never go to test clients. Use "Send test to me" to try a blast.',
+          'Program email blasts go to test clients too (marked "Test" in the member list), so you can see one arrive.',
           "Deleting a test client erases everything entered under it, including awards, payments, contracts, documents and email history.",
         ],
       },
@@ -569,14 +569,44 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "Monthly deliverables",
     summary: "What the program provides each month, tracked per client.",
-    keywords: ["deliverables", "monthly", "merge into", "member fund", "checklist"],
+    keywords: [
+      "deliverables",
+      "monthly",
+      "merge into",
+      "member fund",
+      "checklist",
+      "confirm",
+      "meeting",
+      "attendance",
+      "automatic",
+      "auto complete",
+    ],
     blocks: [
       {
         type: "list",
         items: [
           'Program → Deliverables → "Add deliverable". Set program-wide dates under "Program dates".',
           "On a client's Program tab, update each month's items and \"Finalize month\".",
+          "Changing a deliverable (name, description, order, adding one or turning one off) updates every member's checklist for this month and later. Earlier and finalized months keep their record. A turned-off deliverable is removed only where nobody worked on it yet.",
           'Two deliverables that are the same thing: click "Merge into…" on the one to retire. The preview shows what changes; notes move across and the retired one is turned off.',
+        ],
+      },
+      { type: "text", text: "Confirm one deliverable for many members (a monthly meeting):" },
+      {
+        type: "steps",
+        items: [
+          'Program → Deliverables → "Confirm for members" on the deliverable.',
+          "Pick the month (this month or last). Everyone who can be confirmed starts ticked; untick anyone who missed it. Members already done, or whose month is finalized, are shown but can't be ticked.",
+          'Add a note if you like (e.g. "Oct 14 group meeting"), then "Confirm for N members".',
+        ],
+      },
+      { type: "text", text: "Complete a deliverable automatically:" },
+      {
+        type: "list",
+        items: [
+          'Edit the deliverable and choose "Completes automatically when…": a chosen form is submitted, a payment is recorded for the month, the program agreement is signed, a document is uploaded, or a monitoring check-in is recorded.',
+          'When that happens for a client, the deliverable is marked completed on their checklist for that month, with a note such as "Completed automatically: Monthly Report submitted." Finalized months, future months and items marked not applicable are never changed.',
+          'Deliverables set this way show "Auto" in the list. Staff can still mark them by hand.',
         ],
       },
     ],
@@ -622,7 +652,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         items: [
           "Each person gets one copy, even if they're in several of the chosen programs.",
           "The send is recorded under each program, so every program's Emails tab shows its part and can retry failures.",
-          "Archived clients and test clients are never emailed.",
+          'Archived clients are never emailed. Test clients do get blasts (marked "Test" in the member list).',
         ],
       },
     ],

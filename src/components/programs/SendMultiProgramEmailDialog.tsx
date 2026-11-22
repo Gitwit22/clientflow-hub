@@ -34,7 +34,7 @@ const people = (count: number) => `${count} ${count === 1 ? "person" : "people"}
 /**
  * One message to the members of the programs chosen (one, several or all). Each person gets one
  * copy even if they are in several programs; the server records it under each program, so every
- * program's Emails tab shows its part. Test and archived clients are never emailed.
+ * program's Emails tab shows its part. Archived clients are never emailed; test clients are.
  */
 export function SendMultiProgramEmailDialog({
   programs,
@@ -198,7 +198,7 @@ export function SendMultiProgramEmailDialog({
           <DialogTitle className="font-display">Email members</DialogTitle>
           <DialogDescription>
             Choose one or more programs. Each person gets one copy, even if they are in several of
-            them. Test and archived clients are never emailed.
+            them. Archived clients are never emailed. Test clients get it too, so you can try it.
           </DialogDescription>
         </DialogHeader>
 

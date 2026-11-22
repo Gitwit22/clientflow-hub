@@ -1,3 +1,4 @@
+import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
 import {
   All,
   BadRequestException,
@@ -17,6 +18,7 @@ import {
   ServiceUnavailableException,
   Logger,
   UnauthorizedException,
+  Optional,
 } from '@nestjs/common';
 import { hash, compare } from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'crypto';
@@ -268,6 +270,7 @@ export class ClientflowCompatibilityController {
     private readonly formProfile?: FormProfileService,
     private readonly formDelivery?: FormDeliveryService,
     private readonly finalReports?: FinalReportsService,
+    @Optional() private readonly deliverables?: ProgramDeliverablesService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -1838,12 +1841,28 @@ export class ClientflowCompatibilityController {
   /** Adapter: the review is recorded by the monitoring lifecycle (result, schedule, history). */
   @Post('enrollment-monitoring/:id/results') async recordMonitoringResult(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().$transaction((transaction) => recordMonitoringResult(transaction, {
+    const recorded = await this.requirePrisma().$transaction((transaction) => recordMonitoringResult(transaction, {
       organizationId: orgId,
       monitoringId: id,
       result: body,
       reviewedByUserId: admin.id,
     }));
+    // Program deliverables set to complete when a check-in is recorded.
+    if (this.deliverables) {
+      const monitoring = await this.requirePrisma().cfEnrollmentMonitoring.findFirst({
+        where: { id, organizationId: orgId },
+        select: { enrollmentId: true, name: true },
+      });
+      if (monitoring) {
+        await this.deliverables.autoComplete({
+          organizationId: orgId,
+          enrollmentId: monitoring.enrollmentId,
+          trigger: 'checkin_recorded',
+          detail: `${monitoring.name} check-in recorded`,
+        });
+      }
+    }
+    return recorded;
   }
   @Get('enrollment-monitoring/:id/history') async getMonitoringHistory(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -2001,6 +2020,15 @@ export class ClientflowCompatibilityController {
           idempotencySeed: `compat.document.uploaded:${document.id}`,
           payload: { documentId: document.id, documentType: document.type },
         });
+        // Program deliverables set to complete when a document is uploaded for the client.
+        for (const enrollment of enrollments) {
+          await this.deliverables?.autoComplete({
+            organizationId: orgId,
+            enrollmentId: enrollment.id,
+            trigger: 'document_uploaded',
+            detail: `${document.name || 'A document'} uploaded`,
+          });
+        }
       }
     }
     return completed;

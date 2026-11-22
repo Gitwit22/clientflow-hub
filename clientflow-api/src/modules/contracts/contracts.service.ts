@@ -1,10 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import type { Environment } from '../../config/env';
@@ -186,6 +181,7 @@ export class ContractsService {
     private readonly workflowConfig: WorkflowConfigService,
     private readonly storage: StorageService = { isEnabled: () => false } as unknown as StorageService,
     private readonly enrollments: EnrollmentsService = new EnrollmentsService(prisma),
+    @Optional() private readonly deliverables?: ProgramDeliverablesService,
   ) {}
 
   async prepareProgramSelection(organizationId: string, programName: string) {
@@ -1157,6 +1153,17 @@ export class ContractsService {
       actionUrl: `/clients/${client.id}?tab=contracts`,
       isDemo: client.isDemo,
     });
+
+    // Program deliverables set to complete when the (enrollment) agreement is signed.
+    if (contract.enrollmentId && this.deliverables) {
+      await this.deliverables.autoComplete({
+        organizationId: client.organizationId,
+        enrollmentId: contract.enrollmentId,
+        trigger: 'agreement_signed',
+        occurredAt: now,
+        detail: `${contract.contractType} signed`,
+      });
+    }
 
     return {
       organizationId: client.organizationId,

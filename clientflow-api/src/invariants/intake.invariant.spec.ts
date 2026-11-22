@@ -283,3 +283,22 @@ describe('a repeat intake (staff sent a new copy after a submission)', () => {
     expect(automation.runTrigger).not.toHaveBeenCalled();
   });
 });
+
+describe('a submitted form completes program deliverables', () => {
+  it('asks each program the client is in to complete deliverables tied to this form', async () => {
+    const { rows } = setup();
+    const db = inMemoryDb(rows) as unknown as PrismaService;
+    const autoComplete = jest.fn().mockResolvedValue(0);
+    const service = new IntakeWorkflowService(db, new EnrollmentsService(db), undefined, { autoComplete } as never);
+    rows.cfFormTemplate[0].name = 'General Intake';
+
+    const result = await service.submit(token, input);
+
+    expect(autoComplete).toHaveBeenCalledTimes(result.enrollmentIds.length);
+    for (const enrollmentId of result.enrollmentIds) {
+      expect(autoComplete).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: ORG, enrollmentId, trigger: 'form_submitted', formId: 'form-1', detail: 'General Intake submitted',
+      }));
+    }
+  });
+});
