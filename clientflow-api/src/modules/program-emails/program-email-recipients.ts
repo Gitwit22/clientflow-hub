@@ -17,6 +17,8 @@ export interface ProgramEmailRecipient {
   businessName: string;
   /** The greeting name: the contact name, else the business name. */
   name: string;
+  /** The contact name as entered (trimmed; may be empty), for {{client.contactName}} and first name. */
+  contactName: string;
   /** Trimmed and lower-cased, so each address gets one copy. */
   email: string;
   isTest?: boolean;
@@ -73,6 +75,7 @@ export function buildRecipientList(members: readonly ProgramMember[]): Recipient
       enrollmentId: member.enrollmentId,
       businessName: member.businessName,
       name: member.contactName.trim() || member.businessName,
+      contactName: member.contactName.trim(),
       email,
       ...(member.isTest ? { isTest: true } : {}),
     });

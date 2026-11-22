@@ -561,7 +561,18 @@ describe('renderAutomationText', () => {
     })).toBe('Hi Pat of Rivers Bakery — Grant');
   });
 
-  it('keeps a placeholder whose value is empty rather than printing a blank', () => {
-    expect(renderAutomationText('For {{client.businessName}}', { 'client.businessName': '  ' })).toBe('For {{client.businessName}}');
+  it('keeps a non-client placeholder whose value is empty rather than printing a blank', () => {
+    expect(renderAutomationText('From {{staff.name}}', { 'staff.name': '  ' })).toBe('From {{staff.name}}');
+  });
+
+  it('falls back for missing client details so a client never sees raw braces', () => {
+    expect(renderAutomationText('For {{client.businessName}}', { 'client.businessName': '  ', 'client.contactName': 'Pat Rivers' })).toBe('For Pat Rivers');
+    expect(renderAutomationText('Hi {{client.contactName}}', { 'client.businessName': 'Rivers Bakery' })).toBe('Hi Rivers Bakery');
+    expect(renderAutomationText('Hi {{client.firstName}}, {{client.businessName}}', {})).toBe('Hi there, there');
+  });
+
+  it('takes the contact first name from the contact name', () => {
+    expect(renderAutomationText('Hi {{client.firstName}}', { 'client.contactName': '  Pat  Rivers ' })).toBe('Hi Pat');
+    expect(renderAutomationText('Hi {{client.firstName}}', { 'client.businessName': 'Rivers Bakery' })).toBe('Hi Rivers Bakery');
   });
 });

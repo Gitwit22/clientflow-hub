@@ -32,12 +32,12 @@ export class ProgramEmailController {
   preview(
     @Req() request: AuthenticatedRequest,
     @Param('programId') programId: string,
-    @Body() body: { subject?: unknown; body?: unknown },
+    @Body() body: { subject?: unknown; body?: unknown; sampleClientId?: unknown },
   ) {
     return this.emails.preview(
       request.adminUser!.organizationId,
       programId,
-      { subject: body?.subject, body: body?.body },
+      { subject: body?.subject, body: body?.body, sampleClientId: body?.sampleClientId },
       request.adminUser?.id ?? null,
     );
   }
@@ -49,13 +49,13 @@ export class ProgramEmailController {
   sendTest(
     @Req() request: AuthenticatedRequest,
     @Param('programId') programId: string,
-    @Body() body: { subject?: unknown; body?: unknown },
+    @Body() body: { subject?: unknown; body?: unknown; sampleClientId?: unknown },
   ) {
     return this.emails.sendTest(
       request.adminUser!.organizationId,
       { ...actorFrom(request), email: request.adminUser?.email ?? '' },
       programId,
-      { subject: body?.subject, body: body?.body },
+      { subject: body?.subject, body: body?.body, sampleClientId: body?.sampleClientId },
     );
   }
 

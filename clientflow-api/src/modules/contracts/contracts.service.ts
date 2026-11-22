@@ -1,3 +1,4 @@
+import { renderAutomationText } from '../automation/automation-email';
 import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -136,6 +137,8 @@ const WELCOME_VARIABLE_PATTERN = /{{\s*([a-zA-Z0-9_.]+)\s*}}/g;
 const ALLOWED_WELCOME_VARIABLES = new Set([
   'client.firstName',
   'client.fullName',
+  'client.contactName',
+  'client.businessName',
   'program.name',
   'organization.name',
   'enrollment.startDate',
@@ -2086,6 +2089,15 @@ export class ContractsService {
       client: {
         firstName: this.firstName(input.client.primaryContactName),
         fullName: input.client.primaryContactName,
+        // The names client emails share (blasts, automatic emails), with the same fallbacks.
+        contactName: renderAutomationText('{{client.contactName}}', {
+          'client.contactName': input.client.primaryContactName,
+          'client.businessName': input.client.businessName,
+        }),
+        businessName: renderAutomationText('{{client.businessName}}', {
+          'client.contactName': input.client.primaryContactName,
+          'client.businessName': input.client.businessName,
+        }),
       },
       program: { name: input.program.name },
       organization: { name: organization?.name ?? '' },

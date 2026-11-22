@@ -24,7 +24,14 @@ import {
 } from "@/lib/apiClient";
 import { describeDelivery } from "@/lib/client-send";
 import type { MultiProgramEmailResult, MultiProgramRecipientsPreview } from "@/lib/program-emails";
-import { EmailPreview, MessageEditor, type Candidate } from "./SendProgramEmailDialog";
+import {
+  EmailPreview,
+  MessageEditor,
+  SubjectInput,
+  type Candidate,
+} from "./SendProgramEmailDialog";
+import { UnknownFieldsNotice } from "@/components/InsertFieldMenu";
+import { blastFieldProblem } from "@/lib/email-fields";
 
 const SUBJECT_MAX = 200;
 
@@ -105,12 +112,18 @@ export function SendMultiProgramEmailDialog({
   const everyProgram = programs.length > 0 && programs.every((program) => selected.has(program.id));
   const recipientCount = recipients?.recipientCount ?? 0;
   const firstProgramId = programIds[0];
+  // Personal fields in the preview and test show a member of the first chosen program.
+  const sampleClientId = recipients?.recipients.find(
+    (recipient) => recipient.programId === firstProgramId,
+  )?.clientId;
+  const fieldProblem = blastFieldProblem(subject, body);
   const ready =
     programIds.length > 0 &&
     !loadingRecipients &&
     recipientCount > 0 &&
     subject.trim().length > 0 &&
-    body.trim().length > 0;
+    body.trim().length > 0 &&
+    !fieldProblem;
 
   const toggle = (programId: string, on: boolean) => {
     const next = new Set(selected);
@@ -126,7 +139,11 @@ export function SendMultiProgramEmailDialog({
       // Rendered with the first chosen program's email style; members of other programs get
       // their own program's style.
       setRendered(
-        await cfPreviewProgramEmail(firstProgramId, { subject: subject.trim(), body: body.trim() }),
+        await cfPreviewProgramEmail(firstProgramId, {
+          subject: subject.trim(),
+          body: body.trim(),
+          sampleClientId,
+        }),
       );
       setStep("preview");
     } catch (error) {
@@ -145,6 +162,7 @@ export function SendMultiProgramEmailDialog({
       const result = await cfSendProgramEmailTest(firstProgramId, {
         subject: subject.trim(),
         body: body.trim(),
+        sampleClientId,
       });
       const outcome = describeDelivery(result.delivery);
       if (outcome.ok)
@@ -271,16 +289,9 @@ export function SendMultiProgramEmailDialog({
                 ) : null}
               </p>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="program-email-subject">Subject</Label>
-              <Input
-                id="program-email-subject"
-                value={subject}
-                maxLength={SUBJECT_MAX}
-                onChange={(event) => setSubject(event.target.value)}
-              />
-            </div>
+            <SubjectInput value={subject} onChange={setSubject} />
             <MessageEditor value={body} onChange={setBody} />
+            <UnknownFieldsNotice message={fieldProblem} />
           </div>
         ) : (
           rendered && (

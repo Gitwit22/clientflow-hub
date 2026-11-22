@@ -130,6 +130,35 @@ describe("ProgramAutomaticEmails", () => {
     );
   });
 
+  it("inserts a field with Insert field and warns about one it can't fill in", async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    getAutomation.mockResolvedValue(automation());
+    render(<ProgramAutomaticEmails program={program} workflow={workflow} onChanged={vi.fn()} />);
+    await screen.findByText(/No custom emails yet/);
+    fireEvent.click(screen.getByRole("button", { name: "Add email" }));
+    fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Thanks" } });
+
+    const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(message, { target: { value: "Welcome, !" } });
+    message.setSelectionRange(9, 9);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Insert field into message" }), {
+      key: "Enter",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Business name/ }));
+    expect(message.value).toBe("Welcome, {{client.businessName}}!");
+    expect(screen.getByText("Welcome, Rivers Bakery LLC!")).toBeTruthy();
+
+    fireEvent.change(message, { target: { value: "Hi {{client.nickname}}" } });
+    expect(screen.getByRole("alert").textContent).toMatch(/\{\{client\.nickname\}\} isn't a field/);
+    expect(
+      (screen.getAllByRole("button", { name: "Add email" }).at(-1) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
   it("switches a custom email off, and deletes one only after confirming", async () => {
     getAutomation.mockResolvedValue(automation([thanks]));
     updateEmail.mockResolvedValue({ ...thanks, enabled: false });

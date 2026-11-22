@@ -1932,12 +1932,15 @@ export interface ProgramEmailPreview {
   /** The whole email (logo header, message, sign-off) exactly as the send builds it. */
   html: string;
   text: string;
+  /** Whose details filled the personal fields; null or absent when sample details were used. */
+  previewedAs?: string | null;
 }
 
 /** POST /programs/:programId/emails/preview — the email as members will get it; sends nothing. */
 export async function cfPreviewProgramEmail(
   programId: string,
-  data: { subject: string; body: string },
+  /** sampleClientId: a member whose details fill the personal fields (else sample details). */
+  data: { subject: string; body: string; sampleClientId?: string },
 ) {
   return apiRequest<ProgramEmailPreview>(
     `/api/v1/programs/${encodeURIComponent(programId)}/emails/preview`,
@@ -2175,7 +2178,7 @@ export async function acfGenerateAwardAgreement(
 /** POST /programs/:programId/emails/test — one [Test] copy to the signed-in staff member. */
 export async function cfSendProgramEmailTest(
   programId: string,
-  data: { subject: string; body: string },
+  data: { subject: string; body: string; sampleClientId?: string },
 ) {
   return apiRequest<{ recipientEmail: string; delivery: SendDeliveryResult }>(
     `/api/v1/programs/${encodeURIComponent(programId)}/emails/test`,

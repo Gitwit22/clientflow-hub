@@ -472,11 +472,15 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "The welcome email",
     summary: "The email clients get after signing the enrollment agreement.",
-    keywords: ["welcome", "email", "guide", "attachment"],
+    keywords: ["welcome", "email", "guide", "attachment", "insert field", "personalize"],
     blocks: [
       {
         type: "text",
         text: 'Program → Overview → Program workflow → Welcome email. Write the subject and message, attach a welcome guide if you like, then "Save welcome version".',
+      },
+      {
+        type: "text",
+        text: '"Insert field" adds the client\'s own details (first name, contact name, business name, program name, start date), filled in when the email is sent.',
       },
       { type: "tip", text: "Whether it goes out automatically is set under Automations." },
     ],
@@ -486,7 +490,15 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "Automatic emails",
     summary: "Emails ClientFlow sends for you when something happens.",
-    keywords: ["automation", "automatic", "custom email", "trigger", "test"],
+    keywords: [
+      "automation",
+      "automatic",
+      "custom email",
+      "trigger",
+      "test",
+      "insert field",
+      "personalize",
+    ],
     blocks: [
       {
         type: "list",
@@ -494,7 +506,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           "The main switch turns all automation for the program on or off.",
           '"Agreement signing link after intake" and "Welcome email after signing" can each be switched on or off.',
           "A signed copy of the agreement always goes to the client.",
-          'Custom emails: "Add email", choose when it\'s sent (for example when an intake is submitted), write it with merge fields, and "Send test to me" before saving.',
+          'Custom emails: "Add email", choose when it\'s sent (for example when an intake is submitted), write it, and "Send test to me" before saving.',
+          '"Insert field" adds the client\'s own details, such as their first name or business name, filled in when the email is sent.',
         ],
       },
       {
@@ -626,6 +639,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       "everyone",
       "multiple programs",
       "announcement",
+      "personalize",
+      "insert field",
+      "business name",
+      "first name",
+      "merge field",
     ],
     blocks: [
       { type: "text", text: "One program:" },
@@ -634,7 +652,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         items: [
           'Program → Emails → "Send email blast" (or "Send email blast" on the program\'s card on the Programs page).',
           'Write the message. Use the list buttons for bullets or numbers (Enter continues the list) and "Image" to add a picture.',
-          '"Preview email", then "Send test to me".',
+          'To personalize it, click "Insert field" (beside the subject, or above the message) and pick Business name, Contact first name, Contact name, Program name or Your organization name. Each member gets their own details.',
+          '"Preview email" shows it filled in for the first member, then "Send test to me".',
           "Send to everyone or to chosen members.",
         ],
       },
@@ -653,6 +672,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Each person gets one copy, even if they're in several of the chosen programs.",
           "The send is recorded under each program, so every program's Emails tab shows its part and can retry failures.",
           'Archived clients are never emailed. Test clients do get blasts (marked "Test" in the member list).',
+          'Personal fields never show as braces: a missing contact name uses the business name (and the other way round); with neither, it reads "there".',
         ],
       },
     ],

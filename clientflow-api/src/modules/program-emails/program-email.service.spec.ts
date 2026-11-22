@@ -393,3 +393,102 @@ describe('emailing several programs at once', () => {
     expect(sendProgramEmail).not.toHaveBeenCalled();
   });
 });
+
+describe('personalizing a program email', () => {
+  type SentPayload = { recipientEmail: string; subject: string; body: string };
+  const payloadOf = (mock: jest.Mock, index: number) => (mock.mock.calls as unknown[][])[index][1] as SentPayload;
+  const payloadsOf = (mock: jest.Mock) => mock.mock.calls.map((_call, index) => payloadOf(mock, index));
+  const personal = { subject: 'News for {{client.businessName}}', body: 'Hi {{client.firstName}},\n\n{{ program.name }} from {{organization.name}}.' };
+
+  function withOrganization(rows: Record<string, Row[]>) {
+    rows.organization = [{ id: ORG, name: 'EA Management LLC' }, { id: OTHER_ORG, name: 'Other Org' }];
+  }
+
+  it("sends each member their own names and records each person's copy", async () => {
+    const { rows, service, sendProgramEmail } = setup();
+    withOrganization(rows);
+    rows.cfClient.find((row) => row.id === 'c2')!.primaryContactName = '';
+    const created = await service.create(ORG, staff, 'p-idi', { ...personal, idempotencyKey: 'key-personal-1' });
+    await service.whenIdle(created.id);
+
+    const sent = payloadsOf(sendProgramEmail).map((payload) => [payload.recipientEmail, payload.subject, payload.body]);
+    expect(sent).toEqual(expect.arrayContaining([
+      ['tamika@example.com', 'News for Black Economic Exchange', 'Hi Black,\n\nThe Inspired Detroit Initiative from EA Management LLC.'],
+      // No contact name: the business name stands in, never raw braces.
+      ['pat@moonlight.test', 'News for Moonlight Minerals', 'Hi Moonlight Minerals,\n\nThe Inspired Detroit Initiative from EA Management LLC.'],
+    ]));
+    // The email keeps what staff wrote; each recipient row keeps what that person got.
+    expect(rows.cfProgramEmail[0]).toEqual(expect.objectContaining({ subject: personal.subject, body: personal.body }));
+    const tamika = rows.cfCommunication.find((row) => row.recipientEmail === 'tamika@example.com')!;
+    expect(tamika).toEqual(expect.objectContaining({ renderedSubject: 'News for Black Economic Exchange' }));
+    expect(String(tamika.renderedBody)).toContain('Hi Black,');
+  });
+
+  it('sends the same personal text again on a retry', async () => {
+    const send = jest.fn()
+      .mockResolvedValueOnce({ status: 'failed', reason: 'unavailable' })
+      .mockResolvedValue({ status: 'sent', sentAt: '2026-10-22T15:00:00.000Z' });
+    const { rows, service } = setup(send);
+    withOrganization(rows);
+    const created = await service.create(ORG, staff, 'p-idi', { ...personal, clientIds: ['c1'], idempotencyKey: 'key-personal-2' });
+    await service.whenIdle(created.id);
+    await service.retryFailed(ORG, created.id);
+    await service.whenIdle(created.id);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(payloadOf(send, 1).body).toBe(payloadOf(send, 0).body);
+    expect(payloadOf(send, 1).subject).toBe('News for Black Economic Exchange');
+  });
+
+  it('leaves a message without fields exactly as written', async () => {
+    const { rows, service, sendProgramEmail } = setup();
+    withOrganization(rows);
+    await sendAndWait(service, 'key-plain-1');
+    expect(payloadOf(sendProgramEmail, 0)).toEqual(expect.objectContaining({ subject: 'October update', body: 'Hello all,\n\nSee you Saturday.' }));
+  });
+
+  it('refuses a field it cannot fill in before anything is recorded', async () => {
+    const { rows, service } = setup();
+    await expect(service.create(ORG, staff, 'p-idi', { subject: 'Hi {{client.name}}', body: 'B', idempotencyKey: 'key-bad-1' }))
+      .rejects.toThrow("{{client.name}} isn't a field ClientFlow can fill in. Use one of: {{client.firstName}}");
+    // The assigned staff member belongs to automatic emails, not blasts.
+    await expect(service.create(ORG, staff, 'p-idi', { subject: 'S', body: 'From {{staff.name}}', idempotencyKey: 'key-bad-2' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createForPrograms(ORG, staff, { programIds: ['p-idi'], subject: 'S', body: '{{oops}}', idempotencyKey: 'key-bad-3' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(rows.cfProgramEmail).toHaveLength(0);
+    expect(rows.cfCommunication).toHaveLength(0);
+  });
+
+  it("previews as a chosen member, falls back to sample details for anyone outside the program, and keeps a typo visible", async () => {
+    const { rows } = setup();
+    withOrganization(rows);
+    const { N8nService: RealN8n } = jest.requireActual<typeof import('../../integrations/n8n/n8n.service')>('../../integrations/n8n/n8n.service');
+    const n8n = Object.create(RealN8n.prototype) as N8nService;
+    const service = new ProgramEmailService(inMemoryDb(rows) as unknown as PrismaService, n8n);
+
+    const asMember = await service.preview(ORG, 'p-idi', { ...personal, sampleClientId: 'c1' });
+    expect(asMember).toEqual(expect.objectContaining({ subject: 'News for Black Economic Exchange', previewedAs: 'Black Economic Exchange' }));
+    expect(asMember.text).toContain('Hi Black,');
+
+    // Another organization's client, or one outside this program: sample details instead.
+    for (const sampleClientId of ['cx', 'c7', undefined]) {
+      const sample = await service.preview(ORG, 'p-idi', { ...personal, sampleClientId });
+      expect(sample).toEqual(expect.objectContaining({ subject: 'News for Rivers Bakery LLC', previewedAs: null }));
+      expect(JSON.stringify(sample)).not.toMatch(/Their Client|Demo Shop/);
+    }
+
+    const typo = await service.preview(ORG, 'p-idi', { subject: 'S', body: 'Hi {{client.name}}' });
+    expect(typo.text).toContain('{{client.name}}');
+  });
+
+  it('fills the test email the same way', async () => {
+    const { rows, service, sendProgramEmail } = setup();
+    withOrganization(rows);
+    await service.sendTest(ORG, { ...staff, email: 'jordan@ea.test' }, 'p-idi', { ...personal, sampleClientId: 'c2' });
+    expect(payloadOf(sendProgramEmail, 0)).toEqual(expect.objectContaining({
+      recipientEmail: 'jordan@ea.test',
+      subject: '[Test] News for Moonlight Minerals',
+      body: 'Hi Moonlight,\n\nThe Inspired Detroit Initiative from EA Management LLC.',
+    }));
+  });
+});

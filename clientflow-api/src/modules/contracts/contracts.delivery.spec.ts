@@ -582,6 +582,24 @@ describe('ContractsService: manual welcome email', () => {
     expect(result.emailDelivery).toEqual({ status: 'sent', sentAt: '2030-01-01T00:00:02.000Z' });
   });
 
+  it('fills the business name and contact name in the welcome email, with the shared fallbacks', async () => {
+    const n8n = readyN8n();
+    const { service } = build({
+      cfContract: { findFirst: jest.fn().mockResolvedValue(completed) },
+      cfClient: { findFirst: jest.fn().mockResolvedValue({ ...client, businessName: 'Rivers Bakery' }) },
+      cfProgram: { findFirst: jest.fn().mockResolvedValue({
+        ...program,
+        welcomeMessage: 'Hi {{client.firstName}} ({{client.contactName}}) at {{client.businessName}}, welcome to {{program.name}}.',
+      }) },
+    }, n8n);
+
+    await service.sendWelcomeForEnrollment('org-1', 'client-1', welcomeOptions);
+
+    expect(n8n.sendWelcome).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      body: 'Hi Client (Client Owner) at Rivers Bakery, welcome to Brand Awareness Subscription.',
+    }));
+  });
+
   it('records failures (activity + admin notification) and returns them instead of throwing', async () => {
     const n8n = readyN8n({ sendWelcome: jest.fn().mockResolvedValue({ status: 'failed', reason: 'timeout' }) });
     const { service, prisma } = build({ cfContract: { findFirst: jest.fn().mockResolvedValue(completed) } }, n8n);
