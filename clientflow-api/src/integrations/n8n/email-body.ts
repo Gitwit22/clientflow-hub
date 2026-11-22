@@ -129,11 +129,25 @@ export const EMAIL_SENDER_NAME = 'EA Management LLC';
 export function emailDocumentHtml(
   bodyHtml: string,
   headerImageUrl?: string | null,
-  style: { signatureHtml?: string; layout?: 'left' | 'center' } = {},
+  style: { signatureHtml?: string; layout?: 'left' | 'left-edge' | 'center' } = {},
 ): string {
   // signatureHtml is already escaped (email-style.ts); without one, the long-standing sign-off.
   const signature = `<p>${style.signatureHtml ?? `Thank you,<br/>${EMAIL_SENDER_NAME}`}</p>`;
   const body = '<body style="font-family:Arial,sans-serif;color:#333333;line-height:1.6;font-size:15px;">';
+  if (style.layout === 'left-edge') {
+    // The logo starts at the very left edge of the 600px column; only the text keeps the margin.
+    // Without a logo, the text header stays with the (padded) text.
+    const logo = headerImageUrl
+      ? `<img src="${escapeHtml(headerImageUrl)}" alt="EA Management" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;">`
+      : '';
+    const textHeader = headerImageUrl
+      ? ''
+      : '<div style="margin-bottom:24px;font-weight:bold;font-size:20px;letter-spacing:1px;color:#1a202c;">EA MANAGEMENT</div>';
+    return `<!DOCTYPE html><html>${body}`
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="left" style="padding:0;">'
+      + `<div style="max-width:600px;text-align:left;">${logo}<div style="padding:24px;">${textHeader}${bodyHtml}${signature}</div></div>`
+      + '</td></tr></table></body></html>';
+  }
   if (style.layout === 'left') {
     // Header and message share one 600px column on the left, with a margin so nothing touches the edge.
     const header = headerImageUrl

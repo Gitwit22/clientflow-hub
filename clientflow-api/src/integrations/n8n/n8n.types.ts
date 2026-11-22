@@ -31,6 +31,8 @@ interface LifecycleEventBase {
   signatureHtml?: string;
   /** 'left' (header and message aligned left with a margin) or 'center'; added when configured. */
   layout?: 'left' | 'center';
+  /** With layout 'left': the logo starts at the very left edge and only the text keeps the margin. */
+  logoAtEdge?: true;
 }
 
 // n8n's webhook validator switches on eventType and requires different fields per branch

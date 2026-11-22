@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { SUPPORT_HUB_TELEMETRY, supportHubTelemetry, toErrorCode, type TelemetryReporter } from '../support-hub/support-hub-telemetry';
 import { logoStoredFileIdFromSettings, publicLogoUrl } from './email-branding';
-import { resolveEmailStyle, type EmailStyle } from './email-style';
+import { resolveEmailStyle, toWireStyle, type EmailStyle } from './email-style';
 import type {
   ClientflowLifecyclePayload,
   ContractCopyEmailDeliveryResult,
@@ -372,7 +372,7 @@ export class N8nService {
     const headerImageUrl = payload.headerImageUrl ?? (await this.resolveHeaderImageUrl(payload.organizationId));
     // programId only chooses the signature and layout; it is not part of what n8n receives.
     const { programId, ...event } = payload;
-    const style = await this.resolveStyle(payload.organizationId, programId);
+    const style = toWireStyle(await this.resolveStyle(payload.organizationId, programId));
     const outboundPayload = {
       ...style,
       ...event,

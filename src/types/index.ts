@@ -120,7 +120,7 @@ export interface OrgSettings {
     /** The sign-off at the end of every email; empty uses the standard one. */
     emailSignature?: string | null;
     /** "left" (with a margin) or "center" for the email header and message. */
-    emailLayout?: "left" | "center" | null;
+    emailLayout?: "left" | "left-edge" | "center" | null;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;
@@ -198,7 +198,7 @@ export interface Program {
   /** This program's own email sign-off; null uses the organization's. */
   emailSignature?: string | null;
   /** This program's own email layout; null uses the organization's. */
-  emailLayout?: "left" | "center" | null;
+  emailLayout?: "left" | "left-edge" | "center" | null;
   statusPipeline: ClientStatus[];
 }
 

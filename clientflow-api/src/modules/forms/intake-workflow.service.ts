@@ -44,6 +44,9 @@ const INTAKE_STAGE_STATUSES: readonly string[] = [
   CLIENT_STATUS.intakeSubmitted,
 ];
 
+/** Shown when an intake is submitted without a program while programs are offered. */
+export const INTAKE_PROGRAM_REQUIRED = 'Choose at least one program.';
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -95,6 +98,19 @@ export class IntakeWorkflowService {
         throw new ConflictException('This form has changed. Reload the form to use the latest version.');
       }
       renderedSections = renderSession.renderedSections;
+    }
+
+    // At least one program must be chosen whenever the form offered any (the programs on the form
+    // the client saw, or, without a render session, the organization's active programs). An
+    // organization with no active programs can still take an intake.
+    if (selectedProgramIds.length === 0) {
+      const offeredOnForm = Array.isArray(renderedSections)
+        ? renderedSections.filter((section) => isRecord(section) && section.kind === 'program').length
+        : 0;
+      const offered = input.configurationToken
+        ? offeredOnForm
+        : await this.prisma.cfProgram.count({ where: { organizationId: assignment.organizationId, isActive: true } });
+      if (offered > 0) throw new BadRequestException(INTAKE_PROGRAM_REQUIRED);
     }
 
     // Only the organization's active programs can be chosen; anything else is refused up front

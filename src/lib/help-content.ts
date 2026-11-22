@@ -494,14 +494,25 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "Email signature and layout",
     summary: "The sign-off and header layout on every email.",
-    keywords: ["signature", "sign-off", "layout", "logo", "left", "centered"],
+    keywords: [
+      "signature",
+      "sign-off",
+      "layout",
+      "logo",
+      "left",
+      "centered",
+      "header",
+      "edge",
+      "margin",
+    ],
     blocks: [
       {
         type: "list",
         items: [
           'Settings → "Email signature & layout": the organization\'s default.',
           "Program → Overview → Program workflow → Email signature: a program's own, which replaces the default for that program's emails. Leave it empty to use the organization's.",
-          "Layout: centered (standard) or left with a margin.",
+          'Layout: "Centered" (standard), "Left, with a margin" (logo and text indented from the left), or "Left, logo at the edge" (the logo starts at the very left edge and the text keeps its margin).',
+          "Email apps add a little space of their own around every email, so the logo can't sit closer to the edge than that.",
         ],
       },
       { type: "tip", text: 'Use "Send test to me" on a program email to see the result.' },
@@ -892,7 +903,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       {
         type: "list",
         items: [
-          "Intake email: a secure link to their own intake form. They answer the general questions, then the program's, choose programs and submit.",
+          "Intake email: a secure link to their own intake form. They answer the general questions, choose at least one program (the form highlights the program list and won't submit until one is ticked), answer each chosen program's questions and submit.",
           "Agreement email: a link to read and sign. Signing takes their typed name, email and agreement.",
           "Signed copy: an email with a link to the signed PDF.",
           "Welcome email and any program emails, with your logo and signature.",

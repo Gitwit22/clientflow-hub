@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-export type EmailLayout = "left" | "center";
+export type EmailLayout = "left" | "left-edge" | "center";
 
 export interface EmailStyleValues {
   /** null: no signature of its own (the organization's, or the email's standard sign-off). */
@@ -105,6 +105,7 @@ export function EmailStyleCard({
               {forProgram ? "Same as the organization" : "Centered (standard)"}
             </SelectItem>
             <SelectItem value="left">Left, with a margin</SelectItem>
+            <SelectItem value="left-edge">Left, logo at the edge</SelectItem>
             <SelectItem value="center">Centered</SelectItem>
           </SelectContent>
         </Select>

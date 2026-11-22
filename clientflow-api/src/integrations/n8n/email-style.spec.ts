@@ -2,7 +2,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/env';
 import { inMemoryDb } from '../../invariants/in-memory-db';
 import { emailDocumentHtml } from './email-body';
-import { parseEmailLayout, parseEmailSignature, resolveEmailStyle } from './email-style';
+import { parseEmailLayout, parseEmailSignature, resolveEmailStyle, toWireStyle } from './email-style';
 import { N8nService } from './n8n.service';
 
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-base-to-string */
@@ -17,6 +17,7 @@ function setup() {
       { id: 'p-idi', organizationId: 'org-1', emailSignature: null, emailLayout: null },
       { id: 'p-grant', organizationId: 'org-1', emailSignature: 'The Grant Team <grants@ea.example>', emailLayout: 'center' },
       { id: 'p-other-org', organizationId: 'org-2', emailSignature: 'Not yours', emailLayout: 'left' },
+      { id: 'p-edge', organizationId: 'org-1', emailSignature: null, emailLayout: 'left-edge' },
     ],
   }) as any;
 }
@@ -47,7 +48,8 @@ describe('email signature and layout', () => {
     expect(() => parseEmailSignature('x'.repeat(1001))).toThrow('under 1000');
     expect(parseEmailLayout('left')).toBe('left');
     expect(parseEmailLayout('')).toBeNull();
-    expect(() => parseEmailLayout('right')).toThrow('"left" or "center"');
+    expect(parseEmailLayout('left-edge')).toBe('left-edge');
+    expect(() => parseEmailLayout('right')).toThrow('"left", "left-edge" or "center"');
   });
 
   it('previews the left layout in one column with a margin, and the chosen sign-off', () => {
@@ -96,6 +98,38 @@ describe('email signature and layout', () => {
       layout: 'center',
     }));
     expect(sent).not.toHaveProperty('programId');
+
+    await service.sendWelcome('welcome-2', {
+      organizationId: 'org-1', programId: 'p-edge', clientId: 'c1', recipientEmail: 'pat@example.com', clientName: 'Pat',
+      programName: 'Edge', subject: 'Welcome', body: 'Hello', renderMode: 'verbatim',
+      welcome: { source: 'program_template', templateId: null, templateName: null, versionId: null, versionNumber: null },
+      nextStep: 'Hello', sentByUserId: 'staff-1',
+    } as never);
+    const edge = JSON.parse(String(fetchMock.mock.calls[1][1]!.body));
+    expect(edge).toEqual(expect.objectContaining({ layout: 'left', logoAtEdge: true }));
     fetchMock.mockRestore();
+  });
+
+  it('previews "left, logo at the edge": the logo has no margin, the message and sign-off keep theirs', () => {
+    const edge = emailDocumentHtml('<p>Hello</p>', 'https://assets.example/logo.png', { layout: 'left-edge', signatureHtml: 'Warm regards,<br/>EA' });
+    expect(edge).toContain('<td align="left" style="padding:0;">');
+    expect(edge).toContain('<div style="max-width:600px;text-align:left;"><img src="https://assets.example/logo.png"');
+    expect(edge).toContain('height:auto;border:0;margin:0;">');
+    expect(edge).toContain('<div style="padding:24px;"><p>Hello</p><p>Warm regards,<br/>EA</p></div>');
+    // Without a logo, the text header keeps the margin too.
+    expect(emailDocumentHtml('<p>Hello</p>', null, { layout: 'left-edge' })).toContain(
+      '<div style="padding:24px;"><div style="margin-bottom:24px;font-weight:bold;',
+    );
+    // The existing left layout is unchanged.
+    expect(emailDocumentHtml('<p>Hello</p>', null, { layout: 'left' })).toContain('<td align="left" style="padding:24px;">');
+  });
+
+  it('sends "left, logo at the edge" to n8n as layout left plus logoAtEdge, never the new value', () => {
+    expect(toWireStyle({ layout: 'left-edge', signatureText: 'x', signatureHtml: 'x' })).toEqual({
+      layout: 'left', logoAtEdge: true, signatureText: 'x', signatureHtml: 'x',
+    });
+    expect(toWireStyle({ layout: 'left' })).toEqual({ layout: 'left' });
+    expect(toWireStyle({ layout: 'center' })).toEqual({ layout: 'center' });
+    expect(toWireStyle({})).toEqual({});
   });
 });

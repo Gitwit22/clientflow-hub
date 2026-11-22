@@ -7,8 +7,8 @@ import type { Prisma } from '../../generated/clientflow';
  * program's emails. With nothing set, nothing is sent and the email workflow keeps its own
  * sign-off and centered layout, so existing emails look the same.
  */
-export type EmailLayout = 'left' | 'center';
-export const EMAIL_LAYOUTS: readonly EmailLayout[] = ['left', 'center'];
+export type EmailLayout = 'left' | 'left-edge' | 'center';
+export const EMAIL_LAYOUTS: readonly EmailLayout[] = ['left', 'left-edge', 'center'];
 export const EMAIL_SIGNATURE_MAX = 1000;
 
 export interface EmailStyle {
@@ -16,8 +16,30 @@ export interface EmailStyle {
   signatureText?: string;
   /** The sign-off as escaped HTML with <br> line breaks. */
   signatureHtml?: string;
-  /** 'left': header and message aligned left with a margin; 'center': today's centered header. */
+  /**
+   * 'left': header and message aligned left with a margin; 'left-edge': the same, but the logo
+   * starts at the very left edge (only the text keeps the margin); 'center': today's centered header.
+   */
   layout?: EmailLayout;
+}
+
+/** The style fields as the n8n email workflow receives them. */
+export interface WireEmailStyle {
+  signatureText?: string;
+  signatureHtml?: string;
+  layout?: 'left' | 'center';
+  /** With layout 'left': the logo starts at the very left edge; the text keeps its margin. */
+  logoAtEdge?: true;
+}
+
+/**
+ * 'left-edge' goes to n8n as layout 'left' plus logoAtEdge, so a workflow that doesn't know
+ * logoAtEdge yet still sends the familiar left layout instead of falling back to centered.
+ */
+export function toWireStyle(style: EmailStyle): WireEmailStyle {
+  const { layout, ...rest } = style;
+  if (layout === 'left-edge') return { ...rest, layout: 'left', logoAtEdge: true };
+  return { ...rest, ...(layout ? { layout } : {}) };
 }
 
 const escapeHtml = (value: string) =>
@@ -38,11 +60,11 @@ export function parseEmailSignature(value: unknown): string | null {
   return signature || null;
 }
 
-/** A layout value from staff: 'left', 'center', or empty for the default. */
+/** A layout value from staff: 'left', 'left-edge', 'center', or empty for the default. */
 export function parseEmailLayout(value: unknown): EmailLayout | null {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'string' && (EMAIL_LAYOUTS as readonly string[]).includes(value)) return value as EmailLayout;
-  throw new BadRequestException('The email layout must be "left" or "center".');
+  throw new BadRequestException('The email layout must be "left", "left-edge" or "center".');
 }
 
 function settingString(settings: unknown, key: string): string | null {

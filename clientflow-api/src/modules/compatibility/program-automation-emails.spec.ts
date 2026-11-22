@@ -122,6 +122,6 @@ describe('custom automatic emails', () => {
     expect(tables.cfProgram[0]).toEqual(expect.objectContaining({ emailSignature: 'The Grant Team\nEA Management', emailLayout: 'left' }));
     await controller.updateProgram(req, 'program-1', { emailSignature: '', emailLayout: '' });
     expect(tables.cfProgram[0]).toEqual(expect.objectContaining({ emailSignature: null, emailLayout: null }));
-    await expect(controller.updateProgram(req, 'program-1', { emailLayout: 'right' })).rejects.toThrow('"left" or "center"');
+    await expect(controller.updateProgram(req, 'program-1', { emailLayout: 'right' })).rejects.toThrow('"left", "left-edge" or "center"');
   });
 });
