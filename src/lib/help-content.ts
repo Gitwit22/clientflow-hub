@@ -300,7 +300,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         type: "steps",
         items: [
           'Click "Add client", enter a name and your own email address, and tick "This is a test client". Click "Add test client".',
-          "Use the test client like any other: enroll them in a program, give an award, send the agreement, record payments and past payments, send forms.",
+          "Use the test client like any other: enroll them in a program, give an award, send the agreement, record payments (including past payments), send forms.",
           'When you\'re done, open the test client and click "Delete test client". Type the name to confirm.',
         ],
       },
@@ -683,6 +683,8 @@ export const HELP_TOPICS: HelpTopic[] = [
       "billing",
       "payment",
       "past payment",
+      "record payment",
+      "applies to period",
       "ledger",
       "void",
       "bring current",
@@ -697,20 +699,27 @@ export const HELP_TOPICS: HelpTopic[] = [
         type: "list",
         items: [
           '"Set Up Payments": amount, frequency and start date.',
-          '"Record Payment" for a payment against the schedule.',
-          '"Record past payment" for money received before ClientFlow, with its real date. It counts toward "Collected" but isn\'t applied to the schedule.',
+          '"Record payment" for any money the client paid (see below).',
           '"View Ledger" lists every payment; void one with a reason if it was entered by mistake.',
           '"Bring Account Current" records periods that were already paid, either everything up to a paid-through date or the exact periods you pick.',
         ],
       },
-      { type: "text", text: "To record a past payment:" },
+      { type: "text", text: "To record a payment:" },
       {
         type: "steps",
         items: [
           "Open the client and pick the program in the bar at the top.",
-          'Open the Billing tab and click "Record past payment". It works before a payment agreement is set up too.',
-          'Enter the date it was paid (today or earlier), the amount, how it was paid, and optionally what it was for. Click "Record past payment".',
-          'Repeat for each past payment. They show in the ledger as "Past payment".',
+          'Open the Billing tab and click "Record payment".',
+          'For a payment on the schedule, pick the period it covers under "Applies to period". That period then shows as paid and Outstanding goes down.',
+          'For money received before ClientFlow (or outside the schedule), tick "This is a past payment". It counts toward "Collected" but isn\'t applied to a period. Without a payment agreement, every payment is saved this way.',
+          "Enter the amount, the date it was paid (today or earlier) and how it was paid, then save.",
+        ],
+      },
+      {
+        type: "list",
+        items: [
+          '"Applies to period" lists the periods still unpaid, up to the next due date. If those are all paid (the client paid ahead), it offers the next unpaid one.',
+          'Past payments show in the ledger as "Past payment".',
         ],
       },
       {

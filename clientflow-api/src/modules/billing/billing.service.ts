@@ -89,6 +89,9 @@ export interface BackfillPreview {
 
 const roundCents = (value: number) => Math.round(value * 100) / 100;
 
+/** How many periods past the upcoming one the payment form may reach when those are already paid. */
+const PREPAYMENT_LOOKAHEAD = 24;
+
 /** Builds the pure schedule shape billing-schedule.util needs from a persisted agreement row. */
 function scheduleFrom(
   agreement: Pick<CfEnrollmentBillingAgreement, 'startDate' | 'frequency' | 'customIntervalDays' | 'defaultDueDay'>,
@@ -433,7 +436,7 @@ export class BillingService {
     const upcoming = computeNextDueDate(schedule, now);
     const effectiveThroughDate = throughDate ?? (upcoming && upcoming > now ? upcoming : now);
 
-    return computeOccurrences(schedule, agreement.startDate, effectiveThroughDate).map((dueDate) => {
+    const periodFor = (dueDate: Date): OpenPeriod => {
       const bounds = getPeriodBoundsForOccurrence(schedule, dueDate);
       const paidAmount = payments
         .filter(
@@ -445,7 +448,20 @@ export class BillingService {
       const status: OpenPeriod['status'] =
         paidAmount >= amount ? 'paid' : paidAmount > 0 ? 'partial' : dueDate < now ? 'overdue' : 'due';
       return { dueDate, billingPeriodStart: bounds.start, billingPeriodEnd: bounds.end, amount, paidAmount, status };
-    });
+    };
+    const periods = computeOccurrences(schedule, agreement.startDate, effectiveThroughDate).map(periodFor);
+    if (throughDate) return periods;
+
+    // Paying ahead: once the upcoming period is already paid (a client who pays on time, or an
+    // account brought current past today), keep going until an unpaid period is offered, so the
+    // next payment always has a period to apply to. A finished one-time agreement offers nothing new.
+    for (let step = 0; step < PREPAYMENT_LOOKAHEAD && periods.at(-1)?.status === 'paid'; step += 1) {
+      const last = periods.at(-1)!;
+      const next = computeNextDueDate(schedule, new Date(last.dueDate.getTime() + 1));
+      if (!next) break;
+      periods.push(periodFor(next));
+    }
+    return periods;
   }
 
   // ─── Legacy backfill ("Bring Account Current") ─────────────────────────────

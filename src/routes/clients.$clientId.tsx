@@ -72,7 +72,6 @@ import {
   type InitialPaymentStatus,
 } from "@/components/dialogs/SetUpPaymentsDialog";
 import { RecordPaymentDialog } from "@/components/dialogs/RecordPaymentDialog";
-import { RecordPastPaymentDialog } from "@/components/dialogs/RecordPastPaymentDialog";
 import { BringAccountCurrentDialog } from "@/components/dialogs/BringAccountCurrentDialog";
 import { PaymentLedgerDialog } from "@/components/dialogs/PaymentLedgerDialog";
 import { getState, useAppState } from "@/lib/store";
@@ -226,7 +225,6 @@ function ClientProfile() {
   const [billingRefreshVersion, setBillingRefreshVersion] = useState(0);
   const [setUpPaymentsOpen, setSetUpPaymentsOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
-  const [recordPastPaymentOpen, setRecordPastPaymentOpen] = useState(false);
   const [bringCurrentOpen, setBringCurrentOpen] = useState(false);
   const [bringCurrentMode, setBringCurrentMode] = useState<"current" | "partial_unknown">(
     "current",
@@ -1249,8 +1247,8 @@ function ClientProfile() {
                       )}
                       <div className="flex flex-wrap gap-2">
                         <Button onClick={() => setSetUpPaymentsOpen(true)}>Set Up Payments</Button>
-                        <Button variant="outline" onClick={() => setRecordPastPaymentOpen(true)}>
-                          Record past payment
+                        <Button variant="outline" onClick={() => setRecordPaymentOpen(true)}>
+                          Record payment
                         </Button>
                         {(billingSummary?.payments.length ?? 0) > 0 && (
                           <Button variant="outline" onClick={() => setLedgerOpen(true)}>
@@ -1298,15 +1296,12 @@ function ClientProfile() {
                         </p>
                       )}
                       <div className="flex flex-wrap gap-2">
-                        <Button onClick={() => setRecordPaymentOpen(true)}>Record Payment</Button>
+                        <Button onClick={() => setRecordPaymentOpen(true)}>Record payment</Button>
                         <Button variant="outline" onClick={() => setSetUpPaymentsOpen(true)}>
                           Update Agreement
                         </Button>
                         <Button variant="outline" onClick={() => setLedgerOpen(true)}>
                           View Ledger
-                        </Button>
-                        <Button variant="outline" onClick={() => setRecordPastPaymentOpen(true)}>
-                          Record past payment
                         </Button>
                         <Button
                           variant="outline"
@@ -1951,14 +1946,8 @@ function ClientProfile() {
             onOpenChange={setRecordPaymentOpen}
             clientId={client.id}
             enrollmentId={selectedEnrollment.id}
+            hasAgreement={Boolean(billingSummary?.agreement)}
             agreementAmount={billingSummary?.agreement?.amount ?? 0}
-            onSaved={() => setBillingRefreshVersion((v) => v + 1)}
-          />
-          <RecordPastPaymentDialog
-            open={recordPastPaymentOpen}
-            onOpenChange={setRecordPastPaymentOpen}
-            clientId={client.id}
-            enrollmentId={selectedEnrollment.id}
             onSaved={() => setBillingRefreshVersion((v) => v + 1)}
           />
           <BringAccountCurrentDialog
