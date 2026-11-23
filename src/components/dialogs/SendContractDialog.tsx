@@ -1,3 +1,4 @@
+import { AgreementText } from "@/components/AgreementText";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -299,12 +300,12 @@ function AgreementReviewPanel({ review }: { review: AgreementPreview }) {
   return (
     <div className="space-y-3">
       <p className="font-medium">{review.title}</p>
-      <pre
+      <div
         aria-label="Agreement text"
-        className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-3 font-sans text-sm"
+        className="max-h-80 overflow-auto rounded-md border border-border bg-muted/40 p-4 text-sm"
       >
-        {review.content}
-      </pre>
+        <AgreementText text={review.content} />
+      </div>
       {review.missing.length > 0 ? (
         <div role="alert" className="space-y-1 text-destructive">
           <p className="font-medium">Fill in these details before sending:</p>

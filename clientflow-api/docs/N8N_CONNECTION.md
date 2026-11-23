@@ -243,7 +243,8 @@ the subject, body or htmlBody: `422`, `errorCode: "VALIDATION_FAILED"`,
   **Live since 2026-11-20:** in the "CLIENTFLOW - Send Form Email" workflow, the step
   `08 - Apply Signature & Layout` (a Code node after every "Prepare Email" node, before
   `Has Attachment?`) applies them. The attachment Gmail node reads the email from that step. Version
-  `533fad66`; the previous version, `f5a75dc4`, is the rollback.
+  `9584885b` (2026-11-22, adds `logoAtEdge`); the previous version, `533fad66`, is the rollback
+  (and `f5a75dc4` before that).
   - `signatureText` / `signatureHtml`: the sign-off. Replace the footer "Thank you, / EA Management
     LLC" with `signatureHtml` in the HTML (already escaped, line breaks as `<br/>`) and with
     `signatureText` in the plain-text version.
@@ -251,6 +252,12 @@ the subject, body or htmlBody: `422`, `errorCode: "VALIDATION_FAILED"`,
     left, with a 24px margin: a full-width table whose cell is `align="left"` with `padding:24px`,
     holding a `max-width:600px; text-align:left` block with the logo, message and signature. For
     `"center"` (or no value), keep the centered header.
+  - `logoAtEdge` (`true`, only with `layout: "left"`): staff chose "Left, logo at the edge". The cell
+    has `padding:0`, the logo is the first thing in the column with `margin:0`, and the message and
+    signature are wrapped in `<div style="padding:24px;">` (without a logo, the text header goes in
+    that wrapper too). ClientFlow stores this choice as layout `left-edge` but always sends it as
+    `layout: "left"` plus `logoAtEdge: true`, so a workflow that ignores `logoAtEdge` still sends the
+    normal left layout.
   - ClientFlow's preview builds the same markup (`emailDocumentHtml` in
     `src/integrations/n8n/email-body.ts`); keep the two in step.
 

@@ -1,10 +1,6 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { renderAutomationText } from '../automation/automation-email';
+import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import type { Environment } from '../../config/env';
@@ -141,6 +137,8 @@ const WELCOME_VARIABLE_PATTERN = /{{\s*([a-zA-Z0-9_.]+)\s*}}/g;
 const ALLOWED_WELCOME_VARIABLES = new Set([
   'client.firstName',
   'client.fullName',
+  'client.contactName',
+  'client.businessName',
   'program.name',
   'organization.name',
   'enrollment.startDate',
@@ -186,6 +184,7 @@ export class ContractsService {
     private readonly workflowConfig: WorkflowConfigService,
     private readonly storage: StorageService = { isEnabled: () => false } as unknown as StorageService,
     private readonly enrollments: EnrollmentsService = new EnrollmentsService(prisma),
+    @Optional() private readonly deliverables?: ProgramDeliverablesService,
   ) {}
 
   async prepareProgramSelection(organizationId: string, programName: string) {
@@ -713,6 +712,8 @@ export class ContractsService {
           executedCopyUrl: download.url,
           source: delivery.source,
           sentByUserId: manual ? delivery.actor?.id ?? client.assignedUserId ?? 'system' : 'system',
+          // A staff member's own send carries their role's signature.
+          ...(manual && delivery.actor?.id ? { senderUserId: delivery.actor.id } : {}),
         });
       } catch (error) {
         this.logger.warn(`Unable to prepare the signed copy for contract ${contract.id}: ${(error as Error).message}`);
@@ -804,6 +805,9 @@ export class ContractsService {
           attachmentMimeType: attachment?.mimeType,
           headerImageUrl: welcomeConfig.headerImageUrl,
           sentByUserId: input.delivery.actor?.id ?? client.assignedUserId ?? 'system',
+          ...(input.delivery.source === DELIVERY_SOURCE.manual && input.delivery.actor?.id
+            ? { senderUserId: input.delivery.actor.id }
+            : {}),
         });
     await this.recordWelcomeDeliveryResult(input.communicationId, client, welcomeDelivery, input.delivery);
     return welcomeDelivery;
@@ -1152,6 +1156,17 @@ export class ContractsService {
       actionUrl: `/clients/${client.id}?tab=contracts`,
       isDemo: client.isDemo,
     });
+
+    // Program deliverables set to complete when the (enrollment) agreement is signed.
+    if (contract.enrollmentId && this.deliverables) {
+      await this.deliverables.autoComplete({
+        organizationId: client.organizationId,
+        enrollmentId: contract.enrollmentId,
+        trigger: 'agreement_signed',
+        occurredAt: now,
+        detail: `${contract.contractType} signed`,
+      });
+    }
 
     return {
       organizationId: client.organizationId,
@@ -2027,7 +2042,8 @@ export class ContractsService {
           contractName: template.name,
           contractUrl: publicContractUrl,
           dueDate: secureTokenExpiresAt.toISOString().slice(0, 10),
-          sentByUserId: client.assignedUserId ?? 'system',
+          sentByUserId: (manual ? delivery.actor?.id : null) ?? client.assignedUserId ?? 'system',
+          ...(manual && delivery.actor?.id ? { senderUserId: delivery.actor.id } : {}),
         });
     await this.recordDeliveryResult(issued.communication.id, emailDelivery);
 
@@ -2073,6 +2089,15 @@ export class ContractsService {
       client: {
         firstName: this.firstName(input.client.primaryContactName),
         fullName: input.client.primaryContactName,
+        // The names client emails share (blasts, automatic emails), with the same fallbacks.
+        contactName: renderAutomationText('{{client.contactName}}', {
+          'client.contactName': input.client.primaryContactName,
+          'client.businessName': input.client.businessName,
+        }),
+        businessName: renderAutomationText('{{client.businessName}}', {
+          'client.contactName': input.client.primaryContactName,
+          'client.businessName': input.client.businessName,
+        }),
       },
       program: { name: input.program.name },
       organization: { name: organization?.name ?? '' },

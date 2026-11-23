@@ -1,6 +1,8 @@
 import { Bold, Eye, ImagePlus, Italic, Link2, List, ListOrdered } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { TestClientBadge } from "@/components/clients/TestClientBadge";
+import { InsertFieldMenu, UnknownFieldsNotice } from "@/components/InsertFieldMenu";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -15,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useSendAttempt } from "@/hooks/use-send-attempt";
+import { CLIENT_EMAIL_FIELDS, blastFieldProblem } from "@/lib/email-fields";
 import {
   ApiError,
   cfPreviewProgramEmail,
@@ -44,12 +47,46 @@ import {
 const SUBJECT_MAX = 200;
 const BODY_MAX = 20_000;
 
+/** The subject box with an "Insert field" button beside it. */
+export function SubjectInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="program-email-subject">Subject</Label>
+      <div className="flex items-center gap-1">
+        <Input
+          ref={input}
+          id="program-email-subject"
+          value={value}
+          maxLength={SUBJECT_MAX}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <InsertFieldMenu
+          compact
+          label="Insert field into subject"
+          fields={CLIENT_EMAIL_FIELDS}
+          target={input}
+          value={value}
+          onChange={(next) => onChange(next.slice(0, SUBJECT_MAX))}
+        />
+      </div>
+    </div>
+  );
+}
+
 /** A member who can be chosen: anyone with a usable address. */
 export interface Candidate {
   clientId: string;
   businessName: string;
   name: string;
   email: string;
+  isTest?: boolean;
 }
 
 /** A member who can't be emailed (no address, or one that isn't valid). */
@@ -61,6 +98,7 @@ function candidatesOf(preview: ProgramEmailRecipientsPreview) {
     businessName: recipient.businessName,
     name: recipient.name,
     email: recipient.email,
+    ...(recipient.isTest ? { isTest: true } : {}),
   }));
   // Someone sharing an address is still choosable: chosen alone, they get the email.
   for (const member of preview.skipped) {
@@ -159,7 +197,12 @@ export function SendProgramEmailDialog({
     setLoadingPreview(true);
     try {
       setRendered(
-        await cfPreviewProgramEmail(programId, { subject: subject.trim(), body: body.trim() }),
+        await cfPreviewProgramEmail(programId, {
+          subject: subject.trim(),
+          body: body.trim(),
+          // Personal fields are shown filled in for the first person it goes to.
+          sampleClientId: delivery.recipients[0]?.clientId,
+        }),
       );
       setStep("preview");
     } catch (error) {
@@ -179,6 +222,7 @@ export function SendProgramEmailDialog({
       const result = await cfSendProgramEmailTest(programId, {
         subject: subject.trim(),
         body: body.trim(),
+        sampleClientId: delivery.recipients[0]?.clientId,
       });
       const outcome = describeDelivery(result.delivery);
       if (outcome.ok)
@@ -222,8 +266,12 @@ export function SendProgramEmailDialog({
     }
   }
 
+  const fieldProblem = blastFieldProblem(subject, body);
   const ready =
-    subject.trim().length > 0 && body.trim().length > 0 && delivery.recipients.length > 0;
+    subject.trim().length > 0 &&
+    body.trim().length > 0 &&
+    delivery.recipients.length > 0 &&
+    !fieldProblem;
   const sendLabel = attempt.sending ? "Sending…" : `Send to ${plural(delivery.recipients.length)}`;
 
   return (
@@ -249,16 +297,9 @@ export function SendProgramEmailDialog({
               onChange={setSelected}
               everyone={everyone}
             />
-            <div className="space-y-1.5">
-              <Label htmlFor="program-email-subject">Subject</Label>
-              <Input
-                id="program-email-subject"
-                value={subject}
-                maxLength={SUBJECT_MAX}
-                onChange={(event) => setSubject(event.target.value)}
-              />
-            </div>
+            <SubjectInput value={subject} onChange={setSubject} />
             <MessageEditor value={body} onChange={setBody} />
+            <UnknownFieldsNotice message={fieldProblem} />
           </div>
         ) : (
           rendered && (
@@ -433,6 +474,7 @@ function RecipientPicker({
                     {candidate.name !== candidate.businessName && (
                       <span className="text-muted-foreground"> · {candidate.name}</span>
                     )}
+                    <TestClientBadge client={{ isDemo: candidate.isTest }} className="ml-2" />
                   </span>
                   <span className="truncate text-xs text-muted-foreground">{candidate.email}</span>
                 </label>
@@ -607,6 +649,15 @@ export function MessageEditor({
               event.target.value = "";
             }}
           />
+          <div className="ml-auto">
+            <InsertFieldMenu
+              label="Insert field into message"
+              fields={CLIENT_EMAIL_FIELDS}
+              target={textarea}
+              value={value}
+              onChange={(next) => onChange(next.slice(0, BODY_MAX))}
+            />
+          </div>
         </div>
         {linking && (
           <div className="flex flex-wrap items-center gap-2 border-b border-input px-2 py-1.5">
@@ -662,8 +713,9 @@ export function MessageEditor({
       <p className="text-xs text-muted-foreground">
         Select text and use the buttons, or type **bold**, _italic_, “- ” for a bullet, “1. ” for a
         numbered list. In a list, Enter starts the next item; Enter on an empty item ends the list.
-        A blank line starts a new paragraph. Image adds a PNG, JPEG or GIF (up to 5 MB). Use
-        “Preview email” to see it as members will.
+        A blank line starts a new paragraph. Image adds a PNG, JPEG or GIF (up to 5 MB). “Insert
+        field” adds a member&apos;s own details, such as their business name, filled in for each
+        person. Use “Preview email” to see it as members will.
       </p>
     </div>
   );
@@ -719,6 +771,11 @@ export function EmailPreview({
           <dt className="text-muted-foreground">Subject</dt>
           <dd className="font-medium">{email.subject}</dd>
         </dl>
+        {email.previewedAs && (
+          <p className="border-b border-border bg-muted/10 px-4 py-2 text-xs text-muted-foreground">
+            Personal fields show {email.previewedAs}&apos;s details. Each member sees their own.
+          </p>
+        )}
         <iframe
           title="Email as members will see it"
           srcDoc={html}

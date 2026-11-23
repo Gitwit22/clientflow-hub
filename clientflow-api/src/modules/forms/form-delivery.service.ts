@@ -230,6 +230,8 @@ export class FormDeliveryService {
         formUrl,
         expiresAt: assignment.expiresAt?.toISOString() ?? null,
         sentByUserId: actor.id,
+        // Staff sends carry their role's signature; automations never do.
+        ...(input.source !== DELIVERY_SOURCE.automation ? { senderUserId: actor.id } : {}),
         dueDate:
           assignment.dueDate || assignment.expiresAt?.toISOString() || (defaultDue ?? sendTime).toISOString().slice(0, 10),
         ...(typeof input.personalMessage === 'string' && input.personalMessage.trim()

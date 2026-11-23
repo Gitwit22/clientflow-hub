@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isPrismaUniqueViolation } from '../../common/prisma-errors';
 import type {
@@ -108,7 +109,32 @@ function scheduleFrom(
 
 @Injectable()
 export class BillingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly deliverables?: ProgramDeliverablesService,
+  ) {}
+
+  /**
+   * A payment was recorded: program deliverables set to complete on a payment are completed for
+   * the month it pays for (its billing period, or the date paid for a past payment).
+   */
+  private async completePaymentDeliverables(
+    organizationId: string,
+    enrollmentId: string,
+    payments: Array<{ amount: number | { toString(): string }; month: Date }>,
+  ) {
+    if (!this.deliverables) return;
+    for (const payment of payments) {
+      const amount = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(payment.amount));
+      await this.deliverables.autoComplete({
+        organizationId,
+        enrollmentId,
+        trigger: 'payment_recorded',
+        occurredAt: payment.month,
+        detail: `payment of ${amount} recorded`,
+      });
+    }
+  }
 
   async resolveOrgTimezone(organizationId: string): Promise<string> {
     const organization = await this.prisma.organization.findUnique({
@@ -265,7 +291,7 @@ export class BillingService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const recordedPayment = await this.prisma.$transaction(async (tx) => {
         const payment = await tx.cfPaymentRecord.create({
           data: {
             organizationId: input.organizationId,
@@ -289,6 +315,10 @@ export class BillingService {
         });
         return payment;
       });
+      await this.completePaymentDeliverables(input.organizationId, input.enrollmentId, [
+        { amount: recordedPayment.amount, month: input.billingPeriodStart },
+      ]);
+      return recordedPayment;
     } catch (error) {
       // Two identical requests at once: the unique key let one record it; return that one.
       if (input.idempotencyKey && isPrismaUniqueViolation(error)) {
@@ -314,7 +344,7 @@ export class BillingService {
       throw new BadRequestException('A past payment cannot be dated in the future.');
     }
     try {
-      return await this.prisma.cfPaymentRecord.create({
+      const payment = await this.prisma.cfPaymentRecord.create({
         data: {
           organizationId: input.organizationId,
           enrollmentId: input.enrollmentId,
@@ -331,6 +361,10 @@ export class BillingService {
           idempotencyKey: input.idempotencyKey ?? null,
         },
       });
+      await this.completePaymentDeliverables(input.organizationId, input.enrollmentId, [
+        { amount: payment.amount, month: input.paymentDate },
+      ]);
+      return payment;
     } catch (error) {
       if (input.idempotencyKey && isPrismaUniqueViolation(error)) {
         const concurrent = await this.findPaymentByKey(input.organizationId, input.idempotencyKey);
@@ -515,7 +549,7 @@ export class BillingService {
     const preview = await this.previewBackfill(organizationId, enrollmentId, timezone, selection);
     if (preview.count === 0) return { created: 0, totalAmount: 0 };
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // skipDuplicates (ON CONFLICT DO NOTHING): a period confirmed twice is skipped by the partial
       // unique index without aborting the transaction, which a caught error inside it would.
       const { count: created } = await tx.cfPaymentRecord.createMany({
@@ -541,6 +575,14 @@ export class BillingService {
       });
       return { created, totalAmount: preview.totalAmount };
     });
+    if (result.created > 0) {
+      await this.completePaymentDeliverables(
+        organizationId,
+        enrollmentId,
+        preview.periods.map((period) => ({ amount: period.amount, month: period.start })),
+      );
+    }
+    return result;
   }
 }
 

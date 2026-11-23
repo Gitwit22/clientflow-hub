@@ -50,6 +50,7 @@ describe('custom automatic emails', () => {
     const automation = await controller.getProgramAutomation(req, 'program-1');
     expect(automation.rules).toHaveLength(1);
     expect(automation.emailFields.map((field: { key: string }) => field.key)).toContain('organization.name');
+    expect(automation.emailFields.map((field: { key: string }) => field.key)).toContain('client.firstName');
     expect(automation.emailTriggers).toContainEqual({ trigger: 'contract_signed', label: 'When the agreement is signed' });
   });
 
@@ -57,8 +58,8 @@ describe('custom automatic emails', () => {
     const { controller, tables } = setup();
     await expect(controller.createProgramAutomationRule(req, 'program-1', email({ subject: '', message: 'Hi' }))).rejects.toThrow('Add a subject');
     await expect(controller.createProgramAutomationRule(req, 'program-1', email({ subject: 'Hi', message: '   ' }))).rejects.toThrow('Add the message');
-    await expect(controller.createProgramAutomationRule(req, 'program-1', email({ subject: 'Hi {{client.firstName}}', message: 'Hello' })))
-      .rejects.toThrow('Unknown merge field: {{client.firstName}}');
+    await expect(controller.createProgramAutomationRule(req, 'program-1', email({ subject: 'Hi {{client.nickname}}', message: 'Hello' })))
+      .rejects.toThrow('Unknown merge field: {{client.nickname}}');
     await expect(controller.createProgramAutomationRule(req, 'program-1', email({ subject: 'x'.repeat(201), message: 'Hello' }))).rejects.toThrow('under 200');
     expect(tables.cfProgramAutomationRule.filter((rule) => rule.programId === 'program-1')).toHaveLength(0);
   });
@@ -122,6 +123,6 @@ describe('custom automatic emails', () => {
     expect(tables.cfProgram[0]).toEqual(expect.objectContaining({ emailSignature: 'The Grant Team\nEA Management', emailLayout: 'left' }));
     await controller.updateProgram(req, 'program-1', { emailSignature: '', emailLayout: '' });
     expect(tables.cfProgram[0]).toEqual(expect.objectContaining({ emailSignature: null, emailLayout: null }));
-    await expect(controller.updateProgram(req, 'program-1', { emailLayout: 'right' })).rejects.toThrow('"left" or "center"');
+    await expect(controller.updateProgram(req, 'program-1', { emailLayout: 'right' })).rejects.toThrow('"left", "left-edge" or "center"');
   });
 });

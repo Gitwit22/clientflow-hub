@@ -42,6 +42,20 @@ export class CreateDeliverableTemplateDto {
   @IsOptional()
   @IsBoolean()
   programWideDate?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['form_submitted', 'payment_recorded', 'agreement_signed', 'document_uploaded', 'checkin_recorded'],
+    description: "Completes automatically for a client's month when this happens; null: staff complete it.",
+  })
+  @IsOptional()
+  @IsIn(['form_submitted', 'payment_recorded', 'agreement_signed', 'document_uploaded', 'checkin_recorded'])
+  completeOn?: 'form_submitted' | 'payment_recorded' | 'agreement_signed' | 'document_uploaded' | 'checkin_recorded' | null;
+
+  @ApiPropertyOptional({ description: 'For completeOn form_submitted: the form that completes it.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  completeOnFormId?: string | null;
 }
 
 export class UpdateDeliverableTemplateDto {
@@ -72,6 +86,20 @@ export class UpdateDeliverableTemplateDto {
   @IsOptional()
   @IsBoolean()
   programWideDate?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['form_submitted', 'payment_recorded', 'agreement_signed', 'document_uploaded', 'checkin_recorded'],
+    description: "Completes automatically for a client's month when this happens; null: staff complete it.",
+  })
+  @IsOptional()
+  @IsIn(['form_submitted', 'payment_recorded', 'agreement_signed', 'document_uploaded', 'checkin_recorded'])
+  completeOn?: 'form_submitted' | 'payment_recorded' | 'agreement_signed' | 'document_uploaded' | 'checkin_recorded' | null;
+
+  @ApiPropertyOptional({ description: 'For completeOn form_submitted: the form that completes it.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  completeOnFormId?: string | null;
 }
 
 export class ReorderDeliverableTemplatesDto {
@@ -92,4 +120,27 @@ export class SetProgramDeliverableDateDto {
   @IsISO8601({ strict: true })
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'scheduledFor must be a date like 2026-10-18.' })
   scheduledFor?: string | null;
+}
+
+export class ConfirmDeliverableForMembersDto {
+  @ApiProperty({ example: '2026-10', description: 'The month the deliverable was provided in.' })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must look like 2026-10.' })
+  month!: string;
+
+  @ApiProperty({ type: [String], description: 'The members (enrollment ids) who received it.' })
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @IsString({ each: true })
+  enrollmentIds!: string[];
+
+  @ApiPropertyOptional({ enum: ['COMPLETED', 'DELIVERED'], default: 'COMPLETED' })
+  @IsOptional()
+  @IsIn(['COMPLETED', 'DELIVERED'])
+  status?: 'COMPLETED' | 'DELIVERED';
+
+  @ApiPropertyOptional({ example: 'October 14 group meeting', maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
 }

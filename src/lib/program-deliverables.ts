@@ -20,7 +20,27 @@ export interface ProgramDeliverableTemplate {
   sortOrder: number;
   /** The date is set once per month for the whole program instead of per client. */
   programWideDate: boolean;
+  /** Completes automatically for a client's month when this happens; null: staff complete it. */
+  completeOn?: DeliverableTrigger | null;
+  /** For completeOn "form_submitted": the form that completes it. */
+  completeOnFormId?: string | null;
 }
+
+/** Events that can complete a program deliverable on their own. */
+export type DeliverableTrigger =
+  | "form_submitted"
+  | "payment_recorded"
+  | "agreement_signed"
+  | "document_uploaded"
+  | "checkin_recorded";
+
+export const DELIVERABLE_TRIGGER_LABELS: Record<DeliverableTrigger, string> = {
+  form_submitted: "A chosen form is submitted",
+  payment_recorded: "A payment is recorded for the month",
+  agreement_signed: "The program agreement is signed",
+  document_uploaded: "A document is uploaded for the client",
+  checkin_recorded: "A monitoring check-in is recorded",
+};
 
 export interface DeliverableCycle {
   id: string;
@@ -209,4 +229,42 @@ export function programHistorySummary(history: ProgramHistory): string {
         `${month.label}: ${month.recorded === false ? "no activity recorded" : progressLabel(month.summary)}`,
     )
     .join("; ");
+}
+
+/** Why a member can't be confirmed for a deliverable in a month. */
+export type ConfirmationBlockedReason = "finalized" | "not_active" | "not_on_checklist";
+
+export const CONFIRMATION_BLOCKED_LABELS: Record<ConfirmationBlockedReason, string> = {
+  finalized: "Month finalized",
+  not_active: "Not active in the program",
+  not_on_checklist: "Not on their checklist that month",
+};
+
+/** A member who could receive a deliverable in a month, and where they stand. */
+export interface DeliverableConfirmationMember {
+  enrollmentId: string;
+  clientId: string;
+  businessName: string;
+  contactName: string;
+  isTest: boolean;
+  status: DeliverableStatus | null;
+  done: boolean;
+  blockedReason: ConfirmationBlockedReason | null;
+}
+
+export interface DeliverableConfirmationList {
+  templateId: string;
+  title: string;
+  month: string;
+  label: string;
+  members: DeliverableConfirmationMember[];
+}
+
+export interface DeliverableConfirmationResult {
+  templateId: string;
+  month: string;
+  label: string;
+  confirmed: string[];
+  alreadyDone: string[];
+  skipped: { enrollmentId: string; reason: "finalized" | "not_on_checklist" }[];
 }

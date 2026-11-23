@@ -6,6 +6,7 @@ import {
   ClientflowAuthGuard,
 } from '../../common/guards/clientflow-auth.guard';
 import {
+  ConfirmDeliverableForMembersDto,
   CreateDeliverableTemplateDto,
   ReorderDeliverableTemplatesDto,
   SetProgramDeliverableDateDto,
@@ -87,6 +88,28 @@ export class ProgramDeliverablesController {
     @Body() dto: MergeDeliverableDto,
   ) {
     return this.deliverables.mergeTemplates(request.adminUser!.organizationId, programId, templateId, dto.intoTemplateId, true);
+  }
+
+  /** The members who could receive this deliverable in a month, and where each stands (?month=2026-10). */
+  @Get(':templateId/confirm')
+  confirmationMembers(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Param('templateId') templateId: string,
+    @Query('month') month: string,
+  ) {
+    return this.deliverables.listConfirmationMembers(request.adminUser!.organizationId, programId, templateId, String(month ?? ''));
+  }
+
+  /** Marks the deliverable completed for the chosen members in one step (e.g. a monthly meeting). */
+  @Post(':templateId/confirm')
+  confirm(
+    @Req() request: AuthenticatedRequest,
+    @Param('programId') programId: string,
+    @Param('templateId') templateId: string,
+    @Body() dto: ConfirmDeliverableForMembersDto,
+  ) {
+    return this.deliverables.confirmForMembers(request.adminUser!.organizationId, actorFrom(request), programId, templateId, dto);
   }
 
   // Declared before ':templateId' so "reorder" is never read as a template id.

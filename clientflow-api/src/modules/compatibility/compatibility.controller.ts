@@ -1,3 +1,4 @@
+import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
 import {
   All,
   BadRequestException,
@@ -17,6 +18,7 @@ import {
   ServiceUnavailableException,
   Logger,
   UnauthorizedException,
+  Optional,
 } from '@nestjs/common';
 import { hash, compare } from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'crypto';
@@ -46,7 +48,7 @@ import {
   validateAutomationEmail,
 } from '../automation/automation-email';
 import { isSendableEmail } from '../communications/recipient';
-import { parseEmailLayout, parseEmailSignature } from '../../integrations/n8n/email-style';
+import { parseEmailLayout, parseEmailSignature, parseEmailSignaturesByRole } from '../../integrations/n8n/email-style';
 import { assertIntakeChoice, assertReadyToActivate, GENERAL_INTAKE_CHOICE, programSetup } from '../programs/program-setup';
 import { type AgreementPurpose, parseAgreementPurpose, templateFieldProblemMessage } from '../contracts/merge-fields';
 import { normalizeMonitoringFrequency, parseComplianceStatus, recordMonitoringResult } from '../lifecycle/monitoring';
@@ -268,6 +270,7 @@ export class ClientflowCompatibilityController {
     private readonly formProfile?: FormProfileService,
     private readonly formDelivery?: FormDeliveryService,
     private readonly finalReports?: FinalReportsService,
+    @Optional() private readonly deliverables?: ProgramDeliverablesService,
   ) {}
 
   private requirePrisma(): PrismaService {
@@ -1250,6 +1253,7 @@ export class ClientflowCompatibilityController {
       welcome: { source: 'automation_rule', templateId: null, templateName: null, versionId: null, versionNumber: null, ruleId: 'test' },
       nextStep: renderedMessage,
       sentByUserId: admin.id,
+      senderUserId: admin.id,
     });
     return { recipientEmail: admin.email, delivery };
   }
@@ -1837,12 +1841,28 @@ export class ClientflowCompatibilityController {
   /** Adapter: the review is recorded by the monitoring lifecycle (result, schedule, history). */
   @Post('enrollment-monitoring/:id/results') async recordMonitoringResult(@Req() request: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { orgId, admin } = await this.requireOrgFromRequest(request);
-    return this.requirePrisma().$transaction((transaction) => recordMonitoringResult(transaction, {
+    const recorded = await this.requirePrisma().$transaction((transaction) => recordMonitoringResult(transaction, {
       organizationId: orgId,
       monitoringId: id,
       result: body,
       reviewedByUserId: admin.id,
     }));
+    // Program deliverables set to complete when a check-in is recorded.
+    if (this.deliverables) {
+      const monitoring = await this.requirePrisma().cfEnrollmentMonitoring.findFirst({
+        where: { id, organizationId: orgId },
+        select: { enrollmentId: true, name: true },
+      });
+      if (monitoring) {
+        await this.deliverables.autoComplete({
+          organizationId: orgId,
+          enrollmentId: monitoring.enrollmentId,
+          trigger: 'checkin_recorded',
+          detail: `${monitoring.name} check-in recorded`,
+        });
+      }
+    }
+    return recorded;
   }
   @Get('enrollment-monitoring/:id/history') async getMonitoringHistory(@Req() request: Request, @Param('id') id: string) {
     const { orgId } = await this.requireOrgFromRequest(request);
@@ -2000,6 +2020,15 @@ export class ClientflowCompatibilityController {
           idempotencySeed: `compat.document.uploaded:${document.id}`,
           payload: { documentId: document.id, documentType: document.type },
         });
+        // Program deliverables set to complete when a document is uploaded for the client.
+        for (const enrollment of enrollments) {
+          await this.deliverables?.autoComplete({
+            organizationId: orgId,
+            enrollmentId: enrollment.id,
+            trigger: 'document_uploaded',
+            detail: `${document.name || 'A document'} uploaded`,
+          });
+        }
       }
     }
     return completed;
@@ -2183,6 +2212,8 @@ function pickOrganizationSettings(body: Record<string, unknown>): Record<string,
   // The default email sign-off and layout; a program can set its own (CfProgram).
   if ('emailSignature' in body) settings.emailSignature = parseEmailSignature(body.emailSignature);
   if ('emailLayout' in body) settings.emailLayout = parseEmailLayout(body.emailLayout);
+  // Sign-offs by staff role, used on emails a person sends (merged role by role on save).
+  if ('emailSignaturesByRole' in body) settings.emailSignaturesByRole = parseEmailSignaturesByRole(body.emailSignaturesByRole);
   for (const key of ['features', 'notificationTemplateToggles'] as const) {
     const value = body[key];
     if (isRecord(value)) {
@@ -2667,6 +2698,7 @@ export class OrganizationsCompatibilityController {
         organizationId: member.organizationId,
         clientId: member.id,
         sentByUserId: actor.id,
+        senderUserId: actor.id,
         recipientEmail: member.email,
         clientName: staffName(member),
         actionUrl,
@@ -2717,7 +2749,7 @@ export class OrganizationsCompatibilityController {
     }
     const nextSettings: Record<string, unknown> = { ...currentSettings, ...changes };
     // Toggle maps merge key by key: turning one notification off must not reset the others.
-    for (const key of ['features', 'notificationTemplateToggles'] as const) {
+    for (const key of ['features', 'notificationTemplateToggles', 'emailSignaturesByRole'] as const) {
       if (isRecord(changes[key])) {
         nextSettings[key] = { ...(isRecord(currentSettings[key]) ? currentSettings[key] : {}), ...changes[key] };
       }

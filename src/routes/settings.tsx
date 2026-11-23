@@ -8,6 +8,7 @@ import {
   type EmailLayout,
   type EmailStyleValues,
 } from "@/components/EmailStyleCard";
+import { RoleSignaturesCard, type RoleSignatures } from "@/components/RoleSignaturesCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -162,6 +163,10 @@ function SettingsPage() {
     emailSignature: null,
     emailLayout: null,
   });
+  const [roleSignatures, setRoleSignatures] = useState<RoleSignatures>({
+    org_admin: null,
+    reviewer: null,
+  });
   const [monitoringFreq, setMonitoringFreq] = useState("");
   const [orgSaving, setOrgSaving] = useState(false);
   const [logoStoredFileId, setLogoStoredFileId] = useState<string | null>(null);
@@ -203,6 +208,10 @@ function SettingsPage() {
       setEmailStyle({
         emailSignature: (data.settings.emailSignature as string | null) ?? null,
         emailLayout: (data.settings.emailLayout as EmailLayout | null) ?? null,
+      });
+      setRoleSignatures({
+        org_admin: data.settings.emailSignaturesByRole?.org_admin ?? null,
+        reviewer: data.settings.emailSignaturesByRole?.reviewer ?? null,
       });
       setMonitoringFreq((data.settings.defaultMonitoringFrequency as string) ?? "");
       setTemplateToggles((current) => ({
@@ -838,6 +847,20 @@ function SettingsPage() {
               setEmailStyle({
                 emailSignature: (updated.settings.emailSignature as string | null) ?? null,
                 emailLayout: (updated.settings.emailLayout as EmailLayout | null) ?? null,
+              });
+            }}
+          />
+          <RoleSignaturesCard
+            value={roleSignatures}
+            disabled={!orgId}
+            onSave={async (values) => {
+              if (!orgId) return;
+              const updated = await updateOrganizationSettings(orgId, {
+                emailSignaturesByRole: values,
+              });
+              setRoleSignatures({
+                org_admin: updated.settings.emailSignaturesByRole?.org_admin ?? null,
+                reviewer: updated.settings.emailSignaturesByRole?.reviewer ?? null,
               });
             }}
           />

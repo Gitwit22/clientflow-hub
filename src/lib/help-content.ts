@@ -309,7 +309,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         items: [
           'Test clients show a "Test" badge in the client list, on their page and in program member lists.',
           "They and everything recorded for them are left out of the Dashboard, Reports, the Payments page, award follow-up and program member counts.",
-          'Program email blasts never go to test clients. Use "Send test to me" to try a blast.',
+          'Program email blasts go to test clients too (marked "Test" in the member list), so you can see one arrive.',
           "Deleting a test client erases everything entered under it, including awards, payments, contracts, documents and email history.",
         ],
       },
@@ -423,6 +423,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       "award agreement",
       "enrollment agreement",
       "version",
+      "bold",
+      "italic",
+      "underline",
+      "heading",
+      "format",
     ],
     blocks: [
       { type: "text", text: "Program → Overview → Program workflow → Agreements." },
@@ -447,6 +452,15 @@ export const HELP_TOPICS: HelpTopic[] = [
         text: "Merge fields you can use include {{client.businessName}}, {{client.contactName}}, {{program.name}}, {{today}}, and in award agreements {{award.amount}}, {{award.date}}, {{award.title}} and {{award.source}}.",
       },
       {
+        type: "list",
+        items: [
+          "Formatting: select text and use the toolbar above the agreement text: Bold, Italic, Underline, the text size menu (Heading, Subheading, Normal text, Small print), Bulleted list, Numbered list and Center.",
+          'The toolbar writes simple marks you can also type: **bold**, _italic_, ++underline++; a line starting "# " (heading), "## " (subheading), "-# " (small print), "- " or "1. " (list); a line wrapped in -> and <- is centered.',
+          "The preview, the client's signing page and the signed PDF all show the formatting. A note under the text points out formatting that was started but not finished.",
+          "Lines in ALL CAPS still show as headings, so agreements written before formatting look as they did.",
+        ],
+      },
+      {
         type: "tip",
         text: "Saving a change creates a new version. Agreements already sent or signed keep the exact text they were sent with.",
       },
@@ -458,11 +472,15 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "The welcome email",
     summary: "The email clients get after signing the enrollment agreement.",
-    keywords: ["welcome", "email", "guide", "attachment"],
+    keywords: ["welcome", "email", "guide", "attachment", "insert field", "personalize"],
     blocks: [
       {
         type: "text",
         text: 'Program → Overview → Program workflow → Welcome email. Write the subject and message, attach a welcome guide if you like, then "Save welcome version".',
+      },
+      {
+        type: "text",
+        text: '"Insert field" adds the client\'s own details (first name, contact name, business name, program name, start date), filled in when the email is sent.',
       },
       { type: "tip", text: "Whether it goes out automatically is set under Automations." },
     ],
@@ -472,7 +490,15 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "Automatic emails",
     summary: "Emails ClientFlow sends for you when something happens.",
-    keywords: ["automation", "automatic", "custom email", "trigger", "test"],
+    keywords: [
+      "automation",
+      "automatic",
+      "custom email",
+      "trigger",
+      "test",
+      "insert field",
+      "personalize",
+    ],
     blocks: [
       {
         type: "list",
@@ -480,7 +506,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           "The main switch turns all automation for the program on or off.",
           '"Agreement signing link after intake" and "Welcome email after signing" can each be switched on or off.',
           "A signed copy of the agreement always goes to the client.",
-          'Custom emails: "Add email", choose when it\'s sent (for example when an intake is submitted), write it with merge fields, and "Send test to me" before saving.',
+          'Custom emails: "Add email", choose when it\'s sent (for example when an intake is submitted), write it, and "Send test to me" before saving.',
+          '"Insert field" adds the client\'s own details, such as their first name or business name, filled in when the email is sent.',
         ],
       },
       {
@@ -494,14 +521,26 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "Email signature and layout",
     summary: "The sign-off and header layout on every email.",
-    keywords: ["signature", "sign-off", "layout", "logo", "left", "centered"],
+    keywords: [
+      "signature",
+      "sign-off",
+      "layout",
+      "logo",
+      "left",
+      "centered",
+      "header",
+      "edge",
+      "margin",
+    ],
     blocks: [
       {
         type: "list",
         items: [
           'Settings → "Email signature & layout": the organization\'s default.',
           "Program → Overview → Program workflow → Email signature: a program's own, which replaces the default for that program's emails. Leave it empty to use the organization's.",
-          "Layout: centered (standard) or left with a margin.",
+          'Layout: "Centered" (standard), "Left, with a margin" (logo and text indented from the left), or "Left, logo at the edge" (the logo starts at the very left edge and the text keeps its margin).',
+          "Email apps add a little space of their own around every email, so the logo can't sit closer to the edge than that.",
+          'Signature by role (same Settings section): an Admin signature (for example "Thank you, EAM Administration") and a Staff signature ("Thank you, EAM Staff"). Emails a person sends (blasts, forms, agreements, welcome emails, staff invites) end with their role\'s signature; automatic emails keep the program\'s or organization\'s. Leave a role empty to use those.',
         ],
       },
       { type: "tip", text: 'Use "Send test to me" on a program email to see the result.' },
@@ -543,14 +582,44 @@ export const HELP_TOPICS: HelpTopic[] = [
     area: "Programs",
     title: "Monthly deliverables",
     summary: "What the program provides each month, tracked per client.",
-    keywords: ["deliverables", "monthly", "merge into", "member fund", "checklist"],
+    keywords: [
+      "deliverables",
+      "monthly",
+      "merge into",
+      "member fund",
+      "checklist",
+      "confirm",
+      "meeting",
+      "attendance",
+      "automatic",
+      "auto complete",
+    ],
     blocks: [
       {
         type: "list",
         items: [
           'Program → Deliverables → "Add deliverable". Set program-wide dates under "Program dates".',
           "On a client's Program tab, update each month's items and \"Finalize month\".",
+          "Changing a deliverable (name, description, order, adding one or turning one off) updates every member's checklist for this month and later. Earlier and finalized months keep their record. A turned-off deliverable is removed only where nobody worked on it yet.",
           'Two deliverables that are the same thing: click "Merge into…" on the one to retire. The preview shows what changes; notes move across and the retired one is turned off.',
+        ],
+      },
+      { type: "text", text: "Confirm one deliverable for many members (a monthly meeting):" },
+      {
+        type: "steps",
+        items: [
+          'Program → Deliverables → "Confirm for members" on the deliverable.',
+          "Pick the month (this month or last). Everyone who can be confirmed starts ticked; untick anyone who missed it. Members already done, or whose month is finalized, are shown but can't be ticked.",
+          'Add a note if you like (e.g. "Oct 14 group meeting"), then "Confirm for N members".',
+        ],
+      },
+      { type: "text", text: "Complete a deliverable automatically:" },
+      {
+        type: "list",
+        items: [
+          'Edit the deliverable and choose "Completes automatically when…": a chosen form is submitted, a payment is recorded for the month, the program agreement is signed, a document is uploaded, or a monitoring check-in is recorded.',
+          'When that happens for a client, the deliverable is marked completed on their checklist for that month, with a note such as "Completed automatically: Monthly Report submitted." Finalized months, future months and items marked not applicable are never changed.',
+          'Deliverables set this way show "Auto" in the list. Staff can still mark them by hand.',
         ],
       },
     ],
@@ -570,6 +639,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       "everyone",
       "multiple programs",
       "announcement",
+      "personalize",
+      "insert field",
+      "business name",
+      "first name",
+      "merge field",
     ],
     blocks: [
       { type: "text", text: "One program:" },
@@ -578,7 +652,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         items: [
           'Program → Emails → "Send email blast" (or "Send email blast" on the program\'s card on the Programs page).',
           'Write the message. Use the list buttons for bullets or numbers (Enter continues the list) and "Image" to add a picture.',
-          '"Preview email", then "Send test to me".',
+          'To personalize it, click "Insert field" (beside the subject, or above the message) and pick Business name, Contact first name, Contact name, Program name or Your organization name. Each member gets their own details.',
+          '"Preview email" shows it filled in for the first member, then "Send test to me".',
           "Send to everyone or to chosen members.",
         ],
       },
@@ -596,7 +671,8 @@ export const HELP_TOPICS: HelpTopic[] = [
         items: [
           "Each person gets one copy, even if they're in several of the chosen programs.",
           "The send is recorded under each program, so every program's Emails tab shows its part and can retry failures.",
-          "Archived clients and test clients are never emailed.",
+          'Archived clients are never emailed. Test clients do get blasts (marked "Test" in the member list).',
+          'Personal fields never show as braces: a missing contact name uses the business name (and the other way round); with neither, it reads "there".',
         ],
       },
     ],
@@ -892,8 +968,8 @@ export const HELP_TOPICS: HelpTopic[] = [
       {
         type: "list",
         items: [
-          "Intake email: a secure link to their own intake form. They answer the general questions, then the program's, choose programs and submit.",
-          "Agreement email: a link to read and sign. Signing takes their typed name, email and agreement.",
+          "Intake email: a secure link to their own intake form. They answer the general questions, choose at least one program (the form highlights the program list and won't submit until one is ticked), answer each chosen program's questions and submit.",
+          'Agreement email: a link to read and sign. The agreement shows in large, easy-to-read text. They must scroll to the end before they can tick "I agree" and sign ("Jump to the end" is there too). Signing takes their typed name, email and agreement; anything missing or mistyped is explained next to the field, and a link that has expired says to ask for a new one.',
           "Signed copy: an email with a link to the signed PDF.",
           "Welcome email and any program emails, with your logo and signature.",
         ],

@@ -6,8 +6,10 @@ import {
   ProgramBillingController,
 } from './billing.controller';
 import { BillingService } from './billing.service';
+import { DeliverablesModule } from '../deliverables/deliverables.module';
 
 @Module({
+  imports: [DeliverablesModule],
   controllers: [ProgramBillingController, EnrollmentBillingController, BillingDashboardController],
   providers: [BillingService, BillingDashboardService],
   exports: [BillingService, BillingDashboardService],

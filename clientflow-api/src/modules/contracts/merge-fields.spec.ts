@@ -62,3 +62,10 @@ describe('agreement merge fields', () => {
     expect(formatAgreementAmount('not a number')).toBeNull();
   });
 });
+
+describe('merge values inside formatted agreement text', () => {
+  it('escapes characters that would start formatting, so a value shows exactly as it is', () => {
+    const { text } = renderMergeFields('# Agreement for {{client.businessName}}', { 'client.businessName': '**Best_Co** #1' });
+    expect(text).toBe('# Agreement for \\*\\*Best\\_Co\\*\\* \\#1');
+  });
+});

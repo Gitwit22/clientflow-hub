@@ -212,7 +212,14 @@ describe('contract controllers', () => {
       agreedToTerms: true,
     });
 
-    await expect(validate(invalid)).resolves.toHaveLength(3);
+    const errors = await validate(invalid);
+    expect(errors).toHaveLength(3);
+    // Messages are written for the person signing.
+    expect(errors.flatMap((error) => Object.values(error.constraints ?? {}))).toEqual(expect.arrayContaining([
+      "Type your full name — it's your signature.",
+      'Enter a valid email address, like name@example.com.',
+      "Tick the box to confirm you've read and agree.",
+    ]));
     await expect(validate(valid)).resolves.toHaveLength(0);
   });
 

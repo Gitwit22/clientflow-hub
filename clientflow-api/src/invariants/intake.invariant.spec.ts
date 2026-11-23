@@ -133,6 +133,43 @@ describe('INVARIANT: a retried intake submission creates nothing new', () => {
     expect(rows.cfFormAssignment[0].status).toBe('sent');
   });
 
+  it('refuses a submission with no program while programs are offered, and changes nothing', async () => {
+    const { rows, service, counts } = setup();
+    const before = counts();
+    await expect(service.submit(token, { ...input, selectedProgramIds: [] })).rejects.toThrow('Choose at least one program.');
+    expect(counts()).toEqual(before);
+    expect(rows.cfFormAssignment[0].status).toBe('sent');
+  });
+
+  it('judges "offered" by the programs on the form the client saw', async () => {
+    const { rows, service, counts } = setup();
+    rows.cfIntakeRenderSession = [{
+      id: 'rs-1', organizationId: ORG, formAssignmentId: 'fa-1', configurationToken: 'cfg-1', expiresAt: new Date(Date.now() + 60_000),
+      renderedSections: [{ kind: 'core', fields: [] }, { kind: 'program', programId: 'p-grant', fields: [] }],
+    }];
+    const before = counts();
+    await expect(service.submit(token, { ...input, selectedProgramIds: [], configurationToken: 'cfg-1' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(counts()).toEqual(before);
+    // A form that offered no programs can be submitted without one.
+    rows.cfIntakeRenderSession[0].renderedSections = [{ kind: 'core', fields: [] }];
+    await expect(service.submit(token, { ...input, selectedProgramIds: [], programResponses: {}, configurationToken: 'cfg-1' }))
+      .resolves.toBeDefined();
+  });
+
+  it('still takes an intake with no program when the organization has no active programs', async () => {
+    const { rows, service } = setup();
+    for (const program of rows.cfProgram) program.isActive = false;
+    await expect(service.submit(token, { ...input, selectedProgramIds: [], programResponses: {} })).resolves.toBeDefined();
+    expect(rows.cfIntakeSubmission).toHaveLength(1);
+  });
+
+  it('still answers a retry of an earlier submission', async () => {
+    const { service } = setup();
+    const first = await service.submit(token, input);
+    await expect(service.submit(token, input)).resolves.toEqual(expect.objectContaining({ submissionId: first.submissionId }));
+  });
+
   it('refuses a cancelled link and changes nothing', async () => {
     const { rows, service, counts } = setup({ status: 'cancelled', cancelledAt: new Date() });
     const before = counts();
@@ -244,5 +281,24 @@ describe('a repeat intake (staff sent a new copy after a submission)', () => {
     const { service, automation } = repeatSetup();
     await service.submit(token, { ...input, selectedProgramIds: ['p-coach'], programResponses: {} });
     expect(automation.runTrigger).not.toHaveBeenCalled();
+  });
+});
+
+describe('a submitted form completes program deliverables', () => {
+  it('asks each program the client is in to complete deliverables tied to this form', async () => {
+    const { rows } = setup();
+    const db = inMemoryDb(rows) as unknown as PrismaService;
+    const autoComplete = jest.fn().mockResolvedValue(0);
+    const service = new IntakeWorkflowService(db, new EnrollmentsService(db), undefined, { autoComplete } as never);
+    rows.cfFormTemplate[0].name = 'General Intake';
+
+    const result = await service.submit(token, input);
+
+    expect(autoComplete).toHaveBeenCalledTimes(result.enrollmentIds.length);
+    for (const enrollmentId of result.enrollmentIds) {
+      expect(autoComplete).toHaveBeenCalledWith(expect.objectContaining({
+        organizationId: ORG, enrollmentId, trigger: 'form_submitted', formId: 'form-1', detail: 'General Intake submitted',
+      }));
+    }
   });
 });

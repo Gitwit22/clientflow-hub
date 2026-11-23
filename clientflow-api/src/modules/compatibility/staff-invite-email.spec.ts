@@ -36,6 +36,7 @@ describe('staff invite and reset emails', () => {
       organizationId: 'org-1',
       clientId: 'member-1',
       sentByUserId: 'admin-1',
+      senderUserId: 'admin-1',
       recipientEmail: 'dana@example.com',
       clientName: 'Dana Smith',
       actionUrl: result.inviteUrl,

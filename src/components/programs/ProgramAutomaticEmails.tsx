@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { InsertFieldMenu, UnknownFieldsNotice } from "@/components/InsertFieldMenu";
+import { unknownEmailFields, unknownFieldsMessage } from "@/lib/email-fields";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -293,7 +295,15 @@ function AutomaticEmailDialog({
   const [message, setMessage] = useState(rule?.actionConfig.message ?? "");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const ready = subject.trim() !== "" && message.trim() !== "";
+  const subjectInput = useRef<HTMLInputElement>(null);
+  const messageInput = useRef<HTMLTextAreaElement>(null);
+  const unknownFields = unknownEmailFields(
+    `${subject}\n${message}`,
+    automation.emailFields,
+    "automatic",
+  );
+  const fieldProblem = unknownFields.length ? unknownFieldsMessage(unknownFields) : null;
+  const ready = subject.trim() !== "" && message.trim() !== "" && !fieldProblem;
 
   async function save() {
     setSaving(true);
@@ -352,33 +362,48 @@ function AutomaticEmailDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="automatic-email-subject">Subject</Label>
-            <Input
-              id="automatic-email-subject"
-              value={subject}
-              maxLength={200}
-              onChange={(event) => setSubject(event.target.value)}
-            />
+            <div className="flex items-center gap-1">
+              <Input
+                ref={subjectInput}
+                id="automatic-email-subject"
+                value={subject}
+                maxLength={200}
+                onChange={(event) => setSubject(event.target.value)}
+              />
+              <InsertFieldMenu
+                compact
+                label="Insert field into subject"
+                fields={automation.emailFields}
+                target={subjectInput}
+                value={subject}
+                onChange={(next) => setSubject(next.slice(0, 200))}
+              />
+            </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="automatic-email-message">Message</Label>
+            <div className="flex items-end justify-between gap-2">
+              <Label htmlFor="automatic-email-message">Message</Label>
+              <InsertFieldMenu
+                label="Insert field into message"
+                fields={automation.emailFields}
+                target={messageInput}
+                value={message}
+                onChange={setMessage}
+              />
+            </div>
             <Textarea
+              ref={messageInput}
               id="automatic-email-message"
               rows={7}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              &ldquo;Insert field&rdquo; adds the client&apos;s own details, such as their business
+              name, filled in when the email is sent.
+            </p>
+            <UnknownFieldsNotice message={fieldProblem} />
           </div>
-          <details className="rounded-md border border-border p-2 text-sm">
-            <summary className="cursor-pointer">Merge fields you can use</summary>
-            <ul className="mt-2 space-y-1">
-              {automation.emailFields.map((field) => (
-                <li key={field.key} className="flex justify-between gap-2">
-                  <code className="text-xs">{`{{${field.key}}}`}</code>
-                  <span className="text-xs text-muted-foreground">{field.label}</span>
-                </li>
-              ))}
-            </ul>
-          </details>
           {ready && (
             <div className="space-y-1 rounded-md bg-muted/40 p-3 text-sm" aria-label="Preview">
               <p className="text-xs text-muted-foreground">Preview with sample details</p>

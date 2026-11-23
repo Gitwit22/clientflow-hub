@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   isPublicFieldRequired,
@@ -54,6 +54,9 @@ function PublicFormPage() {
     Record<string, Record<string, PublicFormResponseValue>>
   >({});
   const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
+  // Shown after a submit attempt with no program chosen; cleared as soon as one is ticked.
+  const [programError, setProgramError] = useState(false);
+  const programsRef = useRef<HTMLFieldSetElement>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [startedAt] = useState(() => new Date().toISOString());
   const [idempotencyKey] = useState(() => getPublicFormIdempotencyKey(token));
@@ -111,6 +114,7 @@ function PublicFormPage() {
     section.kind === "core" ? coreResponses : (programResponses[section.programId!] ?? {});
 
   const toggleProgram = (programId: string, checked: boolean) => {
+    if (checked) setProgramError(false);
     setSelectedProgramIds((current) =>
       checked ? [...current, programId] : current.filter((id) => id !== programId),
     );
@@ -118,6 +122,16 @@ function PublicFormPage() {
 
   async function handleSubmit() {
     if (!formData) return;
+    // At least one program is required whenever programs are offered (the server checks it too).
+    if (formData.intakeConfiguration.programs.length > 0 && selectedProgramIds.length === 0) {
+      setProgramError(true);
+      programsRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      programsRef.current?.querySelector<HTMLElement>("button[role='checkbox']")?.focus({
+        preventScroll: true,
+      });
+      toast.error("Choose at least one program before submitting.");
+      return;
+    }
     const visibleSections = getVisibleSections(formData, selectedProgramIds);
     const missing = visibleSections.flatMap((section) =>
       section.fields
@@ -291,10 +305,20 @@ function PublicFormPage() {
   if (!formData) return null;
 
   const visibleSections = getVisibleSections(formData, selectedProgramIds);
-  const progress = requiredProgress(
+  const fieldProgress = requiredProgress(
     visibleSections,
     (sectionIndex, fieldId) => responsesFor(visibleSections[sectionIndex])[fieldId],
   );
+  // Choosing a program counts as one required item whenever programs are offered.
+  const programsOffered = formData.intakeConfiguration.programs.length > 0;
+  const programChosen = selectedProgramIds.length > 0;
+  const progressRequired = fieldProgress.required + (programsOffered ? 1 : 0);
+  const progressCompleted = fieldProgress.completed + (programsOffered && programChosen ? 1 : 0);
+  const progress = {
+    required: progressRequired,
+    completed: progressCompleted,
+    percent: progressRequired > 0 ? Math.round((progressCompleted / progressRequired) * 100) : 100,
+  };
 
   return (
     <div className="min-h-screen bg-background py-12 px-4">
@@ -328,8 +352,45 @@ function PublicFormPage() {
           </div>
         )}
 
-        <fieldset className="space-y-3 border-y border-border py-5">
-          <legend className="px-1 text-sm font-semibold">Additional programs (optional)</legend>
+        <fieldset
+          id="intake-programs"
+          ref={programsRef}
+          aria-describedby={programsOffered ? "intake-programs-help" : undefined}
+          aria-invalid={programError || undefined}
+          className={
+            programsOffered
+              ? `space-y-3 rounded-lg border-2 p-4 transition-colors ${
+                  programError
+                    ? "border-destructive bg-destructive/5"
+                    : programChosen
+                      ? "border-border"
+                      : "border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950/30"
+                }`
+              : "space-y-3 border-y border-border py-5"
+          }
+        >
+          <legend className="px-1 text-base font-semibold">
+            {programsOffered ? (
+              <>
+                Choose at least one program
+                <span className="ml-1 text-destructive" aria-hidden>
+                  *
+                </span>
+              </>
+            ) : (
+              "Programs"
+            )}
+          </legend>
+          {programsOffered && (
+            <p id="intake-programs-help" className="text-sm text-muted-foreground">
+              Pick every program you&apos;re applying for. You need at least one to submit.
+            </p>
+          )}
+          {programError && (
+            <p role="alert" className="text-sm font-medium text-destructive">
+              Choose at least one program to continue.
+            </p>
+          )}
           {formData.intakeConfiguration.programs.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {formData.intakeConfiguration.programs.map((program) => {
@@ -337,7 +398,9 @@ function PublicFormPage() {
                 return (
                   <label
                     key={program.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-md border border-border p-3 text-sm"
+                    className={`flex cursor-pointer items-center gap-3 rounded-md border bg-background p-3 text-sm ${
+                      checked ? "border-primary ring-1 ring-primary" : "border-border"
+                    }`}
                   >
                     <Checkbox
                       checked={checked}

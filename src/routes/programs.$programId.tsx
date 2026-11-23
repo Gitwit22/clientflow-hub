@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Copy, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AddEditProgramDialog } from "@/components/dialogs/AddEditProgramDialog";
@@ -10,6 +10,8 @@ import { VersionHistory } from "@/components/programs/VersionHistory";
 import { ProgramAgreementTemplates } from "@/components/programs/ProgramAgreementTemplates";
 import { ProgramAutomaticEmails } from "@/components/programs/ProgramAutomaticEmails";
 import { EmailStyleCard } from "@/components/EmailStyleCard";
+import { InsertFieldMenu, UnknownFieldsNotice } from "@/components/InsertFieldMenu";
+import { WELCOME_EMAIL_FIELDS, unknownEmailFields, unknownFieldsMessage } from "@/lib/email-fields";
 import { CollapsibleSection, UnsavedChangesMarker } from "@/components/CollapsibleSection";
 import { ProgramSetupChecklist } from "@/components/programs/ProgramSetupChecklist";
 import { ManageProgramMembersDialog } from "@/components/dialogs/ManageProgramMembersDialog";
@@ -275,6 +277,14 @@ function ProgramDetailPage() {
   const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [welcomeSubject, setWelcomeSubject] = useState("");
   const [welcomeBody, setWelcomeBody] = useState("");
+  const welcomeSubjectInput = useRef<HTMLInputElement>(null);
+  const welcomeBodyInput = useRef<HTMLTextAreaElement>(null);
+  // A field the welcome email can't fill in would be left blank; say so while editing.
+  const welcomeUnknownFields = unknownEmailFields(
+    `${welcomeSubject}\n${welcomeBody}`,
+    WELCOME_EMAIL_FIELDS,
+    "welcome",
+  );
   const [welcomeGuideFile, setWelcomeGuideFile] = useState<File | null>(null);
   const [billingConfig, setBillingConfig] = useState<ProgramBillingConfig | null>(null);
   const [savingBilling, setSavingBilling] = useState(false);
@@ -982,17 +992,53 @@ function ProgramDetailPage() {
                       </div>
                     )}
                   />
-                  <Input
-                    value={welcomeSubject}
-                    onChange={(event) => setWelcomeSubject(event.target.value)}
-                    placeholder={`Welcome to ${program.name}`}
-                  />
-                  <Textarea
-                    value={welcomeBody}
-                    onChange={(event) => setWelcomeBody(event.target.value)}
-                    rows={8}
-                    placeholder="Welcome email body"
-                  />
+                  <div className="flex items-center gap-1">
+                    <Input
+                      ref={welcomeSubjectInput}
+                      aria-label="Welcome email subject"
+                      value={welcomeSubject}
+                      onChange={(event) => setWelcomeSubject(event.target.value)}
+                      placeholder={`Welcome to ${program.name}`}
+                    />
+                    <InsertFieldMenu
+                      compact
+                      label="Insert field into welcome subject"
+                      fields={WELCOME_EMAIL_FIELDS}
+                      target={welcomeSubjectInput}
+                      value={welcomeSubject}
+                      onChange={setWelcomeSubject}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-end">
+                      <InsertFieldMenu
+                        label="Insert field into welcome email"
+                        fields={WELCOME_EMAIL_FIELDS}
+                        target={welcomeBodyInput}
+                        value={welcomeBody}
+                        onChange={setWelcomeBody}
+                      />
+                    </div>
+                    <Textarea
+                      ref={welcomeBodyInput}
+                      aria-label="Welcome email body"
+                      value={welcomeBody}
+                      onChange={(event) => setWelcomeBody(event.target.value)}
+                      rows={8}
+                      placeholder="Welcome email body"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      &ldquo;Insert field&rdquo; adds the client&apos;s own details, such as their
+                      business name, filled in when the email is sent.
+                    </p>
+                    <UnknownFieldsNotice
+                      message={
+                        welcomeUnknownFields.length
+                          ? `${unknownFieldsMessage(welcomeUnknownFields)} Otherwise it is left blank.`
+                          : null
+                      }
+                    />
+                  </div>
                   <Input
                     type="file"
                     accept={DOCUMENT_UPLOAD_ACCEPT}

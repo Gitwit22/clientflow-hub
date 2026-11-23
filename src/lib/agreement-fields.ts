@@ -1,3 +1,4 @@
+import { escapeAgreementText } from "@/lib/agreement-format";
 import type { AgreementPurpose } from "@/types";
 
 /**
@@ -59,7 +60,12 @@ export const AGREEMENT_FIELDS: readonly AgreementField[] = [
     purposes: ["award"],
     sample: "Member Business Achievement Award",
   },
-  { key: "award.source", label: "Award source", purposes: ["award"], sample: "LIVE Grant Giveaway" },
+  {
+    key: "award.source",
+    label: "Award source",
+    purposes: ["award"],
+    sample: "LIVE Grant Giveaway",
+  },
   { key: "award.amount", label: "Award amount", purposes: ["award"], sample: "$500.00" },
   { key: "award.date", label: "Award date", purposes: ["award"], sample: "November 12, 2026" },
 ];
@@ -84,7 +90,11 @@ export function invalidFields(content: string, purpose: AgreementPurpose): strin
 
 /** The template filled with sample values, so staff can see how a finished agreement reads. */
 export function renderWithSamples(content: string): string {
-  return content.replace(FIELD_PATTERN, (whole, key: string) => BY_KEY.get(key)?.sample ?? whole);
+  return content.replace(FIELD_PATTERN, (whole, key: string) => {
+    const sample = BY_KEY.get(key)?.sample;
+    // Inserted values show exactly as they are (as on the server).
+    return sample === undefined ? whole : escapeAgreementText(sample);
+  });
 }
 
 /** Seeded starter templates carry this placeholder sentence; it must not reach a real agreement. */

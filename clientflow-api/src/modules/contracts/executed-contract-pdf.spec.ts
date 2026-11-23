@@ -115,3 +115,33 @@ describe('executed copy file name', () => {
     );
   });
 });
+
+describe('formatted agreement text in the signed PDF', () => {
+  it('draws sizes, bold, italic, underline, lists and centering, with no markup left in the text', async () => {
+    const pdf = await renderExecutedContractPdf({
+      title: 'Grant Agreement',
+      body: [
+        '# ->Grant Agreement<-',
+        '## Payment terms',
+        'Pay **within _30_ days** or ++notify us++. Read this _carefully_.',
+        '- Attend **monthly** meetings',
+        '2. Submit reports on time.',
+        '-# Fees are non-refundable.',
+        'Name: ______',
+      ].join('\n'),
+      compress: false,
+    });
+    const raw = pdf.toString('latin1');
+    for (const font of ['Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique']) {
+      expect(raw).toContain(`/BaseFont /${font}`);
+    }
+    // Text is written as hex strings in content streams; no markup characters reach the page.
+    const text = Buffer.from((raw.match(/<([0-9a-f]+)>/g) ?? []).map((hex) => hex.slice(1, -1)).join(''), 'hex').toString('latin1');
+    expect(text).not.toMatch(/\*\*|\+\+|->|<-|^# /);
+    expect(text).toContain('______');
+    // The title line is not printed twice.
+    expect(text.match(/Grant Agreement/g)).toHaveLength(1);
+    // Underline is drawn as a line (a stroked path) under the text.
+    expect(raw).toMatch(/ re\b|\bl\b[\s\S]*\bS\b/);
+  });
+});

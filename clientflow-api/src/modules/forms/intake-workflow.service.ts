@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ProgramDeliverablesService } from '../deliverables/program-deliverables.service';
+import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { Prisma } from '../../generated/clientflow';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -44,6 +45,9 @@ const INTAKE_STAGE_STATUSES: readonly string[] = [
   CLIENT_STATUS.intakeSubmitted,
 ];
 
+/** Shown when an intake is submitted without a program while programs are offered. */
+export const INTAKE_PROGRAM_REQUIRED = 'Choose at least one program.';
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -63,7 +67,8 @@ export class IntakeWorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly enrollments: EnrollmentsService,
-    private readonly automation?: ProgramAutomationService,
+    @Optional() private readonly automation?: ProgramAutomationService,
+    @Optional() private readonly deliverables?: ProgramDeliverablesService,
   ) {}
 
   async submit(rawToken: string, input: IntakeSubmissionInput): Promise<IntakeSubmissionResult> {
@@ -95,6 +100,19 @@ export class IntakeWorkflowService {
         throw new ConflictException('This form has changed. Reload the form to use the latest version.');
       }
       renderedSections = renderSession.renderedSections;
+    }
+
+    // At least one program must be chosen whenever the form offered any (the programs on the form
+    // the client saw, or, without a render session, the organization's active programs). An
+    // organization with no active programs can still take an intake.
+    if (selectedProgramIds.length === 0) {
+      const offeredOnForm = Array.isArray(renderedSections)
+        ? renderedSections.filter((section) => isRecord(section) && section.kind === 'program').length
+        : 0;
+      const offered = input.configurationToken
+        ? offeredOnForm
+        : await this.prisma.cfProgram.count({ where: { organizationId: assignment.organizationId, isActive: true } });
+      if (offered > 0) throw new BadRequestException(INTAKE_PROGRAM_REQUIRED);
     }
 
     // Only the organization's active programs can be chosen; anything else is refused up front
@@ -293,6 +311,22 @@ export class IntakeWorkflowService {
           actorDisplayName: actor,
           idempotencySeed: `form.completed:${submission.id}`,
           payload: { formId: assignment.formId, assignmentId: assignment.id },
+        });
+      }
+    }
+
+    // Program deliverables set to complete when this form is submitted (a monthly report, say):
+    // the form's own enrollment, or every program this intake enrolled the client in.
+    if (this.deliverables) {
+      const formName = template?.name?.trim() || 'A form';
+      for (const enrollmentId of assignment.enrollmentId ? [assignment.enrollmentId] : enrollmentIds) {
+        await this.deliverables.autoComplete({
+          organizationId: assignment.organizationId,
+          enrollmentId,
+          trigger: 'form_submitted',
+          formId: assignment.formId,
+          occurredAt: submittedAt,
+          detail: `${formName} submitted`,
         });
       }
     }

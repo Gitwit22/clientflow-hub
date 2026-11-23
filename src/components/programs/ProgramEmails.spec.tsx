@@ -246,6 +246,8 @@ describe("program emails", () => {
     expect(cfPreviewProgramEmail).toHaveBeenCalledWith("p1", {
       subject: "Grant day Saturday",
       body: "**Hello** all\n- Bring ID\n- Bring a pen",
+      // Personal fields are previewed with the first recipient's details.
+      sampleClientId: "c1",
     });
     expect(frame.getAttribute("srcdoc")).toContain("<p>RENDERED</p>");
     expect(frame.getAttribute("sandbox")).not.toMatch(/allow-scripts/);
@@ -337,8 +339,67 @@ describe("program emails", () => {
       expect(cfSendProgramEmailTest).toHaveBeenCalledWith("p1", {
         subject: "Grant day Saturday",
         body: "Hello all",
+        sampleClientId: "c1",
       }),
     );
     expect(cfSendProgramEmail).not.toHaveBeenCalled();
+  });
+
+  it("personalizes with Insert field at the cursor, in the message and the subject", async () => {
+    await open();
+    const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(message, { target: { value: "Hi ,\nWelcome." } });
+    message.setSelectionRange(3, 3);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Insert field into message" }), {
+      key: "Enter",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Contact first name/ }));
+    expect(message.value).toBe("Hi {{client.firstName}},\nWelcome.");
+
+    const subject = screen.getByLabelText("Subject") as HTMLInputElement;
+    fireEvent.change(subject, { target: { value: "News for " } });
+    subject.setSelectionRange(9, 9);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Insert field into subject" }), {
+      key: "Enter",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Business name/ }));
+    expect(subject.value).toBe("News for {{client.businessName}}");
+  });
+
+  it("holds back sending while a field can't be filled in, and says why", async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hi {{client.name}}" } });
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /\{\{client\.name\}\} isn't a field ClientFlow can fill in/,
+    );
+    expect((screen.getByRole("button", { name: /^Send to/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(
+      (screen.getByRole("button", { name: "Preview email" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Hi {{client.firstName}}" },
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((screen.getByRole("button", { name: /^Send to/ }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it("says whose details the preview shows", async () => {
+    cfPreviewProgramEmail.mockResolvedValueOnce({
+      programName: "IDI",
+      fromName: "EA Management LLC",
+      subject: "News for Black Economic Exchange",
+      html: "<!DOCTYPE html><html><body><p>Hi Tamika</p></body></html>",
+      text: "Hi Tamika",
+      previewedAs: "Black Economic Exchange",
+    });
+    await compose();
+    expect(screen.getByLabelText("Email preview").textContent).toMatch(
+      /Personal fields show Black Economic Exchange's details\. Each member sees their own\./,
+    );
   });
 });

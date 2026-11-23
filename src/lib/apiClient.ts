@@ -47,6 +47,8 @@ import type {
   DeliverableCadence,
   DeliverableCycle,
   DeliverableCycleHistoryEntry,
+  DeliverableConfirmationList,
+  DeliverableConfirmationResult,
   DeliverableCycleView,
   DeliverableStatus,
   EnrollmentDeliverable,
@@ -354,7 +356,11 @@ export async function updateOrganizationSettings(
     defaultMonitoringFrequency?: string;
     logoStoredFileId?: string | null;
     emailSignature?: string | null;
-    emailLayout?: "left" | "center" | null;
+    emailLayout?: "left" | "left-edge" | "center" | null;
+    /** Sign-offs by staff role; each role saved replaces only that role. */
+    emailSignaturesByRole?: Partial<
+      Record<"org_admin" | "reviewer" | "super_admin", string | null>
+    >;
     notificationTemplateToggles?: {
       programInvite?: boolean;
       monitoringReminder?: boolean;
@@ -1792,6 +1798,8 @@ export async function cfCreateProgramDeliverable(
     description?: string | null;
     cadence?: DeliverableCadence;
     programWideDate?: boolean;
+    completeOn?: ProgramDeliverableTemplate["completeOn"];
+    completeOnFormId?: string | null;
   },
 ) {
   return apiRequest<ProgramDeliverableTemplate>(programDeliverablesPath(programId), {
@@ -1807,7 +1815,13 @@ export async function cfUpdateProgramDeliverable(
   data: Partial<
     Pick<
       ProgramDeliverableTemplate,
-      "title" | "description" | "cadence" | "active" | "programWideDate"
+      | "title"
+      | "description"
+      | "cadence"
+      | "active"
+      | "programWideDate"
+      | "completeOn"
+      | "completeOnFormId"
     >
   >,
 ) {
@@ -1840,6 +1854,34 @@ export async function cfMergeProgramDeliverable(
   return apiRequest<DeliverableMergeReport>(
     `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/merge${apply ? "" : "/preview"}`,
     { method: "POST", body: JSON.stringify({ intoTemplateId }) },
+  );
+}
+
+/** GET /programs/:programId/deliverables/:templateId/confirm?month=YYYY-MM — members and where each stands. */
+export async function cfListDeliverableConfirmationMembers(
+  programId: string,
+  templateId: string,
+  month: string,
+) {
+  return apiRequest<DeliverableConfirmationList>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/confirm?month=${encodeURIComponent(month)}`,
+  );
+}
+
+/** POST /programs/:programId/deliverables/:templateId/confirm — marks it done for the chosen members. */
+export async function cfConfirmDeliverableForMembers(
+  programId: string,
+  templateId: string,
+  data: {
+    month: string;
+    enrollmentIds: string[];
+    status?: "COMPLETED" | "DELIVERED";
+    note?: string;
+  },
+) {
+  return apiRequest<DeliverableConfirmationResult>(
+    `${programDeliverablesPath(programId)}/${encodeURIComponent(templateId)}/confirm`,
+    { method: "POST", body: JSON.stringify(data) },
   );
 }
 
@@ -1890,12 +1932,15 @@ export interface ProgramEmailPreview {
   /** The whole email (logo header, message, sign-off) exactly as the send builds it. */
   html: string;
   text: string;
+  /** Whose details filled the personal fields; null or absent when sample details were used. */
+  previewedAs?: string | null;
 }
 
 /** POST /programs/:programId/emails/preview — the email as members will get it; sends nothing. */
 export async function cfPreviewProgramEmail(
   programId: string,
-  data: { subject: string; body: string },
+  /** sampleClientId: a member whose details fill the personal fields (else sample details). */
+  data: { subject: string; body: string; sampleClientId?: string },
 ) {
   return apiRequest<ProgramEmailPreview>(
     `/api/v1/programs/${encodeURIComponent(programId)}/emails/preview`,
@@ -2133,7 +2178,7 @@ export async function acfGenerateAwardAgreement(
 /** POST /programs/:programId/emails/test — one [Test] copy to the signed-in staff member. */
 export async function cfSendProgramEmailTest(
   programId: string,
-  data: { subject: string; body: string },
+  data: { subject: string; body: string; sampleClientId?: string },
 ) {
   return apiRequest<{ recipientEmail: string; delivery: SendDeliveryResult }>(
     `/api/v1/programs/${encodeURIComponent(programId)}/emails/test`,

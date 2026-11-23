@@ -42,8 +42,8 @@ function setup() {
       template('t-foreign', 'p-foreign', 'Their Deliverable', 0, { organizationId: OTHER_ORG }),
     ],
     cfClient: [
-      { id: 'c1', organizationId: ORG, intake: { assistanceRequested: 'Grant funding for equipment', budgetNeed: '$25,000' } },
-      { id: 'c4', organizationId: ORG, intake: {} },
+      { id: 'c1', organizationId: ORG, businessName: 'Rivers Bakery', isArchived: false, intake: { assistanceRequested: 'Grant funding for equipment', budgetNeed: '$25,000' } },
+      { id: 'c4', organizationId: ORG, businessName: 'Moon Minerals', isArchived: false, intake: {} },
     ],
     cfEnrollmentDeliverableCycle: [],
     cfProgramDeliverableSchedule: [],
@@ -172,6 +172,62 @@ describe('ProgramDeliverablesService: cycles', () => {
       'B2B Opportunities',
     ]);
     expect(rows.cfEnrollmentDeliverable).toHaveLength(6);
+  });
+
+  it("updates every member's checklist for the current month when the program's deliverables change", async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(OCT);
+    try {
+      const { service } = setup();
+      const first = await service.getCurrent(ORG, 'e-idi', OCT);
+      const second = await service.getCurrent(ORG, 'e-idi-2', OCT);
+      // One member already worked on the networking event before it was turned off.
+      const event = first.items.find((item) => item.programDeliverableTemplateId === 't-event')!;
+      await service.updateDeliverable(ORG, staff, 'e-idi', event.id, { status: 'COMPLETED', notes: 'Attended' });
+
+      await service.updateTemplate(ORG, 'p-idi', 't-giveaway', { title: 'LIVE Grant Giveaway', description: 'Monthly live draw' });
+      await service.updateTemplate(ORG, 'p-idi', 't-event', { active: false });
+      await service.createTemplate(ORG, 'p-idi', { title: 'B2B Opportunities' });
+
+      const titles = async (enrollmentId: string, cycleId: string) =>
+        (await service.getCycle(ORG, enrollmentId, cycleId)).items.map((item) => item.titleSnapshot);
+      // The member who did nothing on the event no longer has it; the new deliverable is added.
+      expect(await titles('e-idi-2', second.cycle!.id)).toEqual(['LIVE Grant Giveaway', 'Vetted Grant Opportunities', 'B2B Opportunities']);
+      // Work already recorded on a turned-off deliverable stays, at the end, with its status and note.
+      const firstNow = await service.getCycle(ORG, 'e-idi', first.cycle!.id);
+      expect(firstNow.items.map((item) => item.titleSnapshot)).toEqual([
+        'LIVE Grant Giveaway', 'Vetted Grant Opportunities', 'B2B Opportunities', 'Networking Event',
+      ]);
+      expect(firstNow.items.find((item) => item.titleSnapshot === 'Networking Event')).toEqual(
+        expect.objectContaining({ status: 'COMPLETED', notes: 'Attended' }),
+      );
+      expect(firstNow.items[0].descriptionSnapshot).toBe('Monthly live draw');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('follows a new order, and leaves finalized and earlier months exactly as they were', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(NOV);
+    try {
+      const { service } = setup();
+      const october = await service.getCurrent(ORG, 'e-idi', OCT);
+      const november = await service.getCurrent(ORG, 'e-idi', NOV);
+      const finalized = await service.getCurrent(ORG, 'e-idi-2', NOV);
+      await service.finalizeCycle(ORG, staff, 'e-idi-2', finalized.cycle!.id);
+
+      await service.reorderTemplates(ORG, 'p-idi', {
+        orderedIds: ['t-grants', 't-giveaway', 't-event', 't-retired', 't-quarterly'],
+      });
+      await service.updateTemplate(ORG, 'p-idi', 't-grants', { title: 'Grant Leads' });
+
+      const titles = async (enrollmentId: string, cycleId: string) =>
+        (await service.getCycle(ORG, enrollmentId, cycleId)).items.map((item) => item.titleSnapshot);
+      expect(await titles('e-idi', november.cycle!.id)).toEqual(['Grant Leads', 'Grant Giveaway', 'Networking Event']);
+      expect(await titles('e-idi', october.cycle!.id)).toEqual(['Grant Giveaway', 'Networking Event', 'Vetted Grant Opportunities']);
+      expect(await titles('e-idi-2', finalized.cycle!.id)).toEqual(['Grant Giveaway', 'Networking Event', 'Vetted Grant Opportunities']);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('gives different programs their own deliverables', async () => {
@@ -539,5 +595,133 @@ describe('ProgramDeliverablesService: next actions and program history', () => {
     expect(history.months).toEqual([]);
     await expect(service.getProgramHistory(ORG, 'e-foreign')).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.listNextActions(ORG, 'p-foreign')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('ProgramDeliverablesService: confirming a deliverable for many members', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('marks it completed for the chosen members in one step, creating this month\'s checklists as needed', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(OCT);
+    const { rows, service } = setup();
+    // One member already has their checklist and already had the event marked done.
+    const existing = await service.getCurrent(ORG, 'e-idi', OCT);
+    const event = existing.items.find((item) => item.programDeliverableTemplateId === 't-event')!;
+    await service.updateDeliverable(ORG, staff, 'e-idi', event.id, { status: 'DELIVERED' });
+
+    const before = await service.listConfirmationMembers(ORG, 'p-idi', 't-event', '2026-10');
+    expect(before.members.map((member) => [member.enrollmentId, member.done, member.blockedReason])).toEqual([
+      ['e-idi', true, null],
+      ['e-idi-2', false, null],
+    ]);
+
+    const result = await service.confirmForMembers(ORG, staff, 'p-idi', 't-event', {
+      month: '2026-10', enrollmentIds: ['e-idi', 'e-idi-2'], note: 'October 14 group meeting',
+    });
+    expect(result).toEqual(expect.objectContaining({ label: 'October 2026', confirmed: ['e-idi-2'], alreadyDone: ['e-idi'], skipped: [] }));
+
+    const confirmed = rows.cfEnrollmentDeliverable.find(
+      (row) => row.enrollmentId === 'e-idi-2' && row.programDeliverableTemplateId === 't-event',
+    )!;
+    expect(confirmed).toEqual(expect.objectContaining({ status: 'COMPLETED', notes: 'October 14 group meeting' }));
+    expect(confirmed.completedAt).toBeInstanceOf(Date);
+    expect(rows.cfActivityLog.filter((entry) => entry.enrollmentId === 'e-idi-2' && entry.action === DELIVERABLE_ACTIVITY.completed)).toHaveLength(1);
+  });
+
+  it('leaves finalized months alone, refuses future months and members of other programs', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(NOV);
+    const { service } = setup();
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    await service.finalizeCycle(ORG, staff, 'e-idi', october.cycle!.id);
+
+    const result = await service.confirmForMembers(ORG, staff, 'p-idi', 't-event', { month: '2026-10', enrollmentIds: ['e-idi', 'e-idi-2'] });
+    // October is finalized for one member; the other never had an October checklist.
+    expect(result.skipped).toEqual([
+      { enrollmentId: 'e-idi', reason: 'finalized' },
+      { enrollmentId: 'e-idi-2', reason: 'not_on_checklist' },
+    ]);
+    expect(result.confirmed).toEqual([]);
+    await expect(service.confirmForMembers(ORG, staff, 'p-idi', 't-event', { month: '2026-12', enrollmentIds: ['e-idi'] }))
+      .rejects.toThrow("December 2026 hasn't started yet.");
+    await expect(service.confirmForMembers(ORG, staff, 'p-idi', 't-event', { month: '2026-11', enrollmentIds: ['e-coach'] }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.confirmForMembers(OTHER_ORG, staff, 'p-idi', 't-event', { month: '2026-11', enrollmentIds: ['e-idi'] }))
+      .rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('ProgramDeliverablesService: completing deliverables automatically', () => {
+  afterEach(() => jest.useRealTimers());
+
+  function withAutoComplete() {
+    const context = setup();
+    const giveaway = context.rows.cfProgramDeliverableTemplate.find((row) => row.id === 't-giveaway')!;
+    Object.assign(giveaway, { completeOn: 'form_submitted', completeOnFormId: 'f-report' });
+    const grants = context.rows.cfProgramDeliverableTemplate.find((row) => row.id === 't-grants')!;
+    Object.assign(grants, { completeOn: 'payment_recorded', completeOnFormId: null });
+    return context;
+  }
+
+  it('completes the matching deliverable on this month\'s checklist, with a note saying why', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(OCT);
+    const { rows, service } = withAutoComplete();
+
+    expect(await service.autoComplete({ organizationId: ORG, enrollmentId: 'e-idi', trigger: 'form_submitted', formId: 'f-other', detail: 'Other form submitted' })).toBe(0);
+    expect(await service.autoComplete({ organizationId: ORG, enrollmentId: 'e-idi', trigger: 'form_submitted', formId: 'f-report', detail: 'Monthly Report submitted' })).toBe(1);
+
+    const giveaway = rows.cfEnrollmentDeliverable.find((row) => row.enrollmentId === 'e-idi' && row.programDeliverableTemplateId === 't-giveaway')!;
+    expect(giveaway).toEqual(expect.objectContaining({ status: 'COMPLETED', outcome: 'Completed automatically: Monthly Report submitted.' }));
+    // Nothing else on the checklist changed.
+    expect(rows.cfEnrollmentDeliverable.filter((row) => row.enrollmentId === 'e-idi' && row.status === 'COMPLETED')).toHaveLength(1);
+    expect(rows.cfActivityLog).toEqual([expect.objectContaining({
+      action: DELIVERABLE_ACTIVITY.autoCompleted, source: 'automation', user: 'ClientFlow', enrollmentId: 'e-idi',
+    })]);
+    // The same event again changes nothing.
+    expect(await service.autoComplete({ organizationId: ORG, enrollmentId: 'e-idi', trigger: 'form_submitted', formId: 'f-report', detail: 'Monthly Report submitted' })).toBe(0);
+  });
+
+  it('counts a payment for the month it pays for; never future or finalized months, never other organizations', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(NOV);
+    const { rows, service } = withAutoComplete();
+    const october = await service.getCurrent(ORG, 'e-idi', OCT);
+    const pay = (occurredAt: Date, enrollmentId = 'e-idi', organizationId = ORG) =>
+      service.autoComplete({ organizationId, enrollmentId, trigger: 'payment_recorded', occurredAt, detail: 'payment of $250.00 recorded' });
+
+    // October (an earlier, still open month) is completed; December hasn't started.
+    expect(await pay(OCT)).toBe(1);
+    const octoberGrants = rows.cfEnrollmentDeliverable.find((row) => row.cycleId === october.cycle!.id && row.programDeliverableTemplateId === 't-grants')!;
+    expect(octoberGrants.status).toBe('COMPLETED');
+    expect(await pay(new Date('2026-12-05T15:00:00.000Z'))).toBe(0);
+    expect(await pay(NOV, 'e-idi', OTHER_ORG)).toBe(0);
+
+    // A finalized month is never changed.
+    const finalized = await service.getCurrent(ORG, 'e-idi-2', NOV);
+    await service.finalizeCycle(ORG, staff, 'e-idi-2', finalized.cycle!.id);
+    expect(await pay(NOV, 'e-idi-2')).toBe(0);
+  });
+
+  it('leaves a deliverable marked not applicable alone, and never throws', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(OCT);
+    const { service } = withAutoComplete();
+    const view = await service.getCurrent(ORG, 'e-idi', OCT);
+    const grants = view.items.find((item) => item.programDeliverableTemplateId === 't-grants')!;
+    await service.updateDeliverable(ORG, staff, 'e-idi', grants.id, { status: 'NOT_APPLICABLE' });
+    expect(await service.autoComplete({ organizationId: ORG, enrollmentId: 'e-idi', trigger: 'payment_recorded', detail: 'x' })).toBe(0);
+    expect(await service.autoComplete({ organizationId: ORG, enrollmentId: 'missing', trigger: 'payment_recorded', detail: 'x' })).toBe(0);
+  });
+
+  it('saves the setting, requiring one of the organization\'s forms for a form trigger', async () => {
+    const { rows, service } = setup();
+    rows.cfFormTemplate = [{ id: 'f-report', organizationId: ORG, name: 'Monthly Report' }, { id: 'f-theirs', organizationId: OTHER_ORG, name: 'Theirs' }];
+    await expect(service.updateTemplate(ORG, 'p-idi', 't-event', { completeOn: 'form_submitted' }))
+      .rejects.toThrow('Choose the form that completes this deliverable.');
+    await expect(service.updateTemplate(ORG, 'p-idi', 't-event', { completeOn: 'form_submitted', completeOnFormId: 'f-theirs' }))
+      .rejects.toThrow('That form was not found');
+    const saved = await service.updateTemplate(ORG, 'p-idi', 't-event', { completeOn: 'form_submitted', completeOnFormId: 'f-report' });
+    expect(saved).toEqual(expect.objectContaining({ completeOn: 'form_submitted', completeOnFormId: 'f-report' }));
+    const cleared = await service.updateTemplate(ORG, 'p-idi', 't-event', { completeOn: 'payment_recorded' });
+    expect(cleared).toEqual(expect.objectContaining({ completeOn: 'payment_recorded', completeOnFormId: null }));
+    const off = await service.updateTemplate(ORG, 'p-idi', 't-event', { completeOn: null });
+    expect(off).toEqual(expect.objectContaining({ completeOn: null, completeOnFormId: null }));
   });
 });

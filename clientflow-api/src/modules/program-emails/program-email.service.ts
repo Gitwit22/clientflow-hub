@@ -18,6 +18,13 @@ import { isSendableEmail } from '../communications/recipient';
 import { PrismaService } from '../../prisma/prisma.service';
 import { COMMUNICATION_STATUS, DELIVERY_SOURCE, attemptEventId, isUniqueViolation } from '../communications/communication-attempts';
 import { buildRecipientList, type ProgramEmailRecipient, type SkippedMember } from './program-email-recipients';
+import {
+  AUTOMATION_EMAIL_FIELDS,
+  renderAutomationText,
+  sampleAutomationValues,
+  unknownAutomationFields,
+  type AutomationEmailField,
+} from '../automation/automation-email';
 
 export interface ProgramEmailActor {
   id: string | null;
@@ -78,6 +85,8 @@ export interface ProgramEmailDetail extends ProgramEmailSummary {
 
 interface RecipientContext {
   name: string;
+  /** The contact name as entered; absent on recipients queued before it was recorded. */
+  contactName: string | null;
   businessName: string;
 }
 
@@ -86,18 +95,51 @@ function contextOf(communication: Pick<CfCommunication, 'templateContext'>): Rec
   const record = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   return {
     name: typeof record.recipientName === 'string' ? record.recipientName : '',
+    contactName: typeof record.contactName === 'string' ? record.contactName : null,
     businessName: typeof record.businessName === 'string' ? record.businessName : '',
   };
 }
 
-function messageFrom(input: { subject?: unknown; body?: unknown }) {
+/**
+ * The fields a program email can personalize with: the client fields shared with automatic emails,
+ * without the assigned staff member (a blast is from whoever writes it).
+ */
+export const PROGRAM_EMAIL_FIELDS = AUTOMATION_EMAIL_FIELDS.filter((field) => field.key !== 'staff.name');
+
+type FieldValues = Partial<Record<AutomationEmailField, string | null | undefined>>;
+
+function messageFrom(input: { subject?: unknown; body?: unknown }, options: { checkFields?: boolean } = {}) {
   const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
   const body = typeof input.body === 'string' ? input.body.trim() : '';
   if (!subject) throw new BadRequestException('Enter a subject.');
   if (subject.length > SUBJECT_MAX) throw new BadRequestException(`Keep the subject under ${SUBJECT_MAX} characters.`);
   if (!body) throw new BadRequestException('Enter a message.');
   if (body.length > BODY_MAX) throw new BadRequestException(`Keep the message under ${BODY_MAX.toLocaleString('en-US')} characters.`);
+  if (options.checkFields !== false) {
+    const unknown = unknownProgramEmailFields(`${subject}\n${body}`);
+    if (unknown.length) {
+      throw new BadRequestException(
+        `${unknown.map((name) => `{{${name}}}`).join(', ')} ${unknown.length === 1 ? "isn't a field" : "aren't fields"} ClientFlow can fill in. Use one of: ${PROGRAM_EMAIL_FIELDS.map((field) => `{{${field.key}}}`).join(', ')}.`,
+      );
+    }
+  }
   return { subject, body };
+}
+
+/** Fields in the text a program email can't fill in (unknown names, or the assigned staff member). */
+function unknownProgramEmailFields(text: string): string[] {
+  const known = new Set<string>(PROGRAM_EMAIL_FIELDS.map((field) => field.key));
+  const staffNames = new Set(['staff.name', 'staffName']);
+  const found = new Set(unknownAutomationFields(text));
+  for (const match of text.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)) {
+    if (staffNames.has(match[1]) && !known.has(match[1])) found.add(match[1]);
+  }
+  return [...found];
+}
+
+/** Fills a program email's fields for one person. Values are filled before formatting, which escapes them. */
+function personalize(text: string, values: FieldValues): string {
+  return renderAutomationText(text, values);
 }
 
 const MAX_CHOSEN = 5_000;
@@ -202,11 +244,15 @@ export class ProgramEmailService implements OnApplicationBootstrap {
     organizationId: string,
     actor: ProgramEmailActor & { email: string },
     programId: string,
-    input: { subject?: unknown; body?: unknown },
+    input: { subject?: unknown; body?: unknown; sampleClientId?: unknown },
   ) {
-    const { subject, body } = messageFrom(input);
-    await this.assertEmailImages(organizationId, body);
+    const message = messageFrom(input);
+    await this.assertEmailImages(organizationId, message.body);
     const program = await findProgramForOrg(this.prisma, organizationId, programId);
+    // Filled in as for the chosen member (or sample details), so the test reads like the real thing.
+    const { values } = await this.sampleValues(organizationId, program, input.sampleClientId);
+    const subject = personalize(message.subject, values);
+    const body = personalize(message.body, values);
     if (!isSendableEmail(actor.email)) throw new BadRequestException('Your account has no email address a test can be sent to.');
     if (!this.n8n) throw new ServiceUnavailableException('Email delivery is not set up.');
     const delivery = await this.n8n.sendProgramEmail(`program.email.test:${randomUUID()}`, {
@@ -214,6 +260,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
       // The test goes to the staff member themself; no client is involved.
       clientId: actor.id ?? 'staff',
       sentByUserId: actor.id ?? 'staff',
+      ...(actor.id ? { senderUserId: actor.id } : {}),
       recipientEmail: actor.email,
       clientName: actor.displayName,
       programName: program.name,
@@ -257,16 +304,16 @@ export class ProgramEmailService implements OnApplicationBootstrap {
   private async recipientsFor(organizationId: string, programId: string, onlyClientIds?: ReadonlySet<string>) {
     // Every enrollment counts, whatever its status, except archived ones: an archived client, or a
     // participation archived when its final report was finalized, is out of the program's working
-    // list. Demo records are sample data, never emailed.
+    // list. Test clients get the email too (that is what they are for); they are marked isTest.
     const enrollments = await this.prisma.cfProgramEnrollment.findMany({
-      where: { organizationId, programId, isDemo: false, isArchived: false },
+      where: { organizationId, programId, isArchived: false },
       select: { id: true, clientId: true },
       orderBy: { createdAt: 'asc' },
     });
     const clients = enrollments.length
       ? await this.prisma.cfClient.findMany({
-          where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isDemo: false, isArchived: false },
-          select: { id: true, businessName: true, primaryContactName: true, email: true },
+          where: { organizationId, id: { in: [...new Set(enrollments.map((enrollment) => enrollment.clientId))] }, isArchived: false },
+          select: { id: true, businessName: true, primaryContactName: true, email: true, isDemo: true },
         })
       : [];
     const byId = new Map(clients.map((client) => [client.id, client]));
@@ -279,6 +326,7 @@ export class ProgramEmailService implements OnApplicationBootstrap {
             businessName: client.businessName,
             contactName: client.primaryContactName,
             email: client.email,
+            ...(client.isDemo ? { isTest: true } : {}),
           }]
         : [];
     });
@@ -426,18 +474,71 @@ export class ProgramEmailService implements OnApplicationBootstrap {
    * The email exactly as a member would receive it (sender, subject, logo header, formatted message,
    * sign-off), built the same way the send builds it. Nothing is recorded or sent.
    */
-  async preview(organizationId: string, programId: string, input: { subject?: unknown; body?: unknown }) {
-    const { subject, body } = messageFrom(input);
-    await this.assertEmailImages(organizationId, body);
+  async preview(
+    organizationId: string,
+    programId: string,
+    input: { subject?: unknown; body?: unknown; sampleClientId?: unknown },
+    /** The staff member previewing: the email shows their role's signature, as it will be sent. */
+    senderUserId?: string | null,
+  ) {
+    // A misspelled field stays visible in the preview; sending refuses it.
+    const message = messageFrom(input, { checkFields: false });
+    await this.assertEmailImages(organizationId, message.body);
     const program = await findProgramForOrg(this.prisma, organizationId, programId);
+    const { values, previewedAs } = await this.sampleValues(organizationId, program, input.sampleClientId);
+    const subject = personalize(message.subject, values);
+    const body = personalize(message.body, values);
     let rendered: { html: string; text: string };
     if (this.n8n) {
-      rendered = await this.n8n.previewProgramEmail(organizationId, body, program.id);
+      rendered = await this.n8n.previewProgramEmail(organizationId, body, program.id, senderUserId ?? undefined);
     } else {
       const formatted = formattedTextToEmail(body);
       rendered = { html: emailDocumentHtml(formatted.html), text: formatted.text };
     }
-    return { programName: program.name, fromName: EMAIL_SENDER_NAME, subject, html: rendered.html, text: rendered.text };
+    return {
+      programName: program.name,
+      fromName: EMAIL_SENDER_NAME,
+      subject,
+      html: rendered.html,
+      text: rendered.text,
+      /** Whose details filled the fields; null when sample details were used. */
+      previewedAs,
+    };
+  }
+
+  /**
+   * Field values for a preview or test: the chosen member's real details when they belong to this
+   * program in this organization, otherwise sample details.
+   */
+  private async sampleValues(
+    organizationId: string,
+    program: { id: string; name: string },
+    sampleClientId: unknown,
+  ): Promise<{ values: FieldValues; previewedAs: string | null }> {
+    const organization = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+    const shared: FieldValues = {
+      'program.name': program.name,
+      ...(organization?.name ? { 'organization.name': organization.name } : {}),
+    };
+    if (typeof sampleClientId === 'string' && sampleClientId) {
+      const enrollment = await this.prisma.cfProgramEnrollment.findFirst({
+        where: { organizationId, programId: program.id, clientId: sampleClientId, isArchived: false },
+        select: { id: true },
+      });
+      const client = enrollment
+        ? await this.prisma.cfClient.findFirst({
+            where: { id: sampleClientId, organizationId, isArchived: false },
+            select: { businessName: true, primaryContactName: true },
+          })
+        : null;
+      if (client) {
+        return {
+          values: { ...shared, 'client.contactName': client.primaryContactName, 'client.businessName': client.businessName },
+          previewedAs: client.businessName.trim() || client.primaryContactName.trim() || null,
+        };
+      }
+    }
+    return { values: sampleAutomationValues(shared as Partial<Record<AutomationEmailField, string>>), previewedAs: null };
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -513,7 +614,12 @@ export class ProgramEmailService implements OnApplicationBootstrap {
               subject,
               renderedSubject: subject,
               renderedBody: body,
-              templateContext: { recipientName: recipient.name, businessName: recipient.businessName, programName: program.name },
+              templateContext: {
+                recipientName: recipient.name,
+                contactName: recipient.contactName,
+                businessName: recipient.businessName,
+                programName: program.name,
+              },
               notes: `Program email to ${program.name} members.`,
               date: now,
               staffMember: actor.displayName,
@@ -586,6 +692,10 @@ export class ProgramEmailService implements OnApplicationBootstrap {
       where: { id: email.programId, organizationId: email.organizationId },
       select: { name: true },
     });
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: email.organizationId },
+      select: { name: true },
+    });
     for (;;) {
       const next = await this.prisma.cfCommunication.findFirst({
         where: { programEmailId: email.id, status: COMMUNICATION_STATUS.requested },
@@ -598,13 +708,24 @@ export class ProgramEmailService implements OnApplicationBootstrap {
         data: { status: COMMUNICATION_STATUS.sending },
       });
       if (claimed.count !== 1) continue;
-      await this.sendOne(email, program?.name ?? 'your program', next);
+      await this.sendOne(email, program?.name ?? 'your program', organization?.name ?? '', next);
     }
     await this.completeIfDone(email.id);
   }
 
-  private async sendOne(email: CfProgramEmail, programName: string, communication: CfCommunication) {
+  private async sendOne(email: CfProgramEmail, programName: string, organizationName: string, communication: CfCommunication) {
     const context = contextOf(communication);
+    // This person's copy: their names in place of the fields. The same every attempt, so a retry
+    // sends the same text.
+    const values: FieldValues = {
+      // Recipients queued before the contact name was recorded: the greeting name stands in.
+      'client.contactName': context.contactName ?? context.name,
+      'client.businessName': context.businessName,
+      'program.name': programName,
+      'organization.name': organizationName,
+    };
+    const subject = personalize(email.subject, values);
+    const body = personalize(email.body, values);
     let result: { status: 'sent'; sentAt: string } | { status: 'skipped' | 'failed'; reason: string };
     if (!this.n8n) {
       result = { status: 'failed', reason: 'not_configured' };
@@ -614,13 +735,15 @@ export class ProgramEmailService implements OnApplicationBootstrap {
           organizationId: email.organizationId,
           clientId: communication.clientId,
           sentByUserId: email.sentByUserId ?? 'system',
+          // Sent on behalf of the staff member who wrote it: their role's signature.
+          ...(email.sentByUserId ? { senderUserId: email.sentByUserId } : {}),
           recipientEmail: communication.recipientEmail!,
           clientName: context.name || context.businessName || 'there',
           programName,
           programId: email.programId,
           programEmailId: email.id,
-          subject: email.subject,
-          body: email.body,
+          subject,
+          body,
         });
       } catch (error) {
         this.logger.warn(`Program email ${email.id} recipient ${communication.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -628,12 +751,14 @@ export class ProgramEmailService implements OnApplicationBootstrap {
       }
     }
     const now = new Date();
+    // What this person was sent (or would have been), so their history shows their own copy.
+    const rendered = { renderedSubject: subject, renderedBody: body };
     await this.prisma.cfCommunication.update({
       where: { id: communication.id },
       data:
         result.status === 'sent'
-          ? { status: COMMUNICATION_STATUS.sent, sentAt: new Date(result.sentAt), errorCode: null, failedAt: null }
-          : { status: COMMUNICATION_STATUS.failed, errorCode: result.reason, failedAt: now },
+          ? { ...rendered, status: COMMUNICATION_STATUS.sent, sentAt: new Date(result.sentAt), errorCode: null, failedAt: null }
+          : { ...rendered, status: COMMUNICATION_STATUS.failed, errorCode: result.reason, failedAt: now },
     });
   }
 
